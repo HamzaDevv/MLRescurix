@@ -23,6 +23,8 @@ __pycache__/
 /python/.venv/
 /.env
 .env.*
+/.config/
+*.key
 
 # Local editor and operating system files
 .DS_Store

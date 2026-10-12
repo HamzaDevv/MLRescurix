@@ -1,0 +1,136 @@
+{
+  "status": "invalid_acceptance_evidence",
+  "m3_baseline": {
+    "apex_trial": "m3-trial-4",
+    "val_balanced_accuracy": 0.8555900621118013,
+    "sealed_test_balanced_accuracy": 0.7749999999999999,
+    "p95_latency_ms": 3.425752100000001,
+    "bundle_bytes": 116731,
+    "wall_time_ms": 742.6978750008857,
+    "provider_cost_usd": 0.0,
+    "trials": [
+      {
+        "trial_id": "m3-trial-1",
+        "recipe": "linear",
+        "params": {
+          "C": 1.0
+        },
+        "oof_balanced_accuracy": 0.5483525887890458,
+        "val_balanced_accuracy": 0.5419254658385093,
+        "val_brier_score": 0.14872626991230875,
+        "fit_time_ms": 75.4385000000184
+      },
+      {
+        "trial_id": "m3-trial-2",
+        "recipe": "linear",
+        "params": {
+          "C": 0.1
+        },
+        "oof_balanced_accuracy": 0.5,
+        "val_balanced_accuracy": 0.5,
+        "val_brier_score": 0.15763595580907339,
+        "fit_time_ms": 24.23612500206218
+      },
+      {
+        "trial_id": "m3-trial-3",
+        "recipe": "tree",
+        "params": {
+          "n_estimators": 100,
+          "max_depth": 6,
+          "min_samples_leaf": 2,
+          "max_features": 1.0
+        },
+        "oof_balanced_accuracy": 0.7736414206247325,
+        "val_balanced_accuracy": 0.8307453416149069,
+        "val_brier_score": 0.11168616491255094,
+        "fit_time_ms": 219.0917920015636
+      },
+      {
+        "trial_id": "m3-trial-4",
+        "recipe": "tree",
+        "params": {
+          "n_estimators": 64,
+          "max_depth": 4,
+          "min_samples_leaf": 4,
+          "max_features": 0.8
+        },
+        "oof_balanced_accuracy": 0.7466837826273,
+        "val_balanced_accuracy": 0.8555900621118013,
+        "val_brier_score": 0.11927959732691498,
+        "fit_time_ms": 145.16091599944048
+      },
+      {
+        "trial_id": "m3-trial-5",
+        "recipe": "tree",
+        "params": {
+          "n_estimators": 128,
+          "max_depth": 8,
+          "min_samples_leaf": 2,
+          "max_features": 0.8
+        },
+        "oof_balanced_accuracy": 0.7682926829268292,
+        "val_balanced_accuracy": 0.8416149068322981,
+        "val_brier_score": 0.11175624104722442,
+        "fit_time_ms": 275.1355420004984
+      }
+    ]
+  },
+  "m5_scientific": {
+    "apex_trial": "m5-trial-2",
+    "val_balanced_accuracy": 0.920807453416149,
+    "sealed_test_balanced_accuracy": 0.875,
+    "p95_latency_ms": 6.385014600000001,
+    "bundle_bytes": 76051,
+    "wall_time_ms": 481.87187500298023,
+    "provider_cost_usd": 0.0,
+    "trials": [
+      {
+        "trial_id": "m5-trial-1",
+        "recipe": "linear_engineered",
+        "description": "Feature pipeline + Linear model",
+        "val_balanced_accuracy": 0.7173913043478262
+      },
+      {
+        "trial_id": "m5-trial-2",
+        "recipe": "hist_boosting_conservative",
+        "description": "Feature pipeline + HistGradientBoosting CPU (conservative)",
+        "val_balanced_accuracy": 0.920807453416149
+      },
+      {
+        "trial_id": "m5-trial-3",
+        "recipe": "hist_boosting_tuned",
+        "description": "Feature pipeline + HistGradientBoosting CPU (tuned)",
+        "val_balanced_accuracy": 0.9068322981366459,
+        "val_brier_uncalibrated": 0.056623642127719885
+      },
+      {
+        "trial_id": "m5-trial-4",
+        "recipe": "calibrated_hist_boosting",
+        "description": "Trial 3 + Isotonic calibration on OOF training probabilities",
+        "val_balanced_accuracy": 0.7391304347826086,
+        "val_brier_calibrated": 0.06934108657834323,
+        "brier_improvement": -0.012717444450623346
+      },
+      {
+        "trial_id": "m5-trial-5",
+        "recipe": "voting_ensemble",
+        "description": "Weighted ensemble of Linear and Tuned HistGradientBoosting",
+        "val_balanced_accuracy": 0.8354037267080745,
+        "parent_lineage": [
+          "m5-trial-1",
+          "m5-trial-3"
+        ]
+      }
+    ]
+  },
+  "comparison": {
+    "test_accuracy_delta": 0.10000000000000009,
+    "outcome": "m5_superior"
+  },
+  "review_limitations": [
+    "Pre-fix outer OOF target-encoding leakage",
+    "Unequal compute and no authoritative scheduler/admission",
+    "No durable sealed-test gate",
+    "Bundle measurement omitted calibration/ensemble when selected"
+  ]
+}

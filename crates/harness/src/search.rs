@@ -105,8 +105,8 @@ impl SearchSpec {
         if self.fidelities.is_empty() || self.fidelities.iter().any(|&f| f <= 0.0 || f > 1.0) {
             return Err("fidelities must be non-empty and in (0, 1]".into());
         }
-        if self.recipes.is_empty() || self.recipes.iter().any(|r| !matches!(r.as_str(), "dummy" | "linear" | "tree")) {
-            return Err("recipes must be a subset of dummy, linear, tree".into());
+        if self.recipes.is_empty() || self.recipes.iter().any(|r| !matches!(r.as_str(), "dummy" | "linear" | "tree" | "hist_boosting")) {
+            return Err("recipes must be a subset of dummy, linear, tree, hist_boosting".into());
         }
         if self.max_trials == 0 || self.max_trials > 1000 {
             return Err("max_trials must be in 1..=1000".into());
@@ -231,6 +231,39 @@ pub fn normalize_parameters(recipe: &str, task: &str, raw: &Value) -> Result<Val
         normalized.insert("max_depth".to_string(), json!(max_d));
         normalized.insert("min_samples_leaf".to_string(), json!(min_leaf));
         normalized.insert("max_features".to_string(), json!(feat_rounded));
+        return Ok(json!(normalized));
+    }
+    if recipe == "hist_boosting" {
+        for k in obj.keys() {
+            if !matches!(k.as_str(), "learning_rate" | "max_iter" | "max_leaf_nodes" | "min_samples_leaf" | "l2_regularization") {
+                return Err(format!("unknown hist_boosting parameter: {k}"));
+            }
+        }
+        let lr = obj.get("learning_rate").and_then(|v| v.as_f64()).ok_or("missing numeric learning_rate")?;
+        if !(0.01..=0.3).contains(&lr) || !lr.is_finite() {
+            return Err(format!("learning_rate={lr} out of bounds [0.01, 0.3]"));
+        }
+        let max_iter = obj.get("max_iter").and_then(|v| v.as_i64()).ok_or("missing integer max_iter")?;
+        if !(20..=150).contains(&max_iter) {
+            return Err(format!("max_iter={max_iter} out of bounds [20, 150]"));
+        }
+        let max_leaves = obj.get("max_leaf_nodes").and_then(|v| v.as_i64()).ok_or("missing integer max_leaf_nodes")?;
+        if !(15..=63).contains(&max_leaves) {
+            return Err(format!("max_leaf_nodes={max_leaves} out of bounds [15, 63]"));
+        }
+        let min_leaf = obj.get("min_samples_leaf").and_then(|v| v.as_i64()).ok_or("missing integer min_samples_leaf")?;
+        if !(10..=50).contains(&min_leaf) {
+            return Err(format!("min_samples_leaf={min_leaf} out of bounds [10, 50]"));
+        }
+        let l2 = obj.get("l2_regularization").and_then(|v| v.as_f64()).ok_or("missing numeric l2_regularization")?;
+        if !(0.0..=10.0).contains(&l2) || !l2.is_finite() {
+            return Err(format!("l2_regularization={l2} out of bounds [0.0, 10.0]"));
+        }
+        normalized.insert("learning_rate".to_string(), json!((lr * 1_000_000.0).round() / 1_000_000.0));
+        normalized.insert("max_iter".to_string(), json!(max_iter));
+        normalized.insert("max_leaf_nodes".to_string(), json!(max_leaves));
+        normalized.insert("min_samples_leaf".to_string(), json!(min_leaf));
+        normalized.insert("l2_regularization".to_string(), json!((l2 * 1_000_000.0).round() / 1_000_000.0));
         return Ok(json!(normalized));
     }
     Err(format!("unsupported recipe: {recipe}"))
@@ -408,6 +441,7 @@ pub fn init_search(root: &Path, spec: SearchSpec) -> Result<Value> {
                                 match recipe {
                                     "linear" => if spec.task == "regression" { json!({"alpha": 1.0}) } else { json!({"C": 1.0}) },
                                     "tree" => json!({"n_estimators": 100, "max_depth": 10, "min_samples_leaf": 1, "max_features": 1.0}),
+                                    "hist_boosting" => json!({"learning_rate": 0.1, "max_iter": 50, "max_leaf_nodes": 31, "min_samples_leaf": 20, "l2_regularization": 0.0}),
                                     _ => json!({}),
                                 }
                             };

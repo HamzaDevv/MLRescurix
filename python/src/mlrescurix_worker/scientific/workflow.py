@@ -27,7 +27,12 @@ import pandas as pd
 import sklearn
 from sklearn.compose import ColumnTransformer
 from sklearn.dummy import DummyClassifier, DummyRegressor
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.ensemble import (
+    HistGradientBoostingClassifier,
+    HistGradientBoostingRegressor,
+    RandomForestClassifier,
+    RandomForestRegressor,
+)
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.metrics import balanced_accuracy_score, log_loss, mean_absolute_error, mean_squared_error
@@ -271,6 +276,15 @@ def _pipeline(frame: pd.DataFrame, features: list[str], task: str, recipe: str, 
             estimator = DummyRegressor(strategy="median")
         elif recipe == "linear":
             estimator = Ridge(alpha=p.get("alpha", 1.0), random_state=seed)
+        elif recipe == "hist_boosting":
+            estimator = HistGradientBoostingRegressor(
+                learning_rate=p.get("learning_rate", 0.1),
+                max_iter=p.get("max_iter", 50),
+                max_leaf_nodes=p.get("max_leaf_nodes", 31),
+                min_samples_leaf=p.get("min_samples_leaf", 20),
+                l2_regularization=p.get("l2_regularization", 0.0),
+                random_state=seed,
+            )
         else:
             estimator = RandomForestRegressor(
                 n_estimators=p.get("n_estimators", 64),
@@ -285,6 +299,15 @@ def _pipeline(frame: pd.DataFrame, features: list[str], task: str, recipe: str, 
             estimator = DummyClassifier(strategy="prior")
         elif recipe == "linear":
             estimator = LogisticRegression(max_iter=500, C=p.get("C", 1.0), random_state=seed, n_jobs=1)
+        elif recipe == "hist_boosting":
+            estimator = HistGradientBoostingClassifier(
+                learning_rate=p.get("learning_rate", 0.1),
+                max_iter=p.get("max_iter", 50),
+                max_leaf_nodes=p.get("max_leaf_nodes", 31),
+                min_samples_leaf=p.get("min_samples_leaf", 20),
+                l2_regularization=p.get("l2_regularization", 0.0),
+                random_state=seed,
+            )
         else:
             estimator = RandomForestClassifier(
                 n_estimators=p.get("n_estimators", 64),

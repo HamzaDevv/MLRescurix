@@ -90,23 +90,54 @@ async fn run()->Result<(),String>{
             }))
         },
         Command::AgentRun { state, project, role, task, branch, model, max_turns, endpoint, api_key, mock } => {
+            let provider_cfg: Option<serde_json::Value> = std::fs::read_to_string(".config/provider.json")
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok());
+            let configured_model = provider_cfg.as_ref()
+                .and_then(|c| c["model"].as_str())
+                .unwrap_or("deepseek/deepseek-v4.1-flash");
+            let effective_model = if model == "default-model" {
+                configured_model.to_string()
+            } else {
+                model
+            };
             let config = mlrescurix_harness::agents::OrchestratorConfig {
                 project_id: project,
                 task_id: task,
                 role_id: role,
                 branch_id: branch,
-                model,
+                model: effective_model,
                 max_turns,
             };
-            let effective_key = api_key.or_else(|| std::env::var("OPENROUTER_API_KEY").ok());
+            let effective_key = api_key
+                .or_else(|| std::env::var("OPENROUTER_API_KEY").ok())
+                .or_else(|| {
+                    std::fs::read_to_string(".config/openrouter.key")
+                        .ok()
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                })
+                .or_else(|| {
+                    let home = std::env::var("HOME").ok()?;
+                    std::fs::read_to_string(std::path::Path::new(&home).join(".config/mlrescurix/openrouter.key"))
+                        .ok()
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                });
+            let default_ep = provider_cfg.as_ref()
+                .and_then(|c| c["endpoint"].as_str())
+                .unwrap_or("https://openrouter.ai/api/v1/chat/completions");
+            let effective_endpoint = endpoint
+                .or_else(|| std::env::var("OPENROUTER_BASE_URL").ok())
+                .unwrap_or_else(|| default_ep.to_string());
             let gateway: std::sync::Arc<dyn mlrescurix_harness::agents::ProviderGateway> = if let Some(mock_path) = mock {
                 let mock_bytes = std::fs::read(&mock_path).map_err(|e| format!("cannot read mock file: {e}"))?;
                 let responses: Vec<mlrescurix_harness::agents::ChatCompletionResponse> = serde_json::from_slice(&mock_bytes).map_err(|e| format!("invalid mock JSON: {e}"))?;
                 std::sync::Arc::new(mlrescurix_harness::agents::ScriptedProviderFixture::new(responses))
-            } else if let (Some(ep), Some(key)) = (endpoint, effective_key) {
-                std::sync::Arc::new(mlrescurix_harness::agents::OpenAICompatibleAdapter::new(ep, key))
+            } else if let Some(key) = effective_key {
+                std::sync::Arc::new(mlrescurix_harness::agents::OpenAICompatibleAdapter::new(effective_endpoint, key))
             } else {
-                return Err("AgentRun requires either --mock <path> for offline scripted execution or --endpoint and --api-key (or OPENROUTER_API_KEY env var) for live provider execution".into());
+                return Err("AgentRun requires either --mock <path> for offline scripted execution or an API key (--api-key, OPENROUTER_API_KEY env, or .config/openrouter.key) for live provider execution".into());
             };
             let mut orchestrator = mlrescurix_harness::agents::AgentOrchestrator::new(&state, config, gateway)?;
             let mut results = Vec::new();

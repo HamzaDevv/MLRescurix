@@ -24,6 +24,13 @@ PARAM_RANGES = {
         "max_features": (0.2, 1.0),
     },
     "dummy": {},
+    "hist_boosting": {
+        "learning_rate": (0.01, 0.3),
+        "max_iter": (20, 150),
+        "max_leaf_nodes": (15, 63),
+        "min_samples_leaf": (10, 50),
+        "l2_regularization": (0.0, 10.0),
+    },
 }
 
 
@@ -80,6 +87,39 @@ def normalize_parameters(recipe: str, task: str, raw_params: dict[str, Any]) -> 
         else:
             raise ValueError("tree recipe missing required parameter: max_features")
         return dict(sorted(out.items()))
+    if recipe == "hist_boosting":
+        allowed = {"learning_rate", "max_iter", "max_leaf_nodes", "min_samples_leaf", "l2_regularization"}
+        unknown = set(raw_params) - allowed
+        if unknown:
+            raise ValueError(f"hist_boosting recipe received unknown parameters: {sorted(unknown)}")
+        out_hb: dict[str, Any] = {}
+        for k in ("max_iter", "max_leaf_nodes", "min_samples_leaf"):
+            if k in raw_params:
+                v = raw_params[k]
+                if not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v):
+                    raise ValueError(f"parameter {k} must be an integer")
+                if not isinstance(v, int):
+                    raise ValueError(f"parameter {k} must be an integer, matching the Rust contract")
+                iv = int(v)
+                low, high = PARAM_RANGES["hist_boosting"][k]
+                if not (low <= iv <= high):
+                    raise ValueError(f"parameter {k}={iv} out of bounds [{low}, {high}]")
+                out_hb[k] = iv
+            else:
+                raise ValueError(f"hist_boosting recipe missing required parameter: {k}")
+        for k in ("learning_rate", "l2_regularization"):
+            if k in raw_params:
+                v = raw_params[k]
+                if not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v):
+                    raise ValueError(f"parameter {k} must be a float")
+                fv = float(v)
+                low_f, high_f = PARAM_RANGES["hist_boosting"][k]
+                if not (low_f <= fv <= high_f):
+                    raise ValueError(f"parameter {k}={fv} out of bounds [{low_f}, {high_f}]")
+                out_hb[k] = round(fv, 6)
+            else:
+                raise ValueError(f"hist_boosting recipe missing required parameter: {k}")
+        return dict(sorted(out_hb.items()))
     raise ValueError(f"unsupported recipe: {recipe}")
 
 
@@ -139,6 +179,12 @@ class OptunaOptimizer(SearchOptimizer):
             raw["max_depth"] = trial.suggest_int("max_depth", 2, 20)
             raw["min_samples_leaf"] = trial.suggest_int("min_samples_leaf", 1, 20)
             raw["max_features"] = trial.suggest_float("max_features", 0.2, 1.0)
+        elif recipe == "hist_boosting":
+            raw["learning_rate"] = trial.suggest_float("learning_rate", 0.01, 0.3)
+            raw["max_iter"] = trial.suggest_int("max_iter", 20, 150)
+            raw["max_leaf_nodes"] = trial.suggest_int("max_leaf_nodes", 15, 63)
+            raw["min_samples_leaf"] = trial.suggest_int("min_samples_leaf", 10, 50)
+            raw["l2_regularization"] = trial.suggest_float("l2_regularization", 0.0, 10.0)
         norm = normalize_parameters(recipe, task, raw)
         return trial.number, norm
 
@@ -205,6 +251,17 @@ class DeterministicFallbackOptimizer(SearchOptimizer):
             raw["max_depth"] = depths[(step * 2) % len(depths)]
             raw["min_samples_leaf"] = leafs[(step * 3) % len(leafs)]
             raw["max_features"] = features[(step * 4) % len(features)]
+        elif recipe == "hist_boosting":
+            rates = [0.05, 0.1, 0.15, 0.2, 0.02, 0.08]
+            iters = [30, 50, 75, 100, 120, 150]
+            leaves = [20, 31, 40, 50, 25, 60]
+            mins = [15, 20, 25, 30, 35, 40]
+            l2s = [0.0, 0.5, 1.0, 2.0, 5.0, 10.0]
+            raw["learning_rate"] = rates[step % len(rates)]
+            raw["max_iter"] = iters[(step * 2) % len(iters)]
+            raw["max_leaf_nodes"] = leaves[(step * 3) % len(leaves)]
+            raw["min_samples_leaf"] = mins[(step * 4) % len(mins)]
+            raw["l2_regularization"] = l2s[(step * 5) % len(l2s)]
         norm = normalize_parameters(recipe, task, raw)
         study["trials"].append({"trial_id": trial_id, "params": norm, "status": "asked", "value": None})
         self._save()

@@ -299,6 +299,11 @@ impl AgentContextManager {
             }
         }
 
+        if let Some(user_msg) = self.messages.iter().skip(1).find(|m| m.role == "user") {
+            if let Some(content) = &user_msg.content {
+                summary_lines.push(format!("Original User Request & Constraints: {}", content.chars().take(300).collect::<String>()));
+            }
+        }
         let compaction_msg = ChatMessage::user(summary_lines.join("\n"));
 
         let mut compacted = vec![system_msg, compaction_msg];

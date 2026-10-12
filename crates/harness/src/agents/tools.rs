@@ -321,10 +321,52 @@ pub fn validate_json_schema(val: &Value, schema: &Value) -> Result<()> {
             }
         }
     }
-    if let (Some(properties), Some(obj)) = (schema.get("properties").and_then(|p| p.as_object()), val.as_object()) {
-        for (prop_name, prop_schema) in properties {
-            if let Some(prop_val) = obj.get(prop_name) {
-                Self::validate_json_schema(prop_val, prop_schema)?;
+    if let Some(props) = schema.get("properties").and_then(|p| p.as_object()) {
+        if let Some(obj) = val.as_object() {
+            for (field, prop_schema) in props {
+                if let Some(field_val) = obj.get(field) {
+                    Self::validate_json_schema(field_val, prop_schema)?;
+                }
+            }
+        }
+    }
+    if let Some(enum_vals) = schema.get("enum").and_then(|e| e.as_array()) {
+        if !enum_vals.contains(val) {
+            return Err(format!("Schema validation failed: value {:?} is not one of enum {:?}", val, enum_vals));
+        }
+    }
+    if let Some(items_schema) = schema.get("items") {
+        if let Some(arr) = val.as_array() {
+            for item in arr {
+                Self::validate_json_schema(item, items_schema)?;
+            }
+        }
+    }
+    if let Some(min_val) = schema.get("minimum").and_then(|v| v.as_f64()) {
+        if let Some(num) = val.as_f64() {
+            if num < min_val {
+                return Err(format!("Schema validation failed: numeric value {} < minimum bound {}", num, min_val));
+            }
+        }
+    }
+    if let Some(max_val) = schema.get("maximum").and_then(|v| v.as_f64()) {
+        if let Some(num) = val.as_f64() {
+            if num > max_val {
+                return Err(format!("Schema validation failed: numeric value {} > maximum bound {}", num, max_val));
+            }
+        }
+    }
+    if let Some(min_len) = schema.get("minLength").and_then(|v| v.as_u64()) {
+        if let Some(s) = val.as_str() {
+            if (s.len() as u64) < min_len {
+                return Err(format!("Schema validation failed: string length {} < minLength {}", s.len(), min_len));
+            }
+        }
+    }
+    if let Some(max_len) = schema.get("maxLength").and_then(|v| v.as_u64()) {
+        if let Some(s) = val.as_str() {
+            if (s.len() as u64) > max_len {
+                return Err(format!("Schema validation failed: string length {} > maxLength {}", s.len(), max_len));
             }
         }
     }
@@ -361,8 +403,19 @@ pub fn validate_json_schema(val: &Value, schema: &Value) -> Result<()> {
 
         // 2. Select execution directory: prefer registered immutable snapshot, or fallback to branch if hash matches
         let snapshot_dir = root.join("workflows").join(project_id).join("snapshots").join(&desc.source_hash);
-        let exec_dir = if snapshot_dir.is_dir() {
-            snapshot_dir
+        let (disposable_dir, exec_dir): (Option<std::path::PathBuf>, std::path::PathBuf) = if snapshot_dir.is_dir() {
+            // Verify snapshot directory contents hash before invocation
+            let current_hash = BranchWorkspaceManager::compute_dir_hash(&snapshot_dir).unwrap_or_default();
+            if current_hash != desc.source_hash {
+                return Err(format!(
+                    "Snapshot directory content hash '{current_hash}' does not match registered tool source hash '{}'. Snapshot has been mutated or corrupted.",
+                    desc.source_hash
+                ));
+            }
+            // Execute in an isolated temporary staging copy so snapshot is never written to
+            let staging = std::env::temp_dir().join(format!("mlr-snap-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()));
+            BranchWorkspaceManager::copy_dir_recursive(&snapshot_dir, &staging)?;
+            (Some(staging.clone()), staging)
         } else {
             let branch_dir = BranchWorkspaceManager::get_branch_dir(root, project_id, branch_id);
             let current_hash = BranchWorkspaceManager::compute_branch_hash(root, project_id, branch_id).unwrap_or_default();
@@ -372,7 +425,7 @@ pub fn validate_json_schema(val: &Value, schema: &Value) -> Result<()> {
                     desc.source_hash
                 ));
             }
-            branch_dir
+            (None, branch_dir)
         };
 
         // 3. Write input to unique file to prevent concurrent collisions
@@ -390,6 +443,9 @@ pub fn validate_json_schema(val: &Value, schema: &Value) -> Result<()> {
 
         if input_path.exists() {
             let _ = fs::remove_file(input_path);
+        }
+        if let Some(ref disp) = disposable_dir {
+            let _ = fs::remove_dir_all(disp);
         }
         let res = execution?;
 

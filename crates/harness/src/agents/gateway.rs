@@ -131,17 +131,33 @@ pub struct OutboundFilter;
 impl OutboundFilter {
     /// Redact raw data rows and truncate unbounded context items to prevent leaking private row data to providers.
     pub fn sanitize_content(text: &str) -> String {
-        let lines: Vec<&str> = text.lines().collect();
-        if lines.len() <= 6 {
-            return text.to_string();
+        // 1. Detect JSON array of data records
+        if let Ok(serde_json::Value::Array(items)) = serde_json::from_str::<serde_json::Value>(text) {
+            if items.len() > 3 && items.iter().all(|item| item.is_object()) {
+                let sample_keys_len = items[0].as_object().map(|o| o.len()).unwrap_or(0);
+                if sample_keys_len >= 2 {
+                    let kept: Vec<serde_json::Value> = items.iter().take(3).cloned().collect();
+                    let redacted_count = items.len() - 3;
+                    return serde_json::json!({
+                        "sample_records": kept,
+                        "redacted_record_count": redacted_count,
+                        "notice": format!("[REDACTED_ROW_DATA: {redacted_count} raw tabular records omitted; use aggregate diagnostics]")
+                    }).to_string();
+                }
+            }
         }
 
-        // Detect if content looks like a multi-line CSV or raw table
+        let lines: Vec<&str> = text.lines().collect();
+
+        // 2. Detect if content looks like a CSV, TSV or pipe-delimited raw table
         let mut row_count = 0;
         let mut cleaned_lines: Vec<String> = Vec::new();
         for (idx, line) in lines.iter().enumerate() {
             let comma_count = line.matches(',').count();
-            if comma_count >= 2 && idx > 0 {
+            let tab_count = line.matches('\t').count();
+            let pipe_count = line.matches('|').count();
+            let is_delimited_row = (comma_count >= 2 || tab_count >= 2 || pipe_count >= 2) && idx > 0;
+            if is_delimited_row {
                 row_count += 1;
                 if row_count <= 3 {
                     cleaned_lines.push(line.to_string());

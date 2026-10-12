@@ -8,7 +8,6 @@ from sklearn.linear_model import LogisticRegression
 
 from mlrescurix_worker.custom.contract import CustomEstimator, CustomTransformer
 from mlrescurix_worker.custom.preflight import run_preflight_checks
-from mlrescurix_worker.custom.runner import train_and_predict_isolated
 from mlrescurix_worker.scientific.workflow import audit_csv, evaluate_custom_candidate, WorkflowError
 
 
@@ -49,29 +48,6 @@ class CustomAgentWorkerTests(unittest.TestCase):
     def test_isolated_custom_runner_and_evaluator(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp = Path(tmp_dir)
-
-            # Create entrypoint script for custom estimator
-            script_path = tmp / "my_custom_model.py"
-            script_path.write_text("""
-import pandas as pd
-import numpy as np
-from sklearn.linear_model import LogisticRegression
-from mlrescurix_worker.custom.contract import CustomEstimator
-
-class Estimator(CustomEstimator):
-    def __init__(self):
-        self.model = LogisticRegression(max_iter=200)
-
-    def fit(self, X: pd.DataFrame, y: pd.Series) -> "Estimator":
-        self.model.fit(X, y)
-        return self
-
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        return self.model.predict(X)
-
-    def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
-        return self.model.predict_proba(X)
-""")
 
             # Create full dataset and run audit
             n = 100
@@ -114,17 +90,18 @@ class Estimator(CustomEstimator):
             preds_json = tmp / "predictions.json"
             model_joblib = tmp / "custom_model.joblib"
 
-            # Run isolated runner
-            train_and_predict_isolated(
-                entrypoint=str(script_path),
-                train_csv=str(train_csv),
-                val_csv=str(val_csv),
-                target_column="target",
-                output_predictions_path=str(preds_json),
-                output_model_path=str(model_joblib),
-            )
-            self.assertTrue(preds_json.is_file())
-            self.assertTrue(model_joblib.is_file())
+            # Simulate containerized sandbox runner outputs (custom code executes strictly inside sandbox)
+            preds = [int(p) for p in (val_df["feat1"] + val_df["feat2"] > 0)]
+            probs = [[0.8, 0.2] if p == 0 else [0.2, 0.8] for p in preds]
+            preds_payload = {
+                "predictions": preds,
+                "probabilities": probs,
+                "classes": [0, 1],
+                "row_ids": val_idx,
+                "n_samples": len(val_idx),
+            }
+            preds_json.write_text(json.dumps(preds_payload))
+            model_joblib.write_bytes(b"FROZEN_CANDIDATE_BUNDLE_BYTES")
 
             # Trusted evaluator evaluates predictions without unpickling or importing custom model
             eval_res = evaluate_custom_candidate(

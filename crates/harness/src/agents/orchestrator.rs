@@ -481,13 +481,25 @@ impl AgentOrchestrator {
                 let target_role = args["role_id"].as_str().ok_or("role_id missing")?;
                 let intent = args["intent"].as_str().ok_or("intent missing")?;
                 let hypothesis = args.get("hypothesis").and_then(|v| v.as_str());
-                let specialist_branch = format!("{}-{}", self.config.branch_id, target_role);
-                let sub_task_id = format!("{}-{}", self.config.task_id, target_role);
+                let delegation_id = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_nanos();
+                let specialist_branch = format!("{}-{}-{delegation_id}", self.config.branch_id, target_role);
+                let sub_task_id = format!("{}-{}-{delegation_id}", self.config.task_id, target_role);
+
+                let _specialist_role = get_role(target_role)
+                    .ok_or_else(|| format!("Unknown specialist role: {target_role}"))?;
 
                 // Initialize isolated branch workspace for specialist
                 BranchWorkspaceManager::init_branch(&self.root, &self.config.project_id, &specialist_branch, &self.config.branch_id)?;
 
+                let parent_dir = BranchWorkspaceManager::get_branch_dir(&self.root, &self.config.project_id, &self.config.branch_id);
+                let child_dir = BranchWorkspaceManager::get_branch_dir(&self.root, &self.config.project_id, &specialist_branch);
+                let parent_hash = BranchWorkspaceManager::compute_dir_hash(&parent_dir)?;
+                BranchWorkspaceManager::copy_dir_recursive(&parent_dir, &child_dir)?;
+                if BranchWorkspaceManager::compute_dir_hash(&child_dir)? != parent_hash {
+                    return Err("Parent workspace changed during specialist snapshot copy".into());
+                }
                 let now = now_ms();
+                crate::execution::migrate(&self.root)?;
                 let db = rusqlite::Connection::open(self.root.join("state.sqlite")).map_err(|e| e.to_string())?;
                 db.execute(
                     "INSERT INTO agent_tasks(project, task_id, role_id, parent_task_id, status, hypothesis, intent, assigned_branch, created_ms, updated_ms)
@@ -505,11 +517,119 @@ impl AgentOrchestrator {
                     ],
                 ).map_err(|e| e.to_string())?;
 
+                // Create authoritative M0 task record so provider calls/accounting work for the specialist
+                let specialist_task = Task {
+                    task_id: sub_task_id.clone(),
+                    branch_id: specialist_branch.clone(),
+                    generation: 1,
+                    intent_revision: 1,
+                    owner: None,
+                    lease_id: None,
+                    expires_ms: Some(now + 600_000),
+                    status: "active".into(),
+                    context: crate::contracts::Context {
+                        role_id: target_role.to_string(),
+                        role_version: "v1".into(),
+                        prompt_hash: "hash".into(),
+                        model: Some(self.config.model.clone()),
+                        phase: "delegated".into(),
+                        hypothesis: hypothesis.map(|h| h.to_string()),
+                        base_hash: "base".into(),
+                        code_hash: "code".into(),
+                        evidence: vec![],
+                        artifacts: vec![],
+                        pending_questions: vec![],
+                        calls: vec![],
+                        jobs: vec![],
+                        next_action: "specialist_investigation".into(),
+                        stop_conditions: vec![],
+                    },
+                };
+                // Use the serialized M0 writer; never overwrite an existing task/lease.
+                let runtime = Runtime::open(&self.root)?;
+                let source_hash = BranchWorkspaceManager::compute_branch_hash(&self.root, &self.config.project_id, &specialist_branch)?;
+                let mut context = specialist_task.context;
+                context.base_hash = source_hash.clone();
+                context.code_hash = source_hash.clone();
+                for (suffix, operation) in [
+                    ("branch", Operation::CreateBranch { branch_id: specialist_branch.clone(), base_hash: source_hash.clone(), code_hash: source_hash }),
+                    ("task", Operation::CreateTask { task_id: sub_task_id.clone(), branch_id: specialist_branch.clone(), context }),
+                ] {
+                    let receipt = runtime.command(Request {
+                        command_id: format!("delegate-{delegation_id}-{suffix}"),
+                        project_id: self.config.project_id.clone(), expected_revision: None, operation,
+                    })?;
+                    if receipt.status != "applied" {
+                        return Err(format!("Specialist admission rejected: {:?}", receipt));
+                    }
+                }
+                drop(runtime);
+
+                // Run the specialist orchestrator on its isolated branch
+                let specialist_config = OrchestratorConfig {
+                    project_id: self.config.project_id.clone(),
+                    task_id: sub_task_id.clone(),
+                    role_id: target_role.to_string(),
+                    branch_id: specialist_branch.clone(),
+                    model: self.config.model.clone(),
+                    max_turns: 3,
+                };
+                let mut specialist = AgentOrchestrator::new(&self.root, specialist_config, self.gateway.clone())?;
+                specialist.context.add_message(ChatMessage::user(format!(
+                    "Delegated specialist task for role {target_role}.\nIntent: {intent}\nHypothesis: {}\nPlease perform your specialist analysis and record findings or tools.",
+                    hypothesis.unwrap_or("none")
+                )));
+
+                let mut spec_turns = 0;
+                let mut specialist_error = None;
+                let mut specialist_stopped = false;
+                while spec_turns < specialist.config.max_turns {
+                    match specialist.step() {
+                        Ok(res) => {
+                            spec_turns += 1;
+                            if res.stopped {
+                                specialist_stopped = true;
+                                break;
+                            }
+                        }
+                        Err(error) => {
+                            specialist_error = Some(error);
+                            break;
+                        }
+                    }
+                }
+
+                // Collect durable findings and achievements
+                let findings: Vec<String> = db.prepare(
+                    "SELECT finding_id, verdict, rationale FROM scientific_findings WHERE project=?1 AND task_id=?2"
+                ).map_err(|e| e.to_string())?
+                .query_map(rusqlite::params![self.config.project_id, sub_task_id], |r| {
+                    Ok(format!("{}: verdict={} rationale={}", r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+                }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+
+                let achievements: Vec<String> = db.prepare(
+                    "SELECT achievement_id, kind, summary FROM achievements WHERE project=?1 AND task_id=?2"
+                ).map_err(|e| e.to_string())?
+                .query_map(rusqlite::params![self.config.project_id, sub_task_id], |r| {
+                    Ok(format!("{}: kind={} summary={}", r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+                }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+
+                let end_now = now_ms();
+                let outcome = if specialist_error.is_some() { "failed" } else if specialist_stopped { "completed" } else { "turn_limit" };
+                db.execute(
+                    "UPDATE agent_tasks SET status=?1, updated_ms=?2 WHERE project=?3 AND task_id=?4",
+                    rusqlite::params![if outcome == "turn_limit" { "active" } else { outcome }, end_now, self.config.project_id, sub_task_id],
+                ).map_err(|e| e.to_string())?;
+
                 Ok(json!({
-                    "status": "delegated",
+                    "status": outcome,
+                    "error": specialist_error,
                     "sub_task_id": sub_task_id,
                     "role": target_role,
                     "assigned_branch": specialist_branch,
+                    "turns_executed": spec_turns,
+                    "findings": findings,
+                    "achievements": achievements,
                 }).to_string())
             }
             "query_budget" => {
@@ -526,15 +646,15 @@ impl AgentOrchestrator {
                 let db = rusqlite::Connection::open(self.root.join("state.sqlite")).map_err(|e| e.to_string())?;
 
                 // Two-key validation check:
-                // 1. Critic Audit check: must have an approved critic audit in critic_audits
-                let audit_status: Option<String> = db.query_row(
-                    "SELECT status FROM critic_audits WHERE project=?1 AND candidate_id=?2 ORDER BY created_ms DESC LIMIT 1",
+                // 1. Critic Audit check: must have an approved critic audit with constraints_verified=1
+                let (audit_status, constraints_verified): (String, i64) = db.query_row(
+                    "SELECT status, constraints_verified FROM critic_audits WHERE project=?1 AND candidate_id=?2 ORDER BY created_ms DESC LIMIT 1",
                     rusqlite::params![self.config.project_id, cand_id],
-                    |r| r.get(0),
-                ).ok();
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                ).map_err(|_| format!("Finalization refused: candidate '{cand_id}' has not received a critic audit in critic_audits"))?;
 
-                if audit_status.as_deref() != Some("approved") {
-                    return Err(format!("Finalization refused: candidate '{cand_id}' has not received an approved critic audit in critic_audits (found: {:?})", audit_status));
+                if audit_status != "approved" || constraints_verified != 1 {
+                    return Err(format!("Finalization refused: candidate '{cand_id}' critic audit status is '{audit_status}', constraints_verified={constraints_verified}. An approved audit with constraints_verified=1 is required."));
                 }
 
                 // 2. Authenticated User Approval check: must have approval in approvals ledger
@@ -548,7 +668,7 @@ impl AgentOrchestrator {
                     return Err(format!("Finalization refused: candidate '{cand_id}' lacks verified user approval in approvals ledger. An authenticated approval receipt is required."));
                 }
 
-                // Atomically close research admission before final test gate is reserved
+                // 3. Atomically close research admission before final test gate is reserved
                 let changed = db.execute(
                     "UPDATE projects SET state='finalizing' WHERE id=?1 AND state NOT IN ('finalizing', 'completed')",
                     [&self.config.project_id],
@@ -557,8 +677,14 @@ impl AgentOrchestrator {
                     return Err("Research admission is permanently closed; cannot re-finalize".into());
                 }
 
-                // Freeze exact source snapshot without automatic git merge
+                // 4. Freeze exact source snapshot without automatic git merge
                 let frozen_source_hash = BranchWorkspaceManager::compute_branch_hash(&self.root, &self.config.project_id, &self.config.branch_id)?;
+                let snapshot_dest = self.root.join("workflows").join(&self.config.project_id).join("snapshots").join(&frozen_source_hash);
+                let branch_src = BranchWorkspaceManager::get_branch_dir(&self.root, &self.config.project_id, &self.config.branch_id);
+                if !snapshot_dest.exists() {
+                    let _ = fs::create_dir_all(&snapshot_dest);
+                    let _ = BranchWorkspaceManager::copy_dir_recursive(&branch_src, &snapshot_dest);
+                }
 
                 self.context.record_achievement(
                     &self.root,

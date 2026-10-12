@@ -929,3 +929,27 @@ fn m4_workspace_symlink_cannot_read_or_overwrite_host_file() {
     assert!(BranchWorkspaceManager::list_files(&root, "p-link", "branch").is_err());
     assert_eq!(fs::read_to_string(sentinel).unwrap(), "private");
 }
+
+#[test]
+fn m5_delegation_preserves_prior_tasks_and_reports_provider_failure() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("state");
+    let runtime = Runtime::init(&root, m1policy(100, 8)).unwrap();
+    create_m1(&runtime, "p", 100);
+    branch_task(&runtime, "p", "main", "parent");
+    BranchWorkspaceManager::init_branch(&root, "p", "main", "root").unwrap();
+    let gateway = Arc::new(ScriptedProviderFixture::new(vec![]));
+    let mut orch = AgentOrchestrator::new(&root, OrchestratorConfig {
+        project_id: "p".into(), task_id: "parent".into(), role_id: "lead".into(),
+        branch_id: "main".into(), model: "fixture".into(), max_turns: 3,
+    }, gateway).unwrap();
+    let args = json!({"role_id":"model_specialist","intent":"investigate"}).to_string();
+    let first: serde_json::Value = serde_json::from_str(&orch.dispatch_tool_call("delegate", &args).unwrap()).unwrap();
+    let second: serde_json::Value = serde_json::from_str(&orch.dispatch_tool_call("delegate", &args).unwrap()).unwrap();
+    assert_eq!(first["status"], "failed");
+    assert!(first["error"].is_string());
+    assert_ne!(first["sub_task_id"], second["sub_task_id"]);
+    let db = rusqlite::Connection::open(&root.join("state.sqlite")).unwrap();
+    let count: i64 = db.query_row("SELECT count(*) FROM tasks WHERE project='p'", [], |r| r.get(0)).unwrap();
+    assert_eq!(count, 3);
+}

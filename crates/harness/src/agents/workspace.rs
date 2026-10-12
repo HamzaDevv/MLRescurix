@@ -180,6 +180,41 @@ impl BranchWorkspaceManager {
         Ok(format!("{:x}", hasher.finalize()))
     }
 
+    pub fn compute_dir_hash(dir: &Path) -> Result<String> {
+        let mut results = Vec::new();
+        if dir.exists() {
+            Self::collect_files(dir, dir, &mut results)?;
+            results.sort_by(|a, b| a.0.cmp(&b.0));
+        }
+        let mut hasher = Sha256::new();
+        for (rel, len, sha) in results {
+            hasher.update(format!("{rel}:{len}:{sha}\n").as_bytes());
+        }
+        Ok(format!("{:x}", hasher.finalize()))
+    }
+
+    pub fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
+        if !src.exists() {
+            return Ok(());
+        }
+        fs::create_dir_all(dst).map_err(|e| e.to_string())?;
+        for entry in fs::read_dir(src).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let ft = entry.file_type().map_err(|e| e.to_string())?;
+            if ft.is_symlink() {
+                return Err("Symlink rejected in workspace copy".into());
+            }
+            let src_path = entry.path();
+            let dst_path = dst.join(entry.file_name());
+            if ft.is_dir() {
+                Self::copy_dir_recursive(&src_path, &dst_path)?;
+            } else if ft.is_file() {
+                fs::copy(&src_path, &dst_path).map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn update_branch_head(root: &Path, project_id: &str, branch_id: &str) -> Result<String> {
         let head_hash = Self::compute_branch_hash(root, project_id, branch_id)?;
         let now = now_ms();

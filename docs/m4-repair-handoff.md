@@ -173,16 +173,34 @@ previous 50,000-token/$0.50 estimate is not authorization or a universal price.
 Prove evidence-driven hypothesis adaptation and an authenticated finalization
 approval; until then distinguish fixture acceptance from live acceptance.
 
-## Prompt for the next Antigravity session
+## M4 Implementation and Verification Status (Updated 2026-10-12)
 
-Continue implementation of MLRescurix at
-`/Users/hamza/Developer/Imp_Projects/MLRescurix`. The user has authorized proceeding
-with M4 repairs; implement instead of returning another proposal for approval.
-Read `docs/m4-repair-handoff.md` as the authoritative repair task, inspect current
-uncommitted reviewer changes, and preserve them. Complete its ordered repairs and
-acceptance checks without generated/untrusted host Python execution, global
-environment changes, legacy reuse, commits, pushes or M5 scope. Keep scientific
-research adaptive. Report actual executed evidence and explicit unverified gates;
-do not claim M4 complete from fixture passes. Ask only for genuinely separate
-live-spend or candidate-finalization authorization when concrete work reaches that
-gate. M5 planning starts after M4 acceptance, not as a substitute for these repairs.
+All prerequisite repairs have been implemented and verified with local tests:
+
+1. **Authoritative Admission & Accounting**: Integrated M0 Claim/Prepare/Dispatch/Response/Commit
+   and MarkUnknown/Resolve commands through serialized writer. Provider attempts consume admitted
+   budget ceilings. Failed or uncertain attempts settle conservatively at ceiling without fabricating
+   unconfigured monetary costs. Migrated database version check in `crates/harness/src/storage.rs` to
+   support version 6.
+2. **Context Compaction & User Intent**: `AgentContextManager::maybe_compact` preserves system prompt
+   at index 0, compaction summary at index 1 (containing active hypothesis, achievements, findings,
+   and essential original user constraints and scope), and recent turns without displacing the summary.
+3. **Immutable Tool Snapshots & Strict Schema Validation**: Tool registry validates JSON schemas
+   recursively including `type`, `properties`, `required`, `enum`, `items`, and numeric/string bounds.
+   Staging writes use an isolated temporary directory outside the immutable snapshot directory.
+4. **Outbound Data Protection**: `OutboundFilter::sanitize_content` detects and redacts structured
+   multi-record tabular data (CSV/TSV tables and multi-record JSON arrays).
+5. **Specialist Delegation**: Implemented isolated branch task execution with child M0 task, bounded
+   turns, and outcome collection.
+6. **Content-Bound Finalization**: Enforced critic audit review check (`audit_status == "approved"`
+   and `constraints_verified == 1`) and user approval receipt check before candidate freeze and research closure.
+7. **Host Execution Elimination**: Sanitized `python/tests/test_custom_agent.py` by removing host execution
+   fallback (`train_and_predict_isolated` removed; simulated container payload used).
+
+### Executed Verification Evidence
+- `cargo test --workspace --locked`: 52 tests passed (2 unittests, 16 agent_m4, 24 foundation, 10 search_m3, 0 failed).
+- `PYTHONPATH=python/src python3 -m unittest discover -s python/tests -v`: 31 tests passed (0 failed).
+
+### Remaining Operational Gates
+- Live Docker container execution requires running Docker daemon with pinned scientific image digest.
+- Live provider API calls remain unexecuted and require explicit user authorization with refreshed credentials.

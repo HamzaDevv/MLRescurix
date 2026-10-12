@@ -56,7 +56,7 @@ fn connect(root:&Path)->Result<Connection>{
     sql(c.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;"))?;
     loop {
         let version:i64=sql(c.query_row("PRAGMA user_version",[],|r|r.get(0)))?;
-        if version==5 { break; }
+        if version==6 { break; }
         let tx=sql(c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate))?;
         let confirmed:i64=sql(tx.query_row("PRAGMA user_version",[],|r|r.get(0)))?;
         if confirmed!=version {tx.rollback().map_err(|e|e.to_string())?;continue;}
@@ -65,6 +65,7 @@ fn connect(root:&Path)->Result<Connection>{
             2=>sql(tx.execute_batch(include_str!("schema_m2.sql")))?,
             3=>sql(tx.execute_batch(include_str!("schema_m3.sql")))?,
             4=>sql(tx.execute_batch(include_str!("schema_m4.sql")))?,
+            5=>sql(tx.execute_batch(include_str!("schema_m5.sql")))?,
             _=>return Err(format!("unsupported database migration version {version}")),
         }
         sql(tx.commit())?;
