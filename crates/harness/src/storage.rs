@@ -36,7 +36,7 @@ impl Runtime {
         }
         let c=connect(path)?;
         let version:i64=sql(c.query_row("PRAGMA user_version",[],|r|r.get(0)))?;
-        if version!=1 {return Err(format!("unsupported database migration version {version}"));}
+        if version!=1 && version!=2 {return Err(format!("unsupported database migration version {version}"));}
         let integrity:String=sql(c.query_row("PRAGMA quick_check",[],|r|r.get(0)))?;
         if integrity!="ok" {return Err("database integrity check failed".into());}
         Self::spawn(c)
@@ -127,9 +127,11 @@ fn apply(c:&Transaction<'_>,p:&str,op:&Operation)->Result<Value>{
             let current:String=sql(c.query_row("SELECT state FROM projects WHERE id=?1",[p],|r|r.get(0)))?;
             if current=="cancelled" {return Err("cancelled project is terminal".into());}
             if state=="created" && current!="paused" {return Err("resume requires paused project".into());}
-            sql(c.execute("UPDATE projects SET state=?2,intent_revision=intent_revision+1 WHERE id=?1",params![p,state]))?;
-            invalidate_tasks(c,p,if state=="cancelled" {"cancelled"} else {"ready"})?;
-            event(c,p,"project.state_changed",json!({"state":state,"execution_stopped":false}))?;
+            if state=="cancelled" {
+                sql(c.execute("UPDATE projects SET state=?2,intent_revision=intent_revision+1 WHERE id=?1",params![p,state]))?;
+                invalidate_tasks(c,p,"cancelled")?;
+            } else {sql(c.execute("UPDATE projects SET state=?2 WHERE id=?1",params![p,state]))?;}
+            event(c,p,"project.state_changed",json!({"state":state,"execution_stopped":false,"active_execution":"drain"}))?;
         }
         Operation::Steer{intent}=>{
             active(c,p)?;text(intent)?;

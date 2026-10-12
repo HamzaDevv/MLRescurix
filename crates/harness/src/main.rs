@@ -1,8 +1,8 @@
 use clap::{Parser,Subcommand};
-use mlrescurix_harness::{Runtime,Policy,Request,contracts::{decode_frame,MAX_FRAME}};
+use mlrescurix_harness::{Runtime,Policy,Request,contracts::{decode_frame,MAX_FRAME},execution::{self,JobSpec,Supervisor}};
 use std::{path::PathBuf,io::Read};
 #[derive(Parser)]
-#[command(version,about="MLRescurix M0 durable foundation; scripted actors only")]
+#[command(version,about="MLRescurix durable local harness")]
 struct Cli { #[command(subcommand)] command:Command }
 #[derive(Subcommand)]
 enum Command {
@@ -12,6 +12,16 @@ enum Command {
     Events { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long,default_value_t=0)] after:u64 },
     Restore { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] task:String },
     ValidateFrame { path:PathBuf },
+    Submit { #[arg(long)] state:PathBuf, #[arg(long)] spec:PathBuf },
+    InspectJob { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] job:String },
+    CancelJob { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] job:String },
+    Supervise { #[arg(long)] state:PathBuf, #[arg(long,default_value_t=1)] workers:usize },
+    CreateEnvironment { #[arg(long)] state:PathBuf, #[arg(long)] id:String, #[arg(long)] python:PathBuf },
+    RemoveEnvironment { #[arg(long)] state:PathBuf, #[arg(long)] id:String },
+    PinArtifact { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] job:String, #[arg(long,default_value_t=true)] pinned:bool },
+    CollectArtifacts { #[arg(long)] state:PathBuf },
+    SetProjectWeight { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] weight:u8 },
+    #[command(name="__worker",hide=true)] Worker { spec:PathBuf, output:PathBuf },
     Capabilities,
 }
 fn read(path:&PathBuf)->Result<Vec<u8>,String>{let mut data=Vec::new();std::fs::File::open(path).map_err(|e|e.to_string())?.take((MAX_FRAME+1)as u64).read_to_end(&mut data).map_err(|e|e.to_string())?;if data.len()>MAX_FRAME{return Err("input exceeds frame bound".into());}Ok(data)}
@@ -26,7 +36,17 @@ async fn run()->Result<(),String>{
         Command::Events{state,project,after}=>print(Runtime::open(&state)?.events(&project,after)?),
         Command::Restore{state,project,task}=>print(Runtime::open(&state)?.restore(&project,&task)?),
         Command::ValidateFrame{path}=>print(decode_frame(&read(&path)?)?),
-        Command::Capabilities=>print(serde_json::json!({"phase":"M0","protocol":"mlrescurix/1","os":std::env::consts::OS,"arch":std::env::consts::ARCH,"writer_queue":64,"frame_bytes":MAX_FRAME,"scientific_execution":false,"official_evaluation":false,"resource_enforcement":"not_implemented","providers":false})),
+        Command::Submit{state,spec}=>{let s:JobSpec=serde_json::from_slice(&read(&spec)?).map_err(|e|e.to_string())?;print(execution::submit(&state,s)?)},
+        Command::InspectJob{state,project,job}=>print(execution::inspect(&state,&project,&job)?),
+        Command::CancelJob{state,project,job}=>print(execution::cancel(&state,&project,&job)?),
+        Command::Supervise{state,workers}=>Supervisor::start(&state,workers)?.serve(),
+        Command::CreateEnvironment{state,id,python}=>print(execution::create_environment(&state,&id,&python)?),
+        Command::RemoveEnvironment{state,id}=>{execution::remove_environment(&state,&id)?;print(serde_json::json!({"id":id,"removed":true}))},
+        Command::PinArtifact{state,project,job,pinned}=>{execution::pin_artifact(&state,&project,&job,pinned)?;print(serde_json::json!({"project":project,"job":job,"pinned":pinned}))},
+        Command::CollectArtifacts{state}=>print(serde_json::json!({"reclaimed_bytes":execution::collect_artifacts(&state)?})),
+        Command::SetProjectWeight{state,project,weight}=>{execution::set_project_weight(&state,&project,weight)?;print(serde_json::json!({"project":project,"weight":weight}))},
+        Command::Worker{spec,output}=>{let result=execution::worker(&spec,&output)?;if result==0 {Ok(())} else {std::process::exit(result)}}
+        Command::Capabilities=>print(serde_json::json!({"phase":"M1","protocol":"mlrescurix/1","os":std::env::consts::OS,"arch":std::env::consts::ARCH,"writer_queue":64,"frame_bytes":MAX_FRAME,"trusted_probe_execution":cfg!(target_os="macos"),"scientific_execution":false,"official_evaluation":false,"resource_enforcement":{"worker_count":"enforced","thread_pool_environment_hints":"applied; library dependent","memory":"RSS sampled; quota unsupported","disk":"free-space admission and bounded outputs","cpu":"best-effort process sample"},"providers":false})),
     }).await.map_err(|e|e.to_string())?
 }
 #[tokio::main(flavor="current_thread")]

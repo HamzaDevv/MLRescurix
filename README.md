@@ -2,13 +2,13 @@
 
 MLRescurix is a clean-slate, agent-led harness for solving one tabular machine-learning problem per project. A completed project is intended to deliver a final code artifact, an evidence-backed report card, and independently runnable inference for the same model or pipeline.
 
-The control plane is being built in Rust. Isolated Python workers will own scientific computation in a later milestone. Native project state and workflow remain local and do not depend on MLflow, DVC, or a model provider.
+The control plane is built in Rust. M1 adds a local supervisor and a constrained trusted probe runner; isolated Python workers will own scientific computation in a later milestone. Native project state and workflow remain local and do not depend on MLflow, DVC, or a model provider.
 
 ## Current status
 
-**M0 durable foundation is implemented.** It establishes the Rust workspace and lifecycle CLI, versioned Rust/Python protocol contracts, fresh SQLite state with migrations, project/branch/task identities, fencing leases, receipts and events, timers, budget reservations and charges, checkpoints, and uncertain-action reconciliation.
+**M0 foundation and M1 safe execution/storage are implemented.** M0 establishes the Rust workspace, versioned Rust/Python protocol contracts, fresh SQLite state, project/branch/task identities, fencing leases, receipts/events, timers, budget reservations/charges, checkpoints, and uncertain-action reconciliation. M1 adds a fair durable queue, singleton supervisor, bounded typed probe workers, deadlines and cleanup, environment leases, hashed artifact staging, pins, and garbage collection.
 
-M0 uses scripted actors only. It does not train or evaluate models, run worker processes, enforce host resource limits, connect to providers, publish official scores, finalize models, or provide a dashboard. Those boundaries are documented in [docs/m0-foundation.md](docs/m0-foundation.md). Later milestones require their own discussion and explicit approval.
+M1 still uses synthetic probes only. It does not train or evaluate models, execute arbitrary/generated code, enforce a hard memory quota, connect to providers, publish official scores, finalize models, or provide a dashboard. See the [M0 guide](docs/m0-foundation.md) and [M1 guide](docs/m1-execution-storage.md). Later milestones require their own discussion and explicit approval.
 
 ## Requirements
 
@@ -26,7 +26,7 @@ cargo test --workspace --locked
 PYTHONPATH=python/src python3 -m unittest discover -s python/tests -v
 ```
 
-Cargo downloads only the pinned Rust workspace dependencies. The integration suite uses temporary databases and synthetic actors. It covers the shared positive/negative protocol fixtures, ten project records with three parallel branch tasks, aggregate/project reservation races, deduplication, fencing, crash recovery, uncertain charges, timers, pending questions, and rejection of fake official evidence.
+Cargo downloads only the pinned Rust workspace dependencies. The integration suite uses temporary databases and synthetic actors. It covers shared protocol fixtures, ten projects with parallel branches, reservation races, deduplication, fencing, crash recovery, timers, and rejection of fake official evidence. M1 adds real subprocess probes, fair scheduling and two-worker limits across ten projects, pause/stop, timeout/restart recovery, environment leases, artifact hashing/pins/GC, and low-disk admission.
 
 If Cargo cannot write its default cache, direct it to a writable temporary location:
 
@@ -39,7 +39,7 @@ CARGO_HOME=/private/tmp/mlrescurix-cargo cargo test --workspace --locked
 Create a policy file at a path you own. Each dimension is an integer; dimension names make their units explicit. For example:
 
 ```json
-{"budget":{"calls":100,"tokens":50000},"capacity":{"workers":3},"max_tasks":100}
+{"budget":{"calls":100,"tokens":50000,"wall_ms":3600000},"capacity":{"workers":3},"max_tasks":100}
 ```
 
 Initialize a new, empty state directory. The CLI refuses to adopt an existing or unmarked directory:

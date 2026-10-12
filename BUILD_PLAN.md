@@ -1,6 +1,6 @@
 # MLRescurix: independent tabular ML coding harness
 
-Planning draft, revised 12 October 2026 after the Rust/Python, dependency, and approval-gate discussions. Implementation has not started. Build one phase at a time: agree on its assertion, scope, and acceptance criteria with the user before writing that phase's code. [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md) specifies this approval workflow, agent context, wakeups, collaboration, live UI contracts, dependencies, and the failure register. Its Rust/Python ownership decisions supersede the original Python-only recommendation.
+Planning document, revised 12 October 2026 after the Rust/Python, dependency, and approval-gate discussions. M0 and M1 are implemented at this point. Build one phase at a time: agree on its assertion, scope, and acceptance criteria with the user before writing that phase's code. [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md) specifies this approval workflow, agent context, wakeups, collaboration, live UI contracts, dependencies, and the failure register. Its Rust/Python ownership decisions supersede the original Python-only recommendation.
 
 ## 1. Product and success definition
 
@@ -336,4 +336,4 @@ Development Phase 0 is the framing/architecture/contract discussion before M0; r
 
 ## 12. Agent continuation and next-phase status
 
-The revised Phase 0 architecture direction was accepted in discussion on 12 October 2026. Durable checkpointing and uncertain-action recovery are required from the foundation. See SYSTEM_DESIGN.md sections 6 and 16 for checkpoint boundaries, pending-action reconciliation, latency/retry rules and the concrete M0 proposal. That proposal awaits explicit implementation approval. M0 uses scripted task/provider observations to prove storage contracts; real autonomous specialist/provider continuation is connected and verified in M4. No code, dependencies, runtime database or MLForge migration is authorized by the design agreement alone.
+The revised Phase 0 architecture direction was accepted in discussion on 12 October 2026. Durable checkpointing and uncertain-action recovery are required from the foundation. See SYSTEM_DESIGN.md sections 6 and 16 for checkpoint boundaries and pending-action reconciliation. M0 uses scripted task/provider observations to prove storage contracts; real autonomous specialist/provider continuation remains in M4. M1's implementation and evidence are recorded in SYSTEM_DESIGN.md section 17. M2 still requires its own proposal and explicit approval.

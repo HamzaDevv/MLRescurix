@@ -387,9 +387,9 @@ Phase 0 establishes an agreed agent-led, concurrency-aware architecture; it does
 
 Still to agree: actual concurrency ceilings/defaults on the target device, scheduling weights, provider fallback/disclosure policy, and the handling of uncertain model-call charges. Dataset/metric/inference workload and numeric operational budgets are mandatory before real training, not prerequisites for architecture discussion.
 
-## 16. Next phase proposal: M0 durable foundation (awaiting implementation approval)
+## 16. M0 durable foundation (implemented)
 
-Phase 0 architecture direction was accepted in discussion on 12 October 2026, with durable agent continuation under latency/network failure added as a required foundation. This records design approval only. The concrete M0 scope below remains subject to review and explicit implementation approval.
+Phase 0 architecture direction was accepted in discussion on 12 October 2026, with durable agent continuation under latency/network failure added as a required foundation. M0 was subsequently implemented and verified; operation and limitations are documented in [docs/m0-foundation.md](docs/m0-foundation.md).
 
 **Assertion:** project leads and parallel specialists can rely on a project-scoped durable task/action ledger that survives restart, retains user intent, reconciles uncertain outcomes and atomically accounts for shared-device/project capacity. M0 proves this with lightweight scripted actors, not real ML or live providers.
 
@@ -401,4 +401,12 @@ Phase 0 architecture direction was accepted in discussion on 12 October 2026, wi
 
 **Acceptance:** shared Rust/Python fixtures accept/reject the same envelopes; ten synthetic projects and three branch tasks in one project retain isolated state; concurrent reservations cannot exceed aggregate or project caps; duplicate commands/actions return stored receipts; stale generations cannot commit; crash injection before/after intent, dispatch, response and commit reconstructs correct pending/terminal states; uncertain outcomes are not blindly redispatched or treated as free; checkpoint corruption/dangling references yields explicit recovery failure or a validated prior checkpoint plus ledger replay; restart preserves questions, cost accounting, event cursors and deduplicated timers; cancelling one project does not change another; scripted fake observations cannot publish official scores or finalize a model. No real network, training or host exhaustion is needed for these checks.
 
-**Risks/assumptions:** local transactional durability requires a supported filesystem and declared SQLite durability configuration; disk errors must fail visibly before acknowledging commits. External exactly-once semantics are unavailable without external support. Checkpoint format evolves through explicit versions. Full autonomous/provider/worker recovery is proved in its own later phase, not claimed by M0's scripted tests.
+**Risks/assumptions:** local transactional durability requires a supported filesystem and declared SQLite durability configuration; disk errors must fail visibly before acknowledging commits. External exactly-once semantics are unavailable without external support. Checkpoint format evolves through explicit versions. Full autonomous/provider recovery remains in M4.
+
+## 17. M1 safe execution and managed storage (implemented)
+
+M1 adds a durable bounded queue, exclusive local supervisor, fair per-project admission with configurable weights and aging, typed synthetic worker probes, process-group deadlines and stop handling, M0 capacity and `wall_ms` reservations/charges, task-generation fencing, optional owned Python 3.13 standard-library environments with job leases, hashed artifact publication, pinning, garbage collection, free-space admission, and a transactional SQLite migration from schema v1 to v2. The runner is validated on macOS. It reports unsupported memory quotas, best-effort CPU/RSS samples, and library-dependent native thread-pool hints honestly.
+
+Verification uses temporary owned states. Integration tests exercise ten projects, including three jobs on separate branches of one project, under a two-worker ceiling; fair queue rotation; project cancellation isolation; pause, drain, and resume; timeout; supervisor-death worker self-stop and restart recovery; artifact hashes, pins, and GC; Python environment leases; output bounds; low-disk admission logic; best-effort process telemetry; and M0 regression behavior. Workers are built-in probes only. M1 has no scientific training, arbitrary command execution, generated-code sandbox, evaluation, or model delivery.
+
+M1 is the current implementation boundary. M2 requires its own proposal and explicit approval.

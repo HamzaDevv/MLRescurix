@@ -1,13 +1,17 @@
 use mlrescurix_harness::{Runtime,Policy,Request,Operation,contracts::{Context,Amounts,Message,Frame,decode_frame}};
 use std::{collections::BTreeMap,path::{Path,PathBuf},process::Command};
 use serde_json::{json,Value};
+use sha2::Digest;
+use mlrescurix_harness::execution::{self,JobSpec,Probe,Supervisor};
 fn amounts(v:i64)->Amounts { BTreeMap::from([("tokens".into(),v),("calls".into(),v)]) }
 fn resources(v:i64)->Amounts { BTreeMap::from([("workers".into(),v)]) }
 fn policy(limit:i64,workers:i64)->Policy { Policy{budget:amounts(limit),capacity:resources(workers),max_tasks:1024} }
+fn m1policy(limit:i64,workers:i64)->Policy {Policy{budget:BTreeMap::from([("calls".into(),limit),("tokens".into(),limit*1000),("wall_ms".into(),limit*10000)]),capacity:resources(workers),max_tasks:1024}}
 fn context(base:&str,code:&str)->Context {Context{role_id:"researcher".into(),role_version:"1".into(),prompt_hash:"prompt-hash".into(),model:None,phase:"research".into(),hypothesis:None,base_hash:base.into(),code_hash:code.into(),evidence:vec![],artifacts:vec![],pending_questions:vec![],calls:vec![],jobs:vec![],next_action:"inspect".into(),stop_conditions:vec!["budget".into()]}}
 fn req(project:&str,cmd:&str,op:Operation)->Request {Request{command_id:cmd.into(),project_id:project.into(),expected_revision:None,operation:op}}
 fn send(r:&Runtime,p:&str,c:&str,o:Operation)->mlrescurix_harness::Receipt {r.command(req(p,c,o)).unwrap()}
 fn create(r:&Runtime,p:&str) {assert_eq!(send(r,p,"project",Operation::CreateProject{intent:"preserve user request".into(),finalization_id:format!("final-{p}"),policy:policy(100,8)}).status,"applied");}
+fn create_m1(r:&Runtime,p:&str){assert_eq!(send(r,p,"project",Operation::CreateProject{intent:"M1 execution fixture".into(),finalization_id:format!("final-{p}"),policy:m1policy(100,8)}).status,"applied");}
 fn setup(path:&Path,p:&str)->Runtime {let r=Runtime::init(path,policy(1000,32)).unwrap();create(&r,p);r}
 fn branch_task(r:&Runtime,p:&str,branch:&str,task:&str) {send(r,p,&format!("b{branch}"),Operation::CreateBranch{branch_id:branch.into(),base_hash:format!("base-{branch}"),code_hash:format!("code-{branch}")});send(r,p,&format!("t{task}"),Operation::CreateTask{task_id:task.into(),branch_id:branch.into(),context:context(&format!("base-{branch}"),&format!("code-{branch}"))});}
 fn claim(r:&Runtime,p:&str,t:&str)->u64 {let v=send(r,p,&format!("claim{t}"),Operation::Claim{task_id:t.into(),owner:"lead".into(),lease_id:format!("lease{t}"),now_ms:1,expires_ms:1000,expected_generation:1});serde_json::from_value(v.result["generation"].clone()).unwrap_or(1)}
@@ -117,4 +121,109 @@ fn lifecycle_cli_initializes_fresh_state_and_returns_receipts() {
     let receipt:Value=serde_json::from_slice(&cmd.stdout).unwrap();assert_eq!(receipt["status"],"applied");
     let snap=Command::new(bin).args(["snapshot","--state",state.to_str().unwrap(),"--project","project"]).output().unwrap();
     assert!(snap.status.success());let value:Value=serde_json::from_slice(&snap.stdout).unwrap();assert_eq!(value["required_outcomes"].as_array().unwrap().len(),3);
+}
+
+fn execution_task(r:&Runtime,p:&str,t:&str){branch_task(r,p,&format!("b{t}"),t);let now=chrono_free_now();send(r,p,&format!("claim{t}"),Operation::Claim{task_id:t.into(),owner:"local-worker".into(),lease_id:format!("lease{t}"),now_ms:now,expires_ms:now+3_600_000,expected_generation:1});}
+fn job(p:&str,id:&str,t:&str,probe:Probe,timeout:u64)->JobSpec{JobSpec{job_id:id.into(),project_id:p.into(),task_id:t.into(),generation:2,timeout_ms:timeout,threads:1,max_output_bytes:1024,environment_id:None,probe}}
+fn run_until_terminal(s:&mut Supervisor,root:&Path,p:&str,id:&str){for _ in 0..100{ s.tick().unwrap();let j=execution::inspect(root,p,id).unwrap();if !["queued","running","terminating","recovering"].contains(&j.status.as_str()){return;}std::thread::sleep(std::time::Duration::from_millis(10));}panic!("job did not finish: {}",execution::inspect(root,p,id).unwrap().status)}
+
+#[test]
+fn m1_trusted_worker_publishes_hashed_artifact_and_records_terminal_state(){
+ let d=tempfile::tempdir().unwrap();let root=d.path().join("state");let r=Runtime::init(&root,m1policy(100,8)).unwrap();create_m1(&r,"p");execution_task(&r,"p","t");
+ let spec=job("p","j","t",Probe::Write{name:"result.txt".into(),content:"evidence".into()},1000);assert_eq!(execution::submit(&root,spec).unwrap().status,"queued");
+ let bin=Path::new(env!("CARGO_BIN_EXE_mlrescurix-harness"));let mut s=Supervisor::start_with_executable(&root,1,bin).unwrap();run_until_terminal(&mut s,&root,"p","j");
+ let got=execution::inspect(&root,"p","j").unwrap();assert_eq!(got.status,"succeeded");assert_eq!(got.artifacts[0]["sha256"],format!("{:x}",sha2::Sha256::digest(b"evidence")));
+ let snapshot=r.snapshot("p").unwrap();assert!(snapshot["project_ledger"]["charged"]["wall_ms"].as_i64().unwrap()>0);assert_eq!(snapshot["project_ledger"]["reserved"]["wall_ms"],0);
+ let db=rusqlite::Connection::open(root.join("state.sqlite")).unwrap();let count:i64=db.query_row("SELECT count(*) FROM managed_artifacts WHERE project='p' AND job='j'",[],|x|x.get(0)).unwrap();assert_eq!(count,1);
+ execution::pin_artifact(&root,"p","j",true).unwrap();assert_eq!(execution::collect_artifacts(&root).unwrap(),0);execution::pin_artifact(&root,"p","j",false).unwrap();assert!(execution::collect_artifacts(&root).unwrap()>0);assert!(!root.join("artifacts/p/j").exists());
+}
+
+#[test]
+fn m1_managed_python_environment_is_owned_and_leases_block_removal(){
+ let d=tempfile::tempdir().unwrap();let root=d.path().join("state");let r=Runtime::init(&root,m1policy(100,8)).unwrap();create_m1(&r,"p");execution_task(&r,"p","t");
+ let env=execution::create_environment(&root,"py313",Path::new("/Library/Frameworks/Python.framework/Versions/3.13/bin/python3.13")).unwrap();assert_eq!(env["status"],"ready");let mut s_job=job("p","envjob","t",Probe::Sleep{millis:100},1000);s_job.environment_id=Some("py313".into());execution::submit(&root,s_job).unwrap();
+ let bin=Path::new(env!("CARGO_BIN_EXE_mlrescurix-harness"));let mut s=Supervisor::start_with_executable(&root,1,bin).unwrap();
+ for _ in 0..50{s.tick().unwrap();if execution::inspect(&root,"p","envjob").unwrap().status=="running"{break;}std::thread::sleep(std::time::Duration::from_millis(10));}
+ assert!(execution::remove_environment(&root,"py313").unwrap_err().contains("leased"));run_until_terminal(&mut s,&root,"p","envjob");execution::remove_environment(&root,"py313").unwrap();assert!(!root.join("environments/py313").exists());
+}
+
+#[test]
+fn m1_restart_reconciles_published_artifact_and_discards_incomplete_stage(){
+ let d=tempfile::tempdir().unwrap();let root=d.path().join("state");let r=Runtime::init(&root,m1policy(100,8)).unwrap();create_m1(&r,"p");execution_task(&r,"p","t");
+ let published=job("p","published","t",Probe::Write{name:"x".into(),content:"done".into()},20);let interrupted=job("p","interrupted","t",Probe::Sleep{millis:20},20);
+ execution::submit(&root,published.clone()).unwrap();execution::submit(&root,interrupted.clone()).unwrap();
+ let db=rusqlite::Connection::open(root.join("state.sqlite")).unwrap();let started=chrono_free_now()-10_000;
+ let final_dir=root.join("artifacts/p/published");std::fs::create_dir_all(&final_dir).unwrap();std::fs::write(final_dir.join("x"),"done").unwrap();
+ let stage=root.join("artifacts/p/.interrupted.staging");std::fs::create_dir_all(&stage).unwrap();std::fs::write(stage.join("job.json"),"{}").unwrap();
+ for s in [&published,&interrupted] {let folder=if s.job_id=="published"{final_dir.to_string_lossy().to_string()}else{stage.to_string_lossy().to_string()};db.execute("UPDATE jobs SET status='running',pid=999999,started_ms=?2,stage=?3 WHERE project='p' AND id=?1 AND status='queued'",rusqlite::params![s.job_id,started,folder]).unwrap();}
+ drop(db);let bin=Path::new(env!("CARGO_BIN_EXE_mlrescurix-harness"));let mut supervisor=Supervisor::start_with_executable(&root,1,bin).unwrap();supervisor.tick().unwrap();
+ assert_eq!(execution::inspect(&root,"p","published").unwrap().status,"succeeded");assert_eq!(execution::inspect(&root,"p","published").unwrap().artifacts[0]["name"],"x");
+ assert_eq!(execution::inspect(&root,"p","interrupted").unwrap().status,"interrupted");assert!(!stage.exists());
+}
+fn chrono_free_now()->i64{std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64}
+
+#[test]
+fn m1_deadline_crash_and_project_cancellation_reap_only_owned_workers(){
+ let d=tempfile::tempdir().unwrap();let root=d.path().join("state");let r=Runtime::init(&root,m1policy(100,8)).unwrap();create_m1(&r,"p");create_m1(&r,"q");execution_task(&r,"p","t");execution_task(&r,"q","u");
+ execution::submit(&root,job("p","slow","t",Probe::Sleep{millis:500},50)).unwrap();execution::submit(&root,job("q","other","u",Probe::Write{name:"x".into(),content:"q".into()},1000)).unwrap();
+ let bin=Path::new(env!("CARGO_BIN_EXE_mlrescurix-harness"));let mut s=Supervisor::start_with_executable(&root,1,bin).unwrap();
+ for _ in 0..100{ s.tick().unwrap();let j=execution::inspect(&root,"p","slow").unwrap();if j.status=="running"{break;}std::thread::sleep(std::time::Duration::from_millis(10)); }
+ send(&r,"p","cancel-project",Operation::Lifecycle{state:"cancelled".into()});run_until_terminal(&mut s,&root,"p","slow");
+ assert_eq!(execution::inspect(&root,"p","slow").unwrap().status,"cancelled");
+ run_until_terminal(&mut s,&root,"q","other");assert_eq!(execution::inspect(&root,"q","other").unwrap().status,"succeeded");
+ drop(s);
+ let mut s=Supervisor::start_with_executable(&root,1,bin).unwrap();execution::submit(&root,job("q","deadline","u",Probe::Sleep{millis:200},30)).unwrap();run_until_terminal(&mut s,&root,"q","deadline");
+ assert_eq!(execution::inspect(&root,"q","deadline").unwrap().status,"timed_out");
+}
+
+#[test]
+fn m1_pause_drains_active_job_and_resume_reopens_queued_admission(){
+ let d=tempfile::tempdir().unwrap();let root=d.path().join("state");let r=Runtime::init(&root,m1policy(100,8)).unwrap();create_m1(&r,"p");execution_task(&r,"p","t1");execution_task(&r,"p","t2");
+ execution::submit(&root,job("p","active","t1",Probe::Sleep{millis:120},1000)).unwrap();execution::submit(&root,job("p","queued","t2",Probe::Write{name:"ok".into(),content:"resumed".into()},1000)).unwrap();
+ let bin=Path::new(env!("CARGO_BIN_EXE_mlrescurix-harness"));let mut s=Supervisor::start_with_executable(&root,1,bin).unwrap();
+ for _ in 0..50{s.tick().unwrap();if execution::inspect(&root,"p","active").unwrap().status=="running"{break;}std::thread::sleep(std::time::Duration::from_millis(10));}
+ send(&r,"p","pause",Operation::Lifecycle{state:"paused".into()});run_until_terminal(&mut s,&root,"p","active");assert_eq!(execution::inspect(&root,"p","active").unwrap().status,"succeeded");assert_eq!(execution::inspect(&root,"p","queued").unwrap().status,"queued");
+ send(&r,"p","resume",Operation::Lifecycle{state:"created".into()});run_until_terminal(&mut s,&root,"p","queued");assert_eq!(execution::inspect(&root,"p","queued").unwrap().status,"succeeded");
+}
+
+#[test]
+fn m1_supervisor_death_closes_worker_control_and_keeps_budget_reserved_until_recovery(){
+ let d=tempfile::tempdir().unwrap();let root=d.path().join("state");let r=Runtime::init(&root,m1policy(100,8)).unwrap();create_m1(&r,"p");execution_task(&r,"p","t");
+ execution::submit(&root,job("p","orphan","t",Probe::Sleep{millis:30_000},500)).unwrap();let bin=Path::new(env!("CARGO_BIN_EXE_mlrescurix-harness"));
+ let mut service=Command::new(bin).args(["supervise","--state",root.to_str().unwrap(),"--workers","1"]).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap();
+ let mut pid=None;for _ in 0..100{let j=execution::inspect(&root,"p","orphan").unwrap();if j.status=="running"{pid=j.pid;break;}std::thread::sleep(std::time::Duration::from_millis(10));}let worker=pid.expect("supervisor admitted job");
+ service.kill().unwrap();service.wait().unwrap();for _ in 0..100{let alive=unsafe{libc::kill(worker as i32,0)}==0;if !alive{break;}std::thread::sleep(std::time::Duration::from_millis(10));}
+ let alive=unsafe{libc::kill(worker as i32,0)}==0;assert!(!alive,"worker remained after its supervisor control pipe closed");
+ let mut recovered=Supervisor::start_with_executable(&root,1,bin).unwrap();for _ in 0..200{recovered.tick().unwrap();let j=execution::inspect(&root,"p","orphan").unwrap();if j.status=="interrupted"{break;}std::thread::sleep(std::time::Duration::from_millis(10));}
+ assert_eq!(execution::inspect(&root,"p","orphan").unwrap().status,"interrupted");let snap=r.snapshot("p").unwrap();assert!(snap["project_ledger"]["charged"]["wall_ms"].as_i64().unwrap()>=500);
+}
+
+#[test]
+fn m1_process_telemetry_is_optional_and_bounded_to_latest_value(){
+ let d=tempfile::tempdir().unwrap();let root=d.path().join("state");let r=Runtime::init(&root,m1policy(100,8)).unwrap();create_m1(&r,"p");execution_task(&r,"p","t");execution::submit(&root,job("p","sampled","t",Probe::Sleep{millis:1500},3000)).unwrap();
+ let bin=Path::new(env!("CARGO_BIN_EXE_mlrescurix-harness"));let mut supervisor=Supervisor::start_with_executable(&root,1,bin).unwrap();let mut sample=None;
+ for _ in 0..30{supervisor.tick().unwrap();sample=execution::inspect(&root,"p","sampled").unwrap().telemetry;if sample.is_some(){break;}std::thread::sleep(std::time::Duration::from_millis(50));}
+ if let Some(sample)=sample{assert!(sample.rss_bytes.unwrap()>0);assert!(sample.cpu_percent.unwrap().is_finite());}
+ run_until_terminal(&mut supervisor,&root,"p","sampled");let db=rusqlite::Connection::open(root.join("state.sqlite")).unwrap();assert!(db.query_row::<i64,_,_>("SELECT count(*) FROM job_telemetry WHERE project='p' AND job='sampled'",[],|x|x.get(0)).unwrap()<=1);
+}
+
+#[test]
+fn m1_fair_queue_and_contract_bounds(){
+ let d=tempfile::tempdir().unwrap();let root=d.path().join("state");let r=Runtime::init(&root,m1policy(100,8)).unwrap();create_m1(&r,"a");create_m1(&r,"b");execution_task(&r,"a","ta");execution_task(&r,"b","tb");
+ for (p,id,t) in [("a","a1","ta"),("a","a2","ta"),("b","b1","tb")] {execution::submit(&root,job(p,id,t,Probe::Sleep{millis:80},1000)).unwrap();}
+ let bin=Path::new(env!("CARGO_BIN_EXE_mlrescurix-harness"));let mut s=Supervisor::start_with_executable(&root,1,bin).unwrap();run_until_terminal(&mut s,&root,"a","a1");
+ for _ in 0..30{s.tick().unwrap();std::thread::sleep(std::time::Duration::from_millis(10));if execution::inspect(&root,"b","b1").unwrap().status!="queued"{break;}}
+ assert_ne!(execution::inspect(&root,"b","b1").unwrap().status,"queued");
+ let mut bad=job("a","bad","ta",Probe::Write{name:"../escape".into(),content:"x".into()},100);assert!(execution::validate_spec(&bad).is_err());bad.max_output_bytes=u64::MAX;assert!(execution::validate_spec(&bad).is_err());
+}
+
+#[test]
+fn m1_ten_projects_and_three_branch_jobs_stay_within_two_worker_allocation(){
+ let d=tempfile::tempdir().unwrap();let root=d.path().join("state");let r=Runtime::init(&root,m1policy(1000,32)).unwrap();
+ for i in 0..10{create_m1(&r,&format!("p{i}"));}
+ for j in 0..3{execution_task(&r,"p0",&format!("t{j}"));execution::submit(&root,job("p0",&format!("j{j}"),&format!("t{j}"),Probe::Sleep{millis:40},1000)).unwrap();}
+ for i in 1..10{let p=format!("p{i}");let t=format!("t{i}");execution_task(&r,&p,&t);execution::submit(&root,job(&p,&format!("j{i}"),&t,Probe::Sleep{millis:40},1000)).unwrap();}
+ let bin=Path::new(env!("CARGO_BIN_EXE_mlrescurix-harness"));let mut s=Supervisor::start_with_executable(&root,2,bin).unwrap();assert!(Supervisor::start_with_executable(&root,2,bin).is_err());
+ let mut max=0;for _ in 0..200{s.tick().unwrap();let db=rusqlite::Connection::open(root.join("state.sqlite")).unwrap();let running:i64=db.query_row("SELECT count(*) FROM jobs WHERE status IN('running','terminating')",[],|x|x.get(0)).unwrap();max=max.max(running);let done:i64=db.query_row("SELECT count(*) FROM jobs WHERE status='succeeded'",[],|x|x.get(0)).unwrap();if done==12{break;}std::thread::sleep(std::time::Duration::from_millis(10));}
+ assert!(max<=2);let db=rusqlite::Connection::open(root.join("state.sqlite")).unwrap();assert_eq!(db.query_row::<i64,_,_>("SELECT count(*) FROM jobs WHERE status='succeeded'",[],|x|x.get(0)).unwrap(),12);
 }

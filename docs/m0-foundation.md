@@ -61,7 +61,7 @@ The cargo cache override is only needed on a host where the default Cargo cache 
 
 ## Limits at the M0 boundary
 
-There is no live provider, agent loop, worker process supervisor, resource enforcement, training, official evaluation, artifact store, dashboard, HPO, or production event retention. `Resolve` is a local administrative reconciliation input; M0 does not verify an external provider's receipt cryptographically. SQLite WAL and `synchronous=FULL` provide the configured local transaction durability subject to filesystem and hardware behavior, and do not make a disk failure recoverable. The Python package validates protocol messages only. M1 proposal: supervised local execution, resource enforcement and artifact lifecycle. It requires separate discussion and approval.
+M0 itself has no live provider, autonomous agent loop, supervised worker, scientific training/evaluation, or dashboard. M1 adds a trusted typed-probe supervisor and owned storage lifecycle; its limits are documented in [docs/m1-execution-storage.md](m1-execution-storage.md). `Resolve` is a local administrative reconciliation input; M0 does not verify an external provider's receipt cryptographically. SQLite WAL and `synchronous=FULL` provide the configured local transaction durability subject to filesystem and hardware behavior, and do not make a disk failure recoverable. The Python package validates protocol messages only.
 
 A policy file uses integer counts with unit names embedded in keys. For example:
 
