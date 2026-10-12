@@ -34,9 +34,38 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere}.muted{color:#657487}table{borde
 <a id="download" hidden>Download verified bundle</a>
 <p id="state" class="muted"></p>
 <div id="search-section"></div>
+<div id="agents-section"></div>
 <h2>Committed jobs and candidates</h2><pre id="jobs">Waiting for project state</pre><h2>Events</h2><pre id="events"></pre><h2>Recent command receipt</h2><pre id="receipt">No command sent</pre></section>
 <script>
 const $=x=>document.getElementById(x);let source=null,revision=null,lastCursor='0';
+function renderAgents(s){
+    let div=$('agents-section');
+    if(!s.agent_tasks||!s.agent_tasks.length){
+        div.innerHTML='<h3>Agent Roles &amp; Hypotheses</h3><p class="muted">No agent tasks committed for this project.</p>';
+        return;
+    }
+    let html='<h3>Agent Roles, Hypotheses &amp; Tools</h3>';
+    html+='<table style="margin-top:0.5rem;font-size:13px"><thead><tr><th>Task ID</th><th>Role</th><th>Status</th><th>Branch</th><th>Hypothesis</th><th>Intent</th></tr></thead><tbody>';
+    for(let t of s.agent_tasks){
+        html+='<tr><td>'+t.task_id+'</td><td><strong>'+t.role_id+'</strong></td><td>'+t.status+'</td><td>'+(t.branch||'-')+'</td><td>'+(t.hypothesis||'-')+'</td><td>'+t.intent+'</td></tr>';
+    }
+    html+='</tbody></table>';
+    if(s.scientific_findings&&s.scientific_findings.length){
+        html+='<h4 style="margin-top:0.5rem">Scientific Findings</h4><ul>';
+        for(let f of s.scientific_findings){
+            html+='<li><strong>['+f.verdict+']</strong> '+f.hypothesis_id+': '+f.rationale+'</li>';
+        }
+        html+='</ul>';
+    }
+    if(s.agent_tools&&s.agent_tools.length){
+        html+='<h4 style="margin-top:0.5rem">Agent-Authored Tools</h4><ul>';
+        for(let tool of s.agent_tools){
+            html+='<li><code>'+tool.name+':'+tool.version+'</code> - '+(tool.descriptor.description||'')+'</li>';
+        }
+        html+='</ul>';
+    }
+    div.innerHTML=html;
+}
 function renderSearch(s){
     let div=$('search-section');
     if(!s.search_sessions||!s.search_sessions.length){
@@ -64,7 +93,7 @@ function renderSearch(s){
     div.innerHTML=html;
 }
 async function login(){let r=await fetch('/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:$('token').value})});if(r.ok){$('login').hidden=true;$('app').hidden=false;refresh();connectEvents()}else $('loginerr').textContent='Token rejected'}
-async function refresh(){let p=$('project').value.trim();if(!/^[A-Za-z0-9_.:-]{1,128}$/.test(p))return;let r=await fetch('/v1/projects/'+encodeURIComponent(p)+'/snapshot');if(!r.ok){$('state').textContent='Snapshot unavailable ('+r.status+')';return}let s=await r.json();revision=s.revision;$('state').textContent='State: '+s.state+' · revision '+s.revision+' · event cursor '+s.event_cursor;renderSearch(s);$('jobs').textContent=JSON.stringify({tasks:s.tasks,jobs:s.jobs,candidates:s.candidates,search_sessions:s.search_sessions,selection:s.selection,finalization:s.finalization,ledger:s.project_ledger},null,2);$('download').hidden=!(s.finalization&&s.finalization.status==='verified_development_only');$('download').href='/v1/projects/'+encodeURIComponent(p)+'/bundle'}
+async function refresh(){let p=$('project').value.trim();if(!/^[A-Za-z0-9_.:-]{1,128}$/.test(p))return;let r=await fetch('/v1/projects/'+encodeURIComponent(p)+'/snapshot');if(!r.ok){$('state').textContent='Snapshot unavailable ('+r.status+')';return}let s=await r.json();revision=s.revision;$('state').textContent='State: '+s.state+' · revision '+s.revision+' · event cursor '+s.event_cursor;renderSearch(s);renderAgents(s);$('jobs').textContent=JSON.stringify({tasks:s.tasks,jobs:s.jobs,candidates:s.candidates,search_sessions:s.search_sessions,agent_tasks:s.agent_tasks,scientific_findings:s.scientific_findings,agent_tools:s.agent_tools,selection:s.selection,finalization:s.finalization,ledger:s.project_ledger},null,2);$('download').hidden=!(s.finalization&&s.finalization.status==='verified_development_only');$('download').href='/v1/projects/'+encodeURIComponent(p)+'/bundle'}
 async function command(state){let p=$('project').value.trim();if(revision===null)return;let id='ui-'+crypto.randomUUID();let body={command_id:id,project_id:p,expected_revision:revision,operation:{type:'lifecycle',state}};let r=await fetch('/v1/projects/'+encodeURIComponent(p)+'/commands',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});let data=await r.json();$('receipt').textContent=JSON.stringify(data,null,2);refresh()}
 function connectEvents(){if(source)source.close();let p=$('project').value.trim();source=new EventSource('/v1/projects/'+encodeURIComponent(p)+'/events?after='+lastCursor);source.onmessage=e=>{lastCursor=e.lastEventId||lastCursor;let line=JSON.stringify(JSON.parse(e.data));$('events').textContent=(line+'\n'+$('events').textContent).slice(0,10000);refresh()};source.onerror=()=>{$('state').textContent='Event stream reconnecting; snapshot remains available'}}
 setInterval(()=>{if(!$('app').hidden)refresh()},5000)
@@ -163,6 +192,18 @@ def create_server(state: Path, binary: Path, port: int, token: str) -> Threading
                     else:
                         snapshot["search_sessions"] = []
                         snapshot["experiment_dag"] = []
+                    has_agents = db.execute("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='agent_tasks'").fetchone()[0] > 0
+                    if has_agents:
+                        agent_tasks = db.execute("SELECT task_id, role_id, parent_task_id, status, hypothesis, intent, assigned_branch FROM agent_tasks WHERE project=? ORDER BY created_ms LIMIT 64", (project,)).fetchall()
+                        snapshot["agent_tasks"] = [{"task_id": t[0], "role_id": t[1], "parent_task_id": t[2], "status": t[3], "hypothesis": t[4], "intent": t[5], "branch": t[6]} for t in agent_tasks]
+                        findings = db.execute("SELECT finding_id, hypothesis_id, verdict, rationale, metrics FROM scientific_findings WHERE project=? ORDER BY created_ms LIMIT 64", (project,)).fetchall()
+                        snapshot["scientific_findings"] = [{"finding_id": f[0], "hypothesis_id": f[1], "verdict": f[2], "rationale": f[3], "metrics": json.loads(f[4]) if f[4] else {}} for f in findings]
+                        tools = db.execute("SELECT tool_name, version, descriptor_json FROM agent_tools WHERE project=? ORDER BY created_ms LIMIT 64", (project,)).fetchall()
+                        snapshot["agent_tools"] = [{"name": t[0], "version": t[1], "descriptor": json.loads(t[2]) if t[2] else {}} for t in tools]
+                    else:
+                        snapshot["agent_tasks"] = []
+                        snapshot["scientific_findings"] = []
+                        snapshot["agent_tools"] = []
                 snapshot["jobs"] = [{"job_id": row[0], "spec": json.loads(row[1]), "status": row[2], "reason": row[3],
                                      "pid": row[4], "submitted_ms": row[5], "started_ms": row[6], "ended_ms": row[7],
                                      "artifacts": json.loads(row[8])} for row in jobs]

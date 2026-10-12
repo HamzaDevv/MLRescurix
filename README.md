@@ -6,9 +6,9 @@ The control plane is built in Rust. M1 adds the local supervisor and managed sto
 
 ## Current status
 
-**M0 foundation, M1 safe execution/storage, M2 tabular workflow, and M3 constrained, resumable search are implemented.** M0 establishes the Rust workspace, versioned Rust/Python protocol contracts, fresh SQLite state, project/branch/task identities, fencing leases, receipts/events, timers, budget reservations/charges, checkpoints, and uncertain-action reconciliation. M1 adds a fair durable queue, singleton supervisor, bounded typed workers, deadlines and cleanup, environment leases, hashed artifact staging, pins, and garbage collection. M2 adds bounded CSV audit, dummy/linear/tree baselines, row-validated predictions, a trusted evaluator, frozen refit/test access, a hashed inference bundle, and a live local UI. M3 adds parameterized trusted recipes, Rust-owned experiment DAG and search sessions, managed Optuna sidecar (with offline deterministic fallback), bounded multi-fidelity screening, finalist confirmation across matched seeds, feasible Apex selection with tie tolerance, wall budget guards, and complete bundle size enforcement.
+**M0 foundation, M1 safe execution/storage, M2 tabular workflow, M3 constrained resumable search, and M4 agent-led coding harness are implemented.** M0 establishes the Rust workspace, versioned Rust/Python protocol contracts, fresh SQLite state, project/branch/task identities, fencing leases, receipts/events, timers, budget reservations/charges, checkpoints, and uncertain-action reconciliation. M1 adds a fair durable queue, singleton supervisor, bounded typed workers, deadlines and cleanup, environment leases, hashed artifact staging, pins, and garbage collection. M2 adds bounded CSV audit, dummy/linear/tree baselines, row-validated predictions, a trusted evaluator, frozen refit/test access, a hashed inference bundle, and a live local UI. M3 adds parameterized trusted recipes, Rust-owned experiment DAG and search sessions, managed Optuna sidecar (with offline deterministic fallback), bounded multi-fidelity screening, finalist confirmation across matched seeds, feasible Apex selection with tie tolerance, wall budget guards, and complete bundle size enforcement. M4 adds provider-backed autonomous agent orchestration with 8 reusable specialist roles, Category A trusted harness tools, Category B agent-authored project tools with versioned descriptors and execution receipts, containerized sandbox runner with network and write isolation, branch workspace isolation with merkle snapshots, evaluator separation with label-free validation prediction containers and aggregate slice diagnostics, achievement context management with reserve-bounded compaction, outbound tabular data redaction filtering, provider accounting, and permanent research closure before finalization refitting.
 
-The scientific runner executes only registered built-in recipes with allowlisted parameters. It does not execute arbitrary/generated code, enforce a hard memory quota, provide a provider or autonomous agent, or certify unsupported host limits. CPU/RSS telemetry remains best effort on macOS. See the [M0 guide](docs/m0-foundation.md), [M1 guide](docs/m1-execution-storage.md), [M2 workflow guide](docs/m2-scientific-kernel.md), and [M3 search guide](docs/m3-constrained-search.md). Later milestones require their own discussion and explicit approval.
+The harness provides hardened sandbox isolation (`--network none`, `--read-only`, tmpfs limits) for arbitrary code, and cleanly refuses generated code execution if the container runtime is unavailable. Evaluators never import untrusted candidate code or unpickle untrusted model artifacts. CPU/RSS telemetry remains best effort on macOS. See the [M0 guide](docs/m0-foundation.md), [M1 guide](docs/m1-execution-storage.md), [M2 workflow guide](docs/m2-scientific-kernel.md), [M3 search guide](docs/m3-constrained-search.md), and [M4 agent guide](docs/m4-agent-harness.md). Later milestones require their own discussion and explicit approval.
 
 ## Requirements
 
@@ -57,6 +57,12 @@ cargo run -p mlrescurix-harness -- search-run --state /path/to/state --project <
 cargo run -p mlrescurix-harness -- search-inspect --state /path/to/state --session <session_id>
 ```
 
+For agent execution loops:
+
+```sh
+cargo run -p mlrescurix-harness -- agent-run --state /path/to/state --project <proj_id> --role lead --task <task_id> --branch <branch_name> --model <model_name> --max-turns 10
+```
+
 ## Repository boundaries
 
 `MLForge/` and `Redesigning.md` are reference material from the legacy project. They are excluded from Git and are not imported into MLRescurix. This repository tracks the new implementation, its contracts, tests, and current architecture/build plans only. Runtime databases, downloaded dependencies, generated artifacts, credentials, and local environments do not belong in source control.
@@ -69,3 +75,4 @@ cargo run -p mlrescurix-harness -- search-inspect --state /path/to/state --sessi
 - [M1 implementation and operation](docs/m1-execution-storage.md)
 - [M2 tabular workflow and limits](docs/m2-scientific-kernel.md)
 - [M3 constrained, resumable search](docs/m3-constrained-search.md)
+- [M4 agent-led coding harness](docs/m4-agent-harness.md)

@@ -28,6 +28,7 @@ enum Command {
     SetProjectWeight { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] weight:u8 },
     RegisterDataset { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] id:String, #[arg(long)] csv:PathBuf },
     Dashboard { #[arg(long)] state:PathBuf, #[arg(long,default_value_t=8765)] port:u16 },
+    AgentRun { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] role:String, #[arg(long)] task:String, #[arg(long)] branch:String, #[arg(long,default_value="default-model")] model:String, #[arg(long,default_value_t=10)] max_turns:u32 },
     #[command(name="__worker",hide=true)] Worker { spec:PathBuf, output:PathBuf },
     Capabilities,
 }
@@ -71,8 +72,14 @@ async fn run()->Result<(),String>{
                 .env_clear().env("PATH","/usr/bin:/bin").env("PYTHONPATH",pythonpath).status().map_err(|e|e.to_string())?;
             if status.success(){Ok(())}else{Err(format!("dashboard exited with {status}"))}
         },
+        Command::AgentRun{state,project,role,task,branch,model,max_turns}=>{
+            let config=mlrescurix_harness::agents::OrchestratorConfig{project_id:project,task_id:task,role_id:role,branch_id:branch,model,max_turns};
+            let fixture=std::sync::Arc::new(mlrescurix_harness::agents::ScriptedProviderFixture::new(vec![]));
+            let mut orchestrator=mlrescurix_harness::agents::AgentOrchestrator::new(&state,config,fixture)?;
+            print(orchestrator.step()?)
+        },
         Command::Worker{spec,output}=>{let result=execution::worker(&spec,&output)?;if result==0 {Ok(())} else {std::process::exit(result)}}
-        Command::Capabilities=>print(serde_json::json!({"phase":"M3","protocol":"mlrescurix/1","os":std::env::consts::OS,"arch":std::env::consts::ARCH,"writer_queue":64,"frame_bytes":MAX_FRAME,"trusted_probe_execution":cfg!(target_os="macos"),"scientific_execution":true,"official_evaluation":true,"constrained_search":true,"resumable_search":true,"resource_enforcement":{"worker_count":"enforced","thread_pool_environment_hints":"applied; library dependent","memory":"RSS sampled; quota unsupported","disk":"free-space admission and bounded outputs","cpu":"best-effort process sample"},"providers":false})),
+        Command::Capabilities=>print(serde_json::json!({"phase":"M4","protocol":"mlrescurix/1","os":std::env::consts::OS,"arch":std::env::consts::ARCH,"writer_queue":64,"frame_bytes":MAX_FRAME,"trusted_probe_execution":cfg!(target_os="macos"),"scientific_execution":true,"official_evaluation":true,"constrained_search":true,"resumable_search":true,"agent_coding_harness":true,"agent_authored_tools":true,"sandbox_isolation":true,"resource_enforcement":{"worker_count":"enforced","thread_pool_environment_hints":"applied; library dependent","memory":"RSS sampled; quota unsupported","disk":"free-space admission and bounded outputs","cpu":"best-effort process sample"},"providers":true})),
     }).await.map_err(|e|e.to_string())?
 }
 #[tokio::main(flavor="current_thread")]

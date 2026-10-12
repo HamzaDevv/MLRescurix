@@ -235,7 +235,7 @@ fn m3_capabilities_reports_phase_m3_and_scientific_flags() {
     let output = Command::new(bin).arg("capabilities").output().unwrap();
     assert!(output.status.success());
     let cap: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(cap["phase"], "M3");
+    assert!(matches!(cap["phase"].as_str(), Some("M3") | Some("M4")));
     assert_eq!(cap["scientific_execution"], true);
     assert_eq!(cap["official_evaluation"], true);
     assert_eq!(cap["constrained_search"], true);
@@ -536,4 +536,124 @@ fn m3_end_to_end_search_and_finalization() {
     // Verify lineage exists
     let lineage_json = root.join("workflows/p-e2e/lineage.json");
     assert!(lineage_json.is_file());
+}
+
+#[test]
+fn m3_research_closure_rejects_search_after_gate_reservation() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path().join("state");
+    let r = Runtime::init(&root, m1policy(10, 2)).unwrap();
+    create_m1(&r, "p-closure", 10);
+    execution_task(&r, "p-closure", "t-closure");
+
+    let csv = d.path().join("data.csv");
+    std::fs::write(&csv, "f1,target\n1,0\n2,1\n3,0\n4,1\n").unwrap();
+    execution::register_dataset(&root, "p-closure", "data-1", &csv).unwrap();
+    // Reserve final test gate directly in DB to simulate active/consumed reservation
+    let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+    let sha: String = db.query_row("SELECT sha256 FROM scientific_datasets WHERE project='p-closure' AND id='data-1'", [], |r| r.get(0)).unwrap();
+    db.execute("INSERT INTO final_test_gates(project, access_id, dataset_sha256, candidate_id, status) VALUES('p-closure', 'gate-1', ?1, 'linear', 'reserved')", [sha]).unwrap();
+
+    let spec = SearchSpec {
+        session_id: "sess-closure".into(),
+        project_id: "p-closure".into(),
+        dataset_id: "data-1".into(),
+        target: "target".into(),
+        task: "binary_classification".into(),
+        metric: "balanced_accuracy".into(),
+        direction: "maximize".into(),
+        split: "stratified".into(),
+        fidelities: vec![0.5, 1.0],
+        recipes: vec!["linear".into()],
+        max_trials: 4,
+        max_screen_trials: 2,
+        max_full_trials: 1,
+        search_wall_ms: 60_000,
+        job_timeout_ms: 10_000,
+        finalization_allowance_ms: 5_000,
+        max_repeats: 3,
+        tie_tolerance: 0.005,
+        concurrency: 1,
+        max_retries: 2,
+        constraints: None,
+    };
+
+    let err = search::init_search(&root, spec).unwrap_err();
+    assert!(err.to_string().contains("research admission is closed"));
+}
+
+#[test]
+fn m3_baseline_derivation_and_constraint_checking() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path().join("state");
+    let r = Runtime::init(&root, m1policy(10, 2)).unwrap();
+    create_m1(&r, "p-base", 10);
+    execution_task(&r, "p-base", "t-base");
+
+    let csv = d.path().join("data.csv");
+    std::fs::write(&csv, "f1,target\n1,0\n2,1\n3,0\n4,1\n").unwrap();
+    execution::register_dataset(&root, "p-base", "data-1", &csv).unwrap();
+
+    let workflow = root.join("workflows/p-base");
+    std::fs::create_dir_all(&workflow).unwrap();
+    let results_json = json!({
+        "dataset_sha256": "dummy-sha",
+        "candidates": [
+            {
+                "candidate_id": "linear",
+                "recipe": "linear",
+                "parameters": {},
+                "metrics": {"balanced_accuracy": 0.75},
+                "train_ms": 12.0
+            },
+            {
+                "candidate_id": "tree",
+                "recipe": "tree",
+                "parameters": {},
+                "metrics": {"balanced_accuracy": 0.80},
+                "train_ms": 25.0
+            }
+        ]
+    });
+    std::fs::write(workflow.join("results.json"), results_json.to_string()).unwrap();
+
+    let spec = SearchSpec {
+        session_id: "sess-base".into(),
+        project_id: "p-base".into(),
+        dataset_id: "data-1".into(),
+        target: "target".into(),
+        task: "binary_classification".into(),
+        metric: "balanced_accuracy".into(),
+        direction: "maximize".into(),
+        split: "stratified".into(),
+        fidelities: vec![0.5, 1.0],
+        recipes: vec!["linear".into(), "tree".into()],
+        max_trials: 4,
+        max_screen_trials: 2,
+        max_full_trials: 1,
+        search_wall_ms: 60_000,
+        job_timeout_ms: 10_000,
+        finalization_allowance_ms: 5_000,
+        max_repeats: 3,
+        tie_tolerance: 0.005,
+        concurrency: 1,
+        max_retries: 2,
+        constraints: None,
+    };
+
+    let res = search::init_search(&root, spec).unwrap();
+    assert_eq!(res["status"], "created");
+
+    // Verify derived baselines in SQLite
+    let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+    let count: i64 = db.query_row("SELECT count(*) FROM experiment_dag WHERE session_id='sess-base' AND node_type='baseline'", [], |r| r.get(0)).unwrap();
+    assert_eq!(count, 2);
+
+    let lin_params: String = db.query_row("SELECT parameters FROM experiment_dag WHERE session_id='sess-base' AND recipe='linear' AND node_type='baseline'", [], |r| r.get(0)).unwrap();
+    let lin_val: serde_json::Value = serde_json::from_str(&lin_params).unwrap();
+    assert_eq!(lin_val["C"], 1.0);
+
+    let tree_params: String = db.query_row("SELECT parameters FROM experiment_dag WHERE session_id='sess-base' AND recipe='tree' AND node_type='baseline'", [], |r| r.get(0)).unwrap();
+    let tree_val: serde_json::Value = serde_json::from_str(&tree_params).unwrap();
+    assert_eq!(tree_val["n_estimators"], 100);
 }

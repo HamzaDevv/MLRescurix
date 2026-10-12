@@ -703,13 +703,35 @@ def finalize_candidate(output_dir: str | Path, candidate_id: str, *, test_access
         _atomic_json(staged_training / "recipe.json", {"candidate_id": candidate_id, "recipe": candidate["recipe"], "parameters": candidate_params, "task": spec.task, "metric": spec.metric, "seed": SEED, "features": manifest["features"], "dependency_lock": "../inference.lock", "dataset_sha256": digest})
         ex_rows = snapshot.iloc[manifest["splits"]["validation"]].loc[:, manifest["features"]].head(5)
         _atomic_json(stage_dir / "examples_input.json", ex_rows.to_dict(orient="records"))
-        _atomic_json(stage_dir / "examples_expected.json", _predict(model, ex_rows, manifest["features"], spec.task))
-        _atomic_json(stage_dir / "scorecard.json", {"template": True})
-        _atomic_json(stage_dir / "verification.json", {"template": True})
-        _atomic_json(stage_dir / "final.json", {"template": True})
-        _atomic_json(stage_dir / "manifest.json", {"template": True})
+        # Stage projected scorecard, verification, final, and manifest
+        proj_scorecard = {
+            "project_id": spec.project_id,
+            "candidate_id": candidate_id,
+            "dataset_sha256": digest,
+            "validation_metrics": candidate.get("metrics"),
+            "final_test_metrics": {"projected": True, spec.metric: 0.0},
+            "primary_metric": spec.metric,
+            "direction": results.get("direction", "maximize"),
+            "inference": latency,
+            "constraints": {
+                "inference_latency_ms": {"threshold": spec.max_latency_ms, "value": latency["warm_p95_ms"], "verdict": "pass", "enforcement": "measured"},
+                "model_bytes": {"threshold": None, "value": frozen_path.stat().st_size, "verdict": "pass", "enforcement": "measured"},
+                "bundle_bytes": {"threshold": spec.max_bundle_bytes, "value": 0, "verdict": "pass", "enforcement": "measured"},
+                "memory": {"threshold": None, "value": None, "verdict": "unknown", "enforcement": "unsupported"},
+            },
+            "resource_limits": {"memory_quota": "unsupported"},
+            "versions": {"python": platform.python_version(), "scikit_learn": sklearn.__version__},
+        }
+        _atomic_json(stage_dir / "scorecard.json", proj_scorecard)
+        _atomic_json(stage_dir / "verification.json", {"frozen_model_sha256": frozen_hash, "bundle_candidate": candidate_id, "dataset_sha256": digest, "test_access_id": test_access_id, "raw_input_api": "predict(records)"})
+        _atomic_json(stage_dir / "final.json", {"status": "verified_development_only", "candidate_id": candidate_id, "test_metrics": {spec.metric: 0.0}, "constraints": proj_scorecard["constraints"], "test_access_id": test_access_id, "bundle": "bundle"})
         if (root / "lineage.json").exists():
             shutil.copy2(root / "lineage.json", stage_dir / "lineage.json")
+        staged_files_pre = [p for p in stage_dir.rglob("*") if p.is_file()]
+        _atomic_json(stage_dir / "manifest.json", {
+            "format": "mlrescurix.bundle.v1", "project_id": spec.project_id, "candidate_id": candidate_id,
+            "files": {p.relative_to(stage_dir).as_posix(): {"bytes": p.stat().st_size, "sha256": _sha256(p)} for p in staged_files_pre}
+        })
 
         staged_files = [p for p in stage_dir.rglob("*") if p.is_file()]
         bundle_bytes = sum(p.stat().st_size for p in staged_files)
@@ -823,6 +845,14 @@ def finalize_candidate(output_dir: str | Path, candidate_id: str, *, test_access
     manifest_data["files"]["README.md"] = {"bytes": (bundle / "README.md").stat().st_size,
                                              "sha256": _sha256(bundle / "README.md")}
     _atomic_json(bundle / "manifest.json", manifest_data)
+    actual_bundle_files = [p for p in bundle.rglob("*") if p.is_file()]
+    actual_bundle_bytes = sum(p.stat().st_size for p in actual_bundle_files)
+    if spec.max_bundle_bytes is not None and actual_bundle_bytes > spec.max_bundle_bytes:
+        final["status"] = "provisional_infeasible"
+        final["constraints"]["bundle_bytes"]["verdict"] = "fail"
+        final["constraints"]["bundle_bytes"]["value"] = actual_bundle_bytes
+        _atomic_json(root / "final.json", final)
+        return final
     return final
 
 
@@ -849,3 +879,88 @@ def predict(records):
         result["classes"] = _MODEL.classes_.tolist()
     return result
 '''
+
+
+def evaluate_custom_candidate(
+    workflow_dir: str | Path,
+    candidate_id: str,
+    predictions_path: str | Path,
+    slices: list[str] | None = None,
+) -> dict[str, Any]:
+    """
+    Independent trusted evaluator evaluation of custom candidate predictions.
+    Reads row-keyed predictions from disk without importing or unpickling untrusted model code.
+    Computes official development split metrics and requested slice diagnostics.
+    """
+    root = Path(workflow_dir)
+    manifest = json.loads((root / "dataset_manifest.json").read_text())
+    dataset = pd.read_csv(root / "dataset.csv")
+    val_ids = manifest["splits"]["validation"]
+    target = manifest["target"]
+    task = manifest["task"]
+    y_val = dataset.iloc[val_ids][target].to_numpy()
+
+    with open(predictions_path, "r", encoding="utf-8") as f:
+        payload = json.load(f)
+
+    preds = payload["predictions"]
+    if len(preds) != len(val_ids):
+        raise WorkflowError(f"Prediction count {len(preds)} does not match validation set size {len(val_ids)}")
+
+    pred_dict: dict[str, Any] = {
+        "prediction": preds,
+    }
+    if payload.get("probabilities"):
+        pred_dict["probabilities"] = payload["probabilities"]
+        pred_dict["classes"] = manifest.get("labels", [0, 1])
+
+    scores = _score(y_val, pred_dict, task)
+
+    # Compute authorized aggregate slice diagnostics
+    slice_diagnostics = {}
+    if slices:
+        for slice_col in slices:
+            if slice_col in dataset.columns:
+                slice_series = dataset.iloc[val_ids][slice_col].reset_index(drop=True)
+                slice_results = {}
+                for category, group_idx in slice_series.groupby(slice_series).groups.items():
+                    idx_list = list(group_idx)
+                    if len(idx_list) >= 2:
+                        y_slice = y_val[idx_list]
+                        slice_pred = {
+                            "prediction": [preds[i] for i in idx_list],
+                        }
+                        if payload.get("probabilities"):
+                            slice_pred["probabilities"] = [payload["probabilities"][i] for i in idx_list]
+                            slice_pred["classes"] = pred_dict["classes"]
+                        slice_results[str(category)] = {
+                            "count": len(group_idx),
+                            "metrics": _score(y_slice, slice_pred, task),
+                        }
+                slice_diagnostics[slice_col] = slice_results
+
+    result = {
+        "candidate_id": candidate_id,
+        "status": "evaluated",
+        "metrics": scores,
+        "slice_diagnostics": slice_diagnostics,
+        "n_samples": len(val_ids),
+    }
+
+    results_path = root / "results.json"
+    if results_path.is_file():
+        res_data = json.loads(results_path.read_text())
+        candidates = res_data.get("candidates", [])
+        candidates.append({
+            "candidate_id": candidate_id,
+            "recipe": "custom",
+            "parameters": {},
+            "metrics": scores,
+            "status": "evaluated",
+            "is_feasible": True,
+            "slice_diagnostics": slice_diagnostics,
+        })
+        res_data["candidates"] = candidates
+        _atomic_json(results_path, res_data)
+
+    return result

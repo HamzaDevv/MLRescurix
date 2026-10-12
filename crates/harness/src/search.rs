@@ -3,7 +3,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -346,6 +346,25 @@ pub fn init_search(root: &Path, spec: SearchSpec) -> Result<Value> {
     spec.validate()?;
     execution::migrate(root)?;
     let c = connect_db(root)?;
+
+    // Check if research admission is closed due to final test reservation or project completion
+    let final_gate: Option<String> = sql(c.query_row(
+        "SELECT status FROM final_test_gates WHERE project=?1 AND status IN ('reserved', 'consumed')",
+        params![spec.project_id],
+        |r| r.get(0),
+    ).optional())?;
+    if final_gate.is_some() {
+        return Err("research admission is closed: final test access has been reserved or consumed".into());
+    }
+    let proj_state: Option<String> = sql(c.query_row(
+        "SELECT state FROM projects WHERE id=?1",
+        params![spec.project_id],
+        |r| r.get(0),
+    ).optional())?;
+    if proj_state.as_deref() == Some("finalizing") || proj_state.as_deref() == Some("completed") {
+        return Err("research admission is closed: project is finalizing or completed".into());
+    }
+
     let exists: bool = sql(c.query_row("SELECT EXISTS(SELECT 1 FROM search_sessions WHERE project=?1 AND id=?2)", params![spec.project_id, spec.session_id], |r| r.get(0)))?;
     if exists {
         return inspect_search(root, &spec.project_id, &spec.session_id);
@@ -374,18 +393,39 @@ pub fn init_search(root: &Path, spec: SearchSpec) -> Result<Value> {
                         let exp_id = format!("baseline-{}", cand["candidate_id"].as_str().unwrap_or(recipe));
                         let dag_exists: bool = sql(c.query_row("SELECT EXISTS(SELECT 1 FROM experiment_dag WHERE project=?1 AND id=?2)", params![spec.project_id, exp_id], |r| r.get(0)))?;
                         if !dag_exists {
+                            // Derive canonical default parameters from recipe provenance
+                            let baseline_params = if cand.get("parameters").and_then(|p| p.as_object()).is_some_and(|o| !o.is_empty()) {
+                                cand["parameters"].clone()
+                            } else {
+                                match recipe {
+                                    "linear" => if spec.task == "regression" { json!({"alpha": 1.0}) } else { json!({"C": 1.0}) },
+                                    "tree" => json!({"n_estimators": 100, "max_depth": 10, "min_samples_leaf": 1, "max_features": 1.0}),
+                                    _ => json!({}),
+                                }
+                            };
+                            let norm_params = normalize_parameters(recipe, &spec.task, &baseline_params).unwrap_or(baseline_params);
                             sql(c.execute(
-                                "INSERT INTO experiment_dag(project, session_id, id, recipe, parameters, seed, fidelity, node_type, parent_id, created_ms) VALUES(?1, ?2, ?3, ?4, '{}', 2026, 1.0, 'baseline', NULL, ?5)",
-                                params![spec.project_id, spec.session_id, exp_id, recipe, now],
+                                "INSERT INTO experiment_dag(project, session_id, id, recipe, parameters, seed, fidelity, node_type, parent_id, created_ms) VALUES(?1, ?2, ?3, ?4, ?5, 2026, 1.0, 'baseline', NULL, ?6)",
+                                params![spec.project_id, spec.session_id, exp_id, recipe, serde_json::to_string(&norm_params).unwrap(), now],
                             ))?;
                             let scores = &cand["metrics"];
                             let primary = scores.get(&spec.metric).and_then(|v| v.as_f64()).unwrap_or(0.0);
                             let train_ms = cand.get("train_ms").and_then(|v| v.as_f64()).unwrap_or(0.0);
                             let model_sha = cand.get("model_sha256").and_then(|v| v.as_str()).unwrap_or("");
                             let pred_sha = cand.get("validation_predictions_sha256").and_then(|v| v.as_str()).unwrap_or("");
+                            let constraints_val = cand.get("constraints").cloned().unwrap_or(json!({}));
+                            let mut feasible = cand.get("is_feasible").and_then(|v| v.as_bool()).unwrap_or(true);
+                            if let Some(c_obj) = constraints_val.as_object() {
+                                for (_, item) in c_obj {
+                                    if item.get("verdict").and_then(|v| v.as_str()) == Some("fail") {
+                                        feasible = false;
+                                        break;
+                                    }
+                                }
+                            }
                             sql(c.execute(
-                                "INSERT INTO trial_results(project, experiment_id, status, primary_metric, metrics, constraints, is_feasible, train_ms, model_sha256, predictions_sha256, artifact_path, committed_ms) VALUES(?1, ?2, 'evaluated', ?3, ?4, '{}', 1, ?5, ?6, ?7, 'results.json', ?8)",
-                                params![spec.project_id, exp_id, primary, serde_json::to_string(scores).unwrap(), train_ms, model_sha, pred_sha, now],
+                                "INSERT INTO trial_results(project, experiment_id, status, primary_metric, metrics, constraints, is_feasible, train_ms, model_sha256, predictions_sha256, artifact_path, committed_ms) VALUES(?1, ?2, 'evaluated', ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'results.json', ?10)",
+                                params![spec.project_id, exp_id, primary, serde_json::to_string(scores).unwrap(), serde_json::to_string(&constraints_val).unwrap(), if feasible { 1 } else { 0 }, train_ms, model_sha, pred_sha, now],
                             ))?;
                         }
                     }
@@ -448,16 +488,20 @@ pub fn reconcile_search(root: &Path, project: &str, session_id: &str) -> Result<
     let spec: SearchSpec = serde_json::from_str(&spec_row).map_err(|e| e.to_string())?;
     let workflow = root.join("workflows").join(project);
 
-    // Look for optimizer_trials in "dispatched" state that have trial_results
-    let mut q = sql(c.prepare("SELECT o.study_name, o.optuna_trial_id, o.experiment_id, o.fidelity, r.primary_metric, r.status, d.recipe, d.seed FROM optimizer_trials o JOIN trial_results r ON r.project=o.project AND r.experiment_id=o.experiment_id JOIN experiment_dag d ON d.project=o.project AND d.id=o.experiment_id WHERE o.project=?1 AND o.session_id=?2 AND o.status='dispatched'"))?;
+    // Look for optimizer_trials in "dispatched" or "failed" state that have trial_results
+    let mut q = sql(c.prepare("SELECT o.study_name, o.optuna_trial_id, o.experiment_id, o.fidelity, r.primary_metric, r.status, d.recipe, d.seed FROM optimizer_trials o JOIN trial_results r ON r.project=o.project AND r.experiment_id=o.experiment_id JOIN experiment_dag d ON d.project=o.project AND d.id=o.experiment_id WHERE o.project=?1 AND o.session_id=?2 AND o.status IN ('dispatched', 'failed')"))?;
     let pending = sql(q.query_map(params![project, session_id], |r| {
         Ok((r.get::<_, String>(0)?, r.get::<_, u32>(1)?, r.get::<_, String>(2)?, r.get::<_, f64>(3)?, r.get::<_, f64>(4)?, r.get::<_, String>(5)?, r.get::<_, String>(6)?, r.get::<_, u64>(7)?))
     }))?.collect::<std::result::Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
 
     for (study, trial_id, _exp_id, fidelity, score, status, recipe, seed) in pending {
         let state = if status == "evaluated" { "COMPLETE" } else { "FAIL" };
-        let _ = tell_sidecar(root, &workflow, session_id, &recipe, fidelity, trial_id, Some(score), state, &spec.direction, seed, None);
-        sql(c.execute("UPDATE optimizer_trials SET status='told', score=?5 WHERE project=?1 AND session_id=?2 AND study_name=?3 AND optuna_trial_id=?4", params![project, session_id, study, trial_id, score]))?;
+        let tell_res = tell_sidecar(root, &workflow, session_id, &recipe, fidelity, trial_id, Some(score), state, &spec.direction, seed, None);
+        if tell_res.is_ok() {
+            sql(c.execute("UPDATE optimizer_trials SET status='told', score=?5 WHERE project=?1 AND session_id=?2 AND study_name=?3 AND optuna_trial_id=?4", params![project, session_id, study, trial_id, score]))?;
+        } else {
+            sql(c.execute("UPDATE optimizer_trials SET status='failed', score=?5 WHERE project=?1 AND session_id=?2 AND study_name=?3 AND optuna_trial_id=?4", params![project, session_id, study, trial_id, score]))?;
+        }
     }
     Ok(())
 }
@@ -480,7 +524,8 @@ fn check_wall_budget_guard(root: &Path, project: &str, spec: &SearchSpec) -> Res
     ))?;
     let remaining = total_wall.saturating_sub(held.saturating_add(charged));
     let allowance = (spec.finalization_allowance_ms as i64).max((total_wall as f64 * 0.20) as i64);
-    if remaining <= allowance {
+    // Ensure the prospective job reservation will not breach the allowance:
+    if remaining.saturating_sub(spec.job_timeout_ms as i64) <= allowance {
         return Ok(false); // Guard triggered: close search admission to protect finalization
     }
     Ok(true)
@@ -495,16 +540,31 @@ fn run_single_trial_job(
     exp: &ExperimentSpec,
     supervisor: &mut Supervisor,
     env_id: Option<&str>,
+    attempt: u32,
 ) -> Result<TrialResult> {
-    let job_id = format!("trial-{}", exp.experiment_id);
+    let job_id = if attempt == 0 { format!("trial-{}", exp.experiment_id) } else { format!("trial-{}-{}", exp.experiment_id, attempt) };
     let workflow = root.join("workflows").join(project);
     let trial_dir = workflow.join("trials").join(&exp.experiment_id);
     let trial_file = trial_dir.join("trial.json");
 
+    let c = connect_db(root)?;
     if trial_file.is_file() {
         if let Ok(bytes) = fs::read(&trial_file) {
             if let Ok(tr) = serde_json::from_slice::<TrialResult>(&bytes) {
-                return Ok(tr);
+                // Verify committed outcome in database matches
+                let committed: Option<(String, f64, i64)> = sql(c.query_row(
+                    "SELECT status, primary_metric, is_feasible FROM trial_results WHERE project=?1 AND experiment_id=?2",
+                    params![project, exp.experiment_id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                ).optional())?;
+                if let Some((st, pm, feas)) = committed {
+                    if st == "evaluated" && (tr.primary_metric - pm).abs() < 1e-6 && (if tr.is_feasible { 1 } else { 0 }) == feas {
+                        let art_path = workflow.join(&tr.artifact_path);
+                        if tr.model_sha256.is_empty() || art_path.is_file() {
+                            return Ok(tr);
+                        }
+                    }
+                }
             }
         }
     }
@@ -529,14 +589,15 @@ fn run_single_trial_job(
 
     let _ = execution::submit(root, job_spec)?;
 
-    // Run until job reaches terminal state
-    for _ in 0..600 {
+    // Run until job reaches terminal state or deadline expires
+    let deadline = Instant::now() + Duration::from_millis(spec.job_timeout_ms.saturating_add(5000));
+    while Instant::now() < deadline {
         supervisor.tick()?;
         let inspect = execution::inspect(root, project, &job_id)?;
         if !matches!(inspect.status.as_str(), "queued" | "running" | "terminating" | "recovering") {
             break;
         }
-        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::thread::sleep(Duration::from_millis(20));
     }
 
     let inspect = execution::inspect(root, project, &job_id)?;
@@ -563,6 +624,28 @@ fn run_single_trial_job(
     Err("trial worker completed but trial.json missing".into())
 }
 
+fn run_single_trial_job_with_retries(
+    root: &Path,
+    project: &str,
+    task_id: &str,
+    generation: u64,
+    spec: &SearchSpec,
+    exp: &ExperimentSpec,
+    supervisor: &mut Supervisor,
+    env_id: Option<&str>,
+) -> Result<TrialResult> {
+    let mut last_tr = None;
+    let max_retries = spec.max_retries.min(10);
+    for attempt in 0..=max_retries {
+        let tr = run_single_trial_job(root, project, task_id, generation, spec, exp, supervisor, env_id, attempt)?;
+        if tr.status == "evaluated" {
+            return Ok(tr);
+        }
+        last_tr = Some(tr);
+    }
+    Ok(last_tr.unwrap())
+}
+
 pub fn execute_search(
     root: &Path,
     project: &str,
@@ -573,11 +656,44 @@ pub fn execute_search(
     env_id: Option<&str>,
 ) -> Result<SelectionRecord> {
     let c = connect_db(root)?;
-    let (spec_str, dataset_sha): (String, String) = sql(c.query_row(
-        "SELECT s.spec, d.sha256 FROM search_sessions s JOIN scientific_datasets d ON d.project=s.project AND d.id=s.dataset_id WHERE s.project=?1 AND s.id=?2",
+
+    // Research admission permanently closed if final test gate reserved or consumed, or project finalizing/completed
+    let final_gate: Option<String> = sql(c.query_row(
+        "SELECT status FROM final_test_gates WHERE project=?1 AND status IN ('reserved', 'consumed')",
+        params![project],
+        |r| r.get(0),
+    ).optional())?;
+    if final_gate.is_some() {
+        return Err("research admission is closed: final test access has been reserved or consumed".into());
+    }
+    let proj_state: Option<String> = sql(c.query_row(
+        "SELECT state FROM projects WHERE id=?1",
+        params![project],
+        |r| r.get(0),
+    ).optional())?;
+    if proj_state.as_deref() == Some("finalizing") || proj_state.as_deref() == Some("completed") {
+        return Err("research admission is closed: project is finalizing or completed".into());
+    }
+
+    let (spec_str, dataset_sha, session_status): (String, String, String) = sql(c.query_row(
+        "SELECT s.spec, d.sha256, s.status FROM search_sessions s JOIN scientific_datasets d ON d.project=s.project AND d.id=s.dataset_id WHERE s.project=?1 AND s.id=?2",
         params![project, session_id],
-        |r| Ok((r.get(0)?, r.get(1)?)),
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
     ))?;
+
+    if session_status == "completed" || session_status == "provisional" {
+        let selection_str: Option<String> = sql(c.query_row(
+            "SELECT selection_record FROM search_sessions WHERE project=?1 AND id=?2",
+            params![project, session_id],
+            |r| r.get(0),
+        ).optional())?;
+        if let Some(s) = selection_str {
+            if let Ok(rec) = serde_json::from_str::<SelectionRecord>(&s) {
+                return Ok(rec);
+            }
+        }
+    }
+
     let spec: SearchSpec = serde_json::from_str(&spec_str).map_err(|e| e.to_string())?;
     let workflow = root.join("workflows").join(project);
 
@@ -595,6 +711,23 @@ pub fn execute_search(
         }
     };
 
+    let session_start_ms = now_ms();
+    let mut total_trials: u32 = sql(c.query_row(
+        "SELECT count(*) FROM experiment_dag WHERE project=?1 AND session_id=?2 AND node_type != 'baseline'",
+        params![project, session_id],
+        |r| r.get(0),
+    ))?;
+
+    let check_limits = |trials: u32, start_ms: i64, sp: &SearchSpec, rt: &Path, prj: &str| -> Result<bool> {
+        if trials >= sp.max_trials {
+            return Ok(false);
+        }
+        if (now_ms() - start_ms) >= sp.search_wall_ms as i64 {
+            return Ok(false);
+        }
+        check_wall_budget_guard(rt, prj, sp)
+    };
+
     // Stage 1: Screening (fidelity = 0.5)
     let screen_fidelity = 0.5;
     let mut screen_count = 0;
@@ -606,7 +739,7 @@ pub fn execute_search(
             if screen_count >= spec.max_screen_trials {
                 break;
             }
-            if !check_wall_budget_guard(root, project, &spec)? {
+            if !check_limits(total_trials, session_start_ms, &spec, root, project)? {
                 break;
             }
             let (trial_id, params) = ask_sidecar(
@@ -635,22 +768,30 @@ pub fn execute_search(
                 params![project, session_id, study_name, trial_id, exp_id, screen_fidelity, now_ms()],
             ))?;
 
-            let tr = run_single_trial_job(root, project, task_id, generation, &spec, &exp, supervisor, env_id)?;
+            let tr = run_single_trial_job_with_retries(root, project, task_id, generation, &spec, &exp, supervisor, env_id)?;
             sql(c.execute(
                 "INSERT INTO trial_results(project, experiment_id, status, primary_metric, metrics, constraints, is_feasible, train_ms, model_sha256, predictions_sha256, artifact_path, committed_ms) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) ON CONFLICT(project, experiment_id) DO UPDATE SET status=excluded.status, primary_metric=excluded.primary_metric, metrics=excluded.metrics, is_feasible=excluded.is_feasible",
                 params![project, exp_id, tr.status, tr.primary_metric, serde_json::to_string(&tr.metrics).unwrap(), serde_json::to_string(&tr.constraints).unwrap(), if tr.is_feasible { 1 } else { 0 }, tr.train_ms, tr.model_sha256, tr.predictions_sha256, tr.artifact_path, now_ms()],
             ))?;
 
             let tell_state = if tr.status == "evaluated" { "COMPLETE" } else { "FAIL" };
-            let _ = tell_sidecar(
+            let tell_res = tell_sidecar(
                 root, &workflow, session_id, recipe, screen_fidelity, trial_id,
                 Some(tr.primary_metric), tell_state, &spec.direction, 2026, env_id,
             );
-            sql(c.execute(
-                "UPDATE optimizer_trials SET status='told', score=?5 WHERE project=?1 AND session_id=?2 AND study_name=?3 AND optuna_trial_id=?4",
-                params![project, session_id, study_name, trial_id, tr.primary_metric],
-            ))?;
+            if tell_res.is_ok() {
+                sql(c.execute(
+                    "UPDATE optimizer_trials SET status='told', score=?5 WHERE project=?1 AND session_id=?2 AND study_name=?3 AND optuna_trial_id=?4",
+                    params![project, session_id, study_name, trial_id, tr.primary_metric],
+                ))?;
+            } else {
+                sql(c.execute(
+                    "UPDATE optimizer_trials SET status='failed', score=?5 WHERE project=?1 AND session_id=?2 AND study_name=?3 AND optuna_trial_id=?4",
+                    params![project, session_id, study_name, trial_id, tr.primary_metric],
+                ))?;
+            }
             screen_count += 1;
+            total_trials += 1;
         }
     }
 
@@ -669,7 +810,7 @@ pub fn execute_search(
     let mut full_fidelity_experiments = Vec::new();
 
     for (parent_id, recipe, params, _) in top_screened {
-        if !check_wall_budget_guard(root, project, &spec)? {
+        if !check_limits(total_trials, session_start_ms, &spec, root, project)? {
             break;
         }
         let full_exp_id = compute_experiment_id(&dataset_sha, &spec.split, &recipe, &params, 2026, 1.0);
@@ -690,11 +831,12 @@ pub fn execute_search(
             params![project, session_id, full_exp_id, recipe, serde_json::to_string(&params).unwrap(), 2026, full_exp.parent_experiment_id, now_ms()],
         ))?;
 
-        let tr = run_single_trial_job(root, project, task_id, generation, &spec, &full_exp, supervisor, env_id)?;
+        let tr = run_single_trial_job_with_retries(root, project, task_id, generation, &spec, &full_exp, supervisor, env_id)?;
         sql(c.execute(
             "INSERT INTO trial_results(project, experiment_id, status, primary_metric, metrics, constraints, is_feasible, train_ms, model_sha256, predictions_sha256, artifact_path, committed_ms) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) ON CONFLICT(project, experiment_id) DO UPDATE SET status=excluded.status, primary_metric=excluded.primary_metric, metrics=excluded.metrics, is_feasible=excluded.is_feasible",
             params![project, full_exp_id, tr.status, tr.primary_metric, serde_json::to_string(&tr.metrics).unwrap(), serde_json::to_string(&tr.constraints).unwrap(), if tr.is_feasible { 1 } else { 0 }, tr.train_ms, tr.model_sha256, tr.predictions_sha256, tr.artifact_path, now_ms()],
         ))?;
+        total_trials += 1;
 
         if tr.is_feasible && tr.status == "evaluated" {
             full_fidelity_experiments.push((full_exp_id, recipe, params, tr.primary_metric));
@@ -725,7 +867,7 @@ pub fn execute_search(
     }
 
     let mut confirmed_contenders = Vec::new();
-    let confirmation_seeds = vec![2026, 2027, 2028];
+    let confirmation_seeds: Vec<u64> = (2026..=2026 + (spec.max_repeats.max(1) as u64 - 1)).collect();
     let mut budget_exhausted_during_confirmation = false;
 
     for (c_id, recipe, params, seed2026_score) in contenders {
@@ -743,40 +885,43 @@ pub fn execute_search(
             }
         }
 
-        for &repeat_seed in &[2027, 2028] {
-            if !check_wall_budget_guard(root, project, &spec)? {
-                budget_exhausted_during_confirmation = true;
-                break;
+        if confirmation_seeds.len() > 1 {
+            for &repeat_seed in &confirmation_seeds[1..] {
+                if !check_limits(total_trials, session_start_ms, &spec, root, project)? {
+                    budget_exhausted_during_confirmation = true;
+                    break;
+                }
+                let rep_exp_id = compute_experiment_id(&dataset_sha, &spec.split, &recipe, &params, repeat_seed, 1.0);
+                let rep_exp = ExperimentSpec {
+                    experiment_id: rep_exp_id.clone(),
+                    session_id: session_id.to_string(),
+                    project_id: project.to_string(),
+                    recipe: recipe.clone(),
+                    parameters: params.clone(),
+                    seed: repeat_seed,
+                    fidelity: 1.0,
+                    parent_experiment_id: Some(c_id.clone()),
+                    node_type: "repeat".to_string(),
+                };
+
+                sql(c.execute(
+                    "INSERT INTO experiment_dag(project, session_id, id, recipe, parameters, seed, fidelity, node_type, parent_id, created_ms) VALUES(?1, ?2, ?3, ?4, ?5, ?6, 1.0, 'repeat', ?7, ?8) ON CONFLICT(project, id) DO NOTHING",
+                    params![project, session_id, rep_exp_id, recipe, serde_json::to_string(&params).unwrap(), repeat_seed, c_id, now_ms()],
+                ))?;
+
+                let tr = run_single_trial_job_with_retries(root, project, task_id, generation, &spec, &rep_exp, supervisor, env_id)?;
+                sql(c.execute(
+                    "INSERT INTO trial_results(project, experiment_id, status, primary_metric, metrics, constraints, is_feasible, train_ms, model_sha256, predictions_sha256, artifact_path, committed_ms) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) ON CONFLICT(project, experiment_id) DO UPDATE SET status=excluded.status, primary_metric=excluded.primary_metric, metrics=excluded.metrics, is_feasible=excluded.is_feasible",
+                    params![project, rep_exp_id, tr.status, tr.primary_metric, serde_json::to_string(&tr.metrics).unwrap(), serde_json::to_string(&tr.constraints).unwrap(), if tr.is_feasible { 1 } else { 0 }, tr.train_ms, tr.model_sha256, tr.predictions_sha256, tr.artifact_path, now_ms()],
+                ))?;
+                total_trials += 1;
+
+                if !tr.is_feasible || tr.status != "evaluated" {
+                    all_feasible = false;
+                }
+                scores.push(tr.primary_metric);
+                seeds.push(repeat_seed);
             }
-            let rep_exp_id = compute_experiment_id(&dataset_sha, &spec.split, &recipe, &params, repeat_seed, 1.0);
-            let rep_exp = ExperimentSpec {
-                experiment_id: rep_exp_id.clone(),
-                session_id: session_id.to_string(),
-                project_id: project.to_string(),
-                recipe: recipe.clone(),
-                parameters: params.clone(),
-                seed: repeat_seed,
-                fidelity: 1.0,
-                parent_experiment_id: Some(c_id.clone()),
-                node_type: "repeat".to_string(),
-            };
-
-            sql(c.execute(
-                "INSERT INTO experiment_dag(project, session_id, id, recipe, parameters, seed, fidelity, node_type, parent_id, created_ms) VALUES(?1, ?2, ?3, ?4, ?5, ?6, 1.0, 'repeat', ?7, ?8) ON CONFLICT(project, id) DO NOTHING",
-                params![project, session_id, rep_exp_id, recipe, serde_json::to_string(&params).unwrap(), repeat_seed, c_id, now_ms()],
-            ))?;
-
-            let tr = run_single_trial_job(root, project, task_id, generation, &spec, &rep_exp, supervisor, env_id)?;
-            sql(c.execute(
-                "INSERT INTO trial_results(project, experiment_id, status, primary_metric, metrics, constraints, is_feasible, train_ms, model_sha256, predictions_sha256, artifact_path, committed_ms) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) ON CONFLICT(project, experiment_id) DO UPDATE SET status=excluded.status, primary_metric=excluded.primary_metric, metrics=excluded.metrics, is_feasible=excluded.is_feasible",
-                params![project, rep_exp_id, tr.status, tr.primary_metric, serde_json::to_string(&tr.metrics).unwrap(), serde_json::to_string(&tr.constraints).unwrap(), if tr.is_feasible { 1 } else { 0 }, tr.train_ms, tr.model_sha256, tr.predictions_sha256, tr.artifact_path, now_ms()],
-            ))?;
-
-            if !tr.is_feasible || tr.status != "evaluated" {
-                all_feasible = false;
-            }
-            scores.push(tr.primary_metric);
-            seeds.push(repeat_seed);
         }
 
         let n = scores.len() as f64;
