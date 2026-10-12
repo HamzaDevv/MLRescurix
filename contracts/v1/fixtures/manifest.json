@@ -1,0 +1,98 @@
+[
+  {
+    "file": "hello.json",
+    "accepted": true
+  },
+  {
+    "file": "observation.json",
+    "accepted": true
+  },
+  {
+    "file": "checkpoint.json",
+    "accepted": true
+  },
+  {
+    "file": "version.json",
+    "accepted": false
+  },
+  {
+    "file": "float_version.json",
+    "accepted": false
+  },
+  {
+    "file": "protocol.json",
+    "accepted": false
+  },
+  {
+    "file": "worker_path.json",
+    "accepted": false
+  },
+  {
+    "file": "kind.json",
+    "accepted": false
+  },
+  {
+    "file": "zero_generation.json",
+    "accepted": false
+  },
+  {
+    "file": "float_generation.json",
+    "accepted": false
+  },
+  {
+    "file": "huge_generation.json",
+    "accepted": false
+  },
+  {
+    "file": "bool_generation.json",
+    "accepted": false
+  },
+  {
+    "file": "negative_generation.json",
+    "accepted": false
+  },
+  {
+    "file": "empty_text.json",
+    "accepted": false
+  },
+  {
+    "file": "large_utf8.json",
+    "accepted": false
+  },
+  {
+    "file": "numeric_cursor.json",
+    "accepted": false
+  },
+  {
+    "file": "leading_zero_cursor.json",
+    "accepted": false
+  },
+  {
+    "file": "zero_revision.json",
+    "accepted": false
+  },
+  {
+    "file": "unknown_role_field.json",
+    "accepted": false
+  },
+  {
+    "file": "fake_score.json",
+    "accepted": false
+  },
+  {
+    "file": "fake_finalize.json",
+    "accepted": false
+  },
+  {
+    "file": "unknown_envelope.json",
+    "accepted": false
+  },
+  {
+    "file": "bad_next_action.json",
+    "accepted": false
+  },
+  {
+    "file": "missing_calls.json",
+    "accepted": false
+  }
+]

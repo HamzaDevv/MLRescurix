@@ -1,0 +1,15 @@
+CREATE TABLE device(id INTEGER PRIMARY KEY CHECK(id=1), policy TEXT NOT NULL);
+CREATE TABLE projects(id TEXT PRIMARY KEY, revision INTEGER NOT NULL, spec_revision INTEGER NOT NULL, intent_revision INTEGER NOT NULL, intent TEXT NOT NULL, finalization_id TEXT NOT NULL UNIQUE, state TEXT NOT NULL, policy TEXT NOT NULL);
+CREATE TABLE branches(project TEXT NOT NULL REFERENCES projects(id), id TEXT NOT NULL, base_hash TEXT NOT NULL, code_hash TEXT NOT NULL, PRIMARY KEY(project,id));
+CREATE TABLE tasks(project TEXT NOT NULL, id TEXT NOT NULL, branch TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(project,id), FOREIGN KEY(project,branch) REFERENCES branches(project,id));
+CREATE TABLE actions(project TEXT NOT NULL, id TEXT NOT NULL, task TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(project,id), FOREIGN KEY(project,task) REFERENCES tasks(project,id));
+CREATE TABLE reservations(project TEXT NOT NULL, action TEXT NOT NULL, budget TEXT NOT NULL, capacity TEXT NOT NULL, held INTEGER NOT NULL CHECK(held IN(0,1)), PRIMARY KEY(project,action), FOREIGN KEY(project,action) REFERENCES actions(project,id));
+CREATE TABLE charges(project TEXT NOT NULL, action TEXT NOT NULL, amount TEXT NOT NULL, proof TEXT NOT NULL, PRIMARY KEY(project,action), FOREIGN KEY(project,action) REFERENCES actions(project,id));
+CREATE TABLE commands(id TEXT NOT NULL, project TEXT NOT NULL REFERENCES projects(id), request TEXT NOT NULL, receipt TEXT NOT NULL, PRIMARY KEY(project,id));
+CREATE TABLE events(cursor INTEGER PRIMARY KEY AUTOINCREMENT, project TEXT NOT NULL REFERENCES projects(id), kind TEXT NOT NULL, payload TEXT NOT NULL);
+CREATE INDEX event_project ON events(project,cursor);
+CREATE TABLE checkpoints(project TEXT NOT NULL, task TEXT NOT NULL, sequence INTEGER NOT NULL, data TEXT NOT NULL, digest TEXT NOT NULL, PRIMARY KEY(project,task,sequence), FOREIGN KEY(project,task) REFERENCES tasks(project,id));
+CREATE TABLE questions(project TEXT NOT NULL REFERENCES projects(id), id TEXT NOT NULL, text TEXT NOT NULL, answer TEXT, PRIMARY KEY(project,id));
+CREATE TABLE refs(project TEXT NOT NULL REFERENCES projects(id), id TEXT NOT NULL, category TEXT NOT NULL, digest TEXT NOT NULL, PRIMARY KEY(project,id));
+CREATE TABLE timers(project TEXT NOT NULL, id TEXT NOT NULL, task TEXT NOT NULL, generation INTEGER NOT NULL, due_ms INTEGER NOT NULL, expected_revision INTEGER NOT NULL, reason TEXT NOT NULL, status TEXT NOT NULL, delivery_key TEXT NOT NULL UNIQUE, PRIMARY KEY(project,id), FOREIGN KEY(project,task) REFERENCES tasks(project,id));
+PRAGMA user_version=1;

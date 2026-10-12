@@ -1,0 +1,350 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:frame:1",
+  "$defs": {
+    "context": {
+      "type": "object",
+      "properties": {
+        "role_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "[A-Za-z0-9_.:-]+"
+        },
+        "role_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "[A-Za-z0-9_.:-]+"
+        },
+        "prompt_hash": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "[A-Za-z0-9_.:-]+"
+        },
+        "model": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxUtf8Bytes": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "phase": {
+          "type": "string",
+          "minLength": 1,
+          "maxUtf8Bytes": 4096
+        },
+        "hypothesis": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxUtf8Bytes": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "base_hash": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "[A-Za-z0-9_.:-]+"
+        },
+        "code_hash": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "[A-Za-z0-9_.:-]+"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "[A-Za-z0-9_.:-]+"
+          },
+          "maxItems": 64
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "[A-Za-z0-9_.:-]+"
+          },
+          "maxItems": 64
+        },
+        "pending_questions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "[A-Za-z0-9_.:-]+"
+          },
+          "maxItems": 64
+        },
+        "calls": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "[A-Za-z0-9_.:-]+"
+          },
+          "maxItems": 64
+        },
+        "jobs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "[A-Za-z0-9_.:-]+"
+          },
+          "maxItems": 64
+        },
+        "next_action": {
+          "type": "string",
+          "minLength": 1,
+          "maxUtf8Bytes": 4096
+        },
+        "stop_conditions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "[A-Za-z0-9_.:-]+"
+          },
+          "maxItems": 64
+        }
+      },
+      "required": [
+        "role_id",
+        "role_version",
+        "prompt_hash",
+        "model",
+        "phase",
+        "hypothesis",
+        "base_hash",
+        "code_hash",
+        "evidence",
+        "artifacts",
+        "pending_questions",
+        "calls",
+        "jobs",
+        "next_action",
+        "stop_conditions"
+      ],
+      "additionalProperties": false
+    },
+    "checkpoint": {
+      "type": "object",
+      "properties": {
+        "checkpoint_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "[A-Za-z0-9_.:-]+"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "project_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "[A-Za-z0-9_.:-]+"
+        },
+        "branch_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "[A-Za-z0-9_.:-]+"
+        },
+        "task_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "[A-Za-z0-9_.:-]+"
+        },
+        "spec_revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "intent_revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "event_cursor": {
+          "type": "string",
+          "pattern": "0|[1-9][0-9]{0,18}"
+        },
+        "boundary": {
+          "type": "string",
+          "minLength": 1,
+          "maxUtf8Bytes": 4096
+        },
+        "context": {
+          "$ref": "#/$defs/context"
+        }
+      },
+      "required": [
+        "checkpoint_id",
+        "sequence",
+        "project_id",
+        "branch_id",
+        "task_id",
+        "spec_revision",
+        "intent_revision",
+        "generation",
+        "event_cursor",
+        "boundary",
+        "context"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "kind": {
+          "const": "hello"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "protocol": {
+              "const": "mlrescurix/1"
+            },
+            "worker_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "[A-Za-z0-9_.:-]+"
+            }
+          },
+          "required": [
+            "protocol",
+            "worker_id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "version",
+        "kind",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "kind": {
+          "const": "observation"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "project_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "[A-Za-z0-9_.:-]+"
+            },
+            "task_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "[A-Za-z0-9_.:-]+"
+            },
+            "action_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "[A-Za-z0-9_.:-]+"
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "phase": {
+              "type": "string",
+              "minLength": 1,
+              "maxUtf8Bytes": 4096
+            },
+            "detail": {
+              "type": "string",
+              "minLength": 1,
+              "maxUtf8Bytes": 4096
+            }
+          },
+          "required": [
+            "project_id",
+            "task_id",
+            "action_id",
+            "generation",
+            "phase",
+            "detail"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "version",
+        "kind",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "kind": {
+          "const": "checkpoint"
+        },
+        "payload": {
+          "$ref": "#/$defs/checkpoint"
+        }
+      },
+      "required": [
+        "version",
+        "kind",
+        "payload"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

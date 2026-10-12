@@ -1,0 +1,30 @@
+# Legacy reference material. Never commit or import the previous application.
+/MLForge/
+/Redesigning.md
+
+# Build and test output
+/target/
+/build/
+/dist/
+*.egg-info/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Runtime state, databases, environments, and artifacts
+/.mlrescurix-state/
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+/.venv/
+/python/.venv/
+/.env
+.env.*
+
+# Local editor and operating system files
+.DS_Store
+.idea/
+.vscode/
