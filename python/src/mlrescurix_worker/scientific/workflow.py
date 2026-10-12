@@ -19,6 +19,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from mlrescurix_worker.search.adapter import normalize_parameters
+
 import joblib
 import numpy as np
 import pandas as pd
@@ -246,7 +248,8 @@ def audit_csv(csv_path: str | Path, spec: ProjectSpec | dict[str, Any], output_d
     return manifest
 
 
-def _pipeline(frame: pd.DataFrame, features: list[str], task: str, recipe: str, seed: int) -> Pipeline:
+def _pipeline(frame: pd.DataFrame, features: list[str], task: str, recipe: str, seed: int, params: dict[str, Any] | None = None) -> Pipeline:
+    p = normalize_parameters(recipe, task, params or {}) if params else {}
     numeric = [c for c in features if pd.api.types.is_numeric_dtype(frame[c].dtype)]
     categorical = [c for c in features if c not in numeric]
     transformers = []
@@ -264,9 +267,33 @@ def _pipeline(frame: pd.DataFrame, features: list[str], task: str, recipe: str, 
     preprocess = ColumnTransformer(transformers, remainder="drop", sparse_threshold=0.3,
                                    verbose_feature_names_out=False)
     if task == "regression":
-        estimator = DummyRegressor(strategy="median") if recipe == "dummy" else Ridge(alpha=1.0) if recipe == "linear" else RandomForestRegressor(n_estimators=64, max_depth=12, min_samples_leaf=2, n_jobs=1, random_state=seed)
+        if recipe == "dummy":
+            estimator = DummyRegressor(strategy="median")
+        elif recipe == "linear":
+            estimator = Ridge(alpha=p.get("alpha", 1.0), random_state=seed)
+        else:
+            estimator = RandomForestRegressor(
+                n_estimators=p.get("n_estimators", 64),
+                max_depth=p.get("max_depth", 12),
+                min_samples_leaf=p.get("min_samples_leaf", 2),
+                max_features=p.get("max_features", 1.0),
+                n_jobs=1,
+                random_state=seed,
+            )
     else:
-        estimator = DummyClassifier(strategy="prior") if recipe == "dummy" else LogisticRegression(max_iter=500, C=1.0, random_state=seed, n_jobs=1) if recipe == "linear" else RandomForestClassifier(n_estimators=64, max_depth=12, min_samples_leaf=2, n_jobs=1, random_state=seed)
+        if recipe == "dummy":
+            estimator = DummyClassifier(strategy="prior")
+        elif recipe == "linear":
+            estimator = LogisticRegression(max_iter=500, C=p.get("C", 1.0), random_state=seed, n_jobs=1)
+        else:
+            estimator = RandomForestClassifier(
+                n_estimators=p.get("n_estimators", 64),
+                max_depth=p.get("max_depth", 12),
+                min_samples_leaf=p.get("min_samples_leaf", 2),
+                max_features=p.get("max_features", 1.0),
+                n_jobs=1,
+                random_state=seed,
+            )
     return Pipeline([("preprocess", preprocess), ("model", estimator)])
 
 
@@ -303,7 +330,7 @@ def fit_trial_worker(spec_path: str | Path, output_dir: str | Path) -> dict[str,
     x_predict = predict_frame.drop(columns=["__mlr_row_id"])
     if list(x_predict.columns) != features:
         raise WorkflowError("worker feature schema mismatch")
-    model = _pipeline(train, features, spec["task"], spec["recipe"], spec["seed"])
+    model = _pipeline(train, features, spec["task"], spec["recipe"], spec["seed"], params=spec.get("parameters"))
     start = time.perf_counter()
     model.fit(train.loc[:, features], train[spec["target"]].to_numpy())
     elapsed_ms = (time.perf_counter() - start) * 1000
@@ -336,7 +363,8 @@ def predict_trial_worker(spec_path: str | Path, output_dir: str | Path) -> dict[
 
 def _run_isolated_fit(root: Path, frame: pd.DataFrame, features: list[str], target: str,
                       task: str, recipe: str, seed: int, train_ids: list[int],
-                      predict_ids: list[int], artifact_name: str | None = None) -> tuple[dict[str, Any], Path]:
+                      predict_ids: list[int], artifact_name: str | None = None,
+                      params: dict[str, Any] | None = None) -> tuple[dict[str, Any], Path]:
     with tempfile.TemporaryDirectory(prefix="m2-fit-", dir=root) as scratch_name:
         scratch = Path(scratch_name)
         train = frame.iloc[train_ids].loc[:, features + [target]]
@@ -345,7 +373,8 @@ def _run_isolated_fit(root: Path, frame: pd.DataFrame, features: list[str], targ
         train.to_csv(scratch / "train.csv", index=False)
         predict.to_csv(scratch / "predict.csv", index=False)
         _atomic_json(scratch / "worker-spec.json", {"features": features, "target": target,
-                      "task": task, "recipe": recipe, "seed": seed, "row_ids": predict_ids})
+                      "task": task, "recipe": recipe, "seed": seed, "row_ids": predict_ids,
+                      "parameters": params})
         env = {key: value for key, value in os.environ.items()
                if key in {"PATH", "PYTHONPATH", "TMPDIR", "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS",
                           "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS"}}
@@ -359,6 +388,7 @@ def _run_isolated_fit(root: Path, frame: pd.DataFrame, features: list[str], targ
         result = json.loads((scratch / "predictions.json").read_text())
         _validate_worker_prediction(result, predict_ids, task)
         candidate = root / (artifact_name or f"{recipe}.joblib")
+        candidate.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(scratch / "candidate.joblib", candidate)
         result["model_sha256"] = _sha256(candidate)
         return result, candidate
@@ -442,6 +472,150 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def _get_fidelity_train_ids(manifest: dict[str, Any], frame: pd.DataFrame, fidelity: float, seed: int = SEED) -> list[int]:
+    full_ids = manifest["splits"]["train"]
+    if fidelity >= 1.0:
+        return full_ids
+    if fidelity <= 0.0 or fidelity > 1.0:
+        raise WorkflowError("fidelity must be in (0, 1]")
+    policy = manifest.get("split_policy", "random")
+    target = manifest["target"]
+    y = frame[target].to_numpy()
+    n = max(1, int(round(len(full_ids) * fidelity)))
+    if policy == "stratified":
+        y_train = y[full_ids]
+        class_counts = {c: int((y_train == c).sum()) for c in np.unique(y_train)}
+        if any(cnt < 2 for cnt in class_counts.values()):
+            raise WorkflowError("infeasible screening protocol: insufficient class counts for stratification")
+        try:
+            subset, _ = train_test_split(full_ids, train_size=fidelity, random_state=seed, stratify=y_train)
+        except ValueError as exc:
+            raise WorkflowError(f"infeasible screening protocol: {exc}") from exc
+        y_subset = y[subset]
+        if len(np.unique(y_subset)) < len(class_counts):
+            raise WorkflowError("infeasible screening protocol: subset missing observed class")
+        return sorted(subset)
+    elif policy == "chronological":
+        subset = full_ids[:n]
+        if manifest.get("task") != "regression":
+            observed_classes = set(y[full_ids])
+            if set(y[subset]) != observed_classes:
+                raise WorkflowError("infeasible screening protocol: chronological screening missing class")
+        return subset
+    elif policy == "grouped":
+        group_col = manifest["spec"].get("group_column")
+        if not group_col or group_col not in frame:
+            raise WorkflowError("grouped split requires group_column in dataset")
+        groups = frame.iloc[full_ids][group_col].to_numpy()
+        gss = GroupShuffleSplit(n_splits=1, train_size=fidelity, random_state=seed)
+        try:
+            sub_idx, _ = next(gss.split(full_ids, y[full_ids], groups))
+            subset = [full_ids[i] for i in sub_idx]
+        except Exception as exc:
+            raise WorkflowError(f"infeasible screening protocol: {exc}") from exc
+        if len(subset) < 2:
+            raise WorkflowError("infeasible screening protocol: grouped subset has fewer than 2 rows")
+        return subset
+    else:
+        subset, _ = train_test_split(full_ids, train_size=fidelity, random_state=seed)
+        if manifest.get("task") != "regression":
+            observed_classes = set(y[full_ids])
+            if set(y[subset]) != observed_classes:
+                raise WorkflowError("infeasible screening protocol: random screening missing class")
+        return sorted(subset)
+
+
+def run_trial(output_dir: str | Path, experiment_spec: dict[str, Any]) -> dict[str, Any]:
+    """Execute a single bounded trial under the declared multi-fidelity search protocol."""
+    root = Path(output_dir)
+    manifest = json.loads((root / "dataset_manifest.json").read_text())
+    spec = _normal_spec(manifest["spec"])
+    snapshot, digest = _read_csv(root / "dataset.csv")
+    if digest != manifest["sha256"]:
+        raise WorkflowError("dataset snapshot fingerprint changed")
+    features, target = manifest["features"], manifest["target"]
+    y = snapshot[target].to_numpy()
+
+    exp_id = str(experiment_spec["experiment_id"])
+    recipe = str(experiment_spec["recipe"])
+    seed = int(experiment_spec.get("seed", SEED))
+    fidelity = float(experiment_spec.get("fidelity", 1.0))
+    params = normalize_parameters(recipe, spec.task, experiment_spec.get("parameters", {}))
+    session_id = str(experiment_spec.get("session_id", "default"))
+    node_type = str(experiment_spec.get("node_type", "screening" if fidelity < 1.0 else "full_fidelity"))
+    parent_id = experiment_spec.get("parent_experiment_id")
+
+    train_ids = _get_fidelity_train_ids(manifest, snapshot, fidelity, seed)
+    val_ids = manifest["splits"]["validation"]
+
+    trial_dir = root / "trials" / exp_id
+    trial_dir.mkdir(parents=True, exist_ok=True)
+    artifact_rel = f"trials/{exp_id}/candidate.joblib"
+
+    predicted, candidate_path = _run_isolated_fit(
+        root, snapshot, features, target, spec.task, recipe, seed, train_ids, val_ids,
+        params=params, artifact_name=artifact_rel,
+    )
+    train_ms = predicted.pop("train_ms")
+    scores = _score(y[val_ids], predicted, spec.task)
+    pred_path = trial_dir / "predictions.json"
+    _atomic_json(pred_path, {"row_ids": val_ids, "class_order": predicted.get("classes"), **predicted})
+
+    # Measure development inference latency on validation sample
+    model = joblib.load(candidate_path)
+    development = snapshot.iloc[val_ids].loc[:, features]
+    sample = development.iloc[: min(spec.inference_batch_size, len(development))]
+    timings = []
+    for _ in range(spec.inference_repetitions):
+        start = time.perf_counter_ns()
+        model.predict(sample)
+        timings.append((time.perf_counter_ns() - start) / 1e6)
+    warm_p95_ms = float(np.percentile(timings, 95))
+    model_size = candidate_path.stat().st_size
+
+    latency_pass = (spec.max_latency_ms is None or warm_p95_ms <= spec.max_latency_ms)
+    size_pass = (spec.max_bundle_bytes is None or model_size <= spec.max_bundle_bytes)
+    is_feasible = bool(latency_pass and size_pass)
+
+    constraints = {
+        "inference_latency_ms": {
+            "threshold": spec.max_latency_ms,
+            "value": warm_p95_ms,
+            "verdict": "pass" if latency_pass else "fail",
+            "enforcement": "measured",
+        },
+        "model_bytes": {
+            "threshold": None,
+            "value": model_size,
+            "verdict": "pass",
+            "enforcement": "measured",
+        },
+        "memory": {"threshold": None, "value": None, "verdict": "unknown", "enforcement": "unsupported"},
+    }
+
+    trial_record = {
+        "experiment_id": exp_id,
+        "session_id": session_id,
+        "recipe": recipe,
+        "parameters": params,
+        "fidelity": fidelity,
+        "seed": seed,
+        "node_type": node_type,
+        "parent_experiment_id": parent_id,
+        "status": "evaluated" if is_feasible else "infeasible",
+        "primary_metric": scores[spec.metric],
+        "metrics": scores,
+        "constraints": constraints,
+        "is_feasible": is_feasible,
+        "train_ms": train_ms,
+        "model_sha256": _sha256(candidate_path),
+        "predictions_sha256": _sha256(pred_path),
+        "artifact_path": f"trials/{exp_id}/trial.json",
+    }
+    _atomic_json(trial_dir / "trial.json", trial_record)
+    return trial_record
+
+
 def finalize_candidate(output_dir: str | Path, candidate_id: str, *, test_access_id: str) -> dict[str, Any]:
     """Refit one frozen recipe and consume the single test gate before scoring."""
     root = Path(output_dir)
@@ -449,8 +623,13 @@ def finalize_candidate(output_dir: str | Path, candidate_id: str, *, test_access
         raise WorkflowError("test_access_id is required")
     gate_path = root / "test_access.json"
     results = json.loads((root / "results.json").read_text())
-    candidate = next((x for x in results["candidates"] if x["candidate_id"] == candidate_id), None)
-    if candidate is None or candidate["status"] != "evaluated":
+    candidate = next((x for x in results.get("candidates", []) if x["candidate_id"] == candidate_id), None)
+    if candidate is None:
+        trial_file = root / "trials" / candidate_id / "trial.json"
+        if trial_file.exists():
+            candidate = json.loads(trial_file.read_text())
+            candidate["candidate_id"] = candidate_id
+    if candidate is None or candidate.get("status") not in {"evaluated", "verified_development_only"}:
         raise WorkflowError("candidate is not eligible for finalization")
     manifest = json.loads((root / "dataset_manifest.json").read_text())
     spec = _normal_spec(manifest["spec"])
@@ -458,7 +637,6 @@ def finalize_candidate(output_dir: str | Path, candidate_id: str, *, test_access
     if digest != manifest["sha256"]:
         raise WorkflowError("dataset fingerprint changed")
     frozen_path = root / "frozen_model.joblib"
-    # A prior reserved gate can resume only for the identical frozen artifact and key.
     if gate_path.exists():
         old = json.loads(gate_path.read_text())
         if old.get("test_access_id") != test_access_id:
@@ -485,8 +663,10 @@ def finalize_candidate(output_dir: str | Path, candidate_id: str, *, test_access
         else:
             _atomic_json(freeze_path, freeze)
         trainval = manifest["splits"]["train"] + manifest["splits"]["validation"]
+        candidate_params = candidate.get("parameters")
         _, refit_path = _run_isolated_fit(root, snapshot, manifest["features"], spec.target, spec.task,
                                           candidate["recipe"], SEED, trainval, manifest["splits"]["validation"],
+                                          params=candidate_params,
                                           artifact_name="frozen-refit.joblib")
         shutil.copy2(refit_path, frozen_path)
         model = joblib.load(frozen_path)
@@ -506,13 +686,48 @@ def finalize_candidate(output_dir: str | Path, candidate_id: str, *, test_access
                    "warm_p99_ms": float(np.percentile(timings, 99)),
                    "rows_per_second": float(len(sample) / (np.median(timings) / 1000)) if np.median(timings) > 0 else None,
                    "measurement": "development raw-input features; perf_counter_ns; no competing harness work"}
+
+        # Measure complete bundle bytes via staging before test gate access
+        stage_dir = root / ".bundle_stage"
+        if stage_dir.exists():
+            shutil.rmtree(stage_dir)
+        stage_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(frozen_path, stage_dir / "frozen_model.joblib")
+        (stage_dir / "inference.py").write_text(_inference_source())
+        (stage_dir / "inference.lock").write_text(f"numpy=={np.__version__}\npandas=={pd.__version__}\nscipy=={__import__('scipy').__version__}\nscikit-learn=={sklearn.__version__}\njoblib=={joblib.__version__}\n")
+        _atomic_json(stage_dir / "input_schema.json", {"format": "mlrescurix.input-schema.v1", "features": manifest["features"], "target": spec.target, "task": spec.task, "label_order": manifest["labels"]})
+        (stage_dir / "README.md").write_text("MLRescurix verified development bundle\n")
+        staged_training = stage_dir / "training"
+        (staged_training / "source").mkdir(parents=True, exist_ok=True)
+        (staged_training / "source" / "workflow.py").write_text(Path(__file__).read_text())
+        _atomic_json(staged_training / "recipe.json", {"candidate_id": candidate_id, "recipe": candidate["recipe"], "parameters": candidate_params, "task": spec.task, "metric": spec.metric, "seed": SEED, "features": manifest["features"], "dependency_lock": "../inference.lock", "dataset_sha256": digest})
+        ex_rows = snapshot.iloc[manifest["splits"]["validation"]].loc[:, manifest["features"]].head(5)
+        _atomic_json(stage_dir / "examples_input.json", ex_rows.to_dict(orient="records"))
+        _atomic_json(stage_dir / "examples_expected.json", _predict(model, ex_rows, manifest["features"], spec.task))
+        _atomic_json(stage_dir / "scorecard.json", {"template": True})
+        _atomic_json(stage_dir / "verification.json", {"template": True})
+        _atomic_json(stage_dir / "final.json", {"template": True})
+        _atomic_json(stage_dir / "manifest.json", {"template": True})
+        if (root / "lineage.json").exists():
+            shutil.copy2(root / "lineage.json", stage_dir / "lineage.json")
+
+        staged_files = [p for p in stage_dir.rglob("*") if p.is_file()]
+        bundle_bytes = sum(p.stat().st_size for p in staged_files)
+        shutil.rmtree(stage_dir)
+
+        latency_pass = (spec.max_latency_ms is None or latency["warm_p95_ms"] <= spec.max_latency_ms)
+        bundle_pass = (spec.max_bundle_bytes is None or bundle_bytes <= spec.max_bundle_bytes)
+
         constraints = {
             "inference_latency_ms": {"threshold": spec.max_latency_ms, "value": latency["warm_p95_ms"],
-                                     "verdict": "pass" if spec.max_latency_ms is None or latency["warm_p95_ms"] <= spec.max_latency_ms else "fail",
+                                     "verdict": "pass" if latency_pass else "fail",
                                      "enforcement": "measured"},
-            "model_bytes": {"threshold": spec.max_bundle_bytes, "value": frozen_path.stat().st_size,
-                            "verdict": "pass" if spec.max_bundle_bytes is None or frozen_path.stat().st_size <= spec.max_bundle_bytes else "fail",
+            "model_bytes": {"threshold": None, "value": frozen_path.stat().st_size,
+                            "verdict": "pass",
                             "enforcement": "measured"},
+            "bundle_bytes": {"threshold": spec.max_bundle_bytes, "value": bundle_bytes,
+                             "verdict": "pass" if bundle_pass else "fail",
+                             "enforcement": "measured"},
             "memory": {"threshold": None, "value": None, "verdict": "unknown", "enforcement": "unsupported"},
         }
         if any(v["verdict"] == "fail" for v in constraints.values()):
@@ -545,11 +760,34 @@ def finalize_candidate(output_dir: str | Path, candidate_id: str, *, test_access
     schema = {"format": "mlrescurix.input-schema.v1", "features": manifest["features"], "target": spec.target,
               "task": spec.task, "label_order": manifest["labels"], "unknown_categories": "ignored by fitted one-hot encoder"}
     _atomic_json(root / "input_schema.json", schema)
-    _atomic_json(root / "scorecard.json", {"project_id": spec.project_id, "candidate_id": candidate_id,
-                  "dataset_sha256": digest, "validation_metrics": candidate["metrics"],
-                  "final_test_metrics": metrics, "primary_metric": spec.metric, "direction": results["direction"],
-                  "inference": latency, "constraints": constraints, "resource_limits": {"memory_quota": "unsupported"},
-                  "versions": {"python": platform.python_version(), "scikit_learn": sklearn.__version__}})
+
+    search_lineage = None
+    selection_file = root / "selection.json"
+    if selection_file.exists():
+        try:
+            search_lineage = json.loads(selection_file.read_text())
+        except Exception:
+            pass
+
+    scorecard_data = {
+        "project_id": spec.project_id,
+        "candidate_id": candidate_id,
+        "dataset_sha256": digest,
+        "validation_metrics": candidate.get("metrics"),
+        "final_test_metrics": metrics,
+        "primary_metric": spec.metric,
+        "direction": results.get("direction", "maximize"),
+        "inference": latency,
+        "constraints": constraints,
+        "resource_limits": {"memory_quota": "unsupported"},
+        "versions": {"python": platform.python_version(), "scikit_learn": sklearn.__version__},
+    }
+    if search_lineage:
+        scorecard_data["search_lineage"] = search_lineage.get("lineage", search_lineage)
+        scorecard_data["repeats"] = search_lineage.get("repeats")
+        scorecard_data["selection_rationale"] = search_lineage.get("rationale")
+
+    _atomic_json(root / "scorecard.json", scorecard_data)
     _atomic_json(root / "verification.json", {"frozen_model_sha256": frozen_hash, "bundle_candidate": candidate_id,
                     "dataset_sha256": digest, "test_access_id": test_access_id, "raw_input_api": "predict(records)"})
     final = {"status": "verified_development_only", "candidate_id": candidate_id, "test_metrics": metrics,
@@ -567,12 +805,15 @@ def finalize_candidate(output_dir: str | Path, candidate_id: str, *, test_access
     (training / "source").mkdir(parents=True, exist_ok=True)
     (training / "source" / "workflow.py").write_text(Path(__file__).read_text())
     _atomic_json(training / "recipe.json", {"candidate_id": candidate_id, "recipe": candidate["recipe"],
+                  "parameters": candidate.get("parameters"),
                   "task": spec.task, "metric": spec.metric, "seed": SEED, "features": manifest["features"],
                   "dependency_lock": "../inference.lock", "dataset_sha256": digest})
     example_rows = snapshot.iloc[manifest["splits"]["validation"]].loc[:, manifest["features"]].head(5)
     example_prediction = _predict(model, example_rows, manifest["features"], spec.task)
     _atomic_json(bundle / "examples_input.json", example_rows.to_dict(orient="records"))
     _atomic_json(bundle / "examples_expected.json", example_prediction)
+    if (root / "lineage.json").exists():
+        shutil.copy2(root / "lineage.json", bundle / "lineage.json")
     files = sorted(p for p in bundle.rglob("*") if p.is_file() and p.name != "manifest.json")
     _atomic_json(bundle / "manifest.json", {"format": "mlrescurix.bundle.v1", "project_id": spec.project_id,
                   "candidate_id": candidate_id, "files": {p.relative_to(bundle).as_posix():

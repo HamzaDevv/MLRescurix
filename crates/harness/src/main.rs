@@ -1,5 +1,5 @@
 use clap::{Parser,Subcommand};
-use mlrescurix_harness::{Runtime,Policy,Request,contracts::{decode_frame,MAX_FRAME},execution::{self,JobSpec,Supervisor}};
+use mlrescurix_harness::{Runtime,Policy,Request,contracts::{decode_frame,MAX_FRAME},execution::{self,JobSpec,Supervisor},search};
 use std::{path::PathBuf,io::Read};
 #[derive(Parser)]
 #[command(version,about="MLRescurix durable local harness")]
@@ -19,6 +19,10 @@ enum Command {
     CreateEnvironment { #[arg(long)] state:PathBuf, #[arg(long)] id:String, #[arg(long)] python:PathBuf },
     RemoveEnvironment { #[arg(long)] state:PathBuf, #[arg(long)] id:String },
     InstallScientificProfile { #[arg(long)] state:PathBuf, #[arg(long)] id:String },
+    InstallSearchProfile { #[arg(long)] state:PathBuf, #[arg(long)] id:String },
+    SearchInit { #[arg(long)] state:PathBuf, #[arg(long)] spec:PathBuf },
+    SearchInspect { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] session:String },
+    SearchRun { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] session:String, #[arg(long)] task:String, #[arg(long)] generation:u64, #[arg(long)] environment:Option<String> },
     PinArtifact { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] job:String, #[arg(long,default_value_t=true)] pinned:bool },
     CollectArtifacts { #[arg(long)] state:PathBuf },
     SetProjectWeight { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] weight:u8 },
@@ -46,6 +50,13 @@ async fn run()->Result<(),String>{
         Command::CreateEnvironment{state,id,python}=>print(execution::create_environment(&state,&id,&python)?),
         Command::RemoveEnvironment{state,id}=>{execution::remove_environment(&state,&id)?;print(serde_json::json!({"id":id,"removed":true}))},
         Command::InstallScientificProfile{state,id}=>print(execution::install_scientific_profile(&state,&id)?),
+        Command::InstallSearchProfile{state,id}=>print(execution::install_search_profile(&state,&id)?),
+        Command::SearchInit{state,spec}=>{let s:search::SearchSpec=serde_json::from_slice(&read(&spec)?).map_err(|e|e.to_string())?;print(search::init_search(&state,s)?)},
+        Command::SearchInspect{state,project,session}=>print(search::inspect_search(&state,&project,&session)?),
+        Command::SearchRun{state,project,session,task,generation,environment}=>{
+            let mut sup=Supervisor::start(&state,1)?;
+            print(search::execute_search(&state,&project,&session,&task,generation,&mut sup,environment.as_deref())?)
+        },
         Command::PinArtifact{state,project,job,pinned}=>{execution::pin_artifact(&state,&project,&job,pinned)?;print(serde_json::json!({"project":project,"job":job,"pinned":pinned}))},
         Command::CollectArtifacts{state}=>print(serde_json::json!({"reclaimed_bytes":execution::collect_artifacts(&state)?})),
         Command::SetProjectWeight{state,project,weight}=>{execution::set_project_weight(&state,&project,weight)?;print(serde_json::json!({"project":project,"weight":weight}))},
@@ -61,7 +72,7 @@ async fn run()->Result<(),String>{
             if status.success(){Ok(())}else{Err(format!("dashboard exited with {status}"))}
         },
         Command::Worker{spec,output}=>{let result=execution::worker(&spec,&output)?;if result==0 {Ok(())} else {std::process::exit(result)}}
-        Command::Capabilities=>print(serde_json::json!({"phase":"M1","protocol":"mlrescurix/1","os":std::env::consts::OS,"arch":std::env::consts::ARCH,"writer_queue":64,"frame_bytes":MAX_FRAME,"trusted_probe_execution":cfg!(target_os="macos"),"scientific_execution":false,"official_evaluation":false,"resource_enforcement":{"worker_count":"enforced","thread_pool_environment_hints":"applied; library dependent","memory":"RSS sampled; quota unsupported","disk":"free-space admission and bounded outputs","cpu":"best-effort process sample"},"providers":false})),
+        Command::Capabilities=>print(serde_json::json!({"phase":"M3","protocol":"mlrescurix/1","os":std::env::consts::OS,"arch":std::env::consts::ARCH,"writer_queue":64,"frame_bytes":MAX_FRAME,"trusted_probe_execution":cfg!(target_os="macos"),"scientific_execution":true,"official_evaluation":true,"constrained_search":true,"resumable_search":true,"resource_enforcement":{"worker_count":"enforced","thread_pool_environment_hints":"applied; library dependent","memory":"RSS sampled; quota unsupported","disk":"free-space admission and bounded outputs","cpu":"best-effort process sample"},"providers":false})),
     }).await.map_err(|e|e.to_string())?
 }
 #[tokio::main(flavor="current_thread")]

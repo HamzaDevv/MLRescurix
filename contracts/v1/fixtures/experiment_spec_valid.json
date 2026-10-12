@@ -1,0 +1,13 @@
+{
+  "experiment_id": "exp-linear-screening-1",
+  "session_id": "search-1",
+  "project_id": "project-1",
+  "recipe": "linear",
+  "parameters": {
+    "C": 0.5
+  },
+  "seed": 2026,
+  "fidelity": 0.5,
+  "parent_experiment_id": null,
+  "node_type": "screening"
+}

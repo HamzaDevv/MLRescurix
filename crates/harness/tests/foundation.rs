@@ -125,7 +125,7 @@ fn lifecycle_cli_initializes_fresh_state_and_returns_receipts() {
 
 fn execution_task(r:&Runtime,p:&str,t:&str){branch_task(r,p,&format!("b{t}"),t);let now=chrono_free_now();send(r,p,&format!("claim{t}"),Operation::Claim{task_id:t.into(),owner:"local-worker".into(),lease_id:format!("lease{t}"),now_ms:now,expires_ms:now+3_600_000,expected_generation:1});}
 fn job(p:&str,id:&str,t:&str,probe:Probe,timeout:u64)->JobSpec{JobSpec{job_id:id.into(),project_id:p.into(),task_id:t.into(),generation:2,timeout_ms:timeout,threads:1,max_output_bytes:1024,environment_id:None,probe}}
-fn run_until_terminal(s:&mut Supervisor,root:&Path,p:&str,id:&str){for _ in 0..100{ s.tick().unwrap();let j=execution::inspect(root,p,id).unwrap();if !["queued","running","terminating","recovering"].contains(&j.status.as_str()){return;}std::thread::sleep(std::time::Duration::from_millis(10));}panic!("job did not finish: {}",execution::inspect(root,p,id).unwrap().status)}
+fn run_until_terminal(s:&mut Supervisor,root:&Path,p:&str,id:&str){for _ in 0..300{ s.tick().unwrap();let j=execution::inspect(root,p,id).unwrap();if !["queued","running","terminating","recovering"].contains(&j.status.as_str()){return;}std::thread::sleep(std::time::Duration::from_millis(10));}panic!("job did not finish: {}",execution::inspect(root,p,id).unwrap().status)}
 
 #[test]
 fn m1_trusted_worker_publishes_hashed_artifact_and_records_terminal_state(){

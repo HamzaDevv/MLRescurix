@@ -1,0 +1,22 @@
+{
+  "session_id": "search-1",
+  "project_id": "project-1",
+  "dataset_id": "dataset-1",
+  "target": "target",
+  "task": "binary_classification",
+  "metric": "balanced_accuracy",
+  "direction": "maximize",
+  "split": "stratified",
+  "fidelities": [0.5, 1.0],
+  "recipes": ["linear", "tree"],
+  "max_trials": 20,
+  "max_screen_trials": 10,
+  "max_full_trials": 6,
+  "search_wall_ms": 120000,
+  "job_timeout_ms": 30000,
+  "finalization_allowance_ms": 24000,
+  "max_repeats": 3,
+  "tie_tolerance": 0.005,
+  "concurrency": 1,
+  "max_retries": 2
+}

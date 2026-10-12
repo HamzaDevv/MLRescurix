@@ -468,3 +468,40 @@ worker is trusted, not an adversarial sandbox. macOS does not provide the
 configured hard memory quota; memory limits required by a project block
 certification. Cold-load timing, repeated-seed uncertainty, and external-host
 certification are not supplied. These facts remain visible in the scorecard.
+
+At the M2 milestone boundary, M3 requires its own proposal and explicit approval.
+
+## 19. M3 constrained, resumable search (implemented)
+
+M3 establishes bounded, resumable exploration of finite allowlisted recipe configurations on development data, recovery of interrupted search without losing budgets or duplicating work, and selection of a feasible development champion (Apex) from comparable official evidence.
+
+Search operates strictly on the development split (train + validation); the final test partition remains a one-time sealed gate accessible only during explicit finalization. The workflow follows:
+`register → audit → baselines → bounded search → confirm finalists → select development Apex → explicit finalize → bundle`
+
+### Core architecture and invariants
+
+1. **Parameterized recipes & allowlisted bounds:**
+   Only existing linear (`logistic_regression`, `ridge`) and random forest (`random_forest_classification`, `random_forest_regression`) families are tuned. Dummy baselines remain fixed references. All parameters are constrained to explicit versioned bounds (e.g., linear regularization in $[0.001, 1000.0]$, forest estimators in $[16, 128]$, max depth $[2, 20]$, min samples leaf $[1, 20]$, max features $[0.2, 1.0]$). Unknown or invalid parameters are rejected deterministically. Single-thread execution (`n_jobs=1`, `OMP_NUM_THREADS=1`) is preserved.
+
+2. **Rust-owned session ledger & experiment DAG:**
+   SQLite schema v4 (`crates/harness/src/schema_m3.sql`) records `search_sessions`, `experiment_dag`, `optimizer_trials`, `experiment_attempts`, and `trial_results`. Rust owns experiment identity hashing (dataset hash, split fingerprint, recipe, normalized parameters, environment lock identity, seed, fidelity). Retries are attempts of the same experiment node; promotions and explicit repeats are separate DAG nodes. Every trial writes an immutable per-trial output (`trials/<exp_id>/trial.json`).
+
+3. **Managed Optuna sidecar behind replaceable adapter:**
+   Optuna 5.0.0 is managed behind an ask/tell adapter (`python/src/mlrescurix_worker/search/adapter.py`). Optuna suggests parameters and logs committed scores. Rust alone admits execution, tracks budget reservations/charges, and determines official scores. Separate optimizer studies are maintained per fidelity protocol. If Optuna is not installed in the environment, an offline deterministic fallback optimizer operates transparently without external dependencies.
+
+4. **Bounded multi-fidelity screening:**
+   Default screening fidelity runs at 50% training rows (`fidelity = 0.5`), followed by full evaluation at 100% rows (`fidelity = 1.0`). Validation partition remains identical and untouched across fidelities. Row subsets preserve stratified, chronological, or grouped semantics. Screening metrics are intermediate signals used only for pruning; screening trials are explicitly barred from qualifying for Apex.
+
+5. **Finalist confirmation and tie tolerance:**
+   Up to two top full-fidelity configurations and the strongest feasible baseline are confirmed across identical declared estimator seeds (`[2026, 2027, 2028]`). Selection computes the mean primary validation metric with correct maximize/minimize direction. A configurable practical tie tolerance (`0.005`) breaks ties on development warm latency, then complete bundle size, then canonical experiment ID.
+
+6. **Budgets, admission, and crash recovery:**
+   Search sessions enforce finite proposal caps, trial caps, retry caps, and wall-clock budgets. A wall budget guard protects at least 20% of project wall budget (or `finalization_allowance_ms`) for finalization. If remaining time falls below this threshold, search admission ceases cleanly and yields `provisional_budget_exhausted`. Rust reconciles crashes around ask, dispatch, result commit, and tell. Stored receipts prevent duplicate execution of identical parameter configurations.
+
+7. **Feasibility and complete bundle sizing:**
+   Development inference latency and candidate size constraints are verified prior to Apex selection. In finalization, candidate parameters are refitted on train+val, staged in a complete deployment bundle (`.bundle_stage`), and measured against `max_bundle_bytes` before accessing the final test gate. Infeasible candidates yield `provisional_infeasible` without consuming the test gate.
+
+8. **Dashboard & GC protection:**
+   The loopback dashboard displays committed search sessions, trials by fidelity, feasibility reasons, finalist seeds, and DAG links. Garbage collection protects active dependencies, retained evidence, selected candidates, and final delivery bundles.
+
+**Acceptance evidence:** M3 test suite (`crates/harness/tests/search_m3.rs`) exercises allowlisted parameter boundaries and invalid parameter rejection; deterministic experiment identity hashing and proposal deduplication; wall budget guard enforcement; phase reporting and capability advertisement; tie-breaking on latency, size, and stable ID; infeasible trial rejection; minimize direction ranking; and complete end-to-end `audit -> baselines -> search -> confirm -> select Apex -> finalize -> bundle verification`.

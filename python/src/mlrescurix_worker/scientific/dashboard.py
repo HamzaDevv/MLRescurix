@@ -32,18 +32,46 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere}.muted{color:#657487}table{borde
 <section id="app" hidden><label>Project ID <input id="project" value="project-1"></label><button onclick="refresh()">Refresh</button>
 <button onclick="command('paused')">Pause</button><button onclick="command('created')">Resume</button><button onclick="command('cancelled')">Cancel project</button>
 <a id="download" hidden>Download verified bundle</a>
-<p id="state" class="muted"></p><h2>Committed jobs and candidates</h2><pre id="jobs">Waiting for project state</pre><h2>Events</h2><pre id="events"></pre><h2>Recent command receipt</h2><pre id="receipt">No command sent</pre></section>
+<p id="state" class="muted"></p>
+<div id="search-section"></div>
+<h2>Committed jobs and candidates</h2><pre id="jobs">Waiting for project state</pre><h2>Events</h2><pre id="events"></pre><h2>Recent command receipt</h2><pre id="receipt">No command sent</pre></section>
 <script>
 const $=x=>document.getElementById(x);let source=null,revision=null,lastCursor='0';
+function renderSearch(s){
+    let div=$('search-section');
+    if(!s.search_sessions||!s.search_sessions.length){
+        div.innerHTML='<h3>Search &amp; DAG</h3><p class="muted">No search session committed for this project.</p>';
+        return;
+    }
+    let html='<h3>Search Sessions &amp; Multi-Fidelity DAG</h3>';
+    for(let sess of s.search_sessions){
+        html+='<div style="background:#fff;border:1px solid #cbd5e1;border-radius:6px;padding:0.75rem;margin-bottom:0.75rem">';
+        html+='<strong>Session:</strong> '+sess.session_id+' · <strong>Status:</strong> '+sess.status+' · <strong>Apex:</strong> '+(sess.apex_candidate_id||'None')+'<br>';
+        if(sess.selection_record){
+            html+='<strong>Rationale:</strong> '+sess.selection_record.rationale+'<br>';
+        }
+        let dag=(s.experiment_dag||[]).filter(d=>d.session_id===sess.session_id);
+        if(dag.length){
+            html+='<table style="margin-top:0.5rem;font-size:13px"><thead><tr><th>Node ID</th><th>Recipe</th><th>Fidelity</th><th>Seed</th><th>Type</th><th>Parent</th><th>Status</th><th>Primary</th><th>Feasible</th><th>Constraints</th></tr></thead><tbody>';
+            for(let node of dag){
+                let cStr=node.constraints?JSON.stringify(node.constraints):'-';
+                html+='<tr><td>'+node.experiment_id+'</td><td>'+node.recipe+'</td><td>'+(node.fidelity*100)+'%</td><td>'+node.seed+'</td><td>'+node.node_type+'</td><td>'+(node.parent_id||'-')+'</td><td>'+node.status+'</td><td>'+(node.primary_metric!=null?node.primary_metric.toFixed(4):'-')+'</td><td>'+(node.is_feasible!=null?(node.is_feasible?'Pass':'Fail'):'-')+'</td><td>'+cStr+'</td></tr>';
+            }
+            html+='</tbody></table>';
+        }
+        html+='</div>';
+    }
+    div.innerHTML=html;
+}
 async function login(){let r=await fetch('/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:$('token').value})});if(r.ok){$('login').hidden=true;$('app').hidden=false;refresh();connectEvents()}else $('loginerr').textContent='Token rejected'}
-async function refresh(){let p=$('project').value.trim();if(!/^[A-Za-z0-9_.:-]{1,128}$/.test(p))return;let r=await fetch('/v1/projects/'+encodeURIComponent(p)+'/snapshot');if(!r.ok){$('state').textContent='Snapshot unavailable ('+r.status+')';return}let s=await r.json();revision=s.revision;$('state').textContent='State: '+s.state+' · revision '+s.revision+' · event cursor '+s.event_cursor;$('jobs').textContent=JSON.stringify({tasks:s.tasks,jobs:s.jobs,candidates:s.candidates,finalization:s.finalization,ledger:s.project_ledger},null,2);$('download').hidden=!(s.finalization&&s.finalization.status==='verified_development_only');$('download').href='/v1/projects/'+encodeURIComponent(p)+'/bundle'}
+async function refresh(){let p=$('project').value.trim();if(!/^[A-Za-z0-9_.:-]{1,128}$/.test(p))return;let r=await fetch('/v1/projects/'+encodeURIComponent(p)+'/snapshot');if(!r.ok){$('state').textContent='Snapshot unavailable ('+r.status+')';return}let s=await r.json();revision=s.revision;$('state').textContent='State: '+s.state+' · revision '+s.revision+' · event cursor '+s.event_cursor;renderSearch(s);$('jobs').textContent=JSON.stringify({tasks:s.tasks,jobs:s.jobs,candidates:s.candidates,search_sessions:s.search_sessions,selection:s.selection,finalization:s.finalization,ledger:s.project_ledger},null,2);$('download').hidden=!(s.finalization&&s.finalization.status==='verified_development_only');$('download').href='/v1/projects/'+encodeURIComponent(p)+'/bundle'}
 async function command(state){let p=$('project').value.trim();if(revision===null)return;let id='ui-'+crypto.randomUUID();let body={command_id:id,project_id:p,expected_revision:revision,operation:{type:'lifecycle',state}};let r=await fetch('/v1/projects/'+encodeURIComponent(p)+'/commands',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});let data=await r.json();$('receipt').textContent=JSON.stringify(data,null,2);refresh()}
 function connectEvents(){if(source)source.close();let p=$('project').value.trim();source=new EventSource('/v1/projects/'+encodeURIComponent(p)+'/events?after='+lastCursor);source.onmessage=e=>{lastCursor=e.lastEventId||lastCursor;let line=JSON.stringify(JSON.parse(e.data));$('events').textContent=(line+'\n'+$('events').textContent).slice(0,10000);refresh()};source.onerror=()=>{$('state').textContent='Event stream reconnecting; snapshot remains available'}}
 setInterval(()=>{if(!$('app').hidden)refresh()},5000)
 </script>'''
 
 
-def serve(state: Path, binary: Path, port: int, token: str) -> None:
+def create_server(state: Path, binary: Path, port: int, token: str) -> ThreadingHTTPServer:
     state = state.resolve(strict=True)
     binary = binary.resolve(strict=True)
 
@@ -53,6 +81,9 @@ def serve(state: Path, binary: Path, port: int, token: str) -> None:
         def log_message(self, fmt, *args):
             # Never log headers, cookies, command bodies, or credentials.
             return
+
+        def get_port(self):
+            return self.server.server_address[1]
 
         def send_json(self, value, code=200):
             data = json.dumps(value, allow_nan=False).encode()
@@ -64,7 +95,8 @@ def serve(state: Path, binary: Path, port: int, token: str) -> None:
             self.wfile.write(data)
 
         def valid_host(self):
-            return self.headers.get("Host", "").lower() in {f"127.0.0.1:{port}", f"localhost:{port}"}
+            p = self.get_port()
+            return self.headers.get("Host", "").lower() in {f"127.0.0.1:{p}", f"localhost:{p}"}
 
         def authenticated(self):
             cookie = http.cookies.SimpleCookie(self.headers.get("Cookie", ""))
@@ -110,11 +142,32 @@ def serve(state: Path, binary: Path, port: int, token: str) -> None:
                 snapshot = self.rust("snapshot", "--state", str(state), "--project", project)
                 with sqlite3.connect(state / "state.sqlite") as db:
                     jobs = db.execute("SELECT id,spec,status,reason,pid,submitted_ms,started_ms,ended_ms,artifacts FROM jobs WHERE project=? ORDER BY submitted_ms,id LIMIT 256", (project,)).fetchall()
+                    has_search = db.execute("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='search_sessions'").fetchone()[0] > 0
+                    if has_search:
+                        sessions = db.execute("SELECT id,dataset_id,spec,status,created_ms,updated_ms,apex_candidate_id,selection_record FROM search_sessions WHERE project=? ORDER BY created_ms DESC LIMIT 10", (project,)).fetchall()
+                        dag = db.execute("SELECT d.session_id, d.id, d.recipe, d.parameters, d.seed, d.fidelity, d.node_type, d.parent_id, r.status, r.primary_metric, r.is_feasible, r.constraints, r.train_ms, r.model_sha256 FROM experiment_dag d LEFT JOIN trial_results r ON r.project=d.project AND r.experiment_id=d.id WHERE d.project=? ORDER BY d.created_ms LIMIT 256", (project,)).fetchall()
+                        snapshot["search_sessions"] = [{
+                            "session_id": s[0], "dataset_id": s[1], "spec": json.loads(s[2]),
+                            "status": s[3], "created_ms": s[4], "updated_ms": s[5],
+                            "apex_candidate_id": s[6],
+                            "selection_record": json.loads(s[7]) if s[7] else None,
+                        } for s in sessions]
+                        snapshot["experiment_dag"] = [{
+                            "session_id": d[0], "experiment_id": d[1], "recipe": d[2],
+                            "parameters": json.loads(d[3]), "seed": d[4], "fidelity": d[5],
+                            "node_type": d[6], "parent_id": d[7], "status": d[8] or "pending",
+                            "primary_metric": d[9], "is_feasible": bool(d[10]) if d[10] is not None else None,
+                            "constraints": json.loads(d[11]) if d[11] else {},
+                            "train_ms": d[12], "model_sha256": d[13],
+                        } for d in dag]
+                    else:
+                        snapshot["search_sessions"] = []
+                        snapshot["experiment_dag"] = []
                 snapshot["jobs"] = [{"job_id": row[0], "spec": json.loads(row[1]), "status": row[2], "reason": row[3],
                                      "pid": row[4], "submitted_ms": row[5], "started_ms": row[6], "ended_ms": row[7],
                                      "artifacts": json.loads(row[8])} for row in jobs]
                 workflow = state / "workflows" / project
-                for key, filename in (("dataset", "dataset_manifest.json"), ("candidates", "results.json"), ("finalization", "final.json")):
+                for key, filename in (("dataset", "dataset_manifest.json"), ("candidates", "results.json"), ("finalization", "final.json"), ("selection", "selection.json"), ("lineage", "lineage.json")):
                     file = workflow / filename
                     if file.is_file() and not file.is_symlink() and file.stat().st_size <= 4 * 1024 * 1024:
                         try: snapshot[key] = json.loads(file.read_text())
@@ -181,7 +234,8 @@ def serve(state: Path, binary: Path, port: int, token: str) -> None:
         def handle_post(self):
             if not self.valid_host(): return self.send_json({"error": "invalid Host"}, 400)
             origin = self.headers.get("Origin", "")
-            if origin != f"http://127.0.0.1:{port}" and origin != f"http://localhost:{port}":
+            p = self.get_port()
+            if origin != f"http://127.0.0.1:{p}" and origin != f"http://localhost:{p}":
                 return self.send_json({"error": "Origin rejected"}, 403)
             try: payload = self.read_body()
             except (ValueError, json.JSONDecodeError): return self.send_json({"error": "invalid bounded JSON body"}, 400)
@@ -209,6 +263,11 @@ def serve(state: Path, binary: Path, port: int, token: str) -> None:
 
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     server.daemon_threads = True
+    return server
+
+
+def serve(state: Path, binary: Path, port: int, token: str) -> None:
+    server = create_server(state, binary, port, token)
     try: server.serve_forever(poll_interval=0.25)
     finally: server.server_close()
 

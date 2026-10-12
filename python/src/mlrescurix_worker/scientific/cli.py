@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from .workflow import (WorkflowError, audit_csv, finalize_candidate,
-                       fit_trial_worker, predict_trial_worker, run_baselines)
+                       fit_trial_worker, predict_trial_worker, run_baselines, run_trial)
 
 
 def main() -> int:
@@ -22,6 +22,9 @@ def main() -> int:
     finalize.add_argument("--output", type=Path, required=True)
     finalize.add_argument("--candidate", required=True)
     finalize.add_argument("--test-access-id", required=True)
+    trial = commands.add_parser("trial")
+    trial.add_argument("--output", type=Path, required=True)
+    trial.add_argument("--spec", type=Path, required=True)
     for name in ("fit-trial", "predict-trial"):
         worker = commands.add_parser(name, help=argparse.SUPPRESS)
         worker.add_argument("--spec", type=Path, required=True)
@@ -34,6 +37,8 @@ def main() -> int:
             result = run_baselines(args.output)
         elif args.command == "finalize":
             result = finalize_candidate(args.output, args.candidate, test_access_id=args.test_access_id)
+        elif args.command == "trial":
+            result = run_trial(args.output, json.loads(args.spec.read_text()))
         elif args.command == "fit-trial":
             result = fit_trial_worker(args.spec, args.output)
         else:

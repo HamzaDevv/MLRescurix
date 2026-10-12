@@ -56,13 +56,14 @@ fn connect(root:&Path)->Result<Connection>{
     sql(c.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;"))?;
     loop {
         let version:i64=sql(c.query_row("PRAGMA user_version",[],|r|r.get(0)))?;
-        if version==3 { break; }
+        if version==4 { break; }
         let tx=sql(c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate))?;
         let confirmed:i64=sql(tx.query_row("PRAGMA user_version",[],|r|r.get(0)))?;
         if confirmed!=version {tx.rollback().map_err(|e|e.to_string())?;continue;}
         match version {
             1=>sql(tx.execute_batch(include_str!("schema_m1.sql")))?,
             2=>sql(tx.execute_batch(include_str!("schema_m2.sql")))?,
+            3=>sql(tx.execute_batch(include_str!("schema_m3.sql")))?,
             _=>return Err(format!("unsupported database migration version {version}")),
         }
         sql(tx.commit())?;
@@ -91,8 +92,9 @@ pub fn validate_spec(s:&JobSpec)->Result<()> {
     }
     if let Probe::Scientific{operation,dataset_id,spec,candidate_id,test_access_id}=&s.probe {
         valid_id(dataset_id)?;
-        if !matches!(operation.as_str(),"audit"|"baselines"|"finalize"){return Err("unsupported scientific operation".into());}
+        if !matches!(operation.as_str(),"audit"|"baselines"|"finalize"|"trial"){return Err("unsupported scientific operation".into());}
         if *operation=="audit" && spec.is_none(){return Err("audit requires an immutable project spec".into());}
+        if *operation=="trial" && spec.is_none(){return Err("trial requires an experiment spec".into());}
         if *operation=="finalize" {
             let candidate=candidate_id.as_deref().ok_or("finalize requires candidate identity")?;let access=test_access_id.as_deref().ok_or("finalize requires test access identity")?;
             valid_id(candidate)?;valid_id(access)?;
@@ -246,6 +248,29 @@ pub fn install_scientific_profile(root:&Path,id:&str)->Result<Value>{
     Ok(json!({"id":id,"status":"ready","profile":"m2-cpu-v1","python":python,"installed_bytes":environment_size(&expected)?}))
 }
 
+/// Install the fixed M3 search profile only inside an owned ready environment.
+pub fn install_search_profile(root:&Path,id:&str)->Result<Value>{
+    valid_id(id)?;let c=connect(root)?;
+    let (path,status):(String,String)=sql(c.query_row("SELECT path,status FROM environments WHERE id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?))))?;
+    if status!="ready" {return Err("search profile requires a ready owned environment".into());}
+    let leased:bool=sql(c.query_row("SELECT EXISTS(SELECT 1 FROM environment_leases WHERE environment=?1)",[id],|r|r.get(0)))?;
+    if leased {return Err("cannot mutate a leased environment".into());}
+    let expected=root.join("environments").join(id);if Path::new(&path)!=expected{return Err("environment path does not match owned identity".into());}
+    let python=expected.join("bin/python3");if !python.is_file(){return Err("managed Python executable is absent".into());}
+    ensure_disk_space(root,512*1024*1024)?;
+    let ensure=Command::new(&python).args(["-m","ensurepip","--upgrade"]).env_clear().env("PATH","/usr/bin:/bin").stdout(Stdio::null()).stderr(Stdio::null()).status().map_err(|e|e.to_string())?;
+    if !ensure.success(){return Err("could not bootstrap pip inside owned environment".into());}
+    let source=PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../python/search-requirements.txt");
+    let install=Command::new(&python).args(["-m","pip","install","--no-input","--disable-pip-version-check","--only-binary=:all:","--no-cache-dir","-r"]).arg(&source)
+        .env("PIP_NO_INPUT","1").stdout(Stdio::null()).stderr(Stdio::null()).spawn().map_err(|e|e.to_string())?;
+    let mut child=install;let deadline=Instant::now()+Duration::from_secs(1200);let status=loop{if Instant::now()>=deadline{let _=child.kill();let _=child.wait();return Err("search profile installation exceeded 20-minute limit".into());}if let Some(s)=child.try_wait().map_err(|e|e.to_string())?{break s;}thread::sleep(Duration::from_millis(100));};
+    if !status.success(){return Err(format!("search profile installation failed with {status}"));}
+    let verify=Command::new(&python).args(["-c","import optuna; assert optuna.__version__=='5.0.0'"])
+        .env_clear().env("PATH","/usr/bin:/bin").stdout(Stdio::null()).stderr(Stdio::null()).status().map_err(|e|e.to_string())?;
+    if !verify.success(){return Err("search profile version verification failed".into());}
+    Ok(json!({"id":id,"status":"ready","profile":"m3-search-v1","python":python,"installed_bytes":environment_size(&expected)?}))
+}
+
 fn environment_size(path:&Path)->Result<u64>{
     let mut total=0u64;
     for entry in fs::read_dir(path).map_err(|e|e.to_string())? {
@@ -317,7 +342,7 @@ impl Supervisor {
         loop {if STOP.load(Ordering::Relaxed){self.shutdown()?;return Ok(());}self.tick()?;thread::sleep(Duration::from_millis(POLL_MS));}
     }
     fn shutdown(&mut self)->Result<()>{
-        while let Some((view,mut child,_control,started,_last_sample))=self.children.pop(){terminate(&mut child)?;self.finish(&view,"cancelled",Some("supervisor shutdown".into()),vec![],started.elapsed().as_millis() as u64)?;let stage=self.root.join("artifacts").join(&view.spec.project_id).join(format!(".{}.staging",view.spec.job_id));if stage.exists(){safe_remove(&self.root,&stage)?;}}
+        while let Some((view,mut child,_control,started,_last_sample))=self.children.pop(){terminate(&mut child)?;self.finish(&view,"cancelled",Some("supervisor shutdown".into()),vec![],started.elapsed().as_millis().max(1) as u64)?;let stage=self.root.join("artifacts").join(&view.spec.project_id).join(format!(".{}.staging",view.spec.job_id));if stage.exists(){safe_remove(&self.root,&stage)?;}}
         Ok(())
     }
     pub fn tick(&mut self)->Result<()> {self.reconcile_queued()?;self.recover_expired()?;self.admit()?;self.reap()?;Ok(())}
@@ -424,7 +449,7 @@ impl Supervisor {
                 let reason=if cancel{Some("cancelled".to_string())}else if timed_out||status.code()==Some(124){Some("deadline exceeded".to_string())}else if !status.success(){Some(format!("worker exited with {status}"))}else{None};
                 let (artifacts,final_reason)=if reason.is_none(){match self.publish(&view){Ok(a)=>(a,None),Err(e)=>{let stage=self.root.join("artifacts").join(&view.spec.project_id).join(format!(".{}.staging",view.spec.job_id));if stage.exists(){let _=safe_remove(&self.root,&stage);} (vec![],Some(format!("artifact validation: {e}")))}}}else{(vec![],reason)};
                 let ok=final_reason.is_none();if !ok{let stage=self.root.join("artifacts").join(&view.spec.project_id).join(format!(".{}.staging",view.spec.job_id));if stage.exists(){safe_remove(&self.root,&stage)?;}}
-                self.finish(&view,if ok{"succeeded"}else if cancel{"cancelled"}else if timed_out||status.code()==Some(124){"timed_out"}else{"failed"},final_reason,artifacts,elapsed.as_millis() as u64)?;
+                self.finish(&view,if ok{"succeeded"}else if cancel{"cancelled"}else if timed_out||status.code()==Some(124){"timed_out"}else{"failed"},final_reason,artifacts,elapsed.as_millis().max(1) as u64)?;
             }else{self.children.push((view,child,control,started,last_sample));index+=1;}
         }Ok(())
     }
@@ -441,9 +466,15 @@ impl Supervisor {
     }
     fn finish(&self,v:&JobView,status:&str,reason:Option<String>,artifacts:Vec<Value>,elapsed_ms:u64)->Result<()>{
         let c=connect(&self.root)?;let tx=sql(c.unchecked_transaction())?;
-        if let Probe::Scientific{operation,dataset_id:_,candidate_id,test_access_id,..}=&v.spec.probe {
-            let result_name=match operation.as_str(){"audit"=>"dataset_manifest.json","baselines"=>"results.json","finalize"=>"final.json",_=>""};
-            let workflow=self.root.join("workflows").join(&v.spec.project_id);let result_path=workflow.join(result_name);
+        if let Probe::Scientific{operation,dataset_id:_,candidate_id,test_access_id,spec}=&v.spec.probe {
+            let workflow=self.root.join("workflows").join(&v.spec.project_id);
+            let result_path=if operation=="trial"{
+                let exp_id=spec.as_ref().and_then(|s|s.get("experiment_id")).and_then(|v|v.as_str()).unwrap_or("");
+                workflow.join("trials").join(exp_id).join("trial.json")
+            } else {
+                let result_name=match operation.as_str(){"audit"=>"dataset_manifest.json","baselines"=>"results.json","finalize"=>"final.json",_=>""};
+                workflow.join(result_name)
+            };
             let result_hash=if status=="succeeded"&&result_path.is_file(){Some(hash(&fs::read(&result_path).map_err(|e|e.to_string())?))}else{None};
             sql(tx.execute("UPDATE scientific_jobs SET result_sha256=?3 WHERE project=?1 AND job=?2",params![v.spec.project_id,v.spec.job_id,result_hash]))?;
             if operation=="finalize"&&status=="succeeded" {
@@ -584,7 +615,7 @@ pub fn worker(spec_path:&Path,output:&Path)->Result<i32>{
             let dataset=std::env::var_os("MLRRESCURIX_DATASET").ok_or("registered dataset path unavailable")?;
             let workflow=PathBuf::from(std::env::var_os("MLRRESCURIX_WORKFLOW").ok_or("workflow directory unavailable")?);
             let pythonpath=std::env::var_os("MLRRESCURIX_PYTHONPATH").ok_or("scientific worker package unavailable")?;
-            let req=output.join("project-spec.json");if let Some(value)=spec{fs::write(&req,serde_json::to_vec(&value).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;}
+            let req=output.join("project-spec.json");if let Some(ref value)=spec{fs::write(&req,serde_json::to_vec(value).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;}
             let mut command=Command::new(python);command.arg("-m").arg("mlrescurix_worker.scientific.cli").env_clear()
                 .env("PATH",format!("{}:/usr/bin:/bin",PathBuf::from(std::env::var_os("MLRRESCURIX_PYTHON").unwrap()).parent().unwrap().display()))
                 .env("PYTHONPATH",pythonpath).env("TMPDIR",output.join("tmp"));fs::create_dir_all(output.join("tmp")).map_err(|e|e.to_string())?;
@@ -592,19 +623,26 @@ pub fn worker(spec_path:&Path,output:&Path)->Result<i32>{
                 "audit"=>{command.arg("audit").arg("--csv").arg(dataset).arg("--spec").arg(&req).arg("--output").arg(&workflow);},
                 "baselines"=>{command.arg("baselines").arg("--output").arg(&workflow);},
                 "finalize"=>{command.arg("finalize").arg("--output").arg(&workflow).arg("--candidate").arg(candidate_id.ok_or("candidate missing")?).arg("--test-access-id").arg(test_access_id.ok_or("test access id missing")?);},
+                "trial"=>{command.arg("trial").arg("--output").arg(&workflow).arg("--spec").arg(&req);},
                 _=>return Err("unsupported scientific operation".into()),
             }
             command.stdout(Stdio::inherit()).stderr(Stdio::inherit()).stdin(Stdio::null());
             let mut child=command.spawn().map_err(|e|format!("scientific worker launch failed: {e}"))?;
             loop {if !alive.load(Ordering::Acquire){let _=child.kill();let _=child.wait();return Ok(125);}match child.try_wait().map_err(|e|e.to_string())?{Some(status)=>{if !status.success(){return Ok(status.code().unwrap_or(1));}break;},None=>thread::sleep(Duration::from_millis(50))}}
             if req.exists(){fs::remove_file(&req).map_err(|e|e.to_string())?;}let tmp=output.join("tmp");if tmp.exists(){safe_remove(Path::new(&std::env::var("MLRRESCURIX_STATE").map_err(|e|e.to_string())?),&tmp)?;}
-            let result_name=match operation.as_str(){"audit"=>"dataset_manifest.json","baselines"=>"results.json","finalize"=>"final.json",_=>unreachable!()};
-            let evidence=workflow.join(result_name);if !evidence.is_file(){return Err("scientific worker produced no committed result".into());}
+            let (evidence,target_name)=if operation=="trial"{
+                let exp_id=spec.as_ref().and_then(|s|s.get("experiment_id")).and_then(|v|v.as_str()).unwrap_or("");
+                (workflow.join("trials").join(exp_id).join("trial.json"),"trial.json")
+            } else {
+                let name=match operation.as_str(){"audit"=>"dataset_manifest.json","baselines"=>"results.json","finalize"=>"final.json",_=>unreachable!()};
+                (workflow.join(name),name)
+            };
+            if !evidence.is_file(){return Err("scientific worker produced no committed result".into());}
             if operation=="finalize" {
                 let final_result:Value=serde_json::from_slice(&fs::read(&evidence).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
                 if final_result["status"]!="verified_development_only" {return Ok(3);}
             }
-            let target=output.join(result_name);fs::copy(evidence,target).map_err(|e|e.to_string())?;
+            let target=output.join(target_name);fs::copy(evidence,target).map_err(|e|e.to_string())?;
         }
     }
     Ok(0)

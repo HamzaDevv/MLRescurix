@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:selection-record:1",
+  "type": "object",
+  "required": [
+    "session_id",
+    "status",
+    "rationale",
+    "contenders",
+    "locked_at_ms"
+  ],
+  "properties": {
+    "session_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "selected_candidate_id": { "type": ["string", "null"] },
+    "apex_experiment_id": { "type": ["string", "null"] },
+    "recipe": { "type": ["string", "null"] },
+    "parameters": { "type": ["object", "null"] },
+    "status": { "type": "string", "enum": ["apex_selected", "provisional_budget_exhausted", "infeasible"] },
+    "rationale": { "type": "string" },
+    "contenders": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "locked_at_ms": { "type": "integer" }
+  },
+  "additionalProperties": false
+}
