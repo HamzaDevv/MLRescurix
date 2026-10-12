@@ -250,14 +250,22 @@ pub fn compute_experiment_id(
     format!("exp-{}", &h[..16])
 }
 
-fn python_exec(root: &Path, env_id: Option<&str>) -> PathBuf {
+fn python_exec(root: &Path, env_id: Option<&str>) -> Result<PathBuf> {
     if let Some(env) = env_id {
         let p = root.join("environments").join(env).join("bin/python3");
         if p.is_file() {
-            return p;
+            return Ok(p);
         }
+        return Err(format!(
+            "Managed environment python '{}' not found; host Python fallback is prohibited.",
+            p.display()
+        ));
     }
-    PathBuf::from("python3")
+    let p = root.join("environments").join("scientific").join("bin/python3");
+    if p.is_file() {
+        return Ok(p);
+    }
+    Err("Managed scientific environment not found; host Python fallback is prohibited.".into())
 }
 
 pub fn ask_sidecar(
@@ -271,7 +279,7 @@ pub fn ask_sidecar(
     seed: u64,
     env_id: Option<&str>,
 ) -> Result<(u32, Value)> {
-    let py = python_exec(root, env_id);
+    let py = python_exec(root, env_id)?;
     let pythonpath = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../python/src");
     let output = Command::new(py)
         .args([
@@ -310,7 +318,7 @@ pub fn tell_sidecar(
     seed: u64,
     env_id: Option<&str>,
 ) -> Result<()> {
-    let py = python_exec(root, env_id);
+    let py = python_exec(root, env_id)?;
     let pythonpath = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../python/src");
     let mut cmd = Command::new(py);
     cmd.args([
@@ -560,8 +568,31 @@ fn run_single_trial_job(
                 if let Some((st, pm, feas)) = committed {
                     if st == "evaluated" && (tr.primary_metric - pm).abs() < 1e-6 && (if tr.is_feasible { 1 } else { 0 }) == feas {
                         let art_path = workflow.join(&tr.artifact_path);
-                        if tr.model_sha256.is_empty() || art_path.is_file() {
-                            return Ok(tr);
+                        let mut cache_verified = false;
+                        if tr.model_sha256.is_empty() {
+                            if art_path.is_file() {
+                                cache_verified = true;
+                            }
+                        } else if art_path.is_file() {
+                            if let Ok(art_bytes) = fs::read(&art_path) {
+                                if hash_bytes(&art_bytes) == tr.model_sha256 {
+                                    cache_verified = true;
+                                }
+                            }
+                        }
+                        if cache_verified {
+                            if !tr.predictions_sha256.is_empty() {
+                                let pred_path = trial_dir.join("predictions.json");
+                                if pred_path.is_file() {
+                                    if let Ok(pred_bytes) = fs::read(&pred_path) {
+                                        if hash_bytes(&pred_bytes) == tr.predictions_sha256 {
+                                            return Ok(tr);
+                                        }
+                                    }
+                                }
+                            } else {
+                                return Ok(tr);
+                            }
                         }
                     }
                 }
@@ -619,6 +650,12 @@ fn run_single_trial_job(
     if trial_file.is_file() {
         let bytes = fs::read(&trial_file).map_err(|e| e.to_string())?;
         let tr: TrialResult = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+        if !tr.model_sha256.is_empty() {
+            let _ = sql(c.execute(
+                "INSERT INTO refs(project, id, category, digest) VALUES(?1, ?2, 'artifact', ?3) ON CONFLICT DO NOTHING",
+                params![project, format!("trial-art-{}", tr.experiment_id), tr.model_sha256],
+            ));
+        }
         return Ok(tr);
     }
     Err("trial worker completed but trial.json missing".into())
@@ -675,10 +712,10 @@ pub fn execute_search(
         return Err("research admission is closed: project is finalizing or completed".into());
     }
 
-    let (spec_str, dataset_sha, session_status): (String, String, String) = sql(c.query_row(
-        "SELECT s.spec, d.sha256, s.status FROM search_sessions s JOIN scientific_datasets d ON d.project=s.project AND d.id=s.dataset_id WHERE s.project=?1 AND s.id=?2",
+    let (spec_str, dataset_sha, session_status, session_created_ms): (String, String, String, i64) = sql(c.query_row(
+        "SELECT s.spec, d.sha256, s.status, s.created_ms FROM search_sessions s JOIN scientific_datasets d ON d.project=s.project AND d.id=s.dataset_id WHERE s.project=?1 AND s.id=?2",
         params![project, session_id],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
     ))?;
 
     if session_status == "completed" || session_status == "provisional" {
@@ -711,18 +748,17 @@ pub fn execute_search(
         }
     };
 
-    let session_start_ms = now_ms();
     let mut total_trials: u32 = sql(c.query_row(
         "SELECT count(*) FROM experiment_dag WHERE project=?1 AND session_id=?2 AND node_type != 'baseline'",
         params![project, session_id],
         |r| r.get(0),
     ))?;
 
-    let check_limits = |trials: u32, start_ms: i64, sp: &SearchSpec, rt: &Path, prj: &str| -> Result<bool> {
+    let check_limits = |trials: u32, created_ms: i64, sp: &SearchSpec, rt: &Path, prj: &str| -> Result<bool> {
         if trials >= sp.max_trials {
             return Ok(false);
         }
-        if (now_ms() - start_ms) >= sp.search_wall_ms as i64 {
+        if (now_ms() - created_ms) >= sp.search_wall_ms as i64 {
             return Ok(false);
         }
         check_wall_budget_guard(rt, prj, sp)
@@ -739,7 +775,7 @@ pub fn execute_search(
             if screen_count >= spec.max_screen_trials {
                 break;
             }
-            if !check_limits(total_trials, session_start_ms, &spec, root, project)? {
+            if !check_limits(total_trials, session_created_ms, &spec, root, project)? {
                 break;
             }
             let (trial_id, params) = ask_sidecar(
@@ -810,7 +846,7 @@ pub fn execute_search(
     let mut full_fidelity_experiments = Vec::new();
 
     for (parent_id, recipe, params, _) in top_screened {
-        if !check_limits(total_trials, session_start_ms, &spec, root, project)? {
+        if !check_limits(total_trials, session_created_ms, &spec, root, project)? {
             break;
         }
         let full_exp_id = compute_experiment_id(&dataset_sha, &spec.split, &recipe, &params, 2026, 1.0);
@@ -887,7 +923,7 @@ pub fn execute_search(
 
         if confirmation_seeds.len() > 1 {
             for &repeat_seed in &confirmation_seeds[1..] {
-                if !check_limits(total_trials, session_start_ms, &spec, root, project)? {
+                if !check_limits(total_trials, session_created_ms, &spec, root, project)? {
                     budget_exhausted_during_confirmation = true;
                     break;
                 }

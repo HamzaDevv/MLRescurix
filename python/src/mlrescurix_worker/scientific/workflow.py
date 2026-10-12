@@ -886,11 +886,13 @@ def evaluate_custom_candidate(
     candidate_id: str,
     predictions_path: str | Path,
     slices: list[str] | None = None,
+    constraints: dict[str, Any] | None = None,
+    bundle_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """
     Independent trusted evaluator evaluation of custom candidate predictions.
     Reads row-keyed predictions from disk without importing or unpickling untrusted model code.
-    Computes official development split metrics and requested slice diagnostics.
+    Computes official development split metrics, constraint measurements, and requested slice diagnostics.
     """
     root = Path(workflow_dir)
     manifest = json.loads((root / "dataset_manifest.json").read_text())
@@ -903,18 +905,85 @@ def evaluate_custom_candidate(
     with open(predictions_path, "r", encoding="utf-8") as f:
         payload = json.load(f)
 
+    # 1. Enforce row identity and provenance alignment
+    payload_row_ids = payload.get("row_ids")
+    if payload_row_ids is None:
+        raise WorkflowError(f"Prediction row identity missing: payload must contain 'row_ids' for candidate {candidate_id}")
+    if list(payload_row_ids) != list(val_ids):
+        raise WorkflowError(
+            f"Prediction row identity misalignment: payload row_ids ({len(payload_row_ids)}) do not match validation split row IDs ({len(val_ids)}) for candidate {candidate_id}"
+        )
+
+    # 2. Validate shapes & finite values
     preds = payload["predictions"]
     if len(preds) != len(val_ids):
         raise WorkflowError(f"Prediction count {len(preds)} does not match validation set size {len(val_ids)}")
 
-    pred_dict: dict[str, Any] = {
-        "prediction": preds,
-    }
-    if payload.get("probabilities"):
-        pred_dict["probabilities"] = payload["probabilities"]
-        pred_dict["classes"] = manifest.get("labels", [0, 1])
+    pred_arr = np.asarray(preds)
+    if pred_arr.shape != (len(val_ids),):
+        raise WorkflowError("Predictions must be a one-dimensional row-aligned array")
+    labels = manifest.get("labels", [])
+    if task == "regression":
+        if not np.issubdtype(pred_arr.dtype, np.number) or not np.isfinite(pred_arr).all():
+            raise WorkflowError("Regression predictions must be finite numbers")
+    elif any(label not in labels for label in preds):
+        raise WorkflowError("Classification predictions contain unknown class labels")
+
+    pred_dict: dict[str, Any] = {"prediction": preds}
+    if payload.get("probabilities") is not None:
+        try:
+            p_arr = np.asarray(payload["probabilities"], dtype=float)
+        except (TypeError, ValueError) as exc:
+            raise WorkflowError("Prediction probabilities must be numeric") from exc
+        if p_arr.shape != (len(val_ids), len(labels)):
+            raise WorkflowError("Prediction probability shape does not match rows and classes")
+        if not np.isfinite(p_arr).all() or (p_arr < 0).any() or (p_arr > 1).any():
+            raise WorkflowError("Prediction probabilities must be finite and in [0, 1]")
+        if not np.allclose(p_arr.sum(axis=1), 1.0, atol=1e-4, rtol=0):
+            raise WorkflowError("Prediction probability rows must sum to one")
+        if payload.get("classes") != labels:
+            raise WorkflowError("Prediction class order must match the dataset manifest")
+        pred_dict["probabilities"] = p_arr.tolist()
+        pred_dict["classes"] = labels
 
     scores = _score(y_val, pred_dict, task)
+
+    # 3. Measure constraints and complete runtime bundle size
+    constraint_results = {}
+    is_feasible = True
+
+    bundle_path = Path(bundle_dir) if bundle_dir else (root / "candidates" / candidate_id)
+    bundle_exists = bundle_path.exists()
+    bundle_bytes = 0
+    if bundle_exists:
+        if bundle_path.is_dir():
+            bundle_bytes = sum(f.stat().st_size for f in bundle_path.rglob("*") if f.is_file())
+        else:
+            bundle_bytes = bundle_path.stat().st_size
+
+    if constraints:
+        for c_name, c_spec in constraints.items():
+            if c_name in ("max_bundle_bytes", "model_bytes_max", "bundle_bytes_max"):
+                max_allowed = c_spec.get("max", c_spec.get("value", 50 * 1024 * 1024))
+                if not bundle_exists or bundle_bytes <= 0:
+                    verdict = "fail"
+                else:
+                    verdict = "pass" if bundle_bytes <= max_allowed else "fail"
+                constraint_results[c_name] = {
+                    "value": bundle_bytes,
+                    "threshold": max_allowed,
+                    "verdict": verdict,
+                }
+                if verdict == "fail":
+                    is_feasible = False
+            else:
+                # Untrusted predictions cannot certify latency or memory. Missing
+                # trusted telemetry and unsupported constraints fail feasibility.
+                constraint_results[c_name] = {
+                    "value": None, "verdict": "unverified",
+                    "reason": "Trusted full-pipeline measurement required",
+                }
+                is_feasible = False
 
     # Compute authorized aggregate slice diagnostics
     slice_diagnostics = {}
@@ -943,6 +1012,9 @@ def evaluate_custom_candidate(
         "candidate_id": candidate_id,
         "status": "evaluated",
         "metrics": scores,
+        "is_feasible": is_feasible,
+        "constraints": constraint_results,
+        "bundle_bytes": bundle_bytes,
         "slice_diagnostics": slice_diagnostics,
         "n_samples": len(val_ids),
     }
@@ -957,7 +1029,9 @@ def evaluate_custom_candidate(
             "parameters": {},
             "metrics": scores,
             "status": "evaluated",
-            "is_feasible": True,
+            "is_feasible": is_feasible,
+            "constraints": constraint_results,
+            "bundle_bytes": bundle_bytes,
             "slice_diagnostics": slice_diagnostics,
         })
         res_data["candidates"] = candidates

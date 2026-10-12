@@ -118,23 +118,29 @@ impl SandboxRunner {
             return Err(format!("Script {script_relative_path} does not exist in workspace"));
         }
 
-        let image = sandbox_image.unwrap_or("python:3.11-slim");
+        let image = sandbox_image.unwrap_or("python:3.13-slim@sha256:56885df05e04313b2c286e7a20ffce6a5fae8fd2ea60c9e6da96cb2e7dfdcb10");
         let start = Instant::now();
+        let container_name = format!("mlr-box-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos());
 
         let mut cmd = Command::new("docker");
         cmd.args([
             "run",
+            "--name", &container_name,
             "--rm",
             "--network", "none",
             "--read-only",
-            "--tmpfs", &format!("/tmp:rw,noexec,nosuid,size={}m", limits.max_scratch_mb),
+            "--user", "1000:1000",
+            "--cap-drop", "ALL",
+            "--security-opt", "no-new-privileges:true",
+            "--tmpfs", &format!("/scratch:rw,noexec,nosuid,size={}m,uid=1000,gid=1000", limits.max_scratch_mb),
             "--memory", &format!("{}m", limits.max_memory_mb),
             "--cpus", &limits.max_cpus.to_string(),
             "--pids-limit", &limits.pids_limit.to_string(),
-            "-v", &format!("{}:/workspace:rw", workspace_dir.to_string_lossy()),
+            "-v", &format!("{}:/workspace:ro", workspace_dir.to_string_lossy()),
             "-w", "/workspace",
             "--env", "PYTHONDONTWRITEBYTECODE=1",
             "--env", "PYTHONUNBUFFERED=1",
+            "--env", "TMPDIR=/scratch",
             image,
             "python3",
             script_relative_path,
@@ -149,6 +155,42 @@ impl SandboxRunner {
         cmd.stderr(Stdio::piped());
 
         let mut child = cmd.spawn().map_err(|e| format!("cannot spawn container: {e}"))?;
+        let stdout_pipe = child.stdout.take();
+        let stderr_pipe = child.stderr.take();
+        let max_out = limits.max_output_bytes as usize;
+        let total_output = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let stdout_count = total_output.clone();
+        let stderr_count = total_output.clone();
+
+        let stdout_handle = std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Some(mut stream) = stdout_pipe {
+                use std::io::Read;
+                let mut chunk = [0u8; 4096];
+                while let Ok(n) = stream.read(&mut chunk) {
+                    if n == 0 { break; }
+                    stdout_count.fetch_add(n as u64, std::sync::atomic::Ordering::SeqCst);
+                    let keep = n.min(max_out.saturating_sub(buf.len()));
+                    buf.extend_from_slice(&chunk[..keep]);
+                }
+            }
+            buf
+        });
+
+        let stderr_handle = std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Some(mut stream) = stderr_pipe {
+                use std::io::Read;
+                let mut chunk = [0u8; 4096];
+                while let Ok(n) = stream.read(&mut chunk) {
+                    if n == 0 { break; }
+                    stderr_count.fetch_add(n as u64, std::sync::atomic::Ordering::SeqCst);
+                    let keep = n.min(max_out.saturating_sub(buf.len()));
+                    buf.extend_from_slice(&chunk[..keep]);
+                }
+            }
+            buf
+        });
 
         let deadline = Instant::now() + Duration::from_millis(limits.max_wall_ms);
         let mut timed_out = false;
@@ -157,8 +199,10 @@ impl SandboxRunner {
             match child.try_wait().map_err(|e| e.to_string())? {
                 Some(_) => break,
                 None => {
-                    if Instant::now() > deadline {
+                    if Instant::now() > deadline || total_output.load(std::sync::atomic::Ordering::SeqCst) > limits.max_output_bytes {
                         timed_out = true;
+                        let _ = Command::new("docker").args(["kill", &container_name]).output();
+                        let _ = Command::new("docker").args(["rm", "-f", &container_name]).output();
                         let _ = child.kill();
                         let _ = child.wait();
                         break;
@@ -170,20 +214,23 @@ impl SandboxRunner {
 
         let elapsed = start.elapsed().as_millis() as u64;
 
-        if timed_out {
-            return Err(format!("Sandbox execution timed out after {}ms", limits.max_wall_ms));
-        }
+        let status = child.wait().map_err(|e| e.to_string())?;
+        let stdout_bytes = stdout_handle.join().unwrap_or_default();
+        let stderr_bytes = stderr_handle.join().unwrap_or_default();
+        let _ = Command::new("docker").args(["rm", "-f", &container_name]).output();
 
-        let out = child.wait_with_output().map_err(|e| e.to_string())?;
-        let stdout_str = String::from_utf8_lossy(&out.stdout).to_string();
-        let stderr_str = String::from_utf8_lossy(&out.stderr).to_string();
-
-        if (stdout_str.len() + stderr_str.len()) as u64 > limits.max_output_bytes {
+        if total_output.load(std::sync::atomic::Ordering::SeqCst) > limits.max_output_bytes {
             return Err("Sandbox execution output exceeded output byte bound".into());
         }
 
+        if timed_out {
+            return Err(format!("Sandbox execution timed out after {}ms", limits.max_wall_ms));
+        }
+        let stdout_str = String::from_utf8_lossy(&stdout_bytes).to_string();
+        let stderr_str = String::from_utf8_lossy(&stderr_bytes).to_string();
+
         Ok(SandboxExecutionResult {
-            exit_code: out.status.code().unwrap_or(1),
+            exit_code: status.code().unwrap_or(1),
             stdout: stdout_str,
             stderr: stderr_str,
             elapsed_ms: elapsed,

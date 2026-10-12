@@ -28,7 +28,8 @@ enum Command {
     SetProjectWeight { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] weight:u8 },
     RegisterDataset { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] id:String, #[arg(long)] csv:PathBuf },
     Dashboard { #[arg(long)] state:PathBuf, #[arg(long,default_value_t=8765)] port:u16 },
-    AgentRun { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] role:String, #[arg(long)] task:String, #[arg(long)] branch:String, #[arg(long,default_value="default-model")] model:String, #[arg(long,default_value_t=10)] max_turns:u32 },
+    Approve { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] candidate:String, #[arg(long)] rationale:String },
+    AgentRun { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] role:String, #[arg(long)] task:String, #[arg(long)] branch:String, #[arg(long,default_value="default-model")] model:String, #[arg(long,default_value_t=10)] max_turns:u32, #[arg(long)] endpoint:Option<String>, #[arg(long)] api_key:Option<String>, #[arg(long)] mock:Option<PathBuf> },
     #[command(name="__worker",hide=true)] Worker { spec:PathBuf, output:PathBuf },
     Capabilities,
 }
@@ -72,11 +73,51 @@ async fn run()->Result<(),String>{
                 .env_clear().env("PATH","/usr/bin:/bin").env("PYTHONPATH",pythonpath).status().map_err(|e|e.to_string())?;
             if status.success(){Ok(())}else{Err(format!("dashboard exited with {status}"))}
         },
-        Command::AgentRun{state,project,role,task,branch,model,max_turns}=>{
-            let config=mlrescurix_harness::agents::OrchestratorConfig{project_id:project,task_id:task,role_id:role,branch_id:branch,model,max_turns};
-            let fixture=std::sync::Arc::new(mlrescurix_harness::agents::ScriptedProviderFixture::new(vec![]));
-            let mut orchestrator=mlrescurix_harness::agents::AgentOrchestrator::new(&state,config,fixture)?;
-            print(orchestrator.step()?)
+        Command::Approve { state, project, candidate, rationale } => {
+            execution::migrate(&state)?;
+            let db = rusqlite::Connection::open(state.join("state.sqlite")).map_err(|e| e.to_string())?;
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+            db.execute(
+                "INSERT INTO approvals(project, candidate_id, approved, user_identity, rationale, created_ms) VALUES(?1, ?2, 1, 'user', ?3, ?4)",
+                rusqlite::params![project, candidate, rationale, now],
+            ).map_err(|e| e.to_string())?;
+            print(serde_json::json!({
+                "status": "approved",
+                "project": project,
+                "candidate_id": candidate,
+                "approved_by": "user",
+                "rationale": rationale,
+            }))
+        },
+        Command::AgentRun { state, project, role, task, branch, model, max_turns, endpoint, api_key, mock } => {
+            let config = mlrescurix_harness::agents::OrchestratorConfig {
+                project_id: project,
+                task_id: task,
+                role_id: role,
+                branch_id: branch,
+                model,
+                max_turns,
+            };
+            let gateway: std::sync::Arc<dyn mlrescurix_harness::agents::ProviderGateway> = if let Some(mock_path) = mock {
+                let mock_bytes = std::fs::read(&mock_path).map_err(|e| format!("cannot read mock file: {e}"))?;
+                let responses: Vec<mlrescurix_harness::agents::ChatCompletionResponse> = serde_json::from_slice(&mock_bytes).map_err(|e| format!("invalid mock JSON: {e}"))?;
+                std::sync::Arc::new(mlrescurix_harness::agents::ScriptedProviderFixture::new(responses))
+            } else if let (Some(ep), Some(key)) = (endpoint, api_key) {
+                std::sync::Arc::new(mlrescurix_harness::agents::OpenAICompatibleAdapter::new(ep, key))
+            } else {
+                return Err("AgentRun requires either --mock <path> for offline scripted execution or --endpoint and --api-key for live provider execution".into());
+            };
+            let mut orchestrator = mlrescurix_harness::agents::AgentOrchestrator::new(&state, config, gateway)?;
+            let mut results = Vec::new();
+            while orchestrator.current_turn < max_turns {
+                let turn_res = orchestrator.step()?;
+                let stopped = turn_res.stopped;
+                results.push(turn_res);
+                if stopped {
+                    break;
+                }
+            }
+            print(results)
         },
         Command::Worker{spec,output}=>{let result=execution::worker(&spec,&output)?;if result==0 {Ok(())} else {std::process::exit(result)}}
         Command::Capabilities=>print(serde_json::json!({"phase":"M4","protocol":"mlrescurix/1","os":std::env::consts::OS,"arch":std::env::consts::ARCH,"writer_queue":64,"frame_bytes":MAX_FRAME,"trusted_probe_execution":cfg!(target_os="macos"),"scientific_execution":true,"official_evaluation":true,"constrained_search":true,"resumable_search":true,"agent_coding_harness":true,"agent_authored_tools":true,"sandbox_isolation":true,"resource_enforcement":{"worker_count":"enforced","thread_pool_environment_hints":"applied; library dependent","memory":"RSS sampled; quota unsupported","disk":"free-space admission and bounded outputs","cpu":"best-effort process sample"},"providers":true})),

@@ -9,7 +9,7 @@ from sklearn.linear_model import LogisticRegression
 from mlrescurix_worker.custom.contract import CustomEstimator, CustomTransformer
 from mlrescurix_worker.custom.preflight import run_preflight_checks
 from mlrescurix_worker.custom.runner import train_and_predict_isolated
-from mlrescurix_worker.scientific.workflow import audit_csv, evaluate_custom_candidate
+from mlrescurix_worker.scientific.workflow import audit_csv, evaluate_custom_candidate, WorkflowError
 
 
 class SimpleLinearEstimator(CustomEstimator):
@@ -103,7 +103,8 @@ class Estimator(CustomEstimator):
             val_idx = manifest["splits"]["validation"]
 
             train_df = df.iloc[train_idx][["feat1", "feat2", "target"]]
-            val_df = df.iloc[val_idx][["feat1", "feat2"]]  # label-free!
+            val_df = df.iloc[val_idx][["feat1", "feat2"]].copy()
+            val_df["row_id"] = val_idx
 
             train_csv = tmp / "train.csv"
             val_csv = tmp / "val.csv"
@@ -130,15 +131,44 @@ class Estimator(CustomEstimator):
                 workflow_dir=wf_dir,
                 candidate_id="custom_linear_v1",
                 predictions_path=preds_json,
+                bundle_dir=model_joblib,
                 slices=["group_slice"],
+                constraints={"max_bundle_bytes": {"max": 10_000_000}},
             )
 
             self.assertEqual(eval_res["candidate_id"], "custom_linear_v1")
             self.assertEqual(eval_res["status"], "evaluated")
+            self.assertTrue(eval_res["is_feasible"])
             self.assertIn("balanced_accuracy", eval_res["metrics"])
             self.assertIn("group_slice", eval_res["slice_diagnostics"])
             self.assertIn("A", eval_res["slice_diagnostics"]["group_slice"])
             self.assertIn("B", eval_res["slice_diagnostics"]["group_slice"])
+
+            # Negative test: misaligned row_ids must be rejected
+            misaligned_json = tmp / "misaligned_preds.json"
+            misaligned_payload = dict(json.loads(preds_json.read_text()))
+            misaligned_payload["row_ids"] = list(reversed(misaligned_payload["row_ids"]))
+            misaligned_json.write_text(json.dumps(misaligned_payload))
+
+            with self.assertRaises(WorkflowError) as cm:
+                evaluate_custom_candidate(
+                    workflow_dir=wf_dir,
+                    candidate_id="custom_linear_v1",
+                    predictions_path=misaligned_json,
+                    bundle_dir=model_joblib,
+                )
+            self.assertIn("row identity misalignment", str(cm.exception))
+
+            # Negative test: constraint violation marks candidate infeasible
+            eval_constrained = evaluate_custom_candidate(
+                workflow_dir=wf_dir,
+                candidate_id="custom_linear_v1",
+                predictions_path=preds_json,
+                bundle_dir=model_joblib,
+                constraints={"max_bundle_bytes": {"max": 1}},  # bundle bytes will exceed 1
+            )
+            self.assertFalse(eval_constrained["is_feasible"])
+            self.assertEqual(eval_constrained["constraints"]["max_bundle_bytes"]["verdict"], "fail")
 
 
 if __name__ == "__main__":

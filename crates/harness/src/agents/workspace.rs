@@ -18,6 +18,25 @@ fn hash_bytes(data: &[u8]) -> String {
 pub struct BranchWorkspaceManager;
 
 impl BranchWorkspaceManager {
+    fn checked_path(root: &Path, project: &str, branch: &str, relative: &str) -> Result<PathBuf> {
+        crate::contracts::id(project)?;
+        crate::contracts::id(branch)?;
+        if relative.is_empty() || Path::new(relative).components().any(|c| !matches!(c, std::path::Component::Normal(_))) {
+            return Err("File path escapes branch workspace boundary: invalid path component".into());
+        }
+        let target = Self::get_branch_dir(root, project, branch).join(relative);
+        let mut current = root.to_path_buf();
+        for component in target.strip_prefix(root).map_err(|e| e.to_string())?.components() {
+            current.push(component);
+            match fs::symlink_metadata(&current) {
+                Ok(meta) if meta.file_type().is_symlink() => return Err("File path escapes branch workspace boundary: symlink rejected".into()),
+                Ok(_) => {},
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {},
+                Err(e) => return Err(e.to_string()),
+            }
+        }
+        Ok(target)
+    }
     pub fn get_branch_dir(root: &Path, project_id: &str, branch_id: &str) -> PathBuf {
         root.join("workflows").join(project_id).join("branches").join(branch_id)
     }
@@ -57,8 +76,7 @@ impl BranchWorkspaceManager {
                 _ => return Err("File path escapes branch workspace boundary: invalid path component".into()),
             }
         }
-        let branch_dir = Self::get_branch_dir(root, project_id, branch_id);
-        let target_path = branch_dir.join(relative_path);
+        let target_path = Self::checked_path(root, project_id, branch_id, relative_path)?;
 
         if let Some(parent) = target_path.parent() {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -84,7 +102,7 @@ impl BranchWorkspaceManager {
             }
         }
         let branch_dir = Self::get_branch_dir(root, project_id, branch_id);
-        let target_path = branch_dir.join(relative_path);
+        let target_path = Self::checked_path(root, project_id, branch_id, relative_path)?;
 
         if !target_path.starts_with(&branch_dir) {
             return Err("File path escapes branch workspace boundary".into());
@@ -134,6 +152,9 @@ impl BranchWorkspaceManager {
         for entry in fs::read_dir(dir).map_err(|e| e.to_string())? {
             let entry = entry.map_err(|e| e.to_string())?;
             let path = entry.path();
+            if entry.file_type().map_err(|e| e.to_string())?.is_symlink() {
+                return Err("Workspace symlink rejected".into());
+            }
             if path.is_dir() {
                 Self::collect_files(base, &path, results)?;
             } else if path.is_file() {

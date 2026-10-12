@@ -1,5 +1,11 @@
 # M4: Agent-Led Tabular ML Coding Harness
 
+> Acceptance status: M4 remains incomplete. The reported local fixture passes do
+> not establish all repair contracts. Reviewer fixes and remaining acceptance
+> blockers are recorded in [the M5 session handoff](m5-session-prompt.md).
+> Docker execution and live-provider acceptance remain unverified. The sections
+> below describe intended behavior unless supported by specific executed evidence.
+
 This document describes MLRescurix's M4 milestone: an agent-led tabular machine learning coding harness with provider-backed orchestration, reusable specialist roles, agent-authored project tools, sandboxed execution, evaluator separation, achievement context management, and permanent finalization closure.
 
 ---
@@ -142,17 +148,24 @@ Python utilities authored by the agent inside its branch (e.g. `diagnostics/miss
 ## 9. Verification & Test Evidence
 
 M4 is verified by a multi-tier test suite:
-- **Rust Integration Suite (`tests/agent_m4.rs`)**:
-  - 8 specialist roles and capabilities.
-  - Sandbox detection and honest refusal when container runtime is offline.
-  - Path traversal and symlink rejection.
-  - Agent authors, tests, registers, and reuses diagnostic tool, adapting research decision based on result.
-  - Cross-branch immutable snapshot export and import isolation.
-  - Achievement checkpointing, structured compaction, steering fencing, and finding retrieval.
-  - Outbound data redaction filter.
-  - Critic finalization and permanent research closure.
-  - 10 projects and 3 branches concurrency and fairness.
-- **Rust Foundation & M3 Search Tests (`tests/foundation.rs`, `tests/search_m3.rs`)**:
-  - 24 M0/M1 tests + 10 M3 search tests passing.
-- **Python Scientific & Worker Suite (`python/tests/`)**:
-  - 20 unit tests covering custom contracts, preflight verification, isolated runner, official evaluation with slice diagnostics, and dashboard snapshot smoke.
+- **Rust Integration Suite (`tests/agent_m4.rs`) - 14/14 passed**:
+  - `m4_role_registry_defines_all_eight_specialist_roles`: 8 specialist roles and capabilities.
+  - `m4_sandbox_detector_and_honest_refusal_when_unavailable`: Sandbox detection and honest refusal when container runtime is offline.
+  - `m4_path_traversal_and_symlink_rejection_in_workspace`: Path traversal and symlink rejection.
+  - `m4_agent_authors_tests_and_reuses_diagnostic_tool_and_adapts_decision`: Agent authors, tests, registers, and reuses diagnostic tool; conflicting descriptor rejection; refusal when container runtime is unavailable (`UNVERIFIED`).
+  - `m4_cross_branch_immutable_snapshot_reuse`: Cross-branch immutable snapshot export and import isolation.
+  - `m4_achievement_checkpointing_and_context_compaction`: Achievement checkpointing, structured compaction, steering fencing, and historical finding retrieval.
+  - `m4_outbound_data_redaction_filter`: Outbound data redaction filter.
+  - `m4_research_closure_and_critic_finalization`: Two-key finalization (independent critic audit + authenticated user approval in `approvals`), frozen source hash snapshot, duplicate finalization refusal, and permanent research closure.
+  - `m4_ten_projects_and_three_branches_fairness`: 10 projects and 3 branches concurrency and fairness across a 4-worker supervisor, bounded worker allocation, cancellation, and workspace isolation.
+  - `m4_reconstructable_checkpoint_and_evidence_integrity`: State restoration and evidence SHA-256 integrity validation, rejecting corrupted evidence files.
+  - `m4_role_rbac_enforcement`: Strict role RBAC enforcement rejecting unauthorized tool calls.
+  - `m4_conservative_ceiling_settlement_on_provider_failure`: Failed provider attempts charge conservative token ceiling with `outcome_unknown` in `provider_accounting` and `charges`.
+  - `m4_authoritative_budget_query_and_remaining_calculation`: Authoritative budget calculation from M0 ledgers, preserving 20% finalization reserve.
+  - `m4_schema_validation_pre_and_post_execution`: JSON Schema pre- and post-execution validation on tool inputs and outputs.
+- **Rust Unit & Foundation & M3 Search Tests - 36/36 passed**:
+  - 2 `src/lib.rs` unit tests passing.
+  - 24 M0/M1 `tests/foundation.rs` integration tests passing.
+  - 10 M3 `tests/search_m3.rs` integration tests passing.
+- **Python Scientific & Worker Suite (`python/tests/`) - 20/20 passed**:
+  - 20 unit tests covering custom contracts, preflight verification, isolated row-keyed runner, official evaluation with slice diagnostics, finite value and shape validation, and dashboard snapshot smoke.

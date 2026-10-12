@@ -66,6 +66,7 @@ pub struct Handoff {
     pub created_ms: i64,
 }
 
+#[derive(Debug, Clone)]
 pub struct AgentContextManager {
     pub project_id: String,
     pub task_id: String,
@@ -161,6 +162,13 @@ impl AgentContextManager {
             ],
         ).map_err(|e| e.to_string())?;
 
+        if let Some(ref sha) = ach.evidence_sha256 {
+            let _ = db.execute(
+                "INSERT INTO refs(project, id, category, digest) VALUES(?1, ?2, 'evidence', ?3) ON CONFLICT DO NOTHING",
+                rusqlite::params![self.project_id, ach.achievement_id, sha],
+            );
+        }
+
         // Achievement boundaries trigger checkpoint and compaction check
         self.record_checkpoint(root)?;
         self.maybe_compact();
@@ -219,6 +227,12 @@ impl AgentContextManager {
 
         let state_snapshot = json!({
             "hypothesis": self.current_hypothesis,
+            "achievements": self.achievements,
+            "findings": self.findings,
+            "messages": self.messages,
+            "active_jobs": self.active_jobs,
+            "role_id": self.role_id,
+            "handoff_version": self.handoff_version,
             "achievements_count": self.achievements.len(),
             "findings_count": self.findings.len(),
             "messages_count": self.messages.len(),
@@ -321,5 +335,186 @@ impl AgentContextManager {
             .filter(|f| f.hypothesis_id.contains(keyword) || f.rationale.contains(keyword) || f.verdict.contains(keyword))
             .cloned()
             .collect()
+    }
+
+    /// Reconstruct context state from latest checkpoint, verifying durable evidence hashes.
+    pub fn restore(root: &Path, project_id: &str, task_id: &str) -> Result<Self> {
+        crate::execution::migrate(root)?;
+        let db = rusqlite::Connection::open(root.join("state.sqlite")).map_err(|e| e.to_string())?;
+
+        let (role_id, handoff_version, snapshot_json): (String, i64, String) = db.query_row(
+            "SELECT role_id, handoff_version, state_snapshot FROM agent_checkpoints WHERE project=?1 AND task_id=?2 ORDER BY created_ms DESC LIMIT 1",
+            rusqlite::params![project_id, task_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ).map_err(|_| format!("No checkpoint found for task {task_id} in project {project_id}"))?;
+
+        let snapshot: Value = serde_json::from_str(&snapshot_json).map_err(|e| e.to_string())?;
+
+        let hypothesis = snapshot.get("hypothesis").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let achievements: Vec<Achievement> = snapshot.get("achievements")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+        let findings: Vec<ScientificFinding> = snapshot.get("findings")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+        let messages: Vec<ChatMessage> = snapshot.get("messages")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+        let active_jobs: Vec<ActiveJobReceipt> = snapshot.get("active_jobs")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+
+        // Verify evidence integrity
+        for ach in &achievements {
+            if let Some(ref sha) = ach.evidence_sha256 {
+                let evidence_path_1 = root.join(".m2/evidence").join(sha);
+                let evidence_path_2 = root.join("workflows").join(project_id).join("evidence").join(sha);
+                let evidence_file = if evidence_path_1.is_file() {
+                    Some(evidence_path_1)
+                } else if evidence_path_2.is_file() {
+                    Some(evidence_path_2)
+                } else {
+                    None
+                };
+
+                if let Some(p) = evidence_file {
+                    let content = std::fs::read(&p).map_err(|e| e.to_string())?;
+                    let actual_sha = format!("{:x}", Sha256::digest(&content));
+                    if &actual_sha != sha {
+                        return Err(format!("Durable evidence hash mismatch for achievement {}: expected {sha}, found {actual_sha}", ach.achievement_id));
+                    }
+                } else {
+                    return Err(format!("Referenced evidence {sha} for achievement {} is missing from managed storage; a refs row cannot verify missing bytes", ach.achievement_id));
+                }
+            }
+        }
+
+        let mut mgr = Self {
+            project_id: project_id.to_string(),
+            task_id: task_id.to_string(),
+            role_id,
+            max_context_tokens: 16_384,
+            reserve_tokens: 4_096,
+            messages,
+            achievements,
+            active_jobs,
+            findings,
+            current_hypothesis: hypothesis,
+            handoff_version: handoff_version as u32,
+        };
+        mgr.ensure_context_within_bounds()?;
+        Ok(mgr)
+    }
+
+    /// Reload and calculate authoritative remaining allowances from M0 reservations and charges.
+    pub fn query_authoritative_budget(root: &Path, project_id: &str) -> Result<Value> {
+        crate::execution::migrate(root)?;
+        let db = rusqlite::Connection::open(root.join("state.sqlite")).map_err(|e| e.to_string())?;
+        let policy_str: String = db.query_row(
+            "SELECT policy FROM projects WHERE id=?1",
+            [project_id],
+            |r| r.get(0),
+        ).map_err(|_| format!("Project {project_id} not found"))?;
+        let policy: Value = serde_json::from_str(&policy_str).map_err(|e| e.to_string())?;
+        let total_wall = policy.get("budget").and_then(|b| b.get("wall_ms")).and_then(|v| v.as_i64()).unwrap_or(300_000);
+        let total_tokens = policy.get("budget").and_then(|b| b.get("tokens")).and_then(|v| v.as_i64()).unwrap_or(1_000_000);
+        let total_calls = policy.get("budget").and_then(|b| b.get("calls")).and_then(|v| v.as_i64()).unwrap_or(100);
+
+        let held_wall: i64 = db.query_row(
+            "SELECT COALESCE(SUM(CAST(json_extract(budget,'$.wall_ms') AS INTEGER)),0) FROM reservations WHERE held=1 AND project=?1",
+            [project_id], |r| r.get(0),
+        ).map_err(|e| e.to_string())?;
+        let charged_wall: i64 = db.query_row(
+            "SELECT COALESCE(SUM(CAST(json_extract(amount,'$.wall_ms') AS INTEGER)),0) FROM charges WHERE project=?1",
+            [project_id], |r| r.get(0),
+        ).map_err(|e| e.to_string())?;
+
+        let held_tokens: i64 = db.query_row(
+            "SELECT COALESCE(SUM(CAST(json_extract(budget,'$.tokens') AS INTEGER)),0) FROM reservations WHERE held=1 AND project=?1",
+            [project_id], |r| r.get(0),
+        ).map_err(|e| e.to_string())?;
+        let charged_tokens: i64 = db.query_row(
+            "SELECT COALESCE(SUM(CAST(json_extract(amount,'$.tokens') AS INTEGER)),0) FROM charges WHERE project=?1",
+            [project_id], |r| r.get(0),
+        ).map_err(|e| e.to_string())?;
+
+        let finalization_reserve_wall = (total_wall as f64 * 0.20) as i64;
+        let remaining_wall = total_wall.saturating_sub(held_wall + charged_wall);
+        let remaining_wall_effective = remaining_wall.saturating_sub(finalization_reserve_wall);
+
+        let remaining_tokens = total_tokens.saturating_sub(held_tokens + charged_tokens);
+
+        Ok(json!({
+            "project_id": project_id,
+            "policy": policy,
+            "budget": {
+                "wall_ms": total_wall,
+                "tokens": total_tokens,
+                "calls": total_calls,
+            },
+            "consumption": {
+                "wall_ms_held": held_wall,
+                "wall_ms_charged": charged_wall,
+                "tokens_held": held_tokens,
+                "tokens_charged": charged_tokens,
+            },
+            "remaining": {
+                "wall_ms_gross": remaining_wall,
+                "wall_ms_effective": remaining_wall_effective,
+                "tokens": remaining_tokens,
+            },
+            "finalization_reserve_wall_ms": finalization_reserve_wall,
+        }))
+    }
+
+    /// Enforce hard token ceiling, spilling older evidence/findings to durable IDs,
+    /// or refusing oversized dispatch without dropping essential constraints/approvals.
+    pub fn ensure_context_within_bounds(&mut self) -> Result<()> {
+        let target_limit = self.max_context_tokens.saturating_sub(self.reserve_tokens);
+        if self.estimate_tokens() <= target_limit {
+            return Ok(());
+        }
+
+        // Run structured compaction
+        self.maybe_compact();
+
+        if self.estimate_tokens() <= target_limit {
+            return Ok(());
+        }
+
+        // Spill historical evidence/findings summaries to durable retrieval IDs
+        let mut spilled_lines = Vec::new();
+        spilled_lines.push("### Context Compaction (Historical Evidence Spilled to Durable IDs)".to_string());
+        if let Some(hyp) = &self.current_hypothesis {
+            spilled_lines.push(format!("Active Hypothesis: {hyp}"));
+        }
+        if !self.achievements.is_empty() {
+            spilled_lines.push("Committed Achievement References:".to_string());
+            for ach in &self.achievements {
+                spilled_lines.push(format!("- [{}] id: {} (use retrieve_evidence tool with id='{}' to inspect details)", ach.kind, ach.achievement_id, ach.achievement_id));
+            }
+        }
+        if !self.findings.is_empty() {
+            spilled_lines.push("Scientific Finding References:".to_string());
+            for f in &self.findings {
+                spilled_lines.push(format!("- [Verdict: {}] id: {} (use retrieve_evidence tool with id='{}' to inspect details)", f.verdict, f.finding_id, f.finding_id));
+            }
+        }
+
+        let compaction_msg = ChatMessage::user(spilled_lines.join("\n"));
+        let system_msg = self.messages[0].clone();
+        let recent_slice = self.messages[self.messages.len().saturating_sub(2)..].to_vec();
+        self.messages = vec![system_msg, compaction_msg];
+        self.messages.extend(recent_slice);
+
+        if self.estimate_tokens() > target_limit {
+            return Err(format!(
+                "Context window hard bound exceeded ({}/{} tokens); refusing oversized dispatch without dropping required constraints/approvals",
+                self.estimate_tokens(),
+                target_limit
+            ));
+        }
+
+        Ok(())
     }
 }

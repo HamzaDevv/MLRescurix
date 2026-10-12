@@ -158,7 +158,7 @@ impl OutboundFilter {
         let combined = cleaned_lines.join("\n");
         // Limit character ceiling per item
         if combined.len() > 16_384 {
-            format!("{}... [TRUNCATED]", &combined[..16_384])
+            format!("{}... [TRUNCATED]", &combined[..combined.floor_char_boundary(16_384)])
         } else {
             combined
         }
@@ -169,6 +169,14 @@ impl OutboundFilter {
             let mut sanitized = msg.clone();
             if let Some(c) = &msg.content {
                 sanitized.content = Some(Self::sanitize_content(c));
+            }
+            if let Some(calls) = &msg.tool_calls {
+                let sanitized_calls = calls.iter().map(|c| {
+                    let mut call = c.clone();
+                    call.function.arguments = Self::sanitize_content(&c.function.arguments);
+                    call
+                }).collect();
+                sanitized.tool_calls = Some(sanitized_calls);
             }
             sanitized
         }).collect();
@@ -229,7 +237,7 @@ impl OpenAICompatibleAdapter {
             endpoint_url,
             api_key,
             timeout_seconds: 60,
-            max_retries: 3,
+            max_retries: 1,
         }
     }
 }
@@ -245,7 +253,7 @@ impl ProviderGateway for OpenAICompatibleAdapter {
         let mut attempts = 0;
         let mut last_error = String::new();
 
-        while attempts < self.max_retries {
+        while attempts < self.max_retries.min(1) {
             attempts += 1;
             let start = Instant::now();
 
@@ -361,5 +369,7 @@ pub fn record_provider_accounting(
             now_ms(),
         ],
     ).map_err(|e| e.to_string())?;
+
+    // M0 action settlement owns charges; this table is supplemental telemetry.
     Ok(())
 }

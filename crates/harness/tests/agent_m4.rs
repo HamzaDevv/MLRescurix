@@ -3,6 +3,7 @@ use std::{
     fs,
     sync::Arc,
 };
+use sha2::{Digest, Sha256};
 use serde_json::json;
 use mlrescurix_harness::{
     agents::{
@@ -19,10 +20,14 @@ use mlrescurix_harness::{
     },
     contracts::Context,
     core::*,
-    execution,
+    execution::{self, JobSpec, Probe, Supervisor},
     search::{self, SearchSpec},
     Runtime,
 };
+
+fn chrono_free_now() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64
+}
 
 fn m1policy(limit: i64, workers: i64) -> Policy {
     Policy {
@@ -93,8 +98,35 @@ fn branch_task(r: &Runtime, p: &str, branch: &str, task: &str) {
     });
 }
 
+fn claim_task(r: &Runtime, p: &str, t: &str) {
+    let now = chrono_free_now();
+    let _ = send(r, p, &format!("claim{t}"), Operation::Claim {
+        task_id: t.into(),
+        owner: "local-worker".into(),
+        lease_id: format!("lease{t}"),
+        now_ms: now,
+        expires_ms: now + 3_600_000,
+        expected_generation: 1,
+    });
+}
+
 fn execution_task(r: &Runtime, p: &str, t: &str) {
     branch_task(r, p, &format!("b{t}"), t);
+    claim_task(r, p, t);
+}
+
+fn job(p: &str, id: &str, t: &str, probe: Probe, timeout: u64) -> JobSpec {
+    JobSpec {
+        job_id: id.into(),
+        project_id: p.into(),
+        task_id: t.into(),
+        generation: 2,
+        timeout_ms: timeout,
+        threads: 1,
+        max_output_bytes: 1024,
+        environment_id: None,
+        probe,
+    }
 }
 
 #[test]
@@ -205,10 +237,31 @@ if __name__ == "__main__":
         max_wall_ms: 10_000,
         provenance: json!({"author_role": "diagnostic_engineer", "task_id": "t-diag"}),
     };
-    ToolRegistry::register_tool(&root, "p-diag", desc).unwrap();
+    ToolRegistry::register_tool(&root, "p-diag", desc.clone()).unwrap();
+
+    // Re-registering the identical descriptor is idempotent. A changed version
+    // descriptor must never overwrite the originally registered tool.
+    ToolRegistry::register_tool(&root, "p-diag", desc.clone()).unwrap();
+    let mut conflicting = desc.clone();
+    conflicting.environment_id = "different-environment".into();
+    let err = ToolRegistry::register_tool(&root, "p-diag", conflicting).unwrap_err();
+    assert!(err.contains("Tool versions are immutable"));
+    let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+    let stored: String = db.query_row(
+        "SELECT descriptor_json FROM agent_tools WHERE project='p-diag' AND tool_name='missingness_checker' AND version='v1'",
+        [], |row| row.get(0),
+    ).unwrap();
+    assert_eq!(serde_json::from_str::<ToolDescriptor>(&stored).unwrap(), desc);
 
     // 3. Agent reuses tool in a subsequent turn
     let input = json!({"columns": ["f1", "f2", "f3"]});
+    if matches!(SandboxDetector::detect(), SandboxStatus::Unavailable { .. }) {
+        let err = ToolRegistry::invoke_tool(&root, "p-diag", "feat-diag", "missingness_checker", "v1", &input).unwrap_err();
+        assert!(err.contains("Host Python substitution for untrusted code is prohibited"));
+        assert!(!BranchWorkspaceManager::get_branch_dir(&root, "p-diag", "feat-diag").join(".tool_input.json").exists());
+        eprintln!("UNVERIFIED: diagnostic execution/adaptation requires an available container runtime; refusal and registration checks passed.");
+        return;
+    }
     let receipt = ToolRegistry::invoke_tool(&root, "p-diag", "feat-diag", "missingness_checker", "v1", &input).unwrap();
 
     assert_eq!(receipt.status, "succeeded");
@@ -335,21 +388,129 @@ fn m4_research_closure_and_critic_finalization() {
     let root = d.path().join("state");
     let r = Runtime::init(&root, m1policy(20, 2)).unwrap();
     create_m1(&r, "p-close", 20);
-    execution_task(&r, "p-close", "t-close");
+    branch_task(&r, "p-close", "bt-close", "t-close");
 
     let csv = d.path().join("data.csv");
     fs::write(&csv, "f1,target\n1,0\n2,1\n3,0\n4,1\n").unwrap();
     execution::register_dataset(&root, "p-close", "data-1", &csv).unwrap();
 
-    let fixture = Arc::new(ScriptedProviderFixture::new(vec![
-        // Turn 1: critic requests finalization
+    // 1. Critic specialist submits audit
+    let critic_fixture = Arc::new(ScriptedProviderFixture::new(vec![
         ChatCompletionResponse {
-            id: "call-finalize".into(),
+            id: "call-critic".into(),
             model: "test-model".into(),
-            content: Some("Critic audit passed. Requesting finalization for apex candidate linear_v1.".into()),
+            content: Some("Critic audit passed. Submitting audit for linear_v1.".into()),
             tool_calls: vec![
                 ToolCall {
-                    id: "call-1".into(),
+                    id: "call-c1".into(),
+                    call_type: "function".into(),
+                    function: FunctionCall {
+                        name: "submit_critic_audit".into(),
+                        arguments: json!({
+                            "candidate_id": "linear_v1",
+                            "verdict": "approved",
+                            "evidence_summary": "Independent audit: validated across 3 seeds without leakage",
+                            "source_hash": "hash_linear_v1",
+                            "protocol": "stratified_5fold",
+                            "protocol_compliance": true,
+                        }).to_string(),
+                    },
+                }
+            ],
+            usage: TokenUsage { prompt_tokens: 50, completion_tokens: 20, total_tokens: 70 },
+            latency_ms: 10,
+        },
+        ChatCompletionResponse {
+            id: "call-c-stop".into(),
+            model: "test-model".into(),
+            content: Some("[FINAL] Audit submitted.".into()),
+            tool_calls: vec![],
+            usage: TokenUsage { prompt_tokens: 40, completion_tokens: 10, total_tokens: 50 },
+            latency_ms: 10,
+        },
+    ]));
+
+    let critic_config = OrchestratorConfig {
+        project_id: "p-close".into(),
+        task_id: "t-close".into(),
+        role_id: "critic".into(),
+        branch_id: "branch-critic".into(),
+        model: "test-model".into(),
+        max_turns: 5,
+    };
+    let mut critic_orch = AgentOrchestrator::new(&root, critic_config, critic_fixture).unwrap();
+    let c_res1 = critic_orch.step().unwrap();
+    assert_eq!(c_res1.tool_calls_executed, 1);
+    let c_res2 = critic_orch.step().unwrap();
+    assert!(c_res2.stopped);
+
+    // Verify critic audit is recorded in database
+    let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+    let audit_count: i64 = db.query_row(
+        "SELECT count(*) FROM critic_audits WHERE project='p-close' AND candidate_id='linear_v1' AND status='approved'",
+        [], |r| r.get(0),
+    ).unwrap();
+    assert_eq!(audit_count, 1);
+
+    // 2. Negative gate: Lead attempts finalization before user approval is recorded
+    let lead_fail_fixture = Arc::new(ScriptedProviderFixture::new(vec![
+        ChatCompletionResponse {
+            id: "call-finalize-fail".into(),
+            model: "test-model".into(),
+            content: Some("Lead requesting finalization without user approval.".into()),
+            tool_calls: vec![
+                ToolCall {
+                    id: "call-l1".into(),
+                    call_type: "function".into(),
+                    function: FunctionCall {
+                        name: "request_finalization".into(),
+                        arguments: json!({"candidate_id": "linear_v1", "rationale": "Attempt before user approval"}).to_string(),
+                    },
+                }
+            ],
+            usage: TokenUsage { prompt_tokens: 50, completion_tokens: 20, total_tokens: 70 },
+            latency_ms: 10,
+        },
+        ChatCompletionResponse {
+            id: "call-stop".into(),
+            model: "test-model".into(),
+            content: Some("[FINAL] Stopped.".into()),
+            tool_calls: vec![],
+            usage: TokenUsage { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
+            latency_ms: 10,
+        },
+    ]));
+    let lead_config = OrchestratorConfig {
+        project_id: "p-close".into(),
+        task_id: "t-close".into(),
+        role_id: "lead".into(),
+        branch_id: "branch-lead".into(),
+        model: "test-model".into(),
+        max_turns: 5,
+    };
+    let mut lead_orch_fail = AgentOrchestrator::new(&root, lead_config.clone(), lead_fail_fixture).unwrap();
+    let lf_res = lead_orch_fail.step().unwrap();
+    assert_eq!(lf_res.tool_calls_executed, 1);
+    assert!(!lead_orch_fail.is_research_closed().unwrap());
+    let tool_msg = lead_orch_fail.context.messages.iter().find(|m| m.role == "tool").unwrap();
+    assert!(tool_msg.content.as_deref().unwrap().contains("lacks verified user approval"));
+
+    // 3. User records authenticated approval
+    db.execute(
+        "INSERT INTO approvals(project, candidate_id, approved, user_identity, rationale, created_ms)
+         VALUES(?1, ?2, 1, 'lead-engineer', 'Verified offline scorecard and verified constraints', ?3)",
+        rusqlite::params!["p-close", "linear_v1", 123456789],
+    ).unwrap();
+
+    // 4. Positive gate: Lead requests finalization with both critic audit and user approval
+    let lead_succ_fixture = Arc::new(ScriptedProviderFixture::new(vec![
+        ChatCompletionResponse {
+            id: "call-finalize-succ".into(),
+            model: "test-model".into(),
+            content: Some("Requesting finalization with approved critic audit and user receipt.".into()),
+            tool_calls: vec![
+                ToolCall {
+                    id: "call-l2".into(),
                     call_type: "function".into(),
                     function: FunctionCall {
                         name: "request_finalization".into(),
@@ -360,9 +521,8 @@ fn m4_research_closure_and_critic_finalization() {
             usage: TokenUsage { prompt_tokens: 50, completion_tokens: 20, total_tokens: 70 },
             latency_ms: 10,
         },
-        // Turn 2: final stop
         ChatCompletionResponse {
-            id: "call-stop".into(),
+            id: "call-stop-succ".into(),
             model: "test-model".into(),
             content: Some("[FINAL] Research complete and finalized.".into()),
             tool_calls: vec![],
@@ -370,33 +530,27 @@ fn m4_research_closure_and_critic_finalization() {
             latency_ms: 10,
         },
     ]));
-
-    let config = OrchestratorConfig {
-        project_id: "p-close".into(),
-        task_id: "t-close".into(),
-        role_id: "critic".into(),
-        branch_id: "branch-critic".into(),
-        model: "test-model".into(),
-        max_turns: 5,
-    };
-
-    let mut orch = AgentOrchestrator::new(&root, config, fixture).unwrap();
-
-    // Turn 1: finalization admitted
-    let res1 = orch.step().unwrap();
-    assert_eq!(res1.tool_calls_executed, 1);
-    assert!(orch.is_research_closed().unwrap());
+    let mut lead_orch_succ = AgentOrchestrator::new(&root, lead_config, lead_succ_fixture).unwrap();
+    let ls_res1 = lead_orch_succ.step().unwrap();
+    assert_eq!(ls_res1.tool_calls_executed, 1);
+    assert!(lead_orch_succ.is_research_closed().unwrap());
 
     // Verify project state in SQLite transitioned to finalizing
-    let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
     let state: String = db.query_row("SELECT state FROM projects WHERE id='p-close'", [], |r| r.get(0)).unwrap();
     assert_eq!(state, "finalizing");
 
     // Turn 2: agent stops
-    let res2 = orch.step().unwrap();
-    assert!(res2.stopped);
+    let ls_res2 = lead_orch_succ.step().unwrap();
+    assert!(ls_res2.stopped);
 
-    // Any attempt to initiate new research or search is permanently rejected
+    // 5. Negative gate: Duplicate finalization is permanently rejected
+    let err_dup = lead_orch_succ.dispatch_tool_call(
+        "request_finalization",
+        &json!({"candidate_id": "linear_v1", "rationale": "duplicate finalization attempt"}).to_string(),
+    ).unwrap_err();
+    assert!(err_dup.contains("Research admission is permanently closed"));
+
+    // 6. Any attempt to initiate new research or search is permanently rejected
     let search_spec = SearchSpec {
         session_id: "sess-after-close".into(),
         project_id: "p-close".into(),
@@ -430,6 +584,7 @@ fn m4_ten_projects_and_three_branches_fairness() {
     let root = d.path().join("state");
     let r = Runtime::init(&root, m1policy(1000, 32)).unwrap();
 
+    // Setup 10 projects with 3 branches each
     for i in 0..10 {
         let p = format!("p{i}");
         create_m1(&r, &p, 100);
@@ -437,7 +592,73 @@ fn m4_ten_projects_and_three_branches_fairness() {
             let branch = format!("branch-{b}");
             BranchWorkspaceManager::init_branch(&root, &p, &branch, "main").unwrap();
             BranchWorkspaceManager::write_file(&root, &p, &branch, "code.py", &format!("# Project {p} branch {branch}")).unwrap();
+            let task_id = format!("t-{p}-{b}");
+            branch_task(&r, &p, &branch, &task_id);
+            claim_task(&r, &p, &task_id);
         }
+    }
+
+    // Submit jobs across the 10 projects and 3 branches
+    for i in 0..10 {
+        let p = format!("p{i}");
+        for b in 0..3 {
+            let task_id = format!("t-{p}-{b}");
+            let job_id = format!("j-{p}-{b}");
+            let spec = job(&p, &job_id, &task_id, Probe::Sleep { millis: 20 }, 5000);
+            execution::submit(&root, spec).unwrap();
+        }
+    }
+
+    // Submit an extra job in p0 to test cancellation
+    let cancel_task = "t-p0-cancel";
+    branch_task(&r, "p0", "branch-0", cancel_task);
+    claim_task(&r, "p0", cancel_task);
+    let cancel_spec = job("p0", "j-p0-cancel", cancel_task, Probe::Sleep { millis: 500 }, 5000);
+    execution::submit(&root, cancel_spec).unwrap();
+    let cancel_res = execution::cancel(&root, "p0", "j-p0-cancel").unwrap();
+    assert_eq!(cancel_res.status, "cancelled");
+
+    // Launch a 4-worker supervisor
+    let bin = std::path::Path::new(env!("CARGO_BIN_EXE_mlrescurix-harness"));
+    let mut supervisor = Supervisor::start_with_executable(&root, 4, bin).unwrap();
+
+    // Verify another supervisor cannot take the same state lock
+    assert!(Supervisor::start_with_executable(&root, 4, bin).is_err());
+
+    let mut max_running = 0;
+    let mut completed_count = 0;
+    for _ in 0..300 {
+        supervisor.tick().unwrap();
+        let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+        let running: i64 = db.query_row(
+            "SELECT count(*) FROM jobs WHERE status IN ('running', 'terminating')",
+            [], |x| x.get(0),
+        ).unwrap();
+        max_running = max_running.max(running);
+        let done: i64 = db.query_row(
+            "SELECT count(*) FROM jobs WHERE status = 'succeeded'",
+            [], |x| x.get(0),
+        ).unwrap();
+        completed_count = done;
+        if done == 30 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(15));
+    }
+
+    // Bounded worker allocation assertion: max concurrent running jobs must never exceed the 4 configured workers
+    assert!(max_running <= 4, "Concurrent running workers ({max_running}) exceeded ceiling 4");
+    assert_eq!(completed_count, 30, "All 30 jobs across 10 projects must complete successfully");
+
+    // Fairness assertion: verify all 10 projects had jobs executed and completed
+    let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+    for i in 0..10 {
+        let p = format!("p{i}");
+        let p_done: i64 = db.query_row(
+            "SELECT count(*) FROM jobs WHERE project=?1 AND status='succeeded'",
+            [&p], |x| x.get(0),
+        ).unwrap();
+        assert_eq!(p_done, 3, "Project {p} did not complete all 3 branch jobs (fairness violated)");
     }
 
     // Verify all 30 branches exist and are isolated
@@ -449,4 +670,262 @@ fn m4_ten_projects_and_three_branches_fairness() {
             assert_eq!(code, format!("# Project {p} branch {branch}"));
         }
     }
+}
+
+#[test]
+fn m4_reconstructable_checkpoint_and_evidence_integrity() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path().join("state");
+    let r = Runtime::init(&root, m1policy(20, 2)).unwrap();
+    create_m1(&r, "p-rest", 20);
+    execution_task(&r, "p-rest", "t-rest");
+
+    let mut ctx = AgentContextManager::new("p-rest", "t-rest", "lead", "Lead system prompt");
+    ctx.current_hypothesis = Some("Linear baseline beats null model".into());
+    ctx.handoff_version = 3;
+    ctx.record_achievement(&root, "data_audited", "Dataset audited cleanly", None, json!({"rows": 50})).unwrap();
+    ctx.record_finding(&root, "hyp-1", "supported", "Baseline validated", json!({"score": 0.85}), vec![]).unwrap();
+    ctx.record_checkpoint(&root).unwrap();
+
+    // Restore from state
+    let restored = AgentContextManager::restore(&root, "p-rest", "t-rest").unwrap();
+    assert_eq!(restored.role_id, "lead");
+    assert_eq!(restored.current_hypothesis.as_deref(), Some("Linear baseline beats null model"));
+    assert_eq!(restored.achievements.len(), 1);
+    assert_eq!(restored.findings.len(), 1);
+    assert_eq!(restored.handoff_version, 3);
+
+    // Negative check: corrupt evidence file SHA-256
+    let ev_content = b"evidence payload for verification";
+    let ev_sha = format!("{:x}", Sha256::digest(ev_content));
+    let ev_dir = root.join(".m2/evidence");
+    fs::create_dir_all(&ev_dir).unwrap();
+    let ev_file = ev_dir.join(&ev_sha);
+    fs::write(&ev_file, ev_content).unwrap();
+
+    // Register reference in M0 refs table
+    let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+    db.execute(
+        "INSERT INTO refs(project, id, category, digest) VALUES('p-rest', ?1, 'evidence', ?2)",
+        rusqlite::params![&ev_sha, &ev_sha],
+    ).unwrap();
+
+    // Record achievement with this evidence
+    ctx.record_achievement(&root, "ev_verified", "Verified evidence test", Some(ev_file.to_str().unwrap().to_string()), json!({})).unwrap();
+    ctx.record_checkpoint(&root).unwrap();
+
+    // Tamper with evidence file content
+    fs::write(&ev_file, b"corrupted evidence payload").unwrap();
+    let restore_err = AgentContextManager::restore(&root, "p-rest", "t-rest").unwrap_err();
+    assert!(restore_err.contains("Durable evidence hash mismatch") || restore_err.contains("mismatch"));
+    fs::remove_file(&ev_file).unwrap();
+    let missing_err = AgentContextManager::restore(&root, "p-rest", "t-rest").unwrap_err();
+    assert!(missing_err.contains("missing from managed storage"));
+}
+
+#[test]
+fn m4_role_rbac_enforcement() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path().join("state");
+    let r = Runtime::init(&root, m1policy(20, 2)).unwrap();
+    create_m1(&r, "p-rbac", 20);
+    execution_task(&r, "p-rbac", "t-rbac");
+
+    BranchWorkspaceManager::init_branch(&root, "p-rbac", "branch-verifier", "main").unwrap();
+
+    let dummy_fixture = Arc::new(ScriptedProviderFixture::new(vec![]));
+    let config = OrchestratorConfig {
+        project_id: "p-rbac".into(),
+        task_id: "t-rbac".into(),
+        role_id: "verifier".into(),
+        branch_id: "branch-verifier".into(),
+        model: "test-model".into(),
+        max_turns: 5,
+    };
+    let mut orch = AgentOrchestrator::new(&root, config, dummy_fixture).unwrap();
+
+    // Verifier attempts to invoke request_finalization -> rejected by RBAC
+    let err_fin = orch.dispatch_tool_call("request_finalization", &json!({"candidate_id": "c1", "rationale": "r"}).to_string()).unwrap_err();
+    assert!(err_fin.contains("Role 'verifier' is not authorized to invoke tool 'request_finalization'"));
+
+    // Verifier attempts to invoke delegate -> rejected by RBAC
+    let err_del = orch.dispatch_tool_call("delegate", &json!({"role_id": "model_specialist", "intent": "train"}).to_string()).unwrap_err();
+    assert!(err_del.contains("Role 'verifier' is not authorized to invoke tool 'delegate'"));
+
+    // Auditor attempts to invoke register_project_tool -> rejected by RBAC
+    let mut auditor_orch = AgentOrchestrator::new(&root, OrchestratorConfig {
+        project_id: "p-rbac".into(),
+        task_id: "t-rbac".into(),
+        role_id: "auditor".into(),
+        branch_id: "branch-verifier".into(),
+        model: "test-model".into(),
+        max_turns: 5,
+    }, Arc::new(ScriptedProviderFixture::new(vec![]))).unwrap();
+    let err_tool = auditor_orch.dispatch_tool_call("register_project_tool", &json!({"name": "t", "version": "v1", "description": "d", "entrypoint": "e"}).to_string()).unwrap_err();
+    assert!(err_tool.contains("Role 'auditor' is not authorized to invoke tool 'register_project_tool'"));
+}
+
+#[test]
+fn m4_conservative_ceiling_settlement_on_provider_failure() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path().join("state");
+    let r = Runtime::init(&root, m1policy(20, 2)).unwrap();
+    create_m1(&r, "p-fail", 20);
+    branch_task(&r, "p-fail", "bt-fail", "t-fail");
+
+    // Fixture with empty responses causes chat_completion to return Err
+    let failing_fixture = Arc::new(ScriptedProviderFixture::new(vec![]));
+    let config = OrchestratorConfig {
+        project_id: "p-fail".into(),
+        task_id: "t-fail".into(),
+        role_id: "lead".into(),
+        branch_id: "branch-fail".into(),
+        model: "test-model".into(),
+        max_turns: 5,
+    };
+    let mut orch = AgentOrchestrator::new(&root, config, failing_fixture).unwrap();
+
+    let step_res = orch.step();
+    assert!(step_res.is_err());
+
+    // Verify conservative ceiling settlement in provider_accounting and charges ledgers
+    let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+    let accounting_row: (String, i64, i64) = db.query_row(
+        "SELECT status, cost_millicents, prompt_tokens + completion_tokens FROM provider_accounting WHERE project='p-fail' ORDER BY created_ms DESC LIMIT 1",
+        [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    ).unwrap();
+    assert_eq!(accounting_row.0, "outcome_unknown_ceiling_estimate");
+    assert_eq!(accounting_row.1, 0, "Unconfigured monetary cost must not be fabricated");
+    assert!(accounting_row.2 > 4000, "Conservative token ceiling must be charged");
+
+    // Verify charge in M0 charges ledger
+    let charge_count: i64 = db.query_row(
+        "SELECT count(*) FROM charges WHERE project='p-fail'",
+        [], |r| r.get(0),
+    ).unwrap();
+    assert!(charge_count > 0, "Failed provider call must be settled in M0 charges ledger");
+}
+
+#[test]
+fn m4_authoritative_budget_query_and_remaining_calculation() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path().join("state");
+    let r = Runtime::init(&root, m1policy(50, 4)).unwrap();
+    create_m1(&r, "p-bud", 50);
+
+    let budget_info = AgentContextManager::query_authoritative_budget(&root, "p-bud").unwrap();
+    assert_eq!(budget_info["project_id"], "p-bud");
+    assert_eq!(budget_info["budget"]["calls"], 50);
+    assert_eq!(budget_info["budget"]["tokens"], 50_000);
+    assert_eq!(budget_info["budget"]["wall_ms"], 500_000);
+    // Finalization reserve is 20% of wall_ms
+    assert_eq!(budget_info["finalization_reserve_wall_ms"], 100_000);
+    // Remaining available
+    assert_eq!(budget_info["remaining"]["tokens"], 50_000);
+    assert_eq!(budget_info["remaining"]["wall_ms_effective"], 400_000);
+}
+
+#[test]
+fn m4_schema_validation_pre_and_post_execution() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path().join("state");
+    let r = Runtime::init(&root, m1policy(20, 2)).unwrap();
+    create_m1(&r, "p-schema", 20);
+
+    let desc = ToolDescriptor {
+        name: "typed_tool".into(),
+        version: "v1".into(),
+        description: "Tool with strict schema".into(),
+        input_schema: json!({
+            "type": "object",
+            "required": ["threshold", "tags"],
+            "properties": {
+                "threshold": {"type": "number"},
+                "tags": {"type": "array"}
+            }
+        }),
+        output_schema: json!({
+            "type": "object",
+            "required": ["score"],
+            "properties": {
+                "score": {"type": "number"}
+            }
+        }),
+        entrypoint: "tool.py".into(),
+        source_hash: "dummy_hash".into(),
+        environment_id: "scientific".into(),
+        permitted_artifacts: vec![],
+        max_wall_ms: 10_000,
+        provenance: json!({}),
+    };
+
+    ToolRegistry::register_tool(&root, "p-schema", desc).unwrap();
+
+    let schema = json!({
+        "type": "object",
+        "required": ["threshold", "tags"],
+        "properties": {
+            "threshold": {"type": "number"},
+            "tags": {"type": "array"}
+        }
+    });
+
+    // 1. Valid input matches schema
+    let valid_input = json!({"threshold": 0.75, "tags": ["a", "b"]});
+    assert!(ToolRegistry::validate_json_schema(&valid_input, &schema).is_ok());
+
+    // 2. Missing required field rejected
+    let invalid_missing = json!({"threshold": 0.75});
+    let err_missing = ToolRegistry::validate_json_schema(&invalid_missing, &schema).unwrap_err();
+    assert!(err_missing.contains("missing required field 'tags'"));
+
+    // 3. Wrong type rejected
+    let type_schema = json!({
+        "type": "object",
+        "properties": {"threshold": {"type": "number"}}
+    });
+    let invalid_type = json!({"threshold": "not_a_number", "tags": []});
+    let err_type = ToolRegistry::validate_json_schema(&invalid_type, &type_schema).unwrap_err();
+    assert!(err_type.contains("expected type 'number'"));
+}
+
+#[test]
+fn m4_exhausted_budget_blocks_provider_before_dispatch() {
+    struct NeverCall;
+    impl mlrescurix_harness::agents::ProviderGateway for NeverCall {
+        fn chat_completion(&self, _: &mlrescurix_harness::agents::ChatCompletionRequest) -> mlrescurix_harness::Result<ChatCompletionResponse> {
+            panic!("Provider must not be invoked without budget admission");
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("state");
+    let runtime = Runtime::init(&root, m1policy(0, 2)).unwrap();
+    create_m1(&runtime, "p-empty", 0);
+    branch_task(&runtime, "p-empty", "branch", "task");
+    let mut orch = AgentOrchestrator::new(&root, OrchestratorConfig {
+        project_id: "p-empty".into(), task_id: "task".into(), role_id: "lead".into(),
+        branch_id: "branch".into(), model: "fixture".into(), max_turns: 1,
+    }, Arc::new(NeverCall)).unwrap();
+    let error = orch.step().unwrap_err();
+    assert!(error.contains("budget exhausted"), "{error}");
+    let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+    let calls: i64 = db.query_row("SELECT count(*) FROM provider_accounting", [], |row| row.get(0)).unwrap();
+    assert_eq!(calls, 0);
+}
+
+#[test]
+#[cfg(unix)]
+fn m4_workspace_symlink_cannot_read_or_overwrite_host_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("state");
+    let runtime = Runtime::init(&root, m1policy(20, 2)).unwrap();
+    create_m1(&runtime, "p-link", 20);
+    let branch = BranchWorkspaceManager::init_branch(&root, "p-link", "branch", "main").unwrap();
+    let sentinel = dir.path().join("sentinel");
+    fs::write(&sentinel, "private").unwrap();
+    std::os::unix::fs::symlink(&sentinel, branch.join("link")).unwrap();
+    assert!(BranchWorkspaceManager::read_file(&root, "p-link", "branch", "link").is_err());
+    assert!(BranchWorkspaceManager::write_file(&root, "p-link", "branch", "link", "overwrite").is_err());
+    assert!(BranchWorkspaceManager::list_files(&root, "p-link", "branch").is_err());
+    assert_eq!(fs::read_to_string(sentinel).unwrap(), "private");
 }

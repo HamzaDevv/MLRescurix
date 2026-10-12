@@ -114,4 +114,34 @@ CREATE TABLE provider_accounting(
   PRIMARY KEY(project, request_id)
 );
 
+CREATE TABLE approvals(
+  project TEXT NOT NULL REFERENCES projects(id),
+  candidate_id TEXT NOT NULL,
+  approved INTEGER NOT NULL CHECK(approved IN (0, 1)),
+  user_identity TEXT NOT NULL,
+  rationale TEXT NOT NULL,
+  created_ms INTEGER NOT NULL,
+  PRIMARY KEY(project, candidate_id, created_ms)
+);
+
+CREATE TABLE critic_audits(
+  project TEXT NOT NULL REFERENCES projects(id),
+  candidate_id TEXT NOT NULL,
+  auditor_role TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('approved', 'rejected')),
+  rationale TEXT NOT NULL,
+  source_hash TEXT NOT NULL,
+  protocol TEXT NOT NULL,
+  constraints_verified INTEGER NOT NULL CHECK(constraints_verified IN (0, 1)),
+  created_ms INTEGER NOT NULL,
+  PRIMARY KEY(project, candidate_id, created_ms)
+);
+
+CREATE TABLE active_containers(
+  container_id TEXT PRIMARY KEY,
+  project TEXT NOT NULL REFERENCES projects(id),
+  task_id TEXT NOT NULL,
+  created_ms INTEGER NOT NULL
+);
+
 PRAGMA user_version=5;

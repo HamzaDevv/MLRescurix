@@ -61,7 +61,19 @@ def train_and_predict_isolated(
     if target_column in df_val.columns:
         X_val = df_val.drop(columns=[target_column])
     else:
-        X_val = df_val
+        X_val = df_val.copy()
+
+    row_ids = None
+    for id_col in ["row_id", "row_ids", "id", "_id"]:
+        if id_col in X_val.columns:
+            row_ids = X_val[id_col].tolist()
+            X_val = X_val.drop(columns=[id_col])
+            break
+    if row_ids is None:
+        if df_val.index is not None and not isinstance(df_val.index, pd.RangeIndex):
+            row_ids = df_val.index.tolist()
+        else:
+            row_ids = list(range(len(df_val)))
 
     estimator = load_custom_estimator(entrypoint)
     estimator.fit(X_train, y_train)
@@ -70,17 +82,36 @@ def train_and_predict_isolated(
     if not isinstance(preds, np.ndarray):
         preds = np.asarray(preds)
 
+    if np.issubdtype(preds.dtype, np.number):
+        if not np.isfinite(preds).all():
+            raise ValueError("Predictions contain non-finite values (NaN or Inf)")
+
     probs = None
+    classes = None
     try:
         p = estimator.predict_proba(X_val)
         if p is not None:
-            probs = np.asarray(p).tolist()
-    except Exception:
-        pass
+            p_arr = np.asarray(p)
+            if not np.isfinite(p_arr).all():
+                raise ValueError("Probabilities contain non-finite values (NaN or Inf)")
+            if (p_arr < -1e-6).any() or (p_arr > 1.0 + 1e-6).any():
+                raise ValueError("Probabilities out of bounds [0, 1]")
+            probs = p_arr.tolist()
+            if hasattr(estimator, "classes_"):
+                classes = [
+                    int(c) if isinstance(c, (int, np.integer))
+                    else (str(c) if isinstance(c, (str, np.str_)) else float(c))
+                    for c in estimator.classes_
+                ]
+    except Exception as e:
+        if isinstance(e, ValueError):
+            raise
 
     out_payload = {
-        "predictions": preds.tolist(),
+        "predictions": preds.tolist() if isinstance(preds, np.ndarray) else list(preds),
         "probabilities": probs,
+        "classes": classes,
+        "row_ids": row_ids,
         "n_samples": len(preds),
     }
 

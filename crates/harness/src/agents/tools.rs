@@ -1,8 +1,7 @@
 use std::{
     fs,
-    path::{Path, PathBuf},
-    process::{Command, Stdio},
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    path::Path,
+    time::{SystemTime, UNIX_EPOCH},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -193,14 +192,46 @@ impl ToolRegistry {
                 tool_type: "function".into(),
                 function: ToolFunction {
                     name: "request_finalization".into(),
-                    description: "Submit a finalization request for an apex candidate after critic audit.".into(),
+                    description: "Submit a finalization request for a verified candidate or baseline after critic audit.".into(),
                     parameters: json!({
                         "type": "object",
                         "properties": {
-                            "candidate_id": { "type": "string", "description": "Identifier of the verified apex candidate" },
-                            "rationale": { "type": "string", "description": "Summary of evidence justifying final freeze" }
+                            "candidate_id": { "type": "string", "description": "Identifier of the verified candidate or baseline" },
+                            "rationale": { "type": "string", "description": "Summary of evidence justifying final freeze under declared protocol" },
+                            "approval_token": { "type": "string", "description": "Authenticated user approval token for this candidate" }
                         },
-                        "required": ["candidate_id", "rationale"]
+                        "required": ["candidate_id", "rationale", "approval_token"]
+                    }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "retrieve_evidence".into(),
+                    description: "Retrieve verified historical evidence, findings, or trial results by durable ID.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "evidence_id": { "type": "string", "description": "Durable ID of evidence or finding record" }
+                        },
+                        "required": ["evidence_id"]
+                    }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "submit_critic_audit".into(),
+                    description: "Submit an independent critic review audit for a candidate against the declared evaluation protocol.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "candidate_id": { "type": "string", "description": "Candidate identifier being audited" },
+                            "verdict": { "type": "string", "enum": ["approved", "rejected"], "description": "Audit decision" },
+                            "protocol_compliance": { "type": "boolean", "description": "Whether candidate complies with declared evaluation protocol" },
+                            "evidence_summary": { "type": "string", "description": "Summary of verified evidence, metrics, and feasibility" }
+                        },
+                        "required": ["candidate_id", "verdict", "protocol_compliance", "evidence_summary"]
                     }),
                 },
             },
@@ -221,7 +252,7 @@ impl ToolRegistry {
         db.execute(
             "INSERT INTO agent_tools(project, tool_name, version, descriptor_json, source_hash, environment_id, created_ms)
              VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)
-             ON CONFLICT(project, tool_name, version) DO UPDATE SET descriptor_json=excluded.descriptor_json, source_hash=excluded.source_hash",
+             ON CONFLICT(project, tool_name, version) DO NOTHING",
             rusqlite::params![
                 project_id,
                 descriptor.name,
@@ -232,6 +263,19 @@ impl ToolRegistry {
                 now,
             ],
         ).map_err(|e| e.to_string())?;
+
+        let stored_json: String = db.query_row(
+            "SELECT descriptor_json FROM agent_tools WHERE project=?1 AND tool_name=?2 AND version=?3",
+            rusqlite::params![project_id, descriptor.name, descriptor.version],
+            |r| r.get(0),
+        ).map_err(|e| e.to_string())?;
+        let stored: ToolDescriptor = serde_json::from_str(&stored_json).map_err(|e| e.to_string())?;
+        if stored != descriptor {
+            return Err(format!(
+                "Tool {}:{} is already registered with a different descriptor. Tool versions are immutable.",
+                descriptor.name, descriptor.version,
+            ));
+        }
 
         Ok(())
     }
@@ -245,6 +289,63 @@ impl ToolRegistry {
         version: &str,
         input: &Value,
     ) -> Result<ToolExecutionReceipt> {
+        Self::invoke_tool_with_status(root, project_id, branch_id, tool_name, version, input, SandboxDetector::detect())
+    }
+
+pub fn validate_json_schema(val: &Value, schema: &Value) -> Result<()> {
+    if !schema.is_object() || schema.as_object().unwrap().is_empty() {
+        return Ok(());
+    }
+    if let Some(expected_type) = schema.get("type").and_then(|t| t.as_str()) {
+        let matches = match expected_type {
+            "object" => val.is_object(),
+            "array" => val.is_array(),
+            "string" => val.is_string(),
+            "number" => val.is_number(),
+            "integer" => val.is_i64() || val.is_u64() || (val.is_f64() && val.as_f64().unwrap().fract() == 0.0),
+            "boolean" => val.is_boolean(),
+            _ => true,
+        };
+        if !matches {
+            return Err(format!("Schema validation failed: expected type '{expected_type}', found {:?}", val));
+        }
+    }
+    if let Some(required) = schema.get("required").and_then(|r| r.as_array()) {
+        if let Some(obj) = val.as_object() {
+            for req in required {
+                if let Some(field) = req.as_str() {
+                    if !obj.contains_key(field) {
+                        return Err(format!("Schema validation failed: missing required field '{field}'"));
+                    }
+                }
+            }
+        }
+    }
+    if let (Some(properties), Some(obj)) = (schema.get("properties").and_then(|p| p.as_object()), val.as_object()) {
+        for (prop_name, prop_schema) in properties {
+            if let Some(prop_val) = obj.get(prop_name) {
+                Self::validate_json_schema(prop_val, prop_schema)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+    fn invoke_tool_with_status(
+        root: &Path,
+        project_id: &str,
+        branch_id: &str,
+        tool_name: &str,
+        version: &str,
+        input: &Value,
+        status: SandboxStatus,
+    ) -> Result<ToolExecutionReceipt> {
+        // Refuse before mutating the workspace or attempting any execution.
+        if let SandboxStatus::Unavailable { reason } = status {
+            return Err(format!(
+                "Sandbox execution refused: container runtime is unavailable ({reason}). Host Python substitution for untrusted code is prohibited."
+            ));
+        }
         crate::execution::migrate(root)?;
         let db = rusqlite::Connection::open(root.join("state.sqlite")).map_err(|e| e.to_string())?;
         let desc_json: String = db.query_row(
@@ -254,47 +355,51 @@ impl ToolRegistry {
         ).map_err(|_| format!("Tool {tool_name}:{version} is not registered in project {project_id}"))?;
 
         let desc: ToolDescriptor = serde_json::from_str(&desc_json).map_err(|e| e.to_string())?;
-        let branch_dir = BranchWorkspaceManager::get_branch_dir(root, project_id, branch_id);
 
-        let input_path = branch_dir.join(".tool_input.json");
+        // 1. Validate tool input against registered input_schema BEFORE execution
+        Self::validate_json_schema(input, &desc.input_schema)?;
+
+        // 2. Select execution directory: prefer registered immutable snapshot, or fallback to branch if hash matches
+        let snapshot_dir = root.join("workflows").join(project_id).join("snapshots").join(&desc.source_hash);
+        let exec_dir = if snapshot_dir.is_dir() {
+            snapshot_dir
+        } else {
+            let branch_dir = BranchWorkspaceManager::get_branch_dir(root, project_id, branch_id);
+            let current_hash = BranchWorkspaceManager::compute_branch_hash(root, project_id, branch_id).unwrap_or_default();
+            if current_hash != desc.source_hash {
+                return Err(format!(
+                    "Branch workspace hash '{current_hash}' does not match registered tool source hash '{}'. Cannot invoke tool against unverified working tree.",
+                    desc.source_hash
+                ));
+            }
+            branch_dir
+        };
+
+        // 3. Write input to unique file to prevent concurrent collisions
+        let unique_input_file = format!(".tool_input_{}_{}.json", SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos(), std::process::id());
+        let input_path = exec_dir.join(&unique_input_file);
         fs::write(&input_path, serde_json::to_string(input).unwrap()).map_err(|e| e.to_string())?;
 
-        let args = vec!["--input".to_string(), input_path.to_string_lossy().to_string()];
+        let args = vec!["--input".to_string(), format!("/workspace/{unique_input_file}")];
         let limits = SandboxLimits {
-            max_wall_ms: desc.max_wall_ms.max(5000),
+            max_wall_ms: desc.max_wall_ms,
             ..Default::default()
         };
 
-        let start = Instant::now();
-
-        // Check sandbox status
-        let status = SandboxDetector::detect();
-        let res = match status {
-            SandboxStatus::Available { .. } => {
-                SandboxRunner::execute(&branch_dir, &desc.entrypoint, &args, &limits, None)?
-            }
-            SandboxStatus::Unavailable { .. } => {
-                // For test execution when container runtime is unavailable, run safely using managed Python
-                // but ONLY if explicitly running within trusted harness tests or return honest refusal.
-                let py = PathBuf::from("python3");
-                let mut cmd = Command::new(py);
-                cmd.arg(&desc.entrypoint).args(&args).current_dir(&branch_dir);
-                cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-                let output = cmd.output().map_err(|e| format!("tool runner execution failed: {e}"))?;
-                crate::agents::sandbox::SandboxExecutionResult {
-                    exit_code: output.status.code().unwrap_or(1),
-                    stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-                    stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-                    elapsed_ms: start.elapsed().as_millis() as u64,
-                }
-            }
-        };
+        let execution = SandboxRunner::execute(&exec_dir, &desc.entrypoint, &args, &limits, None);
 
         if input_path.exists() {
             let _ = fs::remove_file(input_path);
         }
+        let res = execution?;
 
-        let parsed_output = serde_json::from_str::<Value>(&res.stdout).ok();
+        // 4. Validate tool output against registered output_schema AFTER execution
+        let parsed_output = if res.exit_code == 0 {
+            Some(serde_json::from_str::<Value>(&res.stdout).map_err(|e| format!("Tool returned invalid JSON: {e}"))?)
+        } else { None };
+        if let Some(ref out_val) = parsed_output {
+            Self::validate_json_schema(out_val, &desc.output_schema)?;
+        }
 
         Ok(ToolExecutionReceipt {
             tool_name: desc.name,
@@ -306,5 +411,23 @@ impl ToolRegistry {
             output_data: parsed_output,
             elapsed_ms: res.elapsed_ms,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unavailable_sandbox_refuses_tool_before_any_state_or_workspace_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("state-not-created");
+        let error = ToolRegistry::invoke_tool_with_status(
+            &root, "project", "branch", "tool", "v1", &json!({}),
+            SandboxStatus::Unavailable { reason: "test runtime offline".into() },
+        ).unwrap_err();
+        assert!(error.contains("test runtime offline"));
+        assert!(error.contains("Host Python substitution for untrusted code is prohibited"));
+        assert!(!root.exists());
     }
 }
