@@ -5,9 +5,19 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mlrescurix-worker-protocol"
 version = "0.1.0"
-description = "MLRescurix M0 protocol contracts; no scientific execution"
+description = "MLRescurix bounded worker protocol and M2 tabular recipes"
 requires-python = ">=3.13,<3.14"
-dependencies = []
+dependencies = [
+  "numpy==2.2.6",
+  "pandas==2.3.0",
+  "scipy==1.16.1",
+  "scikit-learn==1.8.0",
+  "joblib==1.5.1",
+]
+
+[project.scripts]
+mlrescurix-scientific = "mlrescurix_worker.scientific.cli:main"
+mlrescurix-dashboard = "mlrescurix_worker.scientific.dashboard:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

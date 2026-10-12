@@ -227,3 +227,54 @@ fn m1_ten_projects_and_three_branch_jobs_stay_within_two_worker_allocation(){
  let mut max=0;for _ in 0..200{s.tick().unwrap();let db=rusqlite::Connection::open(root.join("state.sqlite")).unwrap();let running:i64=db.query_row("SELECT count(*) FROM jobs WHERE status IN('running','terminating')",[],|x|x.get(0)).unwrap();max=max.max(running);let done:i64=db.query_row("SELECT count(*) FROM jobs WHERE status='succeeded'",[],|x|x.get(0)).unwrap();if done==12{break;}std::thread::sleep(std::time::Duration::from_millis(10));}
  assert!(max<=2);let db=rusqlite::Connection::open(root.join("state.sqlite")).unwrap();assert_eq!(db.query_row::<i64,_,_>("SELECT count(*) FROM jobs WHERE status='succeeded'",[],|x|x.get(0)).unwrap(),12);
 }
+
+#[test]
+fn m2_dataset_registration_copies_and_hashes_only_into_owned_state(){
+ let d=tempfile::tempdir().unwrap();let root=d.path().join("state");let r=Runtime::init(&root,m1policy(100,8)).unwrap();create_m1(&r,"p");
+ let source=d.path().join("selected.csv");std::fs::write(&source,"x,target\n1,0\n2,1\n").unwrap();
+ let registered=execution::register_dataset(&root,"p","data-1",&source).unwrap();
+ assert_eq!(registered["bytes"],std::fs::metadata(&source).unwrap().len());
+ assert_eq!(std::fs::read(root.join("datasets/p/data-1.csv")).unwrap(),std::fs::read(&source).unwrap());
+ assert_eq!(execution::register_dataset(&root,"p","data-1",&source).unwrap()["reused"],true);
+ assert_eq!(r.snapshot("p").unwrap()["project_id"],"p");
+ std::fs::write(&source,"x,target\n9,9\n").unwrap();assert!(execution::register_dataset(&root,"p","data-1",&source).is_err());
+}
+
+#[test]
+fn m2_scientific_jobs_are_typed_and_reference_registered_datasets(){
+ let d=tempfile::tempdir().unwrap();let root=d.path().join("state");let r=Runtime::init(&root,m1policy(100,8)).unwrap();create_m1(&r,"p");
+ let source=d.path().join("selected.csv");std::fs::write(&source,"x,target\n1,0\n2,1\n").unwrap();execution::register_dataset(&root,"p","data-1",&source).unwrap();execution_task(&r,"p","audit-task");
+ let mut spec=job("p","audit","audit-task",Probe::Scientific{operation:"audit".into(),dataset_id:"data-1".into(),spec:Some(serde_json::json!({"project_id":"p","target":"target","task":"binary_classification","metric":"balanced_accuracy"})),candidate_id:None,test_access_id:None},30_000);
+ spec.environment_id=Some("scientific".into());assert!(execution::validate_spec(&spec).is_ok());
+ assert_eq!(execution::submit(&root,spec).unwrap().status,"queued");
+ let db=rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+ assert_eq!(db.query_row::<String,_,_>("SELECT operation FROM scientific_jobs WHERE project='p' AND job='audit'",[],|r|r.get(0)).unwrap(),"audit");
+}
+
+#[test]
+fn m2_final_test_access_is_reserved_transactionally_once_per_dataset(){
+ let d=tempfile::tempdir().unwrap();let root=d.path().join("state");let r=Runtime::init(&root,m1policy(100,8)).unwrap();create_m1(&r,"p");
+ let source=d.path().join("selected.csv");std::fs::write(&source,"x,target\n1,0\n2,1\n").unwrap();execution::register_dataset(&root,"p","data-1",&source).unwrap();
+ let workflow=root.join("workflows/p");std::fs::create_dir_all(&workflow).unwrap();
+ let db=rusqlite::Connection::open(root.join("state.sqlite")).unwrap();let sha:String=db.query_row("SELECT sha256 FROM scientific_datasets WHERE project='p' AND id='data-1'",[],|r|r.get(0)).unwrap();
+ std::fs::write(workflow.join("results.json"),serde_json::json!({"dataset_sha256":sha,"candidates":[{"candidate_id":"linear","status":"evaluated"}]}).to_string()).unwrap();
+ execution_task(&r,"p","final-task-1");
+ let mk=|job_id:&str,task_id:&str,access:&str|{let mut request=job("p",job_id,task_id,Probe::Scientific{operation:"finalize".into(),dataset_id:"data-1".into(),spec:None,candidate_id:Some("linear".into()),test_access_id:Some(access.into())},30_000);request.environment_id=Some("scientific".into());request};
+ execution::submit(&root,mk("final-1","final-task-1","test-key-1")).unwrap();
+ execution_task(&r,"p","final-task-2");
+ assert!(execution::submit(&root,mk("final-2","final-task-2","test-key-2")).is_err());
+ assert_eq!(db.query_row::<i64,_,_>("SELECT count(*) FROM final_test_gates WHERE project='p' AND status='reserved'",[],|r|r.get(0)).unwrap(),1);
+}
+
+#[test]
+fn m2_restart_reconciles_consumed_final_test_identity(){
+ let d=tempfile::tempdir().unwrap();let root=d.path().join("state");let r=Runtime::init(&root,m1policy(100,8)).unwrap();create_m1(&r,"p");
+ let source=d.path().join("selected.csv");std::fs::write(&source,"x,target\n1,0\n2,1\n").unwrap();execution::register_dataset(&root,"p","data-1",&source).unwrap();
+ let workflow=root.join("workflows/p");std::fs::create_dir_all(&workflow).unwrap();let db=rusqlite::Connection::open(root.join("state.sqlite")).unwrap();let sha:String=db.query_row("SELECT sha256 FROM scientific_datasets WHERE project='p' AND id='data-1'",[],|r|r.get(0)).unwrap();
+ std::fs::write(workflow.join("results.json"),serde_json::json!({"dataset_sha256":sha,"candidates":[{"candidate_id":"linear","status":"evaluated"}]}).to_string()).unwrap();execution_task(&r,"p","final-task");
+ let mut request=job("p","final-job","final-task",Probe::Scientific{operation:"finalize".into(),dataset_id:"data-1".into(),spec:None,candidate_id:Some("linear".into()),test_access_id:Some("test-once".into())},30_000);request.environment_id=Some("scientific".into());execution::submit(&root,request).unwrap();
+ std::fs::write(workflow.join("test_access.json"),serde_json::json!({"test_access_id":"test-once","candidate_id":"linear","dataset_sha256":sha,"frozen_model_sha256":"model-hash","status":"consumed"}).to_string()).unwrap();
+ std::fs::write(workflow.join("final.json"),serde_json::json!({"status":"verified_development_only","test_access_id":"test-once"}).to_string()).unwrap();
+ let bin=Path::new(env!("CARGO_BIN_EXE_mlrescurix-harness"));let _supervisor=Supervisor::start_with_executable(&root,1,bin).unwrap();
+ assert_eq!(db.query_row::<String,_,_>("SELECT status FROM final_test_gates WHERE project='p' AND access_id='test-once'",[],|r|r.get(0)).unwrap(),"consumed");
+}

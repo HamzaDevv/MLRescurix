@@ -18,9 +18,12 @@ enum Command {
     Supervise { #[arg(long)] state:PathBuf, #[arg(long,default_value_t=1)] workers:usize },
     CreateEnvironment { #[arg(long)] state:PathBuf, #[arg(long)] id:String, #[arg(long)] python:PathBuf },
     RemoveEnvironment { #[arg(long)] state:PathBuf, #[arg(long)] id:String },
+    InstallScientificProfile { #[arg(long)] state:PathBuf, #[arg(long)] id:String },
     PinArtifact { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] job:String, #[arg(long,default_value_t=true)] pinned:bool },
     CollectArtifacts { #[arg(long)] state:PathBuf },
     SetProjectWeight { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] weight:u8 },
+    RegisterDataset { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] id:String, #[arg(long)] csv:PathBuf },
+    Dashboard { #[arg(long)] state:PathBuf, #[arg(long,default_value_t=8765)] port:u16 },
     #[command(name="__worker",hide=true)] Worker { spec:PathBuf, output:PathBuf },
     Capabilities,
 }
@@ -42,9 +45,21 @@ async fn run()->Result<(),String>{
         Command::Supervise{state,workers}=>Supervisor::start(&state,workers)?.serve(),
         Command::CreateEnvironment{state,id,python}=>print(execution::create_environment(&state,&id,&python)?),
         Command::RemoveEnvironment{state,id}=>{execution::remove_environment(&state,&id)?;print(serde_json::json!({"id":id,"removed":true}))},
+        Command::InstallScientificProfile{state,id}=>print(execution::install_scientific_profile(&state,&id)?),
         Command::PinArtifact{state,project,job,pinned}=>{execution::pin_artifact(&state,&project,&job,pinned)?;print(serde_json::json!({"project":project,"job":job,"pinned":pinned}))},
         Command::CollectArtifacts{state}=>print(serde_json::json!({"reclaimed_bytes":execution::collect_artifacts(&state)?})),
         Command::SetProjectWeight{state,project,weight}=>{execution::set_project_weight(&state,&project,weight)?;print(serde_json::json!({"project":project,"weight":weight}))},
+        Command::RegisterDataset{state,project,id,csv}=>print(execution::register_dataset(&state,&project,&id,&csv)?),
+        Command::Dashboard{state,port}=>{
+            if !(1024..=65535).contains(&port){return Err("dashboard port must be 1024..=65535".into());}
+            execution::migrate(&state)?;
+            let pythonpath=PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../python/src");
+            let binary=std::env::current_exe().map_err(|e|e.to_string())?;
+            let status=std::process::Command::new("python3").args(["-m","mlrescurix_worker.scientific.dashboard","--state"])
+                .arg(&state).arg("--binary").arg(binary).arg("--port").arg(port.to_string())
+                .env_clear().env("PATH","/usr/bin:/bin").env("PYTHONPATH",pythonpath).status().map_err(|e|e.to_string())?;
+            if status.success(){Ok(())}else{Err(format!("dashboard exited with {status}"))}
+        },
         Command::Worker{spec,output}=>{let result=execution::worker(&spec,&output)?;if result==0 {Ok(())} else {std::process::exit(result)}}
         Command::Capabilities=>print(serde_json::json!({"phase":"M1","protocol":"mlrescurix/1","os":std::env::consts::OS,"arch":std::env::consts::ARCH,"writer_queue":64,"frame_bytes":MAX_FRAME,"trusted_probe_execution":cfg!(target_os="macos"),"scientific_execution":false,"official_evaluation":false,"resource_enforcement":{"worker_count":"enforced","thread_pool_environment_hints":"applied; library dependent","memory":"RSS sampled; quota unsupported","disk":"free-space admission and bounded outputs","cpu":"best-effort process sample"},"providers":false})),
     }).await.map_err(|e|e.to_string())?

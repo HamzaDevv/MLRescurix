@@ -409,4 +409,62 @@ M1 adds a durable bounded queue, exclusive local supervisor, fair per-project ad
 
 Verification uses temporary owned states. Integration tests exercise ten projects, including three jobs on separate branches of one project, under a two-worker ceiling; fair queue rotation; project cancellation isolation; pause, drain, and resume; timeout; supervisor-death worker self-stop and restart recovery; artifact hashes, pins, and GC; Python environment leases; output bounds; low-disk admission logic; best-effort process telemetry; and M0 regression behavior. Workers are built-in probes only. M1 has no scientific training, arbitrary command execution, generated-code sandbox, evaluation, or model delivery.
 
-M1 is the current implementation boundary. M2 requires its own proposal and explicit approval.
+At the M1 milestone boundary, M2 requires its own proposal and explicit approval.
+
+## 18. M2 first tabular workflow (implemented)
+
+M2 connects registered data and fixed scientific operations to the M0/M1
+supervisor. It adds a transactional SQLite v3 migration for owned dataset
+manifests, typed scientific jobs, result hashes, and one final-test reservation
+per project/dataset. Dataset registration copies at most 32 MiB into the
+owned state, hashes and marks it read-only, and enforces project/device count
+and storage bounds. Job specs select only `audit`, `baselines`, or `finalize`;
+they cannot name an executable or source file. Scientific jobs require a
+managed Python 3.13 environment and retain M1 fencing, deadline, thread,
+artifact, queue, and `wall_ms` admission.
+
+The pinned CPU profile contains NumPy, pandas, SciPy, scikit-learn, and joblib.
+Installation bootstraps pip only inside the owned venv, accepts binary wheels,
+uses a 20-minute deadline, and disables the pip cache. The recipe code is
+available from the packaged Python worker source. No global Python environment
+is modified.
+
+The workflow accepts bounded local CSV with numeric/categorical features and
+classification/regression targets. It writes an immutable dataset fingerprint,
+bounded profile, stable row ordinals, and seeded train/validation/test split.
+Preprocessing is fitted inside the recipe process using training rows. A
+recipe subprocess receives training rows with labels and feature-only
+validation rows, then returns a fitted artifact and row-keyed predictions.
+The trusted coordinator independently validates prediction identities,
+classes, shapes, and finite probability values before scoring with labels it
+owns. Supported recipes are a dummy reference, logistic regression or Ridge,
+and a bounded single-thread random forest. There is no HPO or generated code.
+
+Finalization refits one eligible recipe on train plus validation, reloads that
+frozen artifact, and measures raw-input inference against the declared local
+workload. A SQLite reservation tied to dataset hash/candidate/access identity
+is committed before the finalization job is admitted. The worker checks
+declared latency/model-size constraints before test access. It then records a
+file gate bound to the exact frozen model, runs a feature-only prediction
+worker, and lets the trusted coordinator compute test metrics. M1 startup
+reconciles a completed file gate back into SQLite after supervisor loss. An
+uncertain assessment stays reserved and cannot be repeated with another
+candidate. Bundles include the fitted model, standalone inference API, schema,
+locks, report card, verification, recipe/source, examples, and per-file hashes.
+
+The loopback dashboard uses a one-hour random session token, strict Host/Origin
+checks, an HttpOnly SameSite cookie, bounded JSON commands, committed M0/M1
+receipts/events, and snapshot replay. It displays jobs and scientific result
+files and provides pause/resume/cancel controls. It does not run its own
+scheduler or invent progress values.
+
+**Acceptance evidence:** M2 tests exercise owned dataset copying and identity,
+atomic one-test reservation, classification/regression metrics, stratified,
+grouped and chronological splits, pre-test feasibility rejection, consumed
+test protection, standalone bundle inference on reordered columns and unseen
+categories, M0/M1 regression behavior, and the managed-profile supervised
+workflow/dashboard smoke path. These tests use synthetic fixtures. The local
+worker is trusted, not an adversarial sandbox. macOS does not provide the
+configured hard memory quota; memory limits required by a project block
+certification. Cold-load timing, repeated-seed uncertainty, and external-host
+certification are not supplied. These facts remain visible in the scorecard.

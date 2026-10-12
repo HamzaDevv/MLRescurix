@@ -4,7 +4,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, fs, io::{Read,Write}, os::unix::process::CommandExt, path::{Path,PathBuf}, process::{Child,ChildStdin,Command,Stdio}, sync::{Arc,atomic::{AtomicBool,Ordering}}, thread, time::{Duration,Instant,SystemTime,UNIX_EPOCH}};
+use std::{collections::BTreeMap, fs, io::{Read,Write}, os::unix::{fs::PermissionsExt,process::CommandExt}, path::{Path,PathBuf}, process::{Child,ChildStdin,Command,Stdio}, sync::{Arc,atomic::{AtomicBool,Ordering}}, thread, time::{Duration,Instant,SystemTime,UNIX_EPOCH}};
 
 const MAX_FRAME: usize = 65_536;
 const POLL_MS: u64 = 100;
@@ -21,6 +21,7 @@ pub enum Probe {
     Sleep { millis: u64 },
     Fail { code: u8 },
     Write { name: String, content: String },
+    Scientific { operation: String, dataset_id: String, spec: Option<Value>, candidate_id: Option<String>, test_access_id: Option<String> },
 }
 
 #[derive(Debug,Clone,Serialize,Deserialize,PartialEq)]
@@ -53,9 +54,19 @@ fn connect(root:&Path)->Result<Connection>{
     let mut c=sql(Connection::open(root.join("state.sqlite")))?;
     sql(c.busy_timeout(Duration::from_secs(2)))?;
     sql(c.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;"))?;
-    let version:i64=sql(c.query_row("PRAGMA user_version",[],|r|r.get(0)))?;
-    if version==1 {let tx=sql(c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate))?;let confirmed:i64=sql(tx.query_row("PRAGMA user_version",[],|r|r.get(0)))?;if confirmed==1{sql(tx.execute_batch(include_str!("schema_m1.sql")))?;}else if confirmed!=2{return Err(format!("unsupported database migration version {confirmed}"));}sql(tx.commit())?;}
-    else if version!=2 { return Err(format!("unsupported database migration version {version}")); }
+    loop {
+        let version:i64=sql(c.query_row("PRAGMA user_version",[],|r|r.get(0)))?;
+        if version==3 { break; }
+        let tx=sql(c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate))?;
+        let confirmed:i64=sql(tx.query_row("PRAGMA user_version",[],|r|r.get(0)))?;
+        if confirmed!=version {tx.rollback().map_err(|e|e.to_string())?;continue;}
+        match version {
+            1=>sql(tx.execute_batch(include_str!("schema_m1.sql")))?,
+            2=>sql(tx.execute_batch(include_str!("schema_m2.sql")))?,
+            _=>return Err(format!("unsupported database migration version {version}")),
+        }
+        sql(tx.commit())?;
+    }
     Ok(c)
 }
 fn ensure_dir(root:&Path,path:&Path)->Result<()>{
@@ -78,12 +89,55 @@ pub fn validate_spec(s:&JobSpec)->Result<()> {
             if content.len() as u64>s.max_output_bytes {return Err("artifact exceeds requested output bound".into());}
         }, _=>{}
     }
+    if let Probe::Scientific{operation,dataset_id,spec,candidate_id,test_access_id}=&s.probe {
+        valid_id(dataset_id)?;
+        if !matches!(operation.as_str(),"audit"|"baselines"|"finalize"){return Err("unsupported scientific operation".into());}
+        if *operation=="audit" && spec.is_none(){return Err("audit requires an immutable project spec".into());}
+        if *operation=="finalize" {
+            let candidate=candidate_id.as_deref().ok_or("finalize requires candidate identity")?;let access=test_access_id.as_deref().ok_or("finalize requires test access identity")?;
+            valid_id(candidate)?;valid_id(access)?;
+        }
+        if s.environment_id.is_none(){return Err("scientific jobs require a managed scientific environment".into());}
+    }
     if let Some(e)=&s.environment_id {valid_id(e)?;}
     let encoded=serde_json::to_vec(s).map_err(|e|e.to_string())?;
     if encoded.len()>MAX_FRAME{return Err("job spec exceeds frame bound".into());} Ok(())
 }
 
 pub fn migrate(root:&Path)->Result<()> {let _=connect(root)?;Ok(())}
+
+/// Copy an explicitly selected CSV into the owned dataset store before scientific work.
+pub fn register_dataset(root:&Path,project:&str,id:&str,source:&Path)->Result<Value>{
+    valid_id(project)?;valid_id(id)?;
+    let meta=fs::symlink_metadata(source).map_err(|e|e.to_string())?;
+    if meta.file_type().is_symlink()||!meta.is_file()||meta.len()==0||meta.len()>32*1024*1024 {
+        return Err("dataset must be a regular non-symlink CSV between 1 byte and 32 MiB".into());
+    }
+    let mut input=fs::File::open(source).map_err(|e|e.to_string())?;
+    let mut digest=Sha256::new();let mut bytes=0u64;let mut buffer=[0u8;64*1024];
+    loop {let n=input.read(&mut buffer).map_err(|e|e.to_string())?;if n==0{break;}bytes+=n as u64;if bytes>32*1024*1024{return Err("dataset exceeds 32 MiB bound".into());}digest.update(&buffer[..n]);}
+    let sha=format!("{:x}",digest.finalize());let conn=connect(root)?;
+    let project_exists:bool=sql(conn.query_row("SELECT EXISTS(SELECT 1 FROM projects WHERE id=?1)",[project],|r|r.get(0)))?;
+    if !project_exists{return Err("unknown project".into());}
+    let folder=root.join("datasets").join(project);ensure_dir(root,&folder)?;let path=folder.join(format!("{id}.csv"));
+    let existing:Option<(String,String)>=sql(conn.query_row("SELECT path,sha256 FROM scientific_datasets WHERE project=?1 AND id=?2",params![project,id],|r|Ok((r.get(0)?,r.get(1)?))).optional())?;
+    if let Some((old_path,old_hash))=existing {if Path::new(&old_path)==path&&old_hash==sha{return Ok(json!({"project_id":project,"dataset_id":id,"sha256":sha,"bytes":bytes,"reused":true}));}return Err("dataset id already exists with different content".into());}
+    let (project_count,device_count,device_bytes):(i64,i64,i64)=sql(conn.query_row(
+        "SELECT (SELECT count(*) FROM scientific_datasets WHERE project=?1),(SELECT count(*) FROM scientific_datasets),(SELECT COALESCE(sum(bytes),0) FROM scientific_datasets)",
+        [project],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))))?;
+    if project_count>=10||device_count>=100||device_bytes.saturating_add(bytes as i64)>512*1024*1024{return Err("owned dataset storage quota reached".into());}
+    ensure_disk_space(root,bytes.saturating_add(OUTPUT_CAP))?;
+    if path.exists(){return Err("owned dataset path already exists".into());}
+    let temp=folder.join(format!(".{id}.staging"));
+    let mut src=fs::File::open(source).map_err(|e|e.to_string())?;let mut dst=fs::OpenOptions::new().write(true).create_new(true).open(&temp).map_err(|e|e.to_string())?;
+    std::io::copy(&mut src,&mut dst).map_err(|e|e.to_string())?;dst.sync_all().map_err(|e|e.to_string())?;
+    let copied=fs::read(&temp).map_err(|e|e.to_string())?;if hash(&copied)!=sha{let _=fs::remove_file(&temp);return Err("dataset changed while staging".into());}
+    fs::set_permissions(&temp,std::fs::Permissions::from_mode(0o444)).map_err(|e|e.to_string())?;fs::rename(&temp,&path).map_err(|e|e.to_string())?;
+    let tx=sql(conn.unchecked_transaction())?;
+    sql(tx.execute("INSERT INTO scientific_datasets(project,id,path,bytes,sha256,registered_ms) VALUES(?1,?2,?3,?4,?5,?6)",params![project,id,path.to_string_lossy(),bytes as i64,sha,now_ms()]))?;
+    sql(tx.execute("INSERT INTO events(project,kind,payload) VALUES(?1,'dataset.registered',?2)",params![project,json!({"dataset_id":id,"sha256":sha,"bytes":bytes}).to_string()]))?;
+    tx.commit().map_err(|e|e.to_string())?;Ok(json!({"project_id":project,"dataset_id":id,"sha256":sha,"bytes":bytes,"reused":false}))
+}
 
 pub fn submit(root:&Path,s:JobSpec)->Result<JobView>{
     validate_spec(&s)?;let c=connect(root)?;
@@ -101,6 +155,29 @@ pub fn submit(root:&Path,s:JobSpec)->Result<JobView>{
     let task:crate::core::Task=serde_json::from_str(&task_json).map_err(|e|e.to_string())?;
     if task.status!="active"||task.generation!=s.generation||task.intent_revision!=sql(tx.query_row("SELECT intent_revision FROM projects WHERE id=?1",[&s.project_id],|r|r.get::<_,u64>(0)))?||task.expires_ms.is_none_or(|end|end<now_ms().saturating_add(s.timeout_ms as i64)){return Err("stale or too-short task lease".into());}
     sql(tx.execute("INSERT INTO jobs(id,project,task,generation,spec,status,submitted_ms) VALUES(?1,?2,?3,?4,?5,'queued',?6)",params![s.job_id,s.project_id,s.task_id,s.generation,encoded,now_ms()]))?;
+    if let Probe::Scientific{operation,dataset_id,spec:scientific_spec,candidate_id,test_access_id}=&s.probe {
+        let dataset:Option<(String,i64,String)>=sql(tx.query_row("SELECT path,bytes,sha256 FROM scientific_datasets WHERE project=?1 AND id=?2",params![s.project_id,dataset_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional())?;
+        let Some((_,_,dataset_hash))=dataset else{return Err("scientific job requires a registered project dataset".into());};
+        if *operation=="audit" && scientific_spec.is_some(){
+            let out=serde_json::to_string(scientific_spec.as_ref().unwrap()).map_err(|e|e.to_string())?;
+            if out.len()>4096{return Err("scientific project spec exceeds bound".into());}
+        }
+        if *operation=="finalize" {
+            let results_path=root.join("workflows").join(&s.project_id).join("results.json");
+            let result:Value=serde_json::from_slice(&fs::read(&results_path).map_err(|_|"candidate has no committed development results")?).map_err(|e|e.to_string())?;
+            if result["dataset_sha256"]!=dataset_hash||!result["candidates"].as_array().is_some_and(|items|items.iter().any(|item|item["candidate_id"]==candidate_id.as_deref().unwrap()&&item["status"]=="evaluated")){
+                return Err("candidate is not eligible under the registered dataset results".into());
+            }
+        }
+        sql(tx.execute("INSERT INTO scientific_jobs(project,job,dataset,operation,spec) VALUES(?1,?2,?3,?4,?5)",params![s.project_id,s.job_id,dataset_id,operation,serde_json::to_string(&s.probe).map_err(|e|e.to_string())?]))?;
+        if *operation=="finalize" {
+            let candidate=candidate_id.as_deref().unwrap();let access=test_access_id.as_deref().unwrap();
+            let gate:Option<(String,String,String)>=sql(tx.query_row("SELECT access_id,candidate_id,status FROM final_test_gates WHERE project=?1 AND dataset_sha256=?2",params![s.project_id,dataset_hash],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional())?;
+            if gate.is_some(){return Err("test set already has a durable access reservation".into());}
+            sql(tx.execute("INSERT INTO final_test_gates(project,access_id,dataset_sha256,candidate_id,status) VALUES(?1,?2,?3,?4,'reserved')",params![s.project_id,access,dataset_hash,candidate]))?;
+            sql(tx.execute("INSERT INTO events(project,kind,payload) VALUES(?1,'final_test.reserved',?2)",params![s.project_id,json!({"job_id":s.job_id,"dataset_sha256":dataset_hash,"candidate_id":candidate,"test_access_id":access}).to_string()]))?;
+        }
+    }
     sql(tx.execute("INSERT INTO events(project,kind,payload) VALUES(?1,'job.queued',?2)",params![s.project_id,json!({"job_id":s.job_id}).to_string()]))?;
     tx.commit().map_err(|e|e.to_string())?;load_job(&c,&s.project_id,&s.job_id)
 }
@@ -146,6 +223,38 @@ pub fn create_environment(root:&Path,id:&str,python:&Path)->Result<Value>{
     },Ok(o)=>Err(format!("venv creation failed: {}",String::from_utf8_lossy(&o.stderr))),Err(e)=>Err(e.to_string())};
     if result.is_err(){if stage.exists(){let _=safe_remove(root,&stage);}let _=c.execute("UPDATE environments SET status='failed' WHERE id=?1",[id]);}
     result
+}
+
+/// Install the fixed M2 scientific profile only inside an owned ready environment.
+pub fn install_scientific_profile(root:&Path,id:&str)->Result<Value>{
+    valid_id(id)?;let c=connect(root)?;
+    let (path,status):(String,String)=sql(c.query_row("SELECT path,status FROM environments WHERE id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?))))?;
+    if status!="ready" {return Err("scientific profile requires a ready owned environment".into());}
+    let expected=root.join("environments").join(id);if Path::new(&path)!=expected{return Err("environment path does not match owned identity".into());}
+    let python=expected.join("bin/python3");if !python.is_file(){return Err("managed Python executable is absent".into());}
+    ensure_disk_space(root,512*1024*1024)?;
+    let ensure=Command::new(&python).args(["-m","ensurepip","--upgrade"]).env_clear().env("PATH","/usr/bin:/bin").stdout(Stdio::null()).stderr(Stdio::null()).status().map_err(|e|e.to_string())?;
+    if !ensure.success(){return Err("could not bootstrap pip inside owned environment".into());}
+    let source=PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../python/scientific-requirements.txt");
+    let install=Command::new(&python).args(["-m","pip","install","--no-input","--disable-pip-version-check","--only-binary=:all:","--no-cache-dir","-r"]).arg(&source)
+        .env("PIP_NO_INPUT","1").stdout(Stdio::null()).stderr(Stdio::null()).spawn().map_err(|e|e.to_string())?;
+    let mut child=install;let deadline=Instant::now()+Duration::from_secs(1200);let status=loop{if Instant::now()>=deadline{let _=child.kill();let _=child.wait();return Err("scientific profile installation exceeded 20-minute limit".into());}if let Some(s)=child.try_wait().map_err(|e|e.to_string())?{break s;}thread::sleep(Duration::from_millis(100));};
+    if !status.success(){return Err(format!("scientific profile installation failed with {status}"));}
+    let verify=Command::new(&python).args(["-c","import numpy,pandas,scipy,sklearn,joblib; assert (numpy.__version__,pandas.__version__,scipy.__version__,sklearn.__version__,joblib.__version__)==('2.2.6','2.3.0','1.16.1','1.8.0','1.5.1')"])
+        .env_clear().env("PATH","/usr/bin:/bin").stdout(Stdio::null()).stderr(Stdio::null()).status().map_err(|e|e.to_string())?;
+    if !verify.success(){return Err("scientific profile version verification failed".into());}
+    Ok(json!({"id":id,"status":"ready","profile":"m2-cpu-v1","python":python,"installed_bytes":environment_size(&expected)?}))
+}
+
+fn environment_size(path:&Path)->Result<u64>{
+    let mut total=0u64;
+    for entry in fs::read_dir(path).map_err(|e|e.to_string())? {
+        let entry=entry.map_err(|e|e.to_string())?;let meta=fs::symlink_metadata(entry.path()).map_err(|e|e.to_string())?;
+        if meta.file_type().is_symlink(){continue;}
+        if meta.is_file(){total=total.saturating_add(meta.len());}
+        else if meta.is_dir(){total=total.saturating_add(environment_size(&entry.path())?);}
+    }
+    Ok(total)
 }
 fn output_text(out:&std::process::Output)->String{let stdout=String::from_utf8_lossy(&out.stdout).trim().to_string();if stdout.is_empty(){String::from_utf8_lossy(&out.stderr).trim().to_string()}else{stdout}}
 
@@ -197,6 +306,7 @@ impl Supervisor {
         use std::os::fd::AsRawFd;
         if unsafe{libc::flock(lock.as_raw_fd(),libc::LOCK_EX|libc::LOCK_NB)}!=0{return Err("another supervisor owns this state".into());}
         let c=connect(root)?;
+        reconcile_final_tests(root,&c)?;
         sql(c.execute("UPDATE jobs SET status='recovering',reason='supervisor restart; waiting for bounded worker deadline',recovered_deadline_ms=started_ms+CAST(json_extract(spec,'$.timeout_ms') AS INTEGER)+500 WHERE status IN('running','terminating')",[]))?;
         Ok(Self{root:root.to_path_buf(),lock,executable:executable.to_path_buf(),max_workers,children:vec![]})
     }
@@ -266,9 +376,22 @@ impl Supervisor {
             let log=self.root.join("logs").join(&p).join(format!("{id}.log"));ensure_dir(&self.root,log.parent().unwrap())?;
             let out=fs::File::create(&log).map_err(|e|e.to_string())?;let err=out.try_clone().map_err(|e|e.to_string())?;
             let spec_path=stage.join("job.json");fs::write(&spec_path,&spec).map_err(|e|e.to_string())?;
-            let mut cmd=Command::new(&self.executable);cmd.arg("__worker").arg(&spec_path).arg(&stage).stdin(Stdio::null()).stdout(Stdio::from(out)).stderr(Stdio::from(err)).env_clear().env("PATH","/usr/bin:/bin");
+            let mut cmd=Command::new(&self.executable);cmd.arg("__worker").arg(&spec_path).arg(&stage).stdin(Stdio::null()).stdout(Stdio::from(out)).stderr(Stdio::from(err)).env_clear().env("PATH","/usr/bin:/bin").env("MLRRESCURIX_STATE",&self.root);
             cmd.env("MLRESCURIX_NUM_THREADS",s.threads.to_string());
             for key in ["OMP_NUM_THREADS","OPENBLAS_NUM_THREADS","MKL_NUM_THREADS","VECLIB_MAXIMUM_THREADS","NUMEXPR_NUM_THREADS"] {cmd.env(key,s.threads.to_string());}
+            if let Probe::Scientific{dataset_id,..}=&s.probe {
+                let env_id=s.environment_id.as_deref().ok_or("scientific environment missing")?;
+                let python=self.root.join("environments").join(env_id).join("bin/python3");
+                let environment_status:String=sql(tx.query_row("SELECT status FROM environments WHERE id=?1",[env_id],|r|r.get(0)))?;
+                if environment_status!="ready"||!python.is_file(){return Err("managed scientific interpreter is unavailable".into());}
+                let (data_path,sha):(String,String)=sql(tx.query_row("SELECT path,sha256 FROM scientific_datasets WHERE project=?1 AND id=?2",params![p,dataset_id],|r|Ok((r.get(0)?,r.get(1)?))))?;
+                let expected=self.root.join("datasets").join(&p).join(format!("{dataset_id}.csv"));
+                if Path::new(&data_path)!=expected||hash(&fs::read(&expected).map_err(|e|e.to_string())?)!=sha{return Err("registered dataset snapshot failed integrity check".into());}
+                let workflow=self.root.join("workflows").join(&p);ensure_dir(&self.root,&workflow)?;
+                let pythonpath=PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../python/src");
+                cmd.env("MLRRESCURIX_PYTHON",python).env("MLRRESCURIX_DATASET",expected)
+                    .env("MLRRESCURIX_WORKFLOW",workflow).env("MLRRESCURIX_PYTHONPATH",pythonpath);
+            }
             cmd.process_group(0);
             cmd.stdin(Stdio::piped());
             let mut child=match cmd.spawn(){Ok(c)=>c,Err(e)=>{safe_remove(&self.root,&stage)?;sql(tx.execute("UPDATE jobs SET status='failed',reason=?3,ended_ms=?4 WHERE project=?1 AND id=?2",params![p,id,format!("worker launch failed: {e}"),now_ms()]))?;tx.commit().map_err(|e|e.to_string())?;continue;}};
@@ -318,6 +441,26 @@ impl Supervisor {
     }
     fn finish(&self,v:&JobView,status:&str,reason:Option<String>,artifacts:Vec<Value>,elapsed_ms:u64)->Result<()>{
         let c=connect(&self.root)?;let tx=sql(c.unchecked_transaction())?;
+        if let Probe::Scientific{operation,dataset_id:_,candidate_id,test_access_id,..}=&v.spec.probe {
+            let result_name=match operation.as_str(){"audit"=>"dataset_manifest.json","baselines"=>"results.json","finalize"=>"final.json",_=>""};
+            let workflow=self.root.join("workflows").join(&v.spec.project_id);let result_path=workflow.join(result_name);
+            let result_hash=if status=="succeeded"&&result_path.is_file(){Some(hash(&fs::read(&result_path).map_err(|e|e.to_string())?))}else{None};
+            sql(tx.execute("UPDATE scientific_jobs SET result_sha256=?3 WHERE project=?1 AND job=?2",params![v.spec.project_id,v.spec.job_id,result_hash]))?;
+            if operation=="finalize"&&status=="succeeded" {
+                let access=test_access_id.as_deref().ok_or("final test key missing")?;let candidate=candidate_id.as_deref().ok_or("candidate missing")?;
+                let gate=serde_json::from_str::<Value>(&fs::read_to_string(workflow.join("test_access.json")).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
+                let final_result=serde_json::from_str::<Value>(&fs::read_to_string(&result_path).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
+                if gate["test_access_id"]!=access||gate["candidate_id"]!=candidate||gate["status"]!="consumed"||final_result["test_access_id"]!=access{return Err("final assessment identity failed verification".into());}
+                let test_hash=gate["dataset_sha256"].as_str().ok_or("test gate lacks dataset hash")?;
+                sql(tx.execute("UPDATE final_test_gates SET frozen_model_sha256=?4,status='consumed',result_sha256=?5 WHERE project=?1 AND access_id=?2 AND dataset_sha256=?3 AND status='reserved'",params![v.spec.project_id,access,test_hash,gate["frozen_model_sha256"].as_str().unwrap_or(""),hash(&fs::read(&result_path).map_err(|e|e.to_string())?)]))?;
+                sql(tx.execute("INSERT INTO events(project,kind,payload) VALUES(?1,'final_test.consumed',?2)",params![v.spec.project_id,json!({"job_id":v.spec.job_id,"candidate_id":candidate,"test_access_id":access,"result_sha256":result_hash}).to_string()]))?;
+            } else if operation=="finalize" && status!="succeeded" && !workflow.join("test_access.json").exists() {
+                if let Some(access)=test_access_id.as_deref(){
+                    sql(tx.execute("DELETE FROM final_test_gates WHERE project=?1 AND access_id=?2 AND status='reserved'",params![v.spec.project_id,access]))?;
+                    sql(tx.execute("INSERT INTO events(project,kind,payload) VALUES(?1,'final_test.released',?2)",params![v.spec.project_id,json!({"job_id":v.spec.job_id,"test_access_id":access,"reason":"failed before test access"}).to_string()]))?;
+                }
+            }
+        }
         sql(tx.execute("UPDATE jobs SET status=?3,reason=?4,ended_ms=?5,pid=NULL,artifacts=?6 WHERE project=?1 AND id=?2",params![v.spec.project_id,v.spec.job_id,status,reason,now_ms(),serde_json::to_string(&artifacts).map_err(|e|e.to_string())?]))?;
         settle_job_action(&tx,&v.spec.project_id,&v.spec.job_id,elapsed_ms,status)?;
         sql(tx.execute("DELETE FROM environment_leases WHERE project=?1 AND job=?2",params![v.spec.project_id,v.spec.job_id]))?;
@@ -326,6 +469,28 @@ impl Supervisor {
         sql(tx.execute("INSERT INTO events(project,kind,payload) VALUES(?1,'job.terminal',?2)",params![v.spec.project_id,json!({"job_id":v.spec.job_id,"status":status,"reason":reason,"artifacts":artifacts}).to_string()]))?;
         tx.commit().map_err(|e|e.to_string())?;Ok(())
     }
+}
+
+fn reconcile_final_tests(root:&Path,c:&Connection)->Result<()> {
+    let mut q=sql(c.prepare("SELECT project,access_id,dataset_sha256,candidate_id FROM final_test_gates WHERE status='reserved'"))?;
+    let rows=sql(q.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?))))?
+        .collect::<rusqlite::Result<Vec<_>>>().map_err(|e|e.to_string())?;drop(q);
+    for (project,access,dataset,candidate) in rows {
+        let workflow=root.join("workflows").join(&project);
+        let gate_path=workflow.join("test_access.json");let result_path=workflow.join("final.json");
+        if !gate_path.is_file()||gate_path.symlink_metadata().map_err(|e|e.to_string())?.file_type().is_symlink()||!result_path.is_file(){continue;}
+        let gate:Value=serde_json::from_slice(&fs::read(&gate_path).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
+        let result:Value=serde_json::from_slice(&fs::read(&result_path).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
+        if gate["status"]=="consumed"&&gate["test_access_id"]==access&&gate["dataset_sha256"]==dataset&&gate["candidate_id"]==candidate&&result["test_access_id"]==access {
+            let frozen=gate["frozen_model_sha256"].as_str().ok_or("final gate has no frozen artifact hash")?;
+            let hash_result=hash(&fs::read(&result_path).map_err(|e|e.to_string())?);
+            let tx=sql(c.unchecked_transaction())?;
+            sql(tx.execute("UPDATE final_test_gates SET status='consumed',frozen_model_sha256=?4,result_sha256=?5 WHERE project=?1 AND access_id=?2 AND dataset_sha256=?3 AND status='reserved'",params![project,access,dataset,frozen,hash_result]))?;
+            sql(tx.execute("INSERT INTO events(project,kind,payload) VALUES(?1,'final_test.reconciled',?2)",params![project,json!({"test_access_id":access,"candidate_id":candidate,"result_sha256":hash_result}).to_string()]))?;
+            tx.commit().map_err(|e|e.to_string())?;
+        }
+    }
+    Ok(())
 }
 
 fn admission(c:&Connection,s:&JobSpec,worker_ceiling:usize)->Result<()>{
@@ -409,6 +574,38 @@ pub fn worker(spec_path:&Path,output:&Path)->Result<i32>{
     let bytes=fs::read(spec_path).map_err(|e|e.to_string())?;let s:JobSpec=serde_json::from_slice(&bytes).map_err(|e|e.to_string())?;validate_spec(&s)?;
     let mut control=std::io::stdin();let mut gate=[0u8;1];if control.read_exact(&mut gate).is_err()||gate[0]!=1{return Ok(125);}
     let alive=Arc::new(AtomicBool::new(true));let watcher=alive.clone();thread::spawn(move||{let mut byte=[0u8;1];loop{match control.read(&mut byte){Ok(0)|Err(_)=>{watcher.store(false,Ordering::Release);break},Ok(_)=>{}}}});
-    match s.probe {Probe::Sleep{millis}=>{let deadline=Instant::now()+Duration::from_millis(millis.min(s.timeout_ms));while Instant::now()<deadline{if !alive.load(Ordering::Acquire){return Ok(125)}thread::sleep(Duration::from_millis(10));}if millis>s.timeout_ms{return Ok(124)}},Probe::Fail{code}=>return Ok(code as i32),Probe::Write{name,content}=>{if !alive.load(Ordering::Acquire){return Ok(125)}let p=output.join(name);let mut f=fs::OpenOptions::new().write(true).create_new(true).open(p).map_err(|e|e.to_string())?;f.write_all(content.as_bytes()).map_err(|e|e.to_string())?;f.sync_all().map_err(|e|e.to_string())?;}}
+    match s.probe {
+        Probe::Sleep{millis}=>{let deadline=Instant::now()+Duration::from_millis(millis.min(s.timeout_ms));while Instant::now()<deadline{if !alive.load(Ordering::Acquire){return Ok(125)}thread::sleep(Duration::from_millis(10));}if millis>s.timeout_ms{return Ok(124)}},
+        Probe::Fail{code}=>return Ok(code as i32),
+        Probe::Write{name,content}=>{if !alive.load(Ordering::Acquire){return Ok(125)}let p=output.join(name);let mut f=fs::OpenOptions::new().write(true).create_new(true).open(p).map_err(|e|e.to_string())?;f.write_all(content.as_bytes()).map_err(|e|e.to_string())?;f.sync_all().map_err(|e|e.to_string())?;},
+        Probe::Scientific{operation,dataset_id:_,spec,candidate_id,test_access_id}=>{
+            if !alive.load(Ordering::Acquire){return Ok(125)}
+            let python=std::env::var_os("MLRRESCURIX_PYTHON").ok_or("scientific interpreter was not provisioned")?;
+            let dataset=std::env::var_os("MLRRESCURIX_DATASET").ok_or("registered dataset path unavailable")?;
+            let workflow=PathBuf::from(std::env::var_os("MLRRESCURIX_WORKFLOW").ok_or("workflow directory unavailable")?);
+            let pythonpath=std::env::var_os("MLRRESCURIX_PYTHONPATH").ok_or("scientific worker package unavailable")?;
+            let req=output.join("project-spec.json");if let Some(value)=spec{fs::write(&req,serde_json::to_vec(&value).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;}
+            let mut command=Command::new(python);command.arg("-m").arg("mlrescurix_worker.scientific.cli").env_clear()
+                .env("PATH",format!("{}:/usr/bin:/bin",PathBuf::from(std::env::var_os("MLRRESCURIX_PYTHON").unwrap()).parent().unwrap().display()))
+                .env("PYTHONPATH",pythonpath).env("TMPDIR",output.join("tmp"));fs::create_dir_all(output.join("tmp")).map_err(|e|e.to_string())?;
+            match operation.as_str(){
+                "audit"=>{command.arg("audit").arg("--csv").arg(dataset).arg("--spec").arg(&req).arg("--output").arg(&workflow);},
+                "baselines"=>{command.arg("baselines").arg("--output").arg(&workflow);},
+                "finalize"=>{command.arg("finalize").arg("--output").arg(&workflow).arg("--candidate").arg(candidate_id.ok_or("candidate missing")?).arg("--test-access-id").arg(test_access_id.ok_or("test access id missing")?);},
+                _=>return Err("unsupported scientific operation".into()),
+            }
+            command.stdout(Stdio::inherit()).stderr(Stdio::inherit()).stdin(Stdio::null());
+            let mut child=command.spawn().map_err(|e|format!("scientific worker launch failed: {e}"))?;
+            loop {if !alive.load(Ordering::Acquire){let _=child.kill();let _=child.wait();return Ok(125);}match child.try_wait().map_err(|e|e.to_string())?{Some(status)=>{if !status.success(){return Ok(status.code().unwrap_or(1));}break;},None=>thread::sleep(Duration::from_millis(50))}}
+            if req.exists(){fs::remove_file(&req).map_err(|e|e.to_string())?;}let tmp=output.join("tmp");if tmp.exists(){safe_remove(Path::new(&std::env::var("MLRRESCURIX_STATE").map_err(|e|e.to_string())?),&tmp)?;}
+            let result_name=match operation.as_str(){"audit"=>"dataset_manifest.json","baselines"=>"results.json","finalize"=>"final.json",_=>unreachable!()};
+            let evidence=workflow.join(result_name);if !evidence.is_file(){return Err("scientific worker produced no committed result".into());}
+            if operation=="finalize" {
+                let final_result:Value=serde_json::from_slice(&fs::read(&evidence).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
+                if final_result["status"]!="verified_development_only" {return Ok(3);}
+            }
+            let target=output.join(result_name);fs::copy(evidence,target).map_err(|e|e.to_string())?;
+        }
+    }
     Ok(0)
 }
