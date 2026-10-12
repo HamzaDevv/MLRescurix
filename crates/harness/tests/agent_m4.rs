@@ -264,7 +264,7 @@ if __name__ == "__main__":
     }
     let receipt = ToolRegistry::invoke_tool(&root, "p-diag", "feat-diag", "missingness_checker", "v1", &input).unwrap();
 
-    assert_eq!(receipt.status, "succeeded");
+    assert_eq!(receipt.status, "succeeded", "Tool execution failed with exit_code {}: stderr='{}', stdout='{}'", receipt.exit_code, receipt.stderr, receipt.stdout);
     assert_eq!(receipt.exit_code, 0);
     let output_data = receipt.output_data.expect("Output data must be parsed JSON");
     assert_eq!(output_data["high_missing_column"], "f2");

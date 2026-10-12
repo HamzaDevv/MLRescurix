@@ -97,11 +97,18 @@ def train_and_predict_isolated(
             if (p_arr < -1e-6).any() or (p_arr > 1.0 + 1e-6).any():
                 raise ValueError("Probabilities out of bounds [0, 1]")
             probs = p_arr.tolist()
-            if hasattr(estimator, "classes_"):
+            classes_attr = getattr(estimator, "classes_", None)
+            if classes_attr is None and hasattr(estimator, "model"):
+                classes_attr = getattr(estimator.model, "classes_", None)
+            if classes_attr is None:
+                unique_y = sorted(y_train.dropna().unique().tolist())
+                if len(unique_y) == p_arr.shape[1]:
+                    classes_attr = unique_y
+            if classes_attr is not None:
                 classes = [
                     int(c) if isinstance(c, (int, np.integer))
                     else (str(c) if isinstance(c, (str, np.str_)) else float(c))
-                    for c in estimator.classes_
+                    for c in classes_attr
                 ]
     except Exception as e:
         if isinstance(e, ValueError):

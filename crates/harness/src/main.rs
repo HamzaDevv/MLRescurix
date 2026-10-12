@@ -98,14 +98,15 @@ async fn run()->Result<(),String>{
                 model,
                 max_turns,
             };
+            let effective_key = api_key.or_else(|| std::env::var("OPENROUTER_API_KEY").ok());
             let gateway: std::sync::Arc<dyn mlrescurix_harness::agents::ProviderGateway> = if let Some(mock_path) = mock {
                 let mock_bytes = std::fs::read(&mock_path).map_err(|e| format!("cannot read mock file: {e}"))?;
                 let responses: Vec<mlrescurix_harness::agents::ChatCompletionResponse> = serde_json::from_slice(&mock_bytes).map_err(|e| format!("invalid mock JSON: {e}"))?;
                 std::sync::Arc::new(mlrescurix_harness::agents::ScriptedProviderFixture::new(responses))
-            } else if let (Some(ep), Some(key)) = (endpoint, api_key) {
+            } else if let (Some(ep), Some(key)) = (endpoint, effective_key) {
                 std::sync::Arc::new(mlrescurix_harness::agents::OpenAICompatibleAdapter::new(ep, key))
             } else {
-                return Err("AgentRun requires either --mock <path> for offline scripted execution or --endpoint and --api-key for live provider execution".into());
+                return Err("AgentRun requires either --mock <path> for offline scripted execution or --endpoint and --api-key (or OPENROUTER_API_KEY env var) for live provider execution".into());
             };
             let mut orchestrator = mlrescurix_harness::agents::AgentOrchestrator::new(&state, config, gateway)?;
             let mut results = Vec::new();

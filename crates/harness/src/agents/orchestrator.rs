@@ -157,7 +157,7 @@ impl AgentOrchestrator {
             rusqlite::params![self.config.project_id, self.config.task_id], |r| r.get(0),
         ).map_err(|e| format!("Provider requires an authoritative M0 task: {e}"))?;
         let task: Task = serde_json::from_str(&task_json).map_err(|e| e.to_string())?;
-        let owner = format!("agent-{}", std::process::id());
+        let owner = format!("agent-{}", self.config.task_id);
         let (generation, lease_id) = if task.expires_ms.is_some_and(|end| end > now) {
             if task.owner.as_deref() != Some(&owner) {
                 return Err("Provider task owned by another active lease".into());

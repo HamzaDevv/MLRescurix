@@ -233,8 +233,15 @@ pub struct OpenAICompatibleAdapter {
 
 impl OpenAICompatibleAdapter {
     pub fn new(endpoint_url: String, api_key: String) -> Self {
+        let normalized = if endpoint_url.ends_with("/chat/completions") {
+            endpoint_url
+        } else if endpoint_url.ends_with('/') {
+            format!("{endpoint_url}chat/completions")
+        } else {
+            format!("{endpoint_url}/chat/completions")
+        };
         Self {
-            endpoint_url,
+            endpoint_url: normalized,
             api_key,
             timeout_seconds: 60,
             max_retries: 1,

@@ -118,7 +118,9 @@ impl SandboxRunner {
             return Err(format!("Script {script_relative_path} does not exist in workspace"));
         }
 
-        let image = sandbox_image.unwrap_or("python:3.13-slim@sha256:56885df05e04313b2c286e7a20ffce6a5fae8fd2ea60c9e6da96cb2e7dfdcb10");
+        let env_image = std::env::var("MLRESCURIX_SANDBOX_IMAGE").ok();
+        let default_image = "python:3.13-slim";
+        let image = sandbox_image.or(env_image.as_deref()).unwrap_or(default_image);
         let start = Instant::now();
         let container_name = format!("mlr-box-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos());
 
