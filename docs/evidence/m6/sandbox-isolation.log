@@ -1,0 +1,13 @@
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.26s
+     Running tests/sandbox_docker.rs (target/debug/deps/sandbox_docker-ef395dd1f8a7a199)
+
+running 5 tests
+test test_docker_live_read_only_root_and_scratch_writable ... ok
+test test_docker_live_non_root_uid_and_cap_drop ... ok
+test test_docker_live_output_bound_enforcement ... ok
+test test_docker_live_network_isolation ... ok
+test test_docker_live_timeout_enforcement ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.70s
+

@@ -1,0 +1,22 @@
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.47s
+     Running tests/recovery_cycles.rs (target/debug/deps/recovery_cycles-0b28c321f449fe02)
+
+running 1 test
+cycle=0 unpinned_payload_bytes=0 pinned_model_bytes=14 database_bytes=442368 held_reservations=0
+cycle=1 unpinned_payload_bytes=0 pinned_model_bytes=14 database_bytes=462848 held_reservations=0
+cycle=2 unpinned_payload_bytes=0 pinned_model_bytes=14 database_bytes=483328 held_reservations=0
+cycle=3 unpinned_payload_bytes=0 pinned_model_bytes=14 database_bytes=491520 held_reservations=0
+cycle=4 unpinned_payload_bytes=0 pinned_model_bytes=14 database_bytes=507904 held_reservations=0
+cycle=5 unpinned_payload_bytes=0 pinned_model_bytes=14 database_bytes=520192 held_reservations=0
+cycle=6 unpinned_payload_bytes=0 pinned_model_bytes=14 database_bytes=532480 held_reservations=0
+cycle=7 unpinned_payload_bytes=0 pinned_model_bytes=14 database_bytes=548864 held_reservations=0
+cycle=8 unpinned_payload_bytes=0 pinned_model_bytes=14 database_bytes=561152 held_reservations=0
+cycle=9 unpinned_payload_bytes=0 pinned_model_bytes=14 database_bytes=573440 held_reservations=0
+cycle=10 unpinned_payload_bytes=0 pinned_model_bytes=14 database_bytes=585728 held_reservations=0
+cycle=11 unpinned_payload_bytes=0 pinned_model_bytes=14 database_bytes=598016 held_reservations=0
+12 cycles / 36 terminal jobs: payload steady state; metadata retained and growing, not unlimited-history steady state
+test twelve_fault_cleanup_restart_cycles_retain_only_pinned_payload ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 1.91s
+

@@ -1,0 +1,36 @@
+{
+  "bundle": "bundle",
+  "candidate_id": "full",
+  "constraints": {
+    "bundle_bytes": {
+      "enforcement": "measured",
+      "threshold": null,
+      "value": 206958,
+      "verdict": "pass"
+    },
+    "inference_latency_ms": {
+      "enforcement": "measured",
+      "threshold": null,
+      "value": 6.7023041999999995,
+      "verdict": "pass"
+    },
+    "memory": {
+      "enforcement": "unsupported",
+      "threshold": null,
+      "value": null,
+      "verdict": "unknown"
+    },
+    "model_bytes": {
+      "enforcement": "measured",
+      "threshold": null,
+      "value": 3730,
+      "verdict": "pass"
+    }
+  },
+  "status": "verified_development_only",
+  "test_access_id": "test-gate-binary",
+  "test_metrics": {
+    "balanced_accuracy": 0.5666666666666667,
+    "log_loss": 0.6929179953334454
+  }
+}

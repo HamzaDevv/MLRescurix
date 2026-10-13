@@ -1,0 +1,6 @@
+  Installing mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `release` profile [optimized] target(s) in 15.92s
+   Replacing /private/tmp/mlrescurix-m6-clean-install/bin/mlrescurix-harness
+    Replaced package `mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)` with `mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)` (executable `mlrescurix-harness`)
+warning: be sure to add `/private/tmp/mlrescurix-m6-clean-install/bin` to your PATH to be able to run the installed binaries

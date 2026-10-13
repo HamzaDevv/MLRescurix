@@ -1,0 +1,10 @@
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.60s
+     Running tests/bundle_scientific_docker.rs (target/debug/deps/bundle_scientific_docker-0e0cd06c47ab8bc3)
+
+running 1 test
+M6: fitted Docker logistic model; label/probability/class parity; missing/extra schema rejection; hostile import containment; lock mismatch denial
+test scientific_bundle_parity_schema_and_hostile_containment ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.69s
+

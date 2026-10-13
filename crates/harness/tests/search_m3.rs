@@ -235,7 +235,7 @@ fn m3_capabilities_reports_phase_m3_and_scientific_flags() {
     let output = Command::new(bin).arg("capabilities").output().unwrap();
     assert!(output.status.success());
     let cap: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert!(matches!(cap["phase"].as_str(), Some("M3") | Some("M4")));
+    assert!(matches!(cap["phase"].as_str(), Some("M3") | Some("M4") | Some("M5") | Some("M6")));
     assert_eq!(cap["scientific_execution"], true);
     assert_eq!(cap["official_evaluation"], true);
     assert_eq!(cap["constrained_search"], true);
@@ -377,18 +377,9 @@ fn m3_minimize_direction_selects_lowest_metric() {
 }
 
 fn setup_test_env(root: &Path, id: &str) {
-    execution::migrate(root).unwrap();
-    let base = root.join("environments").join(id);
-    let bin_dir = base.join("bin");
-    std::fs::create_dir_all(&bin_dir).unwrap();
-    let python = Path::new("/Library/Frameworks/Python.framework/Versions/3.13/bin/python3");
-    #[cfg(unix)]
-    let _ = std::os::unix::fs::symlink(python, bin_dir.join("python3"));
-    let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
-    db.execute(
-        "INSERT INTO environments(id, python, identity, path, status) VALUES(?1, ?2, 'test-ident', ?3, 'ready') ON CONFLICT(id) DO UPDATE SET status='ready'",
-        rusqlite::params![id, python.to_string_lossy(), base.to_string_lossy()],
-    ).unwrap();
+    let image = std::env::var("MLRESCURIX_BUNDLE_IMAGE")
+        .expect("legacy scientific fixture requires pinned Docker; host execution prohibited");
+    execution::register_container_environment(root, id, &image).unwrap();
 }
 
 fn run_job_to_completion(sup: &mut Supervisor, root: &Path, project: &str, job_id: &str) {
@@ -404,6 +395,7 @@ fn run_job_to_completion(sup: &mut Supervisor, root: &Path, project: &str, job_i
 }
 
 #[test]
+#[ignore = "historical host scientific fixture; replaced by explicit digest-pinned Docker pipeline tests; does not satisfy content-bound finalization"]
 fn m3_end_to_end_search_and_finalization() {
     use execution::{JobSpec, Probe};
 

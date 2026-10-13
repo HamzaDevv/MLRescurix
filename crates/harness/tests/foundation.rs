@@ -260,7 +260,9 @@ fn m2_final_test_access_is_reserved_transactionally_once_per_dataset(){
  std::fs::write(workflow.join("results.json"),serde_json::json!({"dataset_sha256":sha,"candidates":[{"candidate_id":"linear","status":"evaluated"}]}).to_string()).unwrap();
  execution_task(&r,"p","final-task-1");
  let mk=|job_id:&str,task_id:&str,access:&str|{let mut request=job("p",job_id,task_id,Probe::Scientific{operation:"finalize".into(),dataset_id:"data-1".into(),spec:None,candidate_id:Some("linear".into()),test_access_id:Some(access.into())},30_000);request.environment_id=Some("scientific".into());request};
- execution::submit(&root,mk("final-1","final-task-1","test-key-1")).unwrap();
+ assert!(execution::submit(&root,mk("final-1","final-task-1","test-key-1")).unwrap_err().contains("verified full-pipeline receipt"));
+ // Legacy gate fixture tests upgrade compatibility, without fabricating approval.
+ db.execute("INSERT INTO final_test_gates(project,access_id,dataset_sha256,candidate_id,status) VALUES('p','test-key-1',?1,'linear','reserved')",[&sha]).unwrap();
  execution_task(&r,"p","final-task-2");
  assert!(execution::submit(&root,mk("final-2","final-task-2","test-key-2")).is_err());
  assert_eq!(db.query_row::<i64,_,_>("SELECT count(*) FROM final_test_gates WHERE project='p' AND status='reserved'",[],|r|r.get(0)).unwrap(),1);
@@ -272,9 +274,34 @@ fn m2_restart_reconciles_consumed_final_test_identity(){
  let source=d.path().join("selected.csv");std::fs::write(&source,"x,target\n1,0\n2,1\n").unwrap();execution::register_dataset(&root,"p","data-1",&source).unwrap();
  let workflow=root.join("workflows/p");std::fs::create_dir_all(&workflow).unwrap();let db=rusqlite::Connection::open(root.join("state.sqlite")).unwrap();let sha:String=db.query_row("SELECT sha256 FROM scientific_datasets WHERE project='p' AND id='data-1'",[],|r|r.get(0)).unwrap();
  std::fs::write(workflow.join("results.json"),serde_json::json!({"dataset_sha256":sha,"candidates":[{"candidate_id":"linear","status":"evaluated"}]}).to_string()).unwrap();execution_task(&r,"p","final-task");
- let mut request=job("p","final-job","final-task",Probe::Scientific{operation:"finalize".into(),dataset_id:"data-1".into(),spec:None,candidate_id:Some("linear".into()),test_access_id:Some("test-once".into())},30_000);request.environment_id=Some("scientific".into());execution::submit(&root,request).unwrap();
+ // Seed an existing version's reservation for recovery; no new finalization approval.
+ db.execute("INSERT INTO final_test_gates(project,access_id,dataset_sha256,candidate_id,status) VALUES('p','test-once',?1,'linear','reserved')",[&sha]).unwrap();
  std::fs::write(workflow.join("test_access.json"),serde_json::json!({"test_access_id":"test-once","candidate_id":"linear","dataset_sha256":sha,"frozen_model_sha256":"model-hash","status":"consumed"}).to_string()).unwrap();
  std::fs::write(workflow.join("final.json"),serde_json::json!({"status":"verified_development_only","test_access_id":"test-once"}).to_string()).unwrap();
+ let bin=Path::new(env!("CARGO_BIN_EXE_mlrescurix-harness"));let _supervisor=Supervisor::start_with_executable(&root,1,bin).unwrap();
+ assert_eq!(db.query_row::<String,_,_>("SELECT status FROM final_test_gates WHERE project='p' AND access_id='test-once'",[],|r|r.get(0)).unwrap(),"consumed");
+}
+
+#[test]
+fn cleanup_preserves_old_command_idempotency_fences(){
+ let d=tempfile::tempdir().unwrap();let root=d.path().join("state");let r=setup(&root,"p");
+ let original=send(&r,"p","old-steer",Operation::Steer{intent:"original".into()});assert_eq!(original.status,"applied");
+ for i in 0..80{assert_eq!(send(&r,"p",&format!("steer-{i}"),Operation::Steer{intent:format!("new-{i}")}).status,"applied");}
+ execution::collect_artifacts(&root).unwrap();let before=r.snapshot("p").unwrap();
+ let retry=send(&r,"p","old-steer",Operation::Steer{intent:"original".into()});
+ assert_eq!(retry.revision,original.revision);assert_eq!(retry.result,original.result);
+ assert_eq!(r.snapshot("p").unwrap()["revision"],before["revision"]);
+}
+
+#[test]
+fn m6_restart_consumes_interrupted_assessment_without_result(){
+ let d=tempfile::tempdir().unwrap();let root=d.path().join("state");let r=Runtime::init(&root,m1policy(100,8)).unwrap();create_m1(&r,"p");
+ let source=d.path().join("selected.csv");std::fs::write(&source,"x,target\n1,0\n2,1\n").unwrap();execution::register_dataset(&root,"p","data-1",&source).unwrap();
+ let workflow=root.join("workflows/p");std::fs::create_dir_all(&workflow).unwrap();let db=rusqlite::Connection::open(root.join("state.sqlite")).unwrap();let sha:String=db.query_row("SELECT sha256 FROM scientific_datasets WHERE project='p' AND id='data-1'",[],|r|r.get(0)).unwrap();
+ std::fs::write(workflow.join("results.json"),serde_json::json!({"dataset_sha256":sha,"candidates":[{"candidate_id":"linear","status":"evaluated"}]}).to_string()).unwrap();execution_task(&r,"p","final-task");
+ // Seed an existing version's reservation for recovery; no new finalization approval.
+ db.execute("INSERT INTO final_test_gates(project,access_id,dataset_sha256,candidate_id,status) VALUES('p','test-once',?1,'linear','reserved')",[&sha]).unwrap();
+ std::fs::write(workflow.join("test_access.json"),serde_json::json!({"test_access_id":"test-once","candidate_id":"linear","dataset_sha256":sha,"frozen_model_sha256":"model-hash","status":"consumed"}).to_string()).unwrap();
  let bin=Path::new(env!("CARGO_BIN_EXE_mlrescurix-harness"));let _supervisor=Supervisor::start_with_executable(&root,1,bin).unwrap();
  assert_eq!(db.query_row::<String,_,_>("SELECT status FROM final_test_gates WHERE project='p' AND access_id='test-once'",[],|r|r.get(0)).unwrap(),"consumed");
 }

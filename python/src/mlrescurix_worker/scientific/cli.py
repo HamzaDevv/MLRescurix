@@ -25,6 +25,9 @@ def main() -> int:
     trial = commands.add_parser("trial")
     trial.add_argument("--output", type=Path, required=True)
     trial.add_argument("--spec", type=Path, required=True)
+    pipeline = commands.add_parser("pipeline")
+    pipeline.add_argument("--output", type=Path, required=True)
+    pipeline.add_argument("--spec", type=Path, required=True)
     for name in ("fit-trial", "predict-trial"):
         worker = commands.add_parser(name, help=argparse.SUPPRESS)
         worker.add_argument("--spec", type=Path, required=True)
@@ -39,6 +42,9 @@ def main() -> int:
             result = finalize_candidate(args.output, args.candidate, test_access_id=args.test_access_id)
         elif args.command == "trial":
             result = run_trial(args.output, json.loads(args.spec.read_text()))
+        elif args.command == "pipeline":
+            from .scheduled_pipeline import run_pipeline
+            result = run_pipeline(args.output, json.loads(args.spec.read_text()))
         elif args.command == "fit-trial":
             result = fit_trial_worker(args.spec, args.output)
         else:

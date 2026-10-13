@@ -1,0 +1,58 @@
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.72s
+     Running unittests src/lib.rs (target/debug/deps/mlrescurix_harness-c9b0a6a2da25d54f)
+
+running 4 tests
+test execution::tests::low_disk_admission_boundary ... ok
+test agents::tools::tests::unavailable_sandbox_refuses_tool_before_any_state_or_workspace_write ... ok
+test bundle::tests::integrity_does_not_certify_execution_or_unknown_constraints ... ok
+test assets::tests::runtime_assets_reject_directory_and_file_symlink_escape ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running tests/agent_m4.rs (target/debug/deps/agent_m4-c5a176030549b361)
+
+running 21 tests
+test m4_outbound_data_redaction_filter ... ok
+test m4_authoritative_budget_query_and_remaining_calculation ... ok
+test m4_path_traversal_and_symlink_rejection_in_workspace ... ok
+test m4_cross_branch_immutable_snapshot_reuse ... ok
+test m4_role_registry_defines_all_eight_specialist_roles ... ok
+test m4_exhausted_budget_blocks_provider_before_dispatch ... ok
+test m4_achievement_checkpointing_and_context_compaction ... ok
+test m4_conservative_ceiling_settlement_on_provider_failure ... ok
+test m4_sandbox_detector_and_honest_refusal_when_unavailable ... ok
+test m4_reconstructable_checkpoint_and_evidence_integrity ... ok
+test m4_role_rbac_enforcement ... ok
+test m4_schema_validation_pre_and_post_execution ... ok
+test m4_workspace_symlink_cannot_read_or_overwrite_host_file ... ok
+test m6_provider_turn_crash_reconciliation_all_four_states ... FAILED
+test m4_agent_authors_tests_and_reuses_diagnostic_tool_and_adapts_decision ... ok
+test m6_specialist_scheduling_crash_recovery_and_handoff ... FAILED
+test m6_outbound_view_policy_approval_content_binding_and_expiry ... ok
+test m6_currency_cost_millicents_and_finalization_reserve_enforcement ... ok
+test m5_delegation_preserves_prior_tasks_and_reports_provider_failure ... ok
+test m4_research_closure_and_critic_finalization ... ok
+test m4_ten_projects_and_three_branches_fairness ... ok
+
+failures:
+
+---- m6_provider_turn_crash_reconciliation_all_four_states stdout ----
+
+thread 'm6_provider_turn_crash_reconciliation_all_four_states' (157351) panicked at crates/harness/tests/agent_m4.rs:1015:33:
+called `Result::unwrap()` on an `Err` value: "Provider reconciliation requires an authoritative action receipt: Query returned no rows"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- m6_specialist_scheduling_crash_recovery_and_handoff stdout ----
+
+thread 'm6_specialist_scheduling_crash_recovery_and_handoff' (157366) panicked at crates/harness/tests/agent_m4.rs:1182:94:
+called `Result::unwrap()` on an `Err` value: "Provider reconciliation requires an authoritative action receipt: Query returned no rows"
+
+
+failures:
+    m6_provider_turn_crash_reconciliation_all_four_states
+    m6_specialist_scheduling_crash_recovery_and_handoff
+
+test result: FAILED. 19 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.36s
+
+error: test failed, to rerun pass `--test agent_m4`

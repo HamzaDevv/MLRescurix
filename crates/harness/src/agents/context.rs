@@ -223,7 +223,8 @@ impl AgentContextManager {
     pub fn record_checkpoint(&mut self, root: &Path) -> Result<String> {
         let now = now_ms();
         let tokens = self.estimate_tokens();
-        let chk_id = format!("chk-{}", &hash_str(&format!("{}:{}:{now}", self.task_id, self.handoff_version))[..12]);
+        let nonce=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
+        let chk_id = format!("chk-{}", &hash_str(&format!("{}:{}:{nonce}", self.task_id, self.handoff_version))[..24]);
 
         let state_snapshot = json!({
             "hypothesis": self.current_hypothesis,
@@ -424,30 +425,38 @@ impl AgentContextManager {
         let total_wall = policy.get("budget").and_then(|b| b.get("wall_ms")).and_then(|v| v.as_i64()).unwrap_or(300_000);
         let total_tokens = policy.get("budget").and_then(|b| b.get("tokens")).and_then(|v| v.as_i64()).unwrap_or(1_000_000);
         let total_calls = policy.get("budget").and_then(|b| b.get("calls")).and_then(|v| v.as_i64()).unwrap_or(100);
+        let total_cost = policy.get("budget").and_then(|b| b.get("cost_millicents")).and_then(|v| v.as_i64());
 
-        let held_wall: i64 = db.query_row(
-            "SELECT COALESCE(SUM(CAST(json_extract(budget,'$.wall_ms') AS INTEGER)),0) FROM reservations WHERE held=1 AND project=?1",
-            [project_id], |r| r.get(0),
-        ).map_err(|e| e.to_string())?;
-        let charged_wall: i64 = db.query_row(
-            "SELECT COALESCE(SUM(CAST(json_extract(amount,'$.wall_ms') AS INTEGER)),0) FROM charges WHERE project=?1",
-            [project_id], |r| r.get(0),
-        ).map_err(|e| e.to_string())?;
+        let sum_dim = |table: &str, col: &str, filter: &str, dim: &str| -> Result<i64> {
+            db.query_row(
+                &format!("SELECT COALESCE(SUM(CAST(json_extract({col},'$.{dim}') AS INTEGER)),0) FROM {table} WHERE {filter} AND project=?1"),
+                [project_id],
+                |r| r.get(0),
+            ).map_err(|e| e.to_string())
+        };
 
-        let held_tokens: i64 = db.query_row(
-            "SELECT COALESCE(SUM(CAST(json_extract(budget,'$.tokens') AS INTEGER)),0) FROM reservations WHERE held=1 AND project=?1",
-            [project_id], |r| r.get(0),
-        ).map_err(|e| e.to_string())?;
-        let charged_tokens: i64 = db.query_row(
-            "SELECT COALESCE(SUM(CAST(json_extract(amount,'$.tokens') AS INTEGER)),0) FROM charges WHERE project=?1",
-            [project_id], |r| r.get(0),
-        ).map_err(|e| e.to_string())?;
+        let held_wall = sum_dim("reservations", "budget", "held=1", "wall_ms")?;
+        let charged_wall = sum_dim("charges", "amount", "1=1", "wall_ms")?;
+        let held_tokens = sum_dim("reservations", "budget", "held=1", "tokens")?;
+        let charged_tokens = sum_dim("charges", "amount", "1=1", "tokens")?;
+        let held_calls = sum_dim("reservations", "budget", "held=1", "calls")?;
+        let charged_calls = sum_dim("charges", "amount", "1=1", "calls")?;
+        let held_cost = sum_dim("reservations", "budget", "held=1", "cost_millicents")?;
+        let charged_cost = sum_dim("charges", "amount", "1=1", "cost_millicents")?;
 
         let finalization_reserve_wall = (total_wall as f64 * 0.20) as i64;
+        let finalization_reserve_tokens = (total_tokens as f64 * 0.20) as i64;
+        let finalization_reserve_calls = (total_calls as f64 * 0.20) as i64;
+        let finalization_reserve_cost = total_cost.map(|c| (c as f64 * 0.20) as i64);
+
         let remaining_wall = total_wall.saturating_sub(held_wall + charged_wall);
         let remaining_wall_effective = remaining_wall.saturating_sub(finalization_reserve_wall);
-
         let remaining_tokens = total_tokens.saturating_sub(held_tokens + charged_tokens);
+        let remaining_tokens_effective = remaining_tokens.saturating_sub(finalization_reserve_tokens);
+        let remaining_calls = total_calls.saturating_sub(held_calls + charged_calls);
+        let remaining_calls_effective = remaining_calls.saturating_sub(finalization_reserve_calls);
+        let remaining_cost = total_cost.map(|c| c.saturating_sub(held_cost + charged_cost));
+        let remaining_cost_effective = remaining_cost.zip(finalization_reserve_cost).map(|(r, res)| r.saturating_sub(res));
 
         Ok(json!({
             "project_id": project_id,
@@ -456,20 +465,66 @@ impl AgentContextManager {
                 "wall_ms": total_wall,
                 "tokens": total_tokens,
                 "calls": total_calls,
+                "cost_millicents": total_cost,
             },
             "consumption": {
                 "wall_ms_held": held_wall,
                 "wall_ms_charged": charged_wall,
                 "tokens_held": held_tokens,
                 "tokens_charged": charged_tokens,
+                "calls_held": held_calls,
+                "calls_charged": charged_calls,
+                "cost_millicents_held": held_cost,
+                "cost_millicents_charged": charged_cost,
             },
             "remaining": {
                 "wall_ms_gross": remaining_wall,
                 "wall_ms_effective": remaining_wall_effective,
                 "tokens": remaining_tokens,
+                "tokens_effective": remaining_tokens_effective,
+                "calls_gross": remaining_calls,
+                "calls_effective": remaining_calls_effective,
+                "cost_millicents_gross": remaining_cost,
+                "cost_millicents_effective": remaining_cost_effective,
+            },
+            "finalization_reserve": {
+                "wall_ms": finalization_reserve_wall,
+                "tokens": finalization_reserve_tokens,
+                "calls": finalization_reserve_calls,
+                "cost_millicents": finalization_reserve_cost,
             },
             "finalization_reserve_wall_ms": finalization_reserve_wall,
         }))
+    }
+
+    /// Verify that an exploratory action does not breach the protected 20% finalization reserve.
+    pub fn enforce_exploratory_budget_reserve(
+        root: &Path,
+        project_id: &str,
+        requested: &std::collections::BTreeMap<String, i64>,
+    ) -> Result<()> {
+        let info = Self::query_authoritative_budget(root, project_id)?;
+        let rem = &info["remaining"];
+        for (dim, &req_val) in requested {
+            if req_val <= 0 {
+                continue;
+            }
+            let effective_key = match dim.as_str() {
+                "wall_ms" => "wall_ms_effective",
+                "tokens" => "tokens_effective",
+                "calls" => "calls_effective",
+                "cost_millicents" => "cost_millicents_effective",
+                _ => continue,
+            };
+            if let Some(avail) = rem.get(effective_key).and_then(|v| v.as_i64()) {
+                if req_val > avail {
+                    return Err(format!(
+                        "Exploratory admission blocked (budget exhausted): requested {dim}={req_val} exceeds exploratory allowance {avail} (20% finalization reserve protected)"
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Enforce hard token ceiling, spilling older evidence/findings to durable IDs,

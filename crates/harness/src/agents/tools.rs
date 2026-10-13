@@ -52,6 +52,11 @@ impl ToolRegistry {
     /// Return the list of Category A trusted harness tools available to agents.
     pub fn get_trusted_tools() -> Vec<ToolDefinition> {
         vec![
+            ToolDefinition {tool_type:"function".into(),function:ToolFunction {
+                name:"schedule_pipeline".into(),
+                description:"Queue a bounded feature/calibration/ensemble protocol in a verified scientific Docker environment. The Rust supervisor evaluates development data and verifies generated OOF provenance; this does not finalize or certify delivery.".into(),
+                parameters:json!({"type":"object","properties":{"job_id":{"type":"string"},"dataset_id":{"type":"string"},"environment_id":{"type":"string"},"protocol":{"type":"object"}},"required":["job_id","dataset_id","environment_id","protocol"],"additionalProperties":false}),
+            }},
             ToolDefinition {
                 tool_type: "function".into(),
                 function: ToolFunction {
@@ -183,6 +188,22 @@ impl ToolRegistry {
             ToolDefinition {
                 tool_type: "function".into(),
                 function: ToolFunction {
+                    name: "schedule_specialist".into(),
+                    description: "Durably enqueue a specialist subtask in M0 and agent_tasks for scheduled execution and restart-safe reconciliation.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "role_id": { "type": "string", "description": "Specialist role to schedule" },
+                            "intent": { "type": "string", "description": "Goal and specification of scheduled subtask" },
+                            "hypothesis": { "type": "string", "description": "Testable hypothesis being investigated" }
+                        },
+                        "required": ["role_id", "intent"]
+                    }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
                     name: "query_budget".into(),
                     description: "Query remaining budget dimensions (calls, tokens, wall_ms) and worker capacity.".into(),
                     parameters: json!({ "type": "object", "properties": {} }),
@@ -229,10 +250,72 @@ impl ToolRegistry {
                             "candidate_id": { "type": "string", "description": "Candidate identifier being audited" },
                             "verdict": { "type": "string", "enum": ["approved", "rejected"], "description": "Audit decision" },
                             "protocol_compliance": { "type": "boolean", "description": "Whether candidate complies with declared evaluation protocol" },
+                            "binding_sha256": { "type": "string", "description": "Exact current finalization binding; required for an audit that may authorize finalization" },
                             "evidence_summary": { "type": "string", "description": "Summary of verified evidence, metrics, and feasibility" }
                         },
                         "required": ["candidate_id", "verdict", "protocol_compliance", "evidence_summary"]
                     }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "register_feature_transform".into(),
+                    description: "Register a verified feature transform specification with parent dataset identity.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "transform_id": { "type": "string", "description": "Unique transform identifier" },
+                            "transform_spec": { "type": "object", "description": "Declared transform parameters and scaling strategy" },
+                            "parent_dataset": { "type": "string", "description": "Registered dataset ID" }
+                        },
+                        "required": ["transform_id", "transform_spec", "parent_dataset"]
+                    }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "register_calibration".into(),
+                    description: "Register a probability calibration record tied to an evaluated base candidate.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "calibration_id": { "type": "string", "description": "Unique calibration identifier" },
+                            "base_candidate_id": { "type": "string", "description": "Evaluated base candidate identifier" },
+                            "method": { "type": "string", "enum": ["isotonic", "sigmoid"], "description": "Calibration method" },
+                            "brier_score": { "type": "number", "description": "Brier score on calibration split" },
+                            "log_loss": { "type": "number", "description": "Log loss on calibration split" }
+                        },
+                        "required": ["calibration_id", "base_candidate_id", "method"]
+                    }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "register_ensemble".into(),
+                    description: "Register a scientific ensemble with verified parent lineage and weights.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "ensemble_id": { "type": "string", "description": "Unique ensemble identifier" },
+                            "recipe_type": { "type": "string", "enum": ["voting", "stacking", "averaging"], "description": "Ensemble recipe type" },
+                            "parent_ids": { "type": "array", "items": { "type": "string" }, "description": "Verified parent candidate identifiers" },
+                            "weights": { "type": "array", "items": { "type": "number" }, "description": "Optional parent weights" },
+                            "meta_params": { "type": "object", "description": "Optional meta-learner parameters" },
+                            "is_feasible": { "type": "boolean", "description": "Whether ensemble satisfies feasibility constraints" }
+                        },
+                        "required": ["ensemble_id", "recipe_type", "parent_ids"]
+                    }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "inspect_scientific_lineage".into(),
+                    description: "Inspect registered scientific ensembles, feature transforms, and calibration records for the project.".into(),
+                    parameters: json!({ "type": "object", "properties": {} }),
                 },
             },
         ]
@@ -425,7 +508,15 @@ pub fn validate_json_schema(val: &Value, schema: &Value) -> Result<()> {
                     desc.source_hash
                 ));
             }
-            (None, branch_dir)
+            // A matching mutable branch is only a source for disposable staging.
+            // Revalidate the copy before execution, never run against the branch.
+            let staging = std::env::temp_dir().join(format!("mlr-tool-{}-{}",std::process::id(),SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()));
+            BranchWorkspaceManager::copy_dir_recursive(&branch_dir,&staging)?;
+            if BranchWorkspaceManager::compute_dir_hash(&staging)?!=desc.source_hash {
+                fs::remove_dir_all(&staging).map_err(|e|e.to_string())?;
+                return Err("tool source changed during disposable staging".into());
+            }
+            (Some(staging.clone()), staging)
         };
 
         // 3. Write input to unique file to prevent concurrent collisions

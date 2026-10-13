@@ -1,0 +1,32 @@
+{
+  "agent_authored_tools": true,
+  "agent_coding_harness": true,
+  "arch": "aarch64",
+  "bundle_verification": true,
+  "constrained_search": true,
+  "frame_bytes": 65536,
+  "official_evaluation": true,
+  "os": "macos",
+  "phase": "M6",
+  "protocol": "mlrescurix/1",
+  "providers": true,
+  "release_acceptance": "pending",
+  "release_prerequisites": {
+    "bounded_total_storage_cycles": false,
+    "composite_finalization": false,
+    "durable_specialist_outcome_recovery": false,
+    "fresh_matched_benchmarks": false
+  },
+  "resource_enforcement": {
+    "cpu": "best-effort process sample",
+    "disk": "free-space admission and bounded outputs",
+    "memory": "RSS sampled; quota unsupported",
+    "thread_pool_environment_hints": "applied; library dependent",
+    "worker_count": "enforced"
+  },
+  "resumable_search": true,
+  "sandbox_isolation": true,
+  "scientific_execution": true,
+  "trusted_probe_execution": true,
+  "writer_queue": 64
+}

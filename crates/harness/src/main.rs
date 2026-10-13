@@ -15,8 +15,9 @@ enum Command {
     Submit { #[arg(long)] state:PathBuf, #[arg(long)] spec:PathBuf },
     InspectJob { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] job:String },
     CancelJob { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] job:String },
-    Supervise { #[arg(long)] state:PathBuf, #[arg(long,default_value_t=1)] workers:usize },
+    Supervise { #[arg(long)] state:PathBuf, #[arg(long,default_value_t=1)] workers:usize, #[arg(long,default_value_t=false)] drain:bool },
     CreateEnvironment { #[arg(long)] state:PathBuf, #[arg(long)] id:String, #[arg(long)] python:PathBuf },
+    RegisterContainerEnvironment { #[arg(long)] state:PathBuf, #[arg(long)] id:String, #[arg(long)] image:String },
     RemoveEnvironment { #[arg(long)] state:PathBuf, #[arg(long)] id:String },
     InstallScientificProfile { #[arg(long)] state:PathBuf, #[arg(long)] id:String },
     InstallSearchProfile { #[arg(long)] state:PathBuf, #[arg(long)] id:String },
@@ -28,8 +29,14 @@ enum Command {
     SetProjectWeight { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] weight:u8 },
     RegisterDataset { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] id:String, #[arg(long)] csv:PathBuf },
     Dashboard { #[arg(long)] state:PathBuf, #[arg(long,default_value_t=8765)] port:u16 },
-    Approve { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] candidate:String, #[arg(long)] rationale:String },
+    Approve { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] candidate:String, #[arg(long)] binding_sha256:String, #[arg(long)] rationale:String },
+    CriticAudit { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] candidate:String, #[arg(long)] binding_sha256:String, #[arg(long)] actor:String, #[arg(long,default_value_t=true)] approved:bool, #[arg(long)] rationale:String },
+    FinalizationBinding { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] candidate:String },
+    StoragePolicySummary { #[arg(long)] state:PathBuf },
+    RegisterModelPricing { #[arg(long)] state:PathBuf, #[arg(long)] model:String, #[arg(long)] prompt_millicents_per_1k:i64, #[arg(long)] completion_millicents_per_1k:i64 },
+    ApproveOutboundView { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] request_sha256:String, #[arg(long,default_value="local-human")] actor:String, #[arg(long,default_value_t=true)] approved:bool, #[arg(long,default_value_t=3600000)] ttl_ms:i64 },
     AgentRun { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] role:String, #[arg(long)] task:String, #[arg(long)] branch:String, #[arg(long,default_value="default-model")] model:String, #[arg(long,default_value_t=10)] max_turns:u32, #[arg(long)] endpoint:Option<String>, #[arg(long)] api_key:Option<String>, #[arg(long)] mock:Option<PathBuf> },
+    VerifyBundle { #[arg(long)] bundle:PathBuf, #[arg(long,default_value_t=true)] sandbox:bool, #[arg(long)] state:Option<PathBuf> },
     #[command(name="__worker",hide=true)] Worker { spec:PathBuf, output:PathBuf },
     Capabilities,
 }
@@ -48,8 +55,17 @@ async fn run()->Result<(),String>{
         Command::Submit{state,spec}=>{let s:JobSpec=serde_json::from_slice(&read(&spec)?).map_err(|e|e.to_string())?;print(execution::submit(&state,s)?)},
         Command::InspectJob{state,project,job}=>print(execution::inspect(&state,&project,&job)?),
         Command::CancelJob{state,project,job}=>print(execution::cancel(&state,&project,&job)?),
-        Command::Supervise{state,workers}=>Supervisor::start(&state,workers)?.serve(),
+        Command::Supervise{state,workers,drain}=>{
+            let sup = Supervisor::start(&state,workers)?;
+            if drain {
+                sup.drain()?;
+                print(serde_json::json!({"drained":true}))
+            } else {
+                sup.serve()
+            }
+        },
         Command::CreateEnvironment{state,id,python}=>print(execution::create_environment(&state,&id,&python)?),
+        Command::RegisterContainerEnvironment{state,id,image}=>print(execution::register_container_environment(&state,&id,&image)?),
         Command::RemoveEnvironment{state,id}=>{execution::remove_environment(&state,&id)?;print(serde_json::json!({"id":id,"removed":true}))},
         Command::InstallScientificProfile{state,id}=>print(execution::install_scientific_profile(&state,&id)?),
         Command::InstallSearchProfile{state,id}=>print(execution::install_search_profile(&state,&id)?),
@@ -66,26 +82,40 @@ async fn run()->Result<(),String>{
         Command::Dashboard{state,port}=>{
             if !(1024..=65535).contains(&port){return Err("dashboard port must be 1024..=65535".into());}
             execution::migrate(&state)?;
-            let pythonpath=PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../python/src");
+            let pythonpath=mlrescurix_harness::assets::ensure_python_src(&state)?;
             let binary=std::env::current_exe().map_err(|e|e.to_string())?;
             let status=std::process::Command::new("python3").args(["-m","mlrescurix_worker.scientific.dashboard","--state"])
                 .arg(&state).arg("--binary").arg(binary).arg("--port").arg(port.to_string())
                 .env_clear().env("PATH","/usr/bin:/bin").env("PYTHONPATH",pythonpath).status().map_err(|e|e.to_string())?;
             if status.success(){Ok(())}else{Err(format!("dashboard exited with {status}"))}
         },
-        Command::Approve { state, project, candidate, rationale } => {
+        Command::FinalizationBinding { state,project,candidate }=>print(execution::finalization_binding(&state,&project,&candidate)?),
+        Command::StoragePolicySummary { state }=>print(execution::storage_policy_summary(&state)?),
+        Command::RegisterModelPricing { state, model, prompt_millicents_per_1k, completion_millicents_per_1k } => {
             execution::migrate(&state)?;
-            let db = rusqlite::Connection::open(state.join("state.sqlite")).map_err(|e| e.to_string())?;
-            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
-            db.execute(
-                "INSERT INTO approvals(project, candidate_id, approved, user_identity, rationale, created_ms) VALUES(?1, ?2, 1, 'user', ?3, ?4)",
-                rusqlite::params![project, candidate, rationale, now],
-            ).map_err(|e| e.to_string())?;
+            print(mlrescurix_harness::agents::gateway::register_model_pricing(&state, &model, prompt_millicents_per_1k, completion_millicents_per_1k)?)
+        },
+        Command::ApproveOutboundView { state, project, request_sha256, actor, approved, ttl_ms } => {
+            execution::migrate(&state)?;
+            print(mlrescurix_harness::agents::gateway::approve_outbound_view(&state, &project, &request_sha256, &actor, approved, ttl_ms)?)
+        },
+        Command::Approve { state, project, candidate, binding_sha256, rationale } => {
+            execution::record_content_decision(&state,&project,&candidate,&binding_sha256,"user_approval",&format!("local-human-uid-{}",unsafe{libc::getuid()}),true,&rationale)?;
             print(serde_json::json!({
                 "status": "approved",
                 "project": project,
                 "candidate_id": candidate,
                 "approved_by": "user",
+                "rationale": rationale,
+            }))
+        },
+        Command::CriticAudit { state, project, candidate, binding_sha256, actor, approved, rationale } => {
+            execution::record_content_decision(&state,&project,&candidate,&binding_sha256,"critic_audit",&actor,approved,&rationale)?;
+            print(serde_json::json!({
+                "status": if approved { "approved" } else { "rejected" },
+                "project": project,
+                "candidate_id": candidate,
+                "auditor": actor,
                 "rationale": rationale,
             }))
         },
@@ -151,8 +181,48 @@ async fn run()->Result<(),String>{
             }
             print(results)
         },
+        Command::VerifyBundle { bundle, sandbox, state } => {
+            let report = mlrescurix_harness::bundle::verify_bundle_with_state(&bundle, sandbox, state.as_deref())?;
+            print(report)
+        },
         Command::Worker{spec,output}=>{let result=execution::worker(&spec,&output)?;if result==0 {Ok(())} else {std::process::exit(result)}}
-        Command::Capabilities=>print(serde_json::json!({"phase":"M4","protocol":"mlrescurix/1","os":std::env::consts::OS,"arch":std::env::consts::ARCH,"writer_queue":64,"frame_bytes":MAX_FRAME,"trusted_probe_execution":cfg!(target_os="macos"),"scientific_execution":true,"official_evaluation":true,"constrained_search":true,"resumable_search":true,"agent_coding_harness":true,"agent_authored_tools":true,"sandbox_isolation":true,"resource_enforcement":{"worker_count":"enforced","thread_pool_environment_hints":"applied; library dependent","memory":"RSS sampled; quota unsupported","disk":"free-space admission and bounded outputs","cpu":"best-effort process sample"},"providers":true})),
+        Command::Capabilities=>print(serde_json::json!({
+            "phase":"M6",
+            "protocol":"mlrescurix/1",
+            "os":std::env::consts::OS,
+            "arch":std::env::consts::ARCH,
+            "supported_platforms":[
+                {"host_os":"macos","host_arch":"aarch64","scientific_container_os":"linux","scientific_container_arch":"aarch64","status":"observed_test_fixture_only"}
+            ],
+            "writer_queue":64,
+            "frame_bytes":MAX_FRAME,
+            "trusted_probe_execution":cfg!(target_os="macos"),
+            "scientific_execution":true,
+            "official_evaluation":true,
+            "constrained_search":true,
+            "resumable_search":true,
+            "agent_coding_harness":true,
+            "agent_authored_tools":true,
+            "sandbox_isolation":true,
+            "bundle_verification":true,
+            "external_bundle_authenticity":true,
+            "standalone_install_without_checkout":true,
+            "release_acceptance":"pending_independent_review",
+            "release_prerequisites":{
+                "composite_finalization":false,
+                "durable_specialist_outcome_recovery":false,
+                "bounded_total_storage_cycles":false,
+                "fresh_matched_benchmarks":false
+            },
+            "resource_enforcement":{
+                "worker_count":"enforced",
+                "thread_pool_environment_hints":"applied; library dependent",
+                "memory":"RSS sampled; quota unsupported",
+                "disk":"free-space admission, bounded outputs, and 128 MiB job-admission state reservation",
+                "cpu":"best-effort process sample"
+            },
+            "providers":true
+        })),
     }).await.map_err(|e|e.to_string())?
 }
 #[tokio::main(flavor="current_thread")]

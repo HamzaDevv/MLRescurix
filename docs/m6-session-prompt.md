@@ -113,3 +113,47 @@ further live calls; never print or copy it.
 
 Finish with a supported-feature matrix, implemented/verified/unverified evidence,
 exact reproducible commands, remaining limitations and a concrete release decision.
+
+## Current continuation after independent review, 2026-10-13
+
+Read `docs/m6-completion-status.md` and
+`docs/m6-independent-review-2026-10-13.md` before resuming. Their NOT READY decision
+supersedes the pasted implementer completion report. Preserve all existing
+reviewer fixes, including the newly retained command/action retry fences,
+unknown-tool-outcome refusal, consumed-before-scoring marker, required external
+manifest receipt, finalization environment/approval validation and runtime-asset
+symlink rejection.
+
+Implement durable per-tool outcome reconciliation and interrupted delivery
+recovery. Then implement enforceable total-storage admission and safe retention
+of retry identities, with exact accounting and genuine concurrent lease/GC and
+scheduler ENOSPC fault coverage. Do not restore unsafe deletion to manufacture a
+storage plateau. Reinstall and prove supported end-to-end recovery/delivery.
+Only after these prerequisites pass, persist a prospective benchmark protocol and
+reproducible driver with matched total compute, then run fresh representative
+benchmarks. The retained 15-pair JSON is unequal-compute historical evidence and
+is explicitly not release-acceptance evidence.
+
+Keep scientific fitting/inference inside the locked digest-pinned Docker image;
+never use host fallback. Keep previous authorization boundaries for paid calls,
+real user-candidate approvals, sealed test gates and publication. Finish with
+exact evidence, remaining limitations and an honest release decision. Implement
+directly instead of returning another proposal-only loop.
+
+### Follow-up completed 2026-10-13
+
+File tools now persist before/after hash intents and outcome digests; recovery
+reconciles exact file bytes only after authoritative provider action settlement.
+Non-file tools still refuse unknown outcomes without authoritative external
+evidence. Job admission enforces the 128 MiB state ceiling against current state
+and active output/log reservations. Concurrent artifact collectors are serialized
+and tested against live leases and cancellation. These fixes do not establish
+total-state bounds across every writer or scheduler-level ENOSPC recovery.
+
+The corrected binary was installed under `/tmp/mlrescurix-m6-install` and run
+from `/tmp` on macOS arm64. `bash scripts/run_m6_review_checks.sh` passed, including
+the digest-pinned scientific Docker image. The exact new evidence is in
+`docs/evidence/m6/review-{rust-final,bundle-docker-final,finalization-docker-final,python-docker-scoped}.log`,
+`review-image-dependencies.json`, and `installed-review-capabilities.json`.
+M6 remains NOT READY. Do not run fresh benchmarks until complete recovery,
+storage and installed delivery gates pass.

@@ -492,7 +492,7 @@ fn m4_research_closure_and_critic_finalization() {
     let lf_res = lead_orch_fail.step().unwrap();
     assert_eq!(lf_res.tool_calls_executed, 1);
     assert!(!lead_orch_fail.is_research_closed().unwrap());
-    let tool_msg = lead_orch_fail.context.messages.iter().find(|m| m.role == "tool").unwrap();
+    let tool_msg = lead_orch_fail.context.messages.iter().rev().find(|m| m.role == "tool").unwrap();
     assert!(tool_msg.content.as_deref().unwrap().contains("lacks verified user approval"));
 
     // 3. User records authenticated approval
@@ -502,7 +502,7 @@ fn m4_research_closure_and_critic_finalization() {
         rusqlite::params!["p-close", "linear_v1", 123456789],
     ).unwrap();
 
-    // 4. Positive gate: Lead requests finalization with both critic audit and user approval
+    // 4. Legacy metadata approvals cannot authorize content-bound finalization.
     let lead_succ_fixture = Arc::new(ScriptedProviderFixture::new(vec![
         ChatCompletionResponse {
             id: "call-finalize-succ".into(),
@@ -533,9 +533,13 @@ fn m4_research_closure_and_critic_finalization() {
     let mut lead_orch_succ = AgentOrchestrator::new(&root, lead_config, lead_succ_fixture).unwrap();
     let ls_res1 = lead_orch_succ.step().unwrap();
     assert_eq!(ls_res1.tool_calls_executed, 1);
-    assert!(lead_orch_succ.is_research_closed().unwrap());
+    assert!(!lead_orch_succ.is_research_closed().unwrap());
+    let refusal=lead_orch_succ.context.messages.iter().rev().find(|m|m.role=="tool").unwrap();
+    assert!(refusal.content.as_deref().unwrap().contains("lacks a verified full-pipeline receipt"));
 
-    // Verify project state in SQLite transitioned to finalizing
+    // Fault injection for the independent research-closure regression below.
+    // This is not evidence of successful refit, sealed-test evaluation or delivery.
+    db.execute("UPDATE projects SET state='finalizing' WHERE id='p-close'",[]).unwrap();
     let state: String = db.query_row("SELECT state FROM projects WHERE id='p-close'", [], |r| r.get(0)).unwrap();
     assert_eq!(state, "finalizing");
 
@@ -952,4 +956,479 @@ fn m5_delegation_preserves_prior_tasks_and_reports_provider_failure() {
     let db = rusqlite::Connection::open(&root.join("state.sqlite")).unwrap();
     let count: i64 = db.query_row("SELECT count(*) FROM tasks WHERE project='p'", [], |r| r.get(0)).unwrap();
     assert_eq!(count, 3);
+}
+
+#[test]
+fn m6_provider_turn_crash_reconciliation_all_four_states() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("state");
+    let runtime = Runtime::init(&root, m1policy(100, 4)).unwrap();
+    create_m1(&runtime, "p-rec", 100);
+    branch_task(&runtime, "p-rec", "main", "t-rec");
+    let now = chrono_free_now();
+    assert_eq!(runtime.command(req("p-rec", "claim-rec", Operation::Claim {
+        task_id: "t-rec".into(),
+        owner: "agent-t-rec".into(),
+        lease_id: "lease-rec-1".into(),
+        now_ms: now,
+        expires_ms: now + 300_000,
+        expected_generation: 1,
+    })).unwrap().status, "applied");
+
+    // 1. Crash in `awaiting_response` with a dispatched M0 action
+    let act1 = "act-awaiting-1";
+    assert_eq!(runtime.command(req("p-rec", "prep-1", Operation::Prepare {
+        task_id: "t-rec".into(), generation: 2, lease_id: "lease-rec-1".into(),
+        action_id: act1.into(), input: "in1".into(),
+        budget: BTreeMap::from([("calls".into(), 1), ("tokens".into(), 5000), ("wall_ms".into(), 60000)]),
+        capacity: BTreeMap::from([("workers".into(), 1)]),
+        deadline_ms: now + 60_000, now_ms: now,
+    })).unwrap().status, "applied");
+    assert_eq!(runtime.command(req("p-rec", "disp-1", Operation::Dispatch {
+        task_id: "t-rec".into(), generation: 2, lease_id: "lease-rec-1".into(),
+        action_id: act1.into(), attempt_id: act1.into(), external_request_id: None, now_ms: now,
+    })).unwrap().status, "applied");
+    execution::migrate(&root).unwrap();
+    let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+    db.execute(
+        "INSERT INTO provider_turn_receipts(project,task,turn,action,status,updated_ms) VALUES('p-rec','t-rec',1,?1,'awaiting_response',?2)",
+        rusqlite::params![act1, now],
+    ).unwrap();
+
+    // Gateway that panics if invoked during reconciliation
+    struct NoReplayGateway;
+    impl mlrescurix_harness::agents::ProviderGateway for NoReplayGateway {
+        fn chat_completion(&self, _: &mlrescurix_harness::agents::ChatCompletionRequest) -> mlrescurix_harness::Result<ChatCompletionResponse> {
+            panic!("Reconciliation must never replay an uncertain provider call");
+        }
+    }
+
+    let mut orch = AgentOrchestrator::new(&root, OrchestratorConfig {
+        project_id: "p-rec".into(), task_id: "t-rec".into(), role_id: "feature_engineer".into(),
+        branch_id: "main".into(), model: "fixture".into(), max_turns: 10,
+    }, Arc::new(NoReplayGateway)).unwrap();
+
+    // Blind step() must refuse before reconciliation
+    let blind_err = orch.step().unwrap_err();
+    assert!(blind_err.contains("requires reconciliation"));
+
+    let rec1 = orch.reconcile().unwrap();
+    assert_eq!(rec1["reconciled_turns"][0]["prior_status"], "awaiting_response");
+    assert_eq!(rec1["reconciled_turns"][0]["resolution"], "settled_at_admitted_ceiling_no_replay");
+
+    // 2. Crash in `outcome_unknown`
+    let act2 = "act-unknown-2";
+    assert_eq!(runtime.command(req("p-rec", "prep-2", Operation::Prepare {
+        task_id: "t-rec".into(), generation: 2, lease_id: "lease-rec-1".into(),
+        action_id: act2.into(), input: "in2".into(),
+        budget: BTreeMap::from([("calls".into(), 1), ("tokens".into(), 5000), ("wall_ms".into(), 60000)]),
+        capacity: BTreeMap::from([("workers".into(), 1)]),
+        deadline_ms: now + 60_000, now_ms: now,
+    })).unwrap().status, "applied");
+    assert_eq!(runtime.command(req("p-rec", "disp-2", Operation::Dispatch {
+        task_id: "t-rec".into(), generation: 2, lease_id: "lease-rec-1".into(),
+        action_id: act2.into(), attempt_id: act2.into(), external_request_id: None, now_ms: now,
+    })).unwrap().status, "applied");
+    assert_eq!(runtime.command(req("p-rec", "unk-2", Operation::MarkUnknown {
+        action_id: act2.into(), reason: "network drop".into(),
+    })).unwrap().status, "applied");
+    db.execute(
+        "INSERT INTO provider_turn_receipts(project,task,turn,action,status,updated_ms) VALUES('p-rec','t-rec',2,?1,'outcome_unknown',?2)",
+        rusqlite::params![act2, now],
+    ).unwrap();
+    let rec2 = orch.reconcile().unwrap();
+    assert_eq!(rec2["reconciled_turns"][0]["prior_status"], "outcome_unknown");
+
+    // 3. Crash in `response_received` (cached response with tool calls, before M0 commit or tool execution)
+    let act3 = "act-resp-3";
+    assert_eq!(runtime.command(req("p-rec", "prep-3", Operation::Prepare {
+        task_id: "t-rec".into(), generation: 2, lease_id: "lease-rec-1".into(),
+        action_id: act3.into(), input: "in3".into(),
+        budget: BTreeMap::from([("calls".into(), 1), ("tokens".into(), 5000), ("wall_ms".into(), 60000)]),
+        capacity: BTreeMap::from([("workers".into(), 1)]),
+        deadline_ms: now + 60_000, now_ms: now,
+    })).unwrap().status, "applied");
+    assert_eq!(runtime.command(req("p-rec", "disp-3", Operation::Dispatch {
+        task_id: "t-rec".into(), generation: 2, lease_id: "lease-rec-1".into(),
+        action_id: act3.into(), attempt_id: act3.into(), external_request_id: None, now_ms: now,
+    })).unwrap().status, "applied");
+    let cached_resp_3 = ChatCompletionResponse {
+        id: "resp-3".into(),
+        model: "fixture".into(),
+        content: Some("Writing feature file".into()),
+        tool_calls: vec![ToolCall {
+            id: "call-write-3".into(),
+            call_type: "function".into(),
+            function: FunctionCall {
+                name: "file_write".into(),
+                arguments: json!({"path": "from_rec3.txt", "content": "reconciled-3"}).to_string(),
+            },
+        }],
+        usage: TokenUsage { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+        latency_ms: 12,
+    };
+    orch.context.record_checkpoint(&root).unwrap();
+    db.execute(
+        "INSERT INTO provider_turn_receipts(project,task,turn,action,status,response_json,updated_ms) VALUES('p-rec','t-rec',3,?1,'response_received',?2,?3)",
+        rusqlite::params![act3, serde_json::to_string(&cached_resp_3).unwrap(), now],
+    ).unwrap();
+    let rec3 = orch.reconcile().unwrap();
+    assert_eq!(rec3["reconciled_turns"][0]["prior_status"], "response_received");
+    assert_eq!(rec3["reconciled_turns"][0]["tools_executed"], 1);
+    assert_eq!(BranchWorkspaceManager::read_file(&root, "p-rec", "main", "from_rec3.txt").unwrap(), "reconciled-3");
+
+    // 4. Crash in `executing_tools` after tool call 1 of 2 already executed and checkpointed
+    // Verify tool call 1 is NOT re-executed (e.g., if tool 1 wrote a file that was then modified or checked, or we check tools_skipped_already_completed == 1)
+    let act4 = "act-exec-4";
+    // A tool execution follows an already-settled authoritative provider action.
+    db.execute("INSERT INTO actions(project,id,task,data) SELECT project,?1,task,json_set(data,'$.action_id',?1,'$.receipt.action_id',?1) FROM actions WHERE project='p-rec' AND id=?2",rusqlite::params![act4,act3]).unwrap();
+    let cached_resp_4 = ChatCompletionResponse {
+        id: "resp-4".into(),
+        model: "fixture".into(),
+        content: Some("Two tool calls".into()),
+        tool_calls: vec![
+            ToolCall {
+                id: "call-4-first".into(),
+                call_type: "function".into(),
+                function: FunctionCall {
+                    name: "file_write".into(),
+                    arguments: json!({"path": "tool1.txt", "content": "would-overwrite-if-replayed"}).to_string(),
+                },
+            },
+            ToolCall {
+                id: "call-4-second".into(),
+                call_type: "function".into(),
+                function: FunctionCall {
+                    name: "file_write".into(),
+                    arguments: json!({"path": "tool2.txt", "content": "second-tool-executed"}).to_string(),
+                },
+            },
+        ],
+        usage: TokenUsage { prompt_tokens: 120, completion_tokens: 60, total_tokens: 180 },
+        latency_ms: 15,
+    };
+    // Simulate that tool 1 already ran, wrote "original-from-first-run", and recorded its tool message in the checkpoint
+    BranchWorkspaceManager::write_file(&root, "p-rec", "main", "tool1.txt", "original-from-first-run").unwrap();
+    orch.context.add_message(ChatMessage::assistant(cached_resp_4.content.clone(), Some(cached_resp_4.tool_calls.clone())));
+    orch.context.add_message(ChatMessage::tool(json!({"status": "written", "path": "tool1.txt"}).to_string(), "call-4-first", "file_write"));
+    orch.context.record_checkpoint(&root).unwrap();
+    db.execute(
+        "INSERT INTO provider_turn_receipts(project,task,turn,action,status,response_json,updated_ms) VALUES('p-rec','t-rec',4,?1,'executing_tools',?2,?3)",
+        rusqlite::params![act4, serde_json::to_string(&cached_resp_4).unwrap(), now],
+    ).unwrap();
+
+    // The second write happened, but its checkpoint was lost in the crash.
+    BranchWorkspaceManager::write_file(&root, "p-rec", "main", "tool2.txt", "original-before-crash").unwrap();
+    let err = orch.reconcile().unwrap_err();
+    assert!(err.contains("tool outcome unknown"), "{err}");
+    assert_eq!(BranchWorkspaceManager::read_file(&root, "p-rec", "main", "tool1.txt").unwrap(), "original-from-first-run");
+    assert_eq!(BranchWorkspaceManager::read_file(&root, "p-rec", "main", "tool2.txt").unwrap(), "original-before-crash");
+    // Modern protocol: effect was published, then both outcome and context checkpoint
+    // were lost. The durable intent proves the exact file bytes without replay.
+    let args = &cached_resp_4.tool_calls[1].function.arguments;
+    mlrescurix_harness::agents::recovery::execute(&root,
+        mlrescurix_harness::agents::recovery::ToolIdentity {
+            project:"p-rec",task:"t-rec",branch:"main",turn:4,call_id:"call-4-second",name:"file_write",arguments:args,
+        },true,|| panic!("file reconciliation must not use generic dispatch")).unwrap();
+    db.execute("UPDATE tool_outcomes SET outcome=NULL,outcome_sha256=NULL WHERE project='p-rec' AND turn=4",[]).unwrap();
+    db.execute("UPDATE provider_turn_receipts SET tool_protocol=1 WHERE project='p-rec' AND turn=4",[]).unwrap();
+    // Force recovery to claim a new lease and settle from original action evidence.
+    db.execute("UPDATE tasks SET data=json_set(data,'$.expires_ms',0) WHERE project='p-rec' AND id='t-rec'",[]).unwrap();
+    let recovered = orch.reconcile().unwrap();
+    assert_eq!(recovered["reconciled_turns"][0]["tools_executed"],1);
+    assert_eq!(BranchWorkspaceManager::read_file(&root,"p-rec","main","tool2.txt").unwrap(),"second-tool-executed");
+    assert!(orch.reconcile().unwrap()["reconciled_turns"].as_array().unwrap().is_empty());
+    // A persisted outcome survives subsequent workspace changes; it is delivered
+    // from its receipt, without clobbering the new content.
+    BranchWorkspaceManager::write_file(&root,"p-rec","main","tool2.txt","later-content").unwrap();
+    mlrescurix_harness::agents::recovery::execute(&root,
+        mlrescurix_harness::agents::recovery::ToolIdentity {
+            project:"p-rec",task:"t-rec",branch:"main",turn:4,call_id:"call-4-second",name:"file_write",arguments:args,
+        },false,||panic!("stored result must never replay")).unwrap();
+    assert_eq!(BranchWorkspaceManager::read_file(&root,"p-rec","main","tool2.txt").unwrap(),"later-content");
+    db.execute("UPDATE tool_outcomes SET outcome=NULL,outcome_sha256=NULL WHERE project='p-rec' AND turn=4",[]).unwrap();
+    let conflict = mlrescurix_harness::agents::recovery::execute(&root,
+        mlrescurix_harness::agents::recovery::ToolIdentity {
+            project:"p-rec",task:"t-rec",branch:"main",turn:4,call_id:"call-4-second",name:"file_write",arguments:args,
+        },false,||panic!("unknown effect must not replay")).unwrap_err();
+    assert!(conflict.contains("differs from durable before and after"));
+    // Legacy missing action evidence still fails before result restoration.
+    db.execute("DELETE FROM tool_outcomes WHERE project='p-rec' AND turn=4",[]).unwrap();
+    db.execute("UPDATE provider_turn_receipts SET status='executing_tools' WHERE project='p-rec' AND turn=4",[]).unwrap();
+    db.execute("DELETE FROM actions WHERE project='p-rec' AND id=?1",[act4]).unwrap();
+    assert!(orch.reconcile().unwrap_err().contains("authoritative action receipt"));
+}
+
+#[test]
+fn m6_specialist_scheduling_crash_recovery_and_handoff() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("state");
+    let runtime = Runtime::init(&root, m1policy(100, 4)).unwrap();
+    create_m1(&runtime, "p-spec", 100);
+    branch_task(&runtime, "p-spec", "main", "lead-task");
+
+    let lead_gw = Arc::new(ScriptedProviderFixture::new(vec![]));
+    let orch = AgentOrchestrator::new(&root, OrchestratorConfig {
+        project_id: "p-spec".into(), task_id: "lead-task".into(), role_id: "lead".into(),
+        branch_id: "main".into(), model: "fixture".into(), max_turns: 4,
+    }, lead_gw).unwrap();
+
+    let s1 = orch.schedule_specialist("feature_engineer", "Create engineered feature spec", Some("H1: ratio features")).unwrap();
+    let s1_id = s1["sub_task_id"].as_str().unwrap().to_string();
+    let s1_branch = s1["assigned_branch"].as_str().unwrap().to_string();
+
+    // Create a genuine admitted provider action before recording its cached response.
+    let now=chrono_free_now();
+    let claim=runtime.command(req("p-spec","claim-recovery-spec",Operation::Claim{
+        task_id:s1_id.clone(),owner:format!("agent-{s1_id}"),lease_id:"spec-recovery-lease".into(),
+        now_ms:now,expires_ms:now+300_000,expected_generation:1,
+    })).unwrap();assert_eq!(claim.status,"applied","{}",claim.result);
+    let generation=claim.result["generation"].as_u64().unwrap();
+    let prepared=runtime.command(req("p-spec","prepare-recovery-spec",Operation::Prepare{
+        task_id:s1_id.clone(),generation,lease_id:"spec-recovery-lease".into(),action_id:"act-s1-1".into(),input:"specialist fixture request".into(),
+        budget:BTreeMap::from([("calls".into(),1),("tokens".into(),5000),("wall_ms".into(),60000)]),
+        capacity:BTreeMap::from([("workers".into(),1)]),deadline_ms:now+60000,now_ms:now,
+    })).unwrap();assert_eq!(prepared.status,"applied","{}",prepared.result);
+    let dispatched=runtime.command(req("p-spec","dispatch-recovery-spec",Operation::Dispatch{
+        task_id:s1_id.clone(),generation,lease_id:"spec-recovery-lease".into(),action_id:"act-s1-1".into(),attempt_id:"spec-recovery-attempt".into(),external_request_id:None,now_ms:now,
+    })).unwrap();assert_eq!(dispatched.status,"applied","{}",dispatched.result);
+
+    // Simulate a crash mid-turn (`response_received`) on s1 before running the scheduler
+    let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+    let cached_s1 = ChatCompletionResponse {
+        id: "s1-turn1".into(),
+        model: "fixture".into(),
+        content: Some("Writing feature note [STOP]".into()),
+        tool_calls: vec![ToolCall {
+            id: "s1-call-1".into(),
+            call_type: "function".into(),
+            function: FunctionCall {
+                name: "file_write".into(),
+                arguments: json!({"path": "fe_spec.txt", "content": "ratio_a_b"}).to_string(),
+            },
+        }],
+        usage: TokenUsage { prompt_tokens: 80, completion_tokens: 40, total_tokens: 120 },
+        latency_ms: 10,
+    };
+    db.execute(
+        "INSERT INTO provider_turn_receipts(project,task,turn,action,status,response_json,updated_ms) VALUES('p-spec',?1,1,'act-s1-1','response_received',?2,?3)",
+        rusqlite::params![s1_id, serde_json::to_string(&cached_s1).unwrap(), chrono_free_now()],
+    ).unwrap();
+
+    // Scripted gateway has only 1 response for turn 2 of s1 (turn 1 must be recovered from `response_received` without calling the provider)
+    let sched_gw = Arc::new(ScriptedProviderFixture::new(vec![
+        ChatCompletionResponse {
+            id: "s1-turn2".into(),
+            model: "fixture".into(),
+            content: Some("Specialist complete [STOP]".into()),
+            tool_calls: vec![],
+            usage: TokenUsage { prompt_tokens: 90, completion_tokens: 20, total_tokens: 110 },
+            latency_ms: 8,
+        },
+    ]));
+
+    let summary = AgentOrchestrator::run_scheduled_specialists(&root, "p-spec", sched_gw, 3).unwrap();
+    assert_eq!(summary["specialists_processed"], 1);
+    assert_eq!(summary["specialists"][0]["status"], "completed");
+    assert_eq!(summary["specialists"][0]["reconciled"][0]["prior_status"], "response_received");
+    assert_eq!(BranchWorkspaceManager::read_file(&root, "p-spec", &s1_branch, "fe_spec.txt").unwrap(), "ratio_a_b");
+
+    let (task_status, handoff_status): (String, String) = db.query_row(
+        "SELECT t.status, h.status FROM agent_tasks t JOIN handoffs h ON t.project=h.project AND t.task_id=h.task_id WHERE t.project='p-spec' AND t.task_id=?1",
+        [&s1_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    ).unwrap();
+    assert_eq!(task_status, "completed");
+    assert_eq!(handoff_status, "accepted");
+}
+
+#[test]
+fn m6_outbound_view_policy_approval_content_binding_and_expiry() {
+    struct PolicyBoundGateway;
+    impl mlrescurix_harness::agents::ProviderGateway for PolicyBoundGateway {
+        fn requires_policy_approval(&self) -> bool { true }
+        fn chat_completion(&self, _: &mlrescurix_harness::agents::ChatCompletionRequest) -> mlrescurix_harness::Result<ChatCompletionResponse> {
+            Ok(ChatCompletionResponse {
+                id: "pol-1".into(),
+                model: "fixture".into(),
+                content: Some("Approved outbound response [STOP]".into()),
+                tool_calls: vec![],
+                usage: TokenUsage { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 },
+                latency_ms: 5,
+            })
+        }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("state");
+    let runtime = Runtime::init(&root, m1policy(100, 2)).unwrap();
+    create_m1(&runtime, "p-out", 100);
+    branch_task(&runtime, "p-out", "main", "t-out");
+
+    let mut orch = AgentOrchestrator::new(&root, OrchestratorConfig {
+        project_id: "p-out".into(), task_id: "t-out".into(), role_id: "lead".into(),
+        branch_id: "main".into(), model: "fixture".into(), max_turns: 5,
+    }, Arc::new(PolicyBoundGateway)).unwrap();
+    orch.context.add_message(ChatMessage::user("Inspect summary metrics"));
+
+    // 1. Unapproved outbound call is rejected
+    let err_unapproved = orch.step().unwrap_err();
+    assert!(err_unapproved.contains("outbound provider request requires a content-bound policy-approved view"));
+
+    // 2. Stage and approve with expired TTL -> rejected
+    let staged = orch.stage_outbound_view("security-reviewer").unwrap();
+    let digest = staged["request_sha256"].as_str().unwrap().to_string();
+    mlrescurix_harness::agents::approve_outbound_view(&root, "p-out", &digest, "security-reviewer", true, 1).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    let err_expired = orch.step().unwrap_err();
+    assert!(err_expired.contains("outbound provider request requires a content-bound policy-approved view"));
+
+    // 3. Approve with valid TTL, then mutate context before step -> rejected due to digest mismatch
+    mlrescurix_harness::agents::approve_outbound_view(&root, "p-out", &digest, "security-reviewer", true, 600_000).unwrap();
+    orch.context.add_message(ChatMessage::user("Mutated prompt content after approval"));
+    let err_mutated = orch.step().unwrap_err();
+    assert!(err_mutated.contains("outbound provider request requires a content-bound policy-approved view"));
+
+    // 4. Stage and approve exact current request -> succeeds
+    let staged2 = orch.stage_outbound_view("security-reviewer").unwrap();
+    let digest2 = staged2["request_sha256"].as_str().unwrap().to_string();
+    assert_ne!(digest, digest2);
+    mlrescurix_harness::agents::approve_outbound_view(&root, "p-out", &digest2, "security-reviewer", true, 600_000).unwrap();
+    let res = orch.step().unwrap();
+    assert!(res.stopped);
+}
+
+#[test]
+fn m6_currency_cost_millicents_and_finalization_reserve_enforcement() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("state");
+    let policy = Policy {
+        budget: BTreeMap::from([
+            ("calls".into(), 10),
+            ("tokens".into(), 100_000),
+            ("wall_ms".into(), 500_000),
+            ("cost_millicents".into(), 10_000),
+        ]),
+        capacity: BTreeMap::from([("workers".into(), 2)]),
+        max_tasks: 64,
+    };
+    let runtime = Runtime::init(&root, policy.clone()).unwrap();
+    runtime.command(req("p-cost", "create-p-cost", Operation::CreateProject {
+        intent: "cost-governed-study".into(),
+        policy,
+        finalization_id: "fin-cost".into(),
+    })).unwrap();
+    branch_task(&runtime, "p-cost", "main", "t-cost");
+
+    let gw = Arc::new(ScriptedProviderFixture::new(vec![
+        ChatCompletionResponse {
+            id: "c-1".into(),
+            model: "priced-model".into(),
+            content: Some("Turn 1 complete".into()),
+            tool_calls: vec![],
+            usage: TokenUsage { prompt_tokens: 1_000, completion_tokens: 500, total_tokens: 1_500 },
+            latency_ms: 10,
+        },
+        ChatCompletionResponse {
+            id: "c-2".into(),
+            model: "priced-model".into(),
+            content: Some("Finalization critic turn complete [STOP]".into()),
+            tool_calls: vec![],
+            usage: TokenUsage { prompt_tokens: 500, completion_tokens: 200, total_tokens: 700 },
+            latency_ms: 10,
+        },
+    ]));
+
+    let mut orch = AgentOrchestrator::new(&root, OrchestratorConfig {
+        project_id: "p-cost".into(), task_id: "t-cost".into(), role_id: "lead".into(),
+        branch_id: "main".into(), model: "priced-model".into(), max_turns: 5,
+    }, gw.clone()).unwrap();
+
+    // 1. Fails closed when model has no pricing registered in model_pricing
+    let unpriced_err = orch.step().unwrap_err();
+    assert!(unpriced_err.contains("no registered pricing in model_pricing"), "{unpriced_err}");
+
+    // 2. Register model pricing: 100 millicents / 1k prompt, 200 millicents / 1k completion
+    mlrescurix_harness::agents::register_model_pricing(&root, "priced-model", 100, 200).unwrap();
+    let turn1 = orch.step().unwrap();
+    assert_eq!(turn1.turn_index, 1);
+
+    let budget_after_1 = AgentContextManager::query_authoritative_budget(&root, "p-cost").unwrap();
+    // 1000 prompt * 100/1000 + 500 completion * 200/1000 = 100 + 100 = 200 millicents charged
+    assert_eq!(budget_after_1["consumption"]["cost_millicents_charged"], 200);
+    assert_eq!(budget_after_1["finalization_reserve"]["cost_millicents"], 2_000);
+    assert_eq!(budget_after_1["remaining"]["cost_millicents_gross"], 9_800);
+    assert_eq!(budget_after_1["remaining"]["cost_millicents_effective"], 7_800);
+
+    // 3. Charge exploratory consumption up to 80% ceiling via authoritative M0 ledger (leaving only the 20% finalization reserve: 2 calls, 2000 cost_millicents)
+    let now = chrono_free_now();
+    let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+    let task_json: String = db.query_row("SELECT data FROM tasks WHERE project='p-cost' AND id='t-cost'", [], |r| r.get(0)).unwrap();
+    let task: Task = serde_json::from_str(&task_json).unwrap();
+    let lease_id = task.lease_id.unwrap();
+    let exp_budget = BTreeMap::from([
+        ("calls".into(), 7),
+        ("tokens".into(), 75_000),
+        ("wall_ms".into(), 350_000),
+        ("cost_millicents".into(), 7_800),
+    ]);
+    runtime.command(req("p-cost", "exp-prep", Operation::Prepare {
+        task_id: "t-cost".into(),
+        generation: task.generation,
+        lease_id: lease_id.clone(),
+        action_id: "exp-act".into(),
+        input: "exp".into(),
+        budget: exp_budget.clone(),
+        capacity: BTreeMap::from([("workers".into(), 1)]),
+        deadline_ms: now + 60_000,
+        now_ms: now,
+    })).unwrap();
+    runtime.command(req("p-cost", "exp-disp", Operation::Dispatch {
+        task_id: "t-cost".into(),
+        generation: task.generation,
+        lease_id: lease_id.clone(),
+        action_id: "exp-act".into(),
+        attempt_id: "exp-act".into(),
+        external_request_id: None,
+        now_ms: now,
+    })).unwrap();
+    runtime.command(req("p-cost", "exp-resp", Operation::Response {
+        task_id: "t-cost".into(),
+        generation: task.generation,
+        lease_id: lease_id.clone(),
+        action_id: "exp-act".into(),
+        frame: json!({
+            "version": 1,
+            "kind": "observation",
+            "payload": {
+                "project_id": "p-cost",
+                "task_id": "t-cost",
+                "action_id": "exp-act",
+                "generation": task.generation,
+                "phase": "exploratory_charge",
+                "detail": "ok"
+            }
+        }).to_string(),
+        now_ms: now,
+    })).unwrap();
+    runtime.command(req("p-cost", "exp-commit", Operation::Commit {
+        task_id: "t-cost".into(),
+        generation: task.generation,
+        lease_id,
+        action_id: "exp-act".into(),
+        actual: exp_budget,
+        outcome: "succeeded".into(),
+        now_ms: now,
+    })).unwrap();
+
+    // Exploratory turn / specialist / pipeline must now be blocked to protect the 20% finalization reserve
+    let reserve_err = orch.step().unwrap_err();
+    assert!(reserve_err.contains("20% finalization reserve protected"), "{reserve_err}");
+    let spec_err = orch.schedule_specialist("auditor", "extra exploratory audit", None).unwrap_err();
+    assert!(spec_err.contains("20% finalization reserve protected"), "{spec_err}");
+
+    // 4. Finalization turn (e.g., critic role or [FINALIZE] directive) is allowed to consume from the reserved 20%
+    orch.context.add_message(ChatMessage::user("[FINALIZE] Proceed with finalization review"));
+    let fin_turn = orch.step().unwrap();
+    assert!(fin_turn.stopped);
 }

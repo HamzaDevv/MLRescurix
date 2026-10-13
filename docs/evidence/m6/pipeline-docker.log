@@ -1,0 +1,14 @@
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.72s
+     Running tests/pipeline_docker.rs (target/debug/deps/pipeline_docker-614e5fea1d248872)
+
+running 1 test
+binary: fits=9 cold_load_ms=1.483041 full_raw_input_p95_ms=11.1815961 delivered_bytes=11491 OOF="1d6f4a139b7565c615541138749396f5dcf7aa2b23e378e09b6016635f0f63db"
+multi: fits=11 cold_load_ms=1.545791 full_raw_input_p95_ms=11.5388881 delivered_bytes=12843 OOF="ceed8631946d9475fc39a038df75dc4992406df8c86348a188d47488252d330d"
+reg: fits=9 cold_load_ms=1.288875 full_raw_input_p95_ms=6.0817914 delivered_bytes=10379 OOF="a64be8ce2b16ded8e21781b92ffc71029080b2dda62129d1c0da76a31f219f1e"
+group: fits=9 cold_load_ms=1.424833 full_raw_input_p95_ms=10.3496584 delivered_bytes=10995 OOF="5e0ca75040f72943a5f20de1f7b8d09304a4e63ac0ba45f21e42f02c01ea11ab"
+time: fits=9 cold_load_ms=1.213333 full_raw_input_p95_ms=5.4735122 delivered_bytes=10379 OOF="160714581c0b1c08e5924e89c4dbcc54712cbd36b6ca781e96642ae52a0bc664"
+test scheduled_features_calibration_ensemble_and_verified_oof ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.55s
+

@@ -136,10 +136,10 @@ impl OutboundFilter {
             if items.len() > 3 && items.iter().all(|item| item.is_object()) {
                 let sample_keys_len = items[0].as_object().map(|o| o.len()).unwrap_or(0);
                 if sample_keys_len >= 2 {
-                    let kept: Vec<serde_json::Value> = items.iter().take(3).cloned().collect();
-                    let redacted_count = items.len() - 3;
+                    let schema_keys: Vec<String> = items[0].as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
+                    let redacted_count = items.len();
                     return serde_json::json!({
-                        "sample_records": kept,
+                        "schema_features": schema_keys,
                         "redacted_record_count": redacted_count,
                         "notice": format!("[REDACTED_ROW_DATA: {redacted_count} raw tabular records omitted; use aggregate diagnostics]")
                     }).to_string();
@@ -159,16 +159,15 @@ impl OutboundFilter {
             let is_delimited_row = (comma_count >= 2 || tab_count >= 2 || pipe_count >= 2) && idx > 0;
             if is_delimited_row {
                 row_count += 1;
-                if row_count <= 3 {
-                    cleaned_lines.push(line.to_string());
-                }
             } else {
                 cleaned_lines.push(line.to_string());
             }
         }
 
         if row_count > 3 {
-            cleaned_lines.push(format!("[REDACTED_ROW_DATA: {} raw tabular rows omitted; use aggregate diagnostics]", row_count - 3));
+            // Keep only header row (index 0) and omit all raw data rows
+            cleaned_lines.truncate(1);
+            cleaned_lines.push(format!("[REDACTED_ROW_DATA: {} raw tabular rows omitted; use aggregate diagnostics]", row_count));
         }
 
         let combined = cleaned_lines.join("\n");
@@ -208,6 +207,7 @@ impl OutboundFilter {
 }
 
 pub trait ProviderGateway: Send + Sync {
+    fn requires_policy_approval(&self)->bool {false}
     fn chat_completion(&self, request: &ChatCompletionRequest) -> Result<ChatCompletionResponse>;
 }
 
@@ -266,6 +266,7 @@ impl OpenAICompatibleAdapter {
 }
 
 impl ProviderGateway for OpenAICompatibleAdapter {
+    fn requires_policy_approval(&self)->bool {true}
     fn chat_completion(&self, request: &ChatCompletionRequest) -> Result<ChatCompletionResponse> {
         let sanitized = OutboundFilter::sanitize_request(request);
         let req_json = serde_json::to_string(&sanitized).map_err(|e| e.to_string())?;
@@ -361,6 +362,121 @@ impl ProviderGateway for OpenAICompatibleAdapter {
     }
 }
 
+pub fn register_model_pricing(
+    root: &Path,
+    model: &str,
+    prompt_millicents_per_1k: i64,
+    completion_millicents_per_1k: i64,
+) -> Result<Value> {
+    if model.is_empty() || prompt_millicents_per_1k < 0 || completion_millicents_per_1k < 0 {
+        return Err("invalid model pricing specification".into());
+    }
+    let pricing_path = root.join("pricing.json");
+    let mut table: serde_json::Map<String, Value> = if pricing_path.is_file() {
+        serde_json::from_slice(&fs::read(&pricing_path).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?
+    } else {
+        serde_json::Map::new()
+    };
+    table.insert(
+        model.to_string(),
+        serde_json::json!({
+            "prompt_millicents_per_1k": prompt_millicents_per_1k,
+            "completion_millicents_per_1k": completion_millicents_per_1k,
+        }),
+    );
+    fs::write(
+        &pricing_path,
+        serde_json::to_vec_pretty(&Value::Object(table)).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "model": model,
+        "prompt_millicents_per_1k": prompt_millicents_per_1k,
+        "completion_millicents_per_1k": completion_millicents_per_1k,
+    }))
+}
+
+pub fn resolve_model_pricing(root: &Path, model: &str) -> Result<Option<(i64, i64)>> {
+    for candidate in [root.join("pricing.json"), std::path::PathBuf::from(".config/provider.json")] {
+        if candidate.is_file() {
+            if let Ok(bytes) = fs::read(&candidate) {
+                if let Ok(val) = serde_json::from_slice::<Value>(&bytes) {
+                    let entry = val.get(model).or_else(|| val.get("pricing").and_then(|p| p.get(model)));
+                    if let Some(obj) = entry {
+                        if let (Some(p), Some(c)) = (
+                            obj.get("prompt_millicents_per_1k").and_then(|v| v.as_i64()),
+                            obj.get("completion_millicents_per_1k").and_then(|v| v.as_i64()),
+                        ) {
+                            if p >= 0 && c >= 0 {
+                                return Ok(Some((p, c)));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
+pub fn approve_outbound_view(
+    root: &Path,
+    project_id: &str,
+    request_sha256: &str,
+    actor: &str,
+    approved: bool,
+    ttl_ms: i64,
+) -> Result<Value> {
+    if actor.is_empty() || request_sha256.len() != 64 || !request_sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("invalid outbound view approval parameters".into());
+    }
+    if !(1..=86_400_000).contains(&ttl_ms) {
+        return Err("outbound view approval ttl_ms must be 1..=86_400_000".into());
+    }
+    crate::execution::migrate(root)?;
+    let db = rusqlite::Connection::open(root.join("state.sqlite")).map_err(|e| e.to_string())?;
+    let view_json: String = db
+        .query_row(
+            "SELECT view_json FROM outbound_views WHERE project=?1 AND request_sha256=?2",
+            rusqlite::params![project_id, request_sha256],
+            |r| r.get(0),
+        )
+        .map_err(|_| format!("staged outbound view '{request_sha256}' not found for project '{project_id}'"))?;
+    use sha2::{Digest, Sha256};
+    let actual_sha = format!("{:x}", Sha256::digest(view_json.as_bytes()));
+    if actual_sha != request_sha256 {
+        return Err("staged outbound view content digest mismatch".into());
+    }
+    let expires_ms = now_ms().saturating_add(ttl_ms);
+    db.execute(
+        "UPDATE outbound_views SET actor=?3, approved=?4, expires_ms=?5 WHERE project=?1 AND request_sha256=?2",
+        rusqlite::params![project_id, request_sha256, actor, approved as i64, expires_ms],
+    )
+    .map_err(|e| e.to_string())?;
+    db.execute(
+        "INSERT INTO events(project, kind, payload) VALUES(?1, 'outbound_view.decision', ?2)",
+        rusqlite::params![
+            project_id,
+            serde_json::json!({
+                "request_sha256": request_sha256,
+                "actor": actor,
+                "approved": approved,
+                "expires_ms": expires_ms
+            })
+            .to_string()
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "project_id": project_id,
+        "request_sha256": request_sha256,
+        "actor": actor,
+        "approved": approved,
+        "expires_ms": expires_ms,
+    }))
+}
+
 pub fn record_provider_accounting(
     root: &Path,
     project_id: &str,
@@ -377,7 +493,13 @@ pub fn record_provider_accounting(
     let db = rusqlite::Connection::open(root.join("state.sqlite")).map_err(|e| e.to_string())?;
     db.execute(
         "INSERT INTO provider_accounting(project, request_id, task_id, role_id, model, prompt_tokens, completion_tokens, cost_millicents, latency_ms, status, created_ms)
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+         ON CONFLICT(project, request_id) DO UPDATE SET
+           prompt_tokens=excluded.prompt_tokens,
+           completion_tokens=excluded.completion_tokens,
+           cost_millicents=excluded.cost_millicents,
+           latency_ms=excluded.latency_ms,
+           status=excluded.status",
         rusqlite::params![
             project_id,
             request_id,

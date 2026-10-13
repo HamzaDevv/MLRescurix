@@ -1,0 +1,80 @@
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.98s
+     Running unittests src/lib.rs (target/debug/deps/mlrescurix_harness-c9b0a6a2da25d54f)
+
+running 3 tests
+test execution::tests::low_disk_admission_boundary ... ok
+test agents::tools::tests::unavailable_sandbox_refuses_tool_before_any_state_or_workspace_write ... ok
+test bundle::tests::integrity_does_not_certify_execution_or_unknown_constraints ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/agent_m4.rs (target/debug/deps/agent_m4-c5a176030549b361)
+
+running 21 tests
+test m4_outbound_data_redaction_filter ... ok
+test m4_authoritative_budget_query_and_remaining_calculation ... ok
+test m4_path_traversal_and_symlink_rejection_in_workspace ... ok
+test m4_cross_branch_immutable_snapshot_reuse ... ok
+test m4_role_registry_defines_all_eight_specialist_roles ... ok
+test m4_sandbox_detector_and_honest_refusal_when_unavailable ... ok
+test m4_exhausted_budget_blocks_provider_before_dispatch ... ok
+test m4_achievement_checkpointing_and_context_compaction ... ok
+test m4_conservative_ceiling_settlement_on_provider_failure ... ok
+test m4_reconstructable_checkpoint_and_evidence_integrity ... ok
+test m4_role_rbac_enforcement ... ok
+test m4_schema_validation_pre_and_post_execution ... ok
+test m4_workspace_symlink_cannot_read_or_overwrite_host_file ... ok
+test m4_agent_authors_tests_and_reuses_diagnostic_tool_and_adapts_decision ... ok
+test m6_provider_turn_crash_reconciliation_all_four_states ... ok
+test m6_currency_cost_millicents_and_finalization_reserve_enforcement ... ok
+test m6_outbound_view_policy_approval_content_binding_and_expiry ... ok
+test m5_delegation_preserves_prior_tasks_and_reports_provider_failure ... ok
+test m6_specialist_scheduling_crash_recovery_and_handoff ... ok
+test m4_research_closure_and_critic_finalization ... ok
+test m4_ten_projects_and_three_branches_fairness ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.67s
+
+     Running tests/foundation.rs (target/debug/deps/foundation-f44b3b4d15c905f6)
+
+running 26 tests
+test durable_crash_actor ... ok
+test cross_language_fixture_corpus ... ok
+test fake_observations_cannot_publish_official_scores_or_finalize ... ok
+test lifecycle_cli_initializes_fresh_state_and_returns_receipts ... ok
+test event_and_timer_cursors_replay_and_questions_survive ... ok
+test duplicates_fencing_uncertainty_and_charge_debt ... ok
+test corrupted_checkpoint_and_dangling_references_fail_explicitly ... ok
+test cleanup_preserves_old_command_idempotency_fences ... ok
+test m1_restart_reconciles_published_artifact_and_discards_incomplete_stage ... ok
+test m1_managed_python_environment_is_owned_and_leases_block_removal ... ok
+test m1_fair_queue_and_contract_bounds ... ok
+test m1_pause_drains_active_job_and_resume_reopens_queued_admission ... ok
+test m1_deadline_crash_and_project_cancellation_reap_only_owned_workers ... ok
+test m2_dataset_registration_copies_and_hashes_only_into_owned_state ... ok
+test m2_final_test_access_is_reserved_transactionally_once_per_dataset ... ok
+test m2_restart_reconciles_consumed_final_test_identity ... ok
+test simultaneous_reservations_respect_device_and_project_caps ... ok
+test m2_scientific_jobs_are_typed_and_reference_registered_datasets ... ok
+test process_crashes_recover_each_commit_boundary ... ok
+test state_root_is_owned_and_migrations_are_checked ... ok
+test m1_trusted_worker_publishes_hashed_artifact_and_records_terminal_state ... ok
+test m6_restart_consumes_interrupted_assessment_without_result ... ok
+test ten_projects_three_branches_reserve_atomically_and_cancel_in_isolation ... ok
+test m1_supervisor_death_closes_worker_control_and_keeps_budget_reserved_until_recovery ... ok
+test m1_ten_projects_and_three_branch_jobs_stay_within_two_worker_allocation ... ok
+test m1_process_telemetry_is_optional_and_bounded_to_latest_value ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.40s
+
+     Running tests/recovery_cycles.rs (target/debug/deps/recovery_cycles-0b28c321f449fe02)
+
+running 4 tests
+test fixtures::scheduled_features_calibration_ensemble_and_verified_oof ... ignored, explicit pinned scientific Docker image required; no host fallback
+test disk_full_admission_and_enospc_write_recovery ... ok
+test concurrent_lease_gc_race_and_job_cancellation_isolation ... ok
+test twenty_five_fault_cleanup_restart_cycles_bound_payload_and_measure_durable_metadata ... ok
+
+test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 3.18s
+

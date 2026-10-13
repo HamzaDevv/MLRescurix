@@ -1,0 +1,89 @@
+test_isolated_custom_runner_and_evaluator (test_custom_agent.CustomAgentWorkerTests.test_isolated_custom_runner_and_evaluator) ... ok
+test_preflight_checks_pass_for_compliant_estimator (test_custom_agent.CustomAgentWorkerTests.test_preflight_checks_pass_for_compliant_estimator) ... ok
+test_class_order_is_required (test_custom_evaluation_review.CustomEvaluationReviewTests.test_class_order_is_required) ... ok
+test_probability_rows_must_sum_to_one (test_custom_evaluation_review.CustomEvaluationReviewTests.test_probability_rows_must_sum_to_one) ... ok
+test_string_labels_are_valid (test_custom_evaluation_review.CustomEvaluationReviewTests.test_string_labels_are_valid) ... ok
+test_untrusted_latency_cannot_certify_feasibility (test_custom_evaluation_review.CustomEvaluationReviewTests.test_untrusted_latency_cannot_certify_feasibility) ... ok
+test_calibration_rejects_wrong_class_order_and_invalid_probabilities (test_m5_review.M5ReviewTests.test_calibration_rejects_wrong_class_order_and_invalid_probabilities) ... ok
+test_imputation_without_scaling_and_new_missing_columns (test_m5_review.M5ReviewTests.test_imputation_without_scaling_and_new_missing_columns) ... ok
+test_invalid_voting_weights_rejected (test_m5_review.M5ReviewTests.test_invalid_voting_weights_rejected) ... ok
+test_unknown_category_uses_fold_mean_and_ignores_index_labels (test_m5_review.M5ReviewTests.test_unknown_category_uses_fold_mean_and_ignores_index_labels) ... ok
+test_voting_aligns_parent_probability_columns (test_m5_review.M5ReviewTests.test_voting_aligns_parent_probability_columns) ... ok
+test_bounded_stacking_ensemble (test_m5_scientific.M5ScientificTests.test_bounded_stacking_ensemble) ... ok
+test_cpu_hist_boosting_hyperparameter_ranges_and_pipeline (test_m5_scientific.M5ScientificTests.test_cpu_hist_boosting_hyperparameter_ranges_and_pipeline) ... ok
+test_oof_target_encoder_no_leakage (test_m5_scientific.M5ScientificTests.test_oof_target_encoder_no_leakage) ... ok
+test_split_aware_calibrator_binary (test_m5_scientific.M5ScientificTests.test_split_aware_calibrator_binary) ... ok
+test_split_aware_calibrator_sigmoid_multiclass (test_m5_scientific.M5ScientificTests.test_split_aware_calibrator_sigmoid_multiclass) ... ok
+test_split_aware_feature_pipeline (test_m5_scientific.M5ScientificTests.test_split_aware_feature_pipeline) ... /usr/local/lib/python3.13/site-packages/sklearn/preprocessing/_discretization.py:304: FutureWarning: The current default behavior, quantile_method='linear', will be changed to quantile_method='averaged_inverted_cdf' in scikit-learn version 1.9 to naturally support sample weight equivalence properties by default. Pass quantile_method='averaged_inverted_cdf' explicitly to silence this warning.
+  warnings.warn(
+ok
+test_voting_ensemble_execution_and_lineage (test_m5_scientific.M5ScientificTests.test_voting_ensemble_execution_and_lineage) ... ok
+test_sandbox_request_refuses_host_execution (test_m6_bundle.M6BundleTests.test_sandbox_request_refuses_host_execution) ... ok
+test_symlink_root_rejected (test_m6_bundle.M6BundleTests.test_symlink_root_rejected) ... ok
+test_tampered_model_rejected (test_m6_bundle.M6BundleTests.test_tampered_model_rejected) ... ok
+test_untracked_file_rejected (test_m6_bundle.M6BundleTests.test_untracked_file_rejected) ... ok
+test_unverified_constraint_rejected (test_m6_bundle.M6BundleTests.test_unverified_constraint_rejected) ... ok
+test_valid_bundle_verification (test_m6_bundle.M6BundleTests.test_valid_bundle_verification) ... ok
+test_frame_bounds (test_protocol.ProtocolTests.test_frame_bounds) ... ok
+test_schema_copy (test_protocol.ProtocolTests.test_schema_copy) ... ok
+test_shared_corpus (test_protocol.ProtocolTests.test_shared_corpus) ... ok
+test_disk_full_copy_removes_partial_publication (test_scheduled_pipeline.PipelinePublicationTests.test_disk_full_copy_removes_partial_publication) ... ok
+test_real_container_tmpfs_enospc_never_publishes (test_scheduled_pipeline.PipelinePublicationTests.test_real_container_tmpfs_enospc_never_publishes) ... ok
+test_chronological_split_preserves_input_order (test_scientific_workflow.ScientificWorkflowTests.test_chronological_split_preserves_input_order) ... ok
+test_classification_audit_baselines_frozen_bundle_and_test_gate (test_scientific_workflow.ScientificWorkflowTests.test_classification_audit_baselines_frozen_bundle_and_test_gate) ... ok
+test_declared_inference_limit_fails_before_test_gate (test_scientific_workflow.ScientificWorkflowTests.test_declared_inference_limit_fails_before_test_gate) ... ok
+test_grouped_split_has_no_group_leakage (test_scientific_workflow.ScientificWorkflowTests.test_grouped_split_has_no_group_leakage) ... ok
+test_interrupted_sealed_assessment_cannot_be_replayed (test_scientific_workflow.ScientificWorkflowTests.test_interrupted_sealed_assessment_cannot_be_replayed) ... ok
+test_multiclass_log_loss_with_explicit_labels (test_scientific_workflow.ScientificWorkflowTests.test_multiclass_log_loss_with_explicit_labels) ... ok
+test_regression_random_split_and_metrics (test_scientific_workflow.ScientificWorkflowTests.test_regression_random_split_and_metrics) ... ok
+test_rejects_missing_targets_and_changed_snapshot (test_scientific_workflow.ScientificWorkflowTests.test_rejects_missing_targets_and_changed_snapshot) ... ok
+test_dashboard_login_and_snapshot_smoke (test_search.DashboardSmokeTests.test_dashboard_login_and_snapshot_smoke) ... ERROR
+test_bundle_size_checks_complete_bundle_staging (test_search.MultiFidelityWorkflowTests.test_bundle_size_checks_complete_bundle_staging) ... ok
+test_multi_fidelity_screening_and_trial (test_search.MultiFidelityWorkflowTests.test_multi_fidelity_screening_and_trial) ... ok
+test_factory_creates_optimizer (test_search.SearchOptimizerTests.test_factory_creates_optimizer) ... ok
+test_fallback_optimizer_lifecycle (test_search.SearchOptimizerTests.test_fallback_optimizer_lifecycle) ... ok
+test_dummy_rejects_parameters (test_search.SearchParameterTests.test_dummy_rejects_parameters) ... ok
+test_linear_parameter_ranges (test_search.SearchParameterTests.test_linear_parameter_ranges) ... ok
+test_tree_parameter_ranges (test_search.SearchParameterTests.test_tree_parameter_ranges) ... ok
+
+======================================================================
+ERROR: test_dashboard_login_and_snapshot_smoke (test_search.DashboardSmokeTests.test_dashboard_login_and_snapshot_smoke)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/python/tests/test_search.py", line 232, in test_dashboard_login_and_snapshot_smoke
+    init_res = subprocess.run([
+        str(self.binary), "init",
+        "--state", str(self.state_dir),
+        "--policy", str(self.policy),
+    ], capture_output=True, text=True)
+  File "/usr/local/lib/python3.13/subprocess.py", line 555, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.13/subprocess.py", line 1040, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                        pass_fds, cwd, env,
+                        ^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+                        gid, gids, uid, umask,
+                        ^^^^^^^^^^^^^^^^^^^^^^
+                        start_new_session, process_group)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.13/subprocess.py", line 1877, in _execute_child
+    self._posix_spawn(args, executable, env, restore_signals, close_fds,
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                      p2cread, p2cwrite,
+                      ^^^^^^^^^^^^^^^^^^
+                      c2pread, c2pwrite,
+                      ^^^^^^^^^^^^^^^^^^
+                      errread, errwrite)
+                      ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.13/subprocess.py", line 1821, in _posix_spawn
+    self.pid = os.posix_spawn(executable, args, env, **kwargs)
+               ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/target/debug/mlrescurix-harness'
+
+----------------------------------------------------------------------
+Ran 45 tests in 18.913s
+
+FAILED (errors=1)

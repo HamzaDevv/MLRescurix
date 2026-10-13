@@ -1,0 +1,13 @@
+M6 follow-up implementation failures preserved for review
+
+1. Initial quota/concurrency regression run:
+- total_state_limit_refuses_new_admission_and_keeps_retry_identity failed because its retry fixture reused the command id with a different CreateProject payload (expected rejected, actual applied).
+- concurrent artifact collection returned `database is locked`; a second collector also observed `No such file or directory` after both raced to delete the same path.
+- Fixes: retry the exact stored command request; serialize GC processes with artifact-gc.lock; perform filesystem removal outside the SQLite writer transaction and compact metadata afterward.
+
+2. First full review-script run after adding state-byte admission:
+- `m1_managed_python_environment_is_owned_and_leases_block_removal` failed with `managed artifact symlink rejected` because the strict artifact-tree scanner was reused for installed-state accounting.
+- Fix: state-size accounting now counts symlink directory entries and never traverses their targets. Strict artifact validation remains unchanged.
+
+3. Verification after fixes:
+- `bash scripts/run_m6_review_checks.sh` passed. Final logs are review-rust-final.log, review-bundle-docker-final.log, review-finalization-docker-final.log, and review-python-docker-scoped.log.

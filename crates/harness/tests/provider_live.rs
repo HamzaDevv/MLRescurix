@@ -104,6 +104,7 @@ fn load_api_key() -> Option<String> {
 }
 
 #[test]
+#[ignore = "Spends provider funds; run explicitly only with current user authorization and a replacement credential"]
 fn test_live_openrouter_deepseek_call_and_accounting() {
     let api_key = match load_api_key() {
         Some(k) => k,

@@ -283,22 +283,76 @@ pub fn compute_experiment_id(
     format!("exp-{}", &h[..16])
 }
 
-fn python_exec(root: &Path, env_id: Option<&str>) -> Result<PathBuf> {
-    if let Some(env) = env_id {
-        let p = root.join("environments").join(env).join("bin/python3");
-        if p.is_file() {
-            return Ok(p);
+enum SearchRuntimeEnv {
+    Container(String),
+    Local(PathBuf),
+}
+
+fn resolve_search_env(root: &Path, env_id: Option<&str>) -> Result<SearchRuntimeEnv> {
+    let target_env = env_id.unwrap_or("scientific");
+    if let Ok(conn) = connect_db(root) {
+        if let Ok((py, status)) = conn.query_row(
+            "SELECT python, status FROM environments WHERE id=?1",
+            [target_env],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+        ) {
+            if status == "ready" && py.starts_with("docker:") {
+                return Ok(SearchRuntimeEnv::Container(py.trim_start_matches("docker:").to_string()));
+            }
         }
-        return Err(format!(
-            "Managed environment python '{}' not found; host Python fallback is prohibited.",
-            p.display()
-        ));
     }
-    let p = root.join("environments").join("scientific").join("bin/python3");
+    let p = root.join("environments").join(target_env).join("bin/python3");
     if p.is_file() {
-        return Ok(p);
+        return Ok(SearchRuntimeEnv::Local(p));
     }
-    Err("Managed scientific environment not found; host Python fallback is prohibited.".into())
+    Err(format!(
+        "Managed environment '{}' not found; host Python fallback is prohibited.",
+        target_env
+    ))
+}
+
+fn run_search_sidecar(root: &Path, workflow_dir: &Path, env_id: Option<&str>, args: &[String]) -> Result<std::process::Output> {
+    let pythonpath = crate::assets::ensure_python_src(root)?;
+    fs::create_dir_all(workflow_dir).map_err(|e| e.to_string())?;
+    match resolve_search_env(root, env_id)? {
+        SearchRuntimeEnv::Container(image) => {
+            let mut cmd = Command::new("docker");
+            cmd.args([
+                "run", "--rm", "--pull=never", "--init", "--network", "none", "--read-only", "--user",
+            ])
+            .arg(format!("{}:{}", unsafe { libc::getuid() }, unsafe { libc::getgid() }))
+            .args([
+                "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
+                "--memory", "512m", "--cpus", "1", "--pids-limit", "64",
+                "--tmpfs", "/tmp:rw,noexec,nosuid,size=64m",
+                "-v",
+            ])
+            .arg(format!("{}:/workflow:rw", workflow_dir.display()))
+            .arg("-v")
+            .arg(format!("{}:/source:ro", pythonpath.display()))
+            .args([
+                "--env", "PYTHONPATH=/source",
+                "--env", "PYTHONDONTWRITEBYTECODE=1",
+                &image,
+                "python", "-m", "mlrescurix_worker.search.cli",
+            ]);
+            for a in args {
+                if a == workflow_dir.to_str().unwrap_or("") {
+                    cmd.arg("/workflow");
+                } else {
+                    cmd.arg(a);
+                }
+            }
+            cmd.output().map_err(|e| format!("cannot run container search sidecar: {e}"))
+        }
+        SearchRuntimeEnv::Local(py) => {
+            let mut cmd = Command::new(py);
+            cmd.args(["-m", "mlrescurix_worker.search.cli"])
+                .args(args)
+                .env("PYTHONPATH", pythonpath);
+            cmd.output().map_err(|e| format!("cannot run search sidecar: {e}"))
+        }
+    }
 }
 
 pub fn ask_sidecar(
@@ -312,22 +366,17 @@ pub fn ask_sidecar(
     seed: u64,
     env_id: Option<&str>,
 ) -> Result<(u32, Value)> {
-    let py = python_exec(root, env_id)?;
-    let pythonpath = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../python/src");
-    let output = Command::new(py)
-        .args([
-            "-m", "mlrescurix_worker.search.cli", "ask",
-            "--dir", workflow_dir.to_str().unwrap(),
-            "--session", session_id,
-            "--recipe", recipe,
-            "--fidelity", &fidelity.to_string(),
-            "--task", task,
-            "--direction", direction,
-            "--seed", &seed.to_string(),
-        ])
-        .env("PYTHONPATH", pythonpath)
-        .output()
-        .map_err(|e| format!("cannot run search sidecar: {e}"))?;
+    let args = vec![
+        "ask".to_string(),
+        "--dir".to_string(), workflow_dir.to_string_lossy().to_string(),
+        "--session".to_string(), session_id.to_string(),
+        "--recipe".to_string(), recipe.to_string(),
+        "--fidelity".to_string(), fidelity.to_string(),
+        "--task".to_string(), task.to_string(),
+        "--direction".to_string(), direction.to_string(),
+        "--seed".to_string(), seed.to_string(),
+    ];
+    let output = run_search_sidecar(root, workflow_dir, env_id, &args)?;
 
     if !output.status.success() {
         return Err(format!("search sidecar ask failed: {}", String::from_utf8_lossy(&output.stderr)));
@@ -351,24 +400,22 @@ pub fn tell_sidecar(
     seed: u64,
     env_id: Option<&str>,
 ) -> Result<()> {
-    let py = python_exec(root, env_id)?;
-    let pythonpath = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../python/src");
-    let mut cmd = Command::new(py);
-    cmd.args([
-        "-m", "mlrescurix_worker.search.cli", "tell",
-        "--dir", workflow_dir.to_str().unwrap(),
-        "--session", session_id,
-        "--recipe", recipe,
-        "--fidelity", &fidelity.to_string(),
-        "--trial-id", &trial_id.to_string(),
-        "--state", state,
-        "--direction", direction,
-        "--seed", &seed.to_string(),
-    ]);
+    let mut args = vec![
+        "tell".to_string(),
+        "--dir".to_string(), workflow_dir.to_string_lossy().to_string(),
+        "--session".to_string(), session_id.to_string(),
+        "--recipe".to_string(), recipe.to_string(),
+        "--fidelity".to_string(), fidelity.to_string(),
+        "--trial-id".to_string(), trial_id.to_string(),
+        "--state".to_string(), state.to_string(),
+        "--direction".to_string(), direction.to_string(),
+        "--seed".to_string(), seed.to_string(),
+    ];
     if let Some(val) = score {
-        cmd.arg("--value").arg(val.to_string());
+        args.push("--value".to_string());
+        args.push(val.to_string());
     }
-    let output = cmd.env("PYTHONPATH", pythonpath).output().map_err(|e| format!("cannot run search sidecar tell: {e}"))?;
+    let output = run_search_sidecar(root, workflow_dir, env_id, &args)?;
     if !output.status.success() {
         return Err(format!("search sidecar tell failed: {}", String::from_utf8_lossy(&output.stderr)));
     }
@@ -801,11 +848,13 @@ pub fn execute_search(
     // Stage 1: Screening (fidelity = 0.5)
     let screen_fidelity = 0.5;
     let mut screen_count = 0;
-    for &recipe in &["linear", "tree"] {
-        if !spec.recipes.iter().any(|r| r == recipe) {
+    let n_search_recipes = spec.recipes.iter().filter(|r| r.as_str() != "dummy").count().max(1) as u32;
+    let trials_per_recipe = (spec.max_screen_trials / n_search_recipes).max(1);
+    for recipe in &spec.recipes {
+        if recipe == "dummy" {
             continue;
         }
-        for _ in 0..(spec.max_screen_trials / 2).max(1) {
+        for _ in 0..trials_per_recipe {
             if screen_count >= spec.max_screen_trials {
                 break;
             }

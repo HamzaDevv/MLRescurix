@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 import numpy as np
@@ -56,6 +57,18 @@ class ScientificWorkflowTests(unittest.TestCase):
         self.assertEqual(gate["status"], "consumed")
         with self.assertRaises(WorkflowError):
             finalize_candidate(self.output, "linear", test_access_id="test-again")
+
+    def test_interrupted_sealed_assessment_cannot_be_replayed(self):
+        audit_csv(self.csv, self.spec, self.output)
+        run_baselines(self.output)
+        with patch("mlrescurix_worker.scientific.workflow._run_isolated_predict", side_effect=RuntimeError("sealed scoring crash")):
+            with self.assertRaisesRegex(RuntimeError, "sealed scoring crash"):
+                finalize_candidate(self.output, "linear", test_access_id="crashed-assessment")
+        self.assertEqual(json.loads((self.output / "test_access.json").read_text())["status"], "consumed")
+        with patch("mlrescurix_worker.scientific.workflow._run_isolated_predict") as predict:
+            with self.assertRaisesRegex(WorkflowError, "already consumed"):
+                finalize_candidate(self.output, "linear", test_access_id="crashed-assessment")
+            predict.assert_not_called()
 
     def test_grouped_split_has_no_group_leakage(self):
         frame = self.frame.copy()

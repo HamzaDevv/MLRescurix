@@ -4,7 +4,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, fs, io::{Read,Write}, os::unix::{fs::PermissionsExt,process::CommandExt}, path::{Path,PathBuf}, process::{Child,ChildStdin,Command,Stdio}, sync::{Arc,atomic::{AtomicBool,Ordering}}, thread, time::{Duration,Instant,SystemTime,UNIX_EPOCH}};
+use std::{collections::BTreeMap, fs, io::{Read,Write}, os::fd::AsRawFd, os::unix::{fs::{OpenOptionsExt,PermissionsExt},process::CommandExt}, path::{Path,PathBuf}, process::{Child,ChildStdin,Command,Stdio}, sync::{Arc,atomic::{AtomicBool,Ordering}}, thread, time::{Duration,Instant,SystemTime,UNIX_EPOCH}};
 
 const MAX_FRAME: usize = 65_536;
 const POLL_MS: u64 = 100;
@@ -52,23 +52,33 @@ fn connect(root:&Path)->Result<Connection>{
     if fs::read_to_string(root.join("OWNED")).map_err(|e|e.to_string())?!=OWNER_MARKER{return Err("unowned state".into());}
     for name in ["state.sqlite","state.sqlite-wal","state.sqlite-shm","OWNED"] {if fs::symlink_metadata(root.join(name)).is_ok_and(|m|m.file_type().is_symlink()){return Err("state file symlink rejected".into());}}
     let mut c=sql(Connection::open(root.join("state.sqlite")))?;
-    sql(c.busy_timeout(Duration::from_secs(2)))?;
-    sql(c.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;"))?;
+    sql(c.busy_timeout(Duration::from_secs(10)))?;
+    // Journal mode is persistent after initialization. Reissuing the mode
+    // change on every connection takes a database lock and breaks concurrent
+    // scheduler/GC access despite WAL already being active.
+    sql(c.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;"))?;
     loop {
         let version:i64=sql(c.query_row("PRAGMA user_version",[],|r|r.get(0)))?;
-        if version==6 { break; }
+        if version==9 { break; }
+        if version==6 { sql(c.execute_batch("PRAGMA foreign_keys=OFF;"))?; }
         let tx=sql(c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate))?;
         let confirmed:i64=sql(tx.query_row("PRAGMA user_version",[],|r|r.get(0)))?;
-        if confirmed!=version {tx.rollback().map_err(|e|e.to_string())?;continue;}
+        if confirmed!=version {tx.rollback().map_err(|e|e.to_string())?;sql(c.execute_batch("PRAGMA foreign_keys=ON;"))?;continue;}
         match version {
             1=>sql(tx.execute_batch(include_str!("schema_m1.sql")))?,
             2=>sql(tx.execute_batch(include_str!("schema_m2.sql")))?,
             3=>sql(tx.execute_batch(include_str!("schema_m3.sql")))?,
             4=>sql(tx.execute_batch(include_str!("schema_m4.sql")))?,
             5=>sql(tx.execute_batch(include_str!("schema_m5.sql")))?,
+            6=>sql(tx.execute_batch(include_str!("schema_m6.sql")))?,
+            7=>sql(tx.execute_batch(include_str!("schema_m6_completion.sql")))?,
+            8=>sql(tx.execute_batch(include_str!("schema_m6_recovery.sql")))?,
             _=>return Err(format!("unsupported database migration version {version}")),
         }
+        let violation: bool = sql(tx.query_row("SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)", [], |r| r.get(0)))?;
+        if violation { return Err("migration would leave invalid foreign keys".into()); }
         sql(tx.commit())?;
+        sql(c.execute_batch("PRAGMA foreign_keys=ON;"))?;
     }
     Ok(c)
 }
@@ -94,9 +104,14 @@ pub fn validate_spec(s:&JobSpec)->Result<()> {
     }
     if let Probe::Scientific{operation,dataset_id,spec,candidate_id,test_access_id}=&s.probe {
         valid_id(dataset_id)?;
-        if !matches!(operation.as_str(),"audit"|"baselines"|"finalize"|"trial"){return Err("unsupported scientific operation".into());}
+        if !matches!(operation.as_str(),"audit"|"baselines"|"finalize"|"trial"|"pipeline"){return Err("unsupported scientific operation".into());}
         if *operation=="audit" && spec.is_none(){return Err("audit requires an immutable project spec".into());}
         if *operation=="trial" && spec.is_none(){return Err("trial requires an experiment spec".into());}
+        if *operation=="pipeline" {
+            let value=spec.as_ref().ok_or("pipeline requires a protocol")?;
+            valid_id(value["experiment_id"].as_str().ok_or("pipeline requires candidate identity")?)?;
+            if value["format"]!="mlrescurix.pipeline.v1" {return Err("unsupported pipeline protocol".into());}
+        }
         if *operation=="finalize" {
             let candidate=candidate_id.as_deref().ok_or("finalize requires candidate identity")?;let access=test_access_id.as_deref().ok_or("finalize requires test access identity")?;
             valid_id(candidate)?;valid_id(access)?;
@@ -109,6 +124,45 @@ pub fn validate_spec(s:&JobSpec)->Result<()> {
 }
 
 pub fn migrate(root:&Path)->Result<()> {let _=connect(root)?;Ok(())}
+
+/// Register an already-installed local OCI image; never pull or run host Python.
+pub fn register_container_environment(root:&Path,id:&str,image:&str)->Result<Value>{
+    valid_id(id)?;
+    let digest=image.rsplit_once("@sha256:").map(|(_,d)|d).unwrap_or("");
+    if digest.len()!=64||!digest.bytes().all(|b|b.is_ascii_hexdigit()){return Err("scientific container requires a sha256-pinned image".into());}
+    let stage=tempfile_for_environment(root,id)?;
+    let result=(||{
+        fs::write(stage.join("verify.py"),r#"
+import sys,importlib.metadata,json,subprocess
+from pathlib import Path
+assert sys.version_info[:2]==(3,13)
+lock=Path('/opt/mlrescurix/requirements.lock').read_text()
+versions={}
+for line in lock.splitlines():
+    if not line or line.startswith('#'): continue
+    name,version=line.split(' --hash=sha256:')[0].split('==')
+    assert importlib.metadata.version(name)==version
+    versions[name]=version
+assert {k:versions[k] for k in ['numpy','pandas','scipy','scikit-learn','joblib']}=={'numpy':'2.2.6','pandas':'2.3.0','scipy':'1.16.1','scikit-learn':'1.8.0','joblib':'1.5.1'}
+subprocess.run([sys.executable,'-m','pip','check'],check=True,capture_output=True)
+print(json.dumps({'python':sys.version,'versions':versions,'lock':lock}))
+"#).map_err(|e|e.to_string())?;
+        let output=crate::agents::sandbox::SandboxRunner::execute(&stage,"verify.py",&[],&crate::agents::sandbox::SandboxLimits::default(),Some(image))?;
+        if output.exit_code!=0 {return Err(format!("container dependency verification failed: {}",output.stderr));}
+        let evidence:Value=serde_json::from_str(output.stdout.trim()).map_err(|e|e.to_string())?;
+        let identity=hash(format!("{image}|{evidence}").as_bytes());let c=connect(root)?;
+        let previous:Option<String>=sql(c.query_row("SELECT identity FROM environments WHERE id=?1",[id],|r|r.get(0)).optional())?;
+        if let Some(old)=previous {if old!=identity{return Err("environment id has different managed content".into());}}
+        let path=root.join("environments").join(id);ensure_dir(root,&path)?;
+        fs::write(path.join("container.json"),json!({"image":image,"identity":identity,"evidence":evidence}).to_string()).map_err(|e|e.to_string())?;
+        sql(c.execute("INSERT INTO environments(id,python,identity,path,status) VALUES(?1,?2,?3,?4,'ready') ON CONFLICT(id) DO NOTHING",params![id,format!("docker:{image}"),identity,path.to_string_lossy()]))?;
+        Ok(json!({"id":id,"image":image,"identity":identity,"evidence":evidence,"status":"ready"}))
+    })();
+    fs::remove_dir_all(stage).map_err(|e|e.to_string())?;result
+}
+fn tempfile_for_environment(root:&Path,id:&str)->Result<PathBuf>{
+    let path=root.join("environments").join(format!(".{id}-verify-{}",now_ms()));ensure_dir(root,&path)?;Ok(path)
+}
 
 /// Copy an explicitly selected CSV into the owned dataset store before scientific work.
 pub fn register_dataset(root:&Path,project:&str,id:&str,source:&Path)->Result<Value>{
@@ -144,15 +198,25 @@ pub fn register_dataset(root:&Path,project:&str,id:&str,source:&Path)->Result<Va
 }
 
 pub fn submit(root:&Path,s:JobSpec)->Result<JobView>{
-    validate_spec(&s)?;let c=connect(root)?;
-    let tx=sql(c.unchecked_transaction())?;
+    validate_spec(&s)?;
+    if let Probe::Scientific{operation,candidate_id:Some(_),..}=&s.probe {
+        if operation=="finalize"{validate_finalization_job(root,&s)?;}
+    }
+    let mut c=connect(root)?;
+    // Serialize admission with other submitters so the state byte check and
+    // output reservation cannot race each other.
+    let tx=sql(c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate))?;
     let queue_project:i64=sql(tx.query_row("SELECT count(*) FROM jobs WHERE project=?1 AND status='queued'",[&s.project_id],|r|r.get(0)))?;let queue_device:i64=sql(tx.query_row("SELECT count(*) FROM jobs WHERE status='queued'",[],|r|r.get(0)))?;
     if queue_project>=128||queue_device>=1024{return Err("bounded execution queue is full".into());}
     let previous:Option<String>=sql(tx.query_row("SELECT spec FROM jobs WHERE id=?1 AND project=?2",params![s.job_id,s.project_id],|r|r.get(0)).optional())?;
     let encoded=serde_json::to_string(&s).map_err(|e|e.to_string())?;
     if let Some(old)=previous {if old!=encoded{return Err("job id reused with a different specification".into());}let row=load_job(&tx,&s.project_id,&s.job_id)?;tx.commit().map_err(|e|e.to_string())?;return Ok(row);}
+    let count:i64=sql(tx.query_row("SELECT count(*) FROM jobs WHERE project=?1",[&s.project_id],|r|r.get(0)))?;
+    if count>=4096{return Err("retained project job history ceiling reached".into());}
+    enforce_state_admission(root, &tx, s.max_output_bytes.saturating_add(LOG_CAP))?;
     let (project_state,project_policy):(String,String)=sql(tx.query_row("SELECT state,policy FROM projects WHERE id=?1",[&s.project_id],|r|Ok((r.get(0)?,r.get(1)?))))?;
-    if project_state!="created" {return Err(format!("project does not admit work in state {project_state}"));}
+    let is_finalize_op=matches!(&s.probe,Probe::Scientific{operation,..} if operation=="finalize");
+    if project_state!="created"&&!(is_finalize_op&&project_state=="finalizing") {return Err(format!("project does not admit work in state {project_state}"));}
     let _p:Policy=serde_json::from_str(&project_policy).map_err(|e|e.to_string())?;
     let task_json:Option<String>=sql(tx.query_row("SELECT data FROM tasks WHERE project=?1 AND id=?2",params![s.project_id,s.task_id],|r|r.get(0)).optional())?;
     let task_json=task_json.ok_or("unknown task")?;
@@ -160,6 +224,17 @@ pub fn submit(root:&Path,s:JobSpec)->Result<JobView>{
     if task.status!="active"||task.generation!=s.generation||task.intent_revision!=sql(tx.query_row("SELECT intent_revision FROM projects WHERE id=?1",[&s.project_id],|r|r.get::<_,u64>(0)))?||task.expires_ms.is_none_or(|end|end<now_ms().saturating_add(s.timeout_ms as i64)){return Err("stale or too-short task lease".into());}
     sql(tx.execute("INSERT INTO jobs(id,project,task,generation,spec,status,submitted_ms) VALUES(?1,?2,?3,?4,?5,'queued',?6)",params![s.job_id,s.project_id,s.task_id,s.generation,encoded,now_ms()]))?;
     if let Probe::Scientific{operation,dataset_id,spec:scientific_spec,candidate_id,test_access_id}=&s.probe {
+        let closed:bool=sql(tx.query_row("SELECT EXISTS(SELECT 1 FROM final_test_gates WHERE project=?1)",[&s.project_id],|r|r.get(0)))?;
+        if closed{return Err("scientific research is closed by the durable final-test gate".into());}
+        if operation=="pipeline"||operation=="finalize" {
+            let ready:bool=sql(tx.query_row("SELECT EXISTS(SELECT 1 FROM environments WHERE id=?1 AND status='ready' AND python LIKE 'docker:%')",[s.environment_id.as_deref().ok_or("scientific container environment missing")?],|r|r.get(0)))?;
+            if !ready{return Err(format!("{operation} requires a verified ready container environment; host fallback prohibited"));}
+            if operation=="pipeline" {
+                let workflow=root.join("workflows").join(&s.project_id);
+                let count:i64=sql(tx.query_row("SELECT count(*) FROM pipeline_receipts WHERE project=?1",[&s.project_id],|r|r.get(0)))?;
+                if count>=16 || (workflow.exists()&&tree_size(&workflow)?>64*1024*1024){return Err("retained pipeline/storage ceiling reached; explicit retirement is required".into());}
+            }
+        }
         let dataset:Option<(String,i64,String)>=sql(tx.query_row("SELECT path,bytes,sha256 FROM scientific_datasets WHERE project=?1 AND id=?2",params![s.project_id,dataset_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional())?;
         let Some((_,_,dataset_hash))=dataset else{return Err("scientific job requires a registered project dataset".into());};
         if *operation=="audit" && scientific_spec.is_some(){
@@ -167,10 +242,10 @@ pub fn submit(root:&Path,s:JobSpec)->Result<JobView>{
             if out.len()>4096{return Err("scientific project spec exceeds bound".into());}
         }
         if *operation=="finalize" {
-            let results_path=root.join("workflows").join(&s.project_id).join("results.json");
-            let result:Value=serde_json::from_slice(&fs::read(&results_path).map_err(|_|"candidate has no committed development results")?).map_err(|e|e.to_string())?;
-            if result["dataset_sha256"]!=dataset_hash||!result["candidates"].as_array().is_some_and(|items|items.iter().any(|item|item["candidate_id"]==candidate_id.as_deref().unwrap()&&item["status"]=="evaluated")){
-                return Err("candidate is not eligible under the registered dataset results".into());
+            let cand=candidate_id.as_deref().unwrap();
+            let receipt_dataset:Option<String>=sql(tx.query_row("SELECT dataset_sha256 FROM pipeline_receipts WHERE project=?1 AND candidate=?2",params![s.project_id,cand],|r|r.get(0)).optional())?;
+            if receipt_dataset.as_deref()!=Some(dataset_hash.as_str()) {
+                return Err("candidate is not eligible under the registered dataset pipeline receipts".into());
             }
         }
         sql(tx.execute("INSERT INTO scientific_jobs(project,job,dataset,operation,spec) VALUES(?1,?2,?3,?4,?5)",params![s.project_id,s.job_id,dataset_id,operation,serde_json::to_string(&s.probe).map_err(|e|e.to_string())?]))?;
@@ -239,7 +314,7 @@ pub fn install_scientific_profile(root:&Path,id:&str)->Result<Value>{
     ensure_disk_space(root,512*1024*1024)?;
     let ensure=Command::new(&python).args(["-m","ensurepip","--upgrade"]).env_clear().env("PATH","/usr/bin:/bin").stdout(Stdio::null()).stderr(Stdio::null()).status().map_err(|e|e.to_string())?;
     if !ensure.success(){return Err("could not bootstrap pip inside owned environment".into());}
-    let source=PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../python/scientific-requirements.txt");
+    let source=crate::assets::ensure_python_root(root)?.join("scientific-requirements.txt");
     let install=Command::new(&python).args(["-m","pip","install","--no-input","--disable-pip-version-check","--only-binary=:all:","--no-cache-dir","-r"]).arg(&source)
         .env("PIP_NO_INPUT","1").stdout(Stdio::null()).stderr(Stdio::null()).spawn().map_err(|e|e.to_string())?;
     let mut child=install;let deadline=Instant::now()+Duration::from_secs(1200);let status=loop{if Instant::now()>=deadline{let _=child.kill();let _=child.wait();return Err("scientific profile installation exceeded 20-minute limit".into());}if let Some(s)=child.try_wait().map_err(|e|e.to_string())?{break s;}thread::sleep(Duration::from_millis(100));};
@@ -262,7 +337,7 @@ pub fn install_search_profile(root:&Path,id:&str)->Result<Value>{
     ensure_disk_space(root,512*1024*1024)?;
     let ensure=Command::new(&python).args(["-m","ensurepip","--upgrade"]).env_clear().env("PATH","/usr/bin:/bin").stdout(Stdio::null()).stderr(Stdio::null()).status().map_err(|e|e.to_string())?;
     if !ensure.success(){return Err("could not bootstrap pip inside owned environment".into());}
-    let source=PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../python/search-requirements.txt");
+    let source=crate::assets::ensure_python_root(root)?.join("search-requirements.txt");
     let install=Command::new(&python).args(["-m","pip","install","--no-input","--disable-pip-version-check","--only-binary=:all:","--no-cache-dir","-r"]).arg(&source)
         .env("PIP_NO_INPUT","1").stdout(Stdio::null()).stderr(Stdio::null()).spawn().map_err(|e|e.to_string())?;
     let mut child=install;let deadline=Instant::now()+Duration::from_secs(1200);let status=loop{if Instant::now()>=deadline{let _=child.kill();let _=child.wait();return Err("search profile installation exceeded 20-minute limit".into());}if let Some(s)=child.try_wait().map_err(|e|e.to_string())?{break s;}thread::sleep(Duration::from_millis(100));};
@@ -301,12 +376,241 @@ pub fn pin_artifact(root:&Path,p:&str,job:&str,pinned:bool)->Result<()> {
     if changed==0{return Err("job has no managed artifact to pin".into());}Ok(())
 }
 
+pub const MAX_RETAINED_EVENTS_PER_PROJECT: i64 = 64;
+pub const MAX_RETAINED_CHECKPOINTS_PER_TASK: i64 = 4;
+pub const MAX_RETAINED_TERMINAL_JOBS_PER_PROJECT: i64 = 24;
+pub const MAX_RETAINED_SETTLED_ACTIONS_PER_PROJECT: usize = 24;
+pub const MAX_STATE_TOTAL_BYTES: u64 = 128 * 1024 * 1024;
+
+struct GcLock(fs::File);
+impl GcLock {
+    fn acquire(root: &Path) -> Result<Self> {
+        let file = fs::OpenOptions::new().read(true).write(true).create(true)
+            .custom_flags(libc::O_NOFOLLOW).open(root.join("artifact-gc.lock"))
+            .map_err(|e| e.to_string())?;
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
+            return Err("could not acquire artifact GC lock".into());
+        }
+        Ok(Self(file))
+    }
+}
+impl Drop for GcLock {
+    fn drop(&mut self) { unsafe { libc::flock(self.0.as_raw_fd(), libc::LOCK_UN); } }
+}
+
+/// The current state size plus the maximum outputs promised to queued and
+/// running jobs must fit under the configured state ceiling. The immediate
+/// SQLite transaction in `submit` serializes reservations across submitters.
+fn enforce_state_admission(root: &Path, tx: &rusqlite::Transaction<'_>, requested: u64) -> Result<()> {
+    let mut stmt = sql(tx.prepare("SELECT spec FROM jobs WHERE status IN('queued','running','terminating','recovering')"))?;
+    let specs = sql(stmt.query_map([], |row| row.get::<_, String>(0)))?
+        .collect::<rusqlite::Result<Vec<_>>>().map_err(|e| e.to_string())?;
+    let mut reserved = requested;
+    for encoded in specs {
+        let spec: JobSpec = serde_json::from_str(&encoded).map_err(|e| e.to_string())?;
+        reserved = reserved.checked_add(spec.max_output_bytes).and_then(|n| n.checked_add(LOG_CAP))
+            .ok_or("state reservation size overflow")?;
+    }
+    let current = total_state_bytes(root)?;
+    if current.checked_add(reserved).is_none_or(|n| n > MAX_STATE_TOTAL_BYTES) {
+        return Err(format!("total state admission ceiling reached: {current} bytes used, {reserved} bytes reserved, {} byte limit", MAX_STATE_TOTAL_BYTES));
+    }
+    Ok(())
+}
+
+pub fn total_state_bytes(root: &Path) -> Result<u64> {
+    if !root.exists() {
+        return Ok(0);
+    }
+    state_size(root)
+}
+
+/// Count entries inside the owned state without following symlinks. Runtime
+/// installations may legitimately contain links; their directory entries are
+/// charged by link length while the target is never traversed.
+fn state_size(path: &Path) -> Result<u64> {
+    let mut total = 0u64;
+    for entry in fs::read_dir(path).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let metadata = fs::symlink_metadata(entry.path()).map_err(|e| e.to_string())?;
+        if metadata.file_type().is_symlink() || metadata.is_file() {
+            total = total.saturating_add(metadata.len());
+        } else if metadata.is_dir() {
+            total = total.saturating_add(state_size(&entry.path())?);
+        }
+    }
+    Ok(total)
+}
+
+pub fn storage_policy_summary(root: &Path) -> Result<Value> {
+    let c = connect(root)?;
+    let events_count: i64 = sql(c.query_row("SELECT count(*) FROM events", [], |r| r.get(0)))?;
+    let commands_count: i64 = sql(c.query_row("SELECT count(*) FROM commands", [], |r| r.get(0)))?;
+    let jobs_count: i64 = sql(c.query_row("SELECT count(*) FROM jobs", [], |r| r.get(0)))?;
+    let actions_count: i64 = sql(c.query_row("SELECT count(*) FROM actions", [], |r| r.get(0)))?;
+    let charges_count: i64 = sql(c.query_row("SELECT count(*) FROM charges", [], |r| r.get(0)))?;
+    let held_reservations: i64 = sql(c.query_row("SELECT count(*) FROM reservations WHERE held=1", [], |r| r.get(0)))?;
+    let db_bytes = fs::metadata(root.join("state.sqlite")).map(|m| m.len()).unwrap_or(0)
+        + fs::metadata(root.join("state.sqlite-wal")).map(|m| m.len()).unwrap_or(0)
+        + fs::metadata(root.join("state.sqlite-shm")).map(|m| m.len()).unwrap_or(0);
+    let total_bytes = total_state_bytes(root)?;
+    Ok(json!({
+        "policy": {
+            "max_retained_events_per_project": MAX_RETAINED_EVENTS_PER_PROJECT,
+            "max_retained_commands_per_project": Value::Null,
+            "command_receipts": "durable and retained; admission is bounded by the total state ceiling",
+            "max_retained_checkpoints_per_task": MAX_RETAINED_CHECKPOINTS_PER_TASK,
+            "max_retained_terminal_jobs_per_project": MAX_RETAINED_TERMINAL_JOBS_PER_PROJECT,
+            "max_retained_settled_charge_rows_per_project": MAX_RETAINED_SETTLED_ACTIONS_PER_PROJECT,
+            "settled_action_identities": "durable; independent storage bound pending",
+            "max_state_total_bytes": MAX_STATE_TOTAL_BYTES,
+            "total_state_ceiling_enforced_for_job_admission": true,
+            "state_reservation": "current state bytes plus queued/running/recovering output and log reservations",
+            "disk_headroom_bytes": DISK_HEADROOM,
+        },
+        "observed": {
+            "total_state_bytes": total_bytes,
+            "database_bytes": db_bytes,
+            "events_rows": events_count,
+            "commands_rows": commands_count,
+            "jobs_rows": jobs_count,
+            "actions_rows": actions_count,
+            "charges_rows": charges_count,
+            "held_reservations": held_reservations,
+        }
+    }))
+}
+
 pub fn collect_artifacts(root:&Path)->Result<u64>{
-    let c=connect(root)?;let tx=sql(c.unchecked_transaction())?;
-    let mut q=sql(tx.prepare("SELECT j.project,j.id FROM jobs j WHERE j.status IN('succeeded','failed','timed_out','cancelled','rejected','interrupted') AND NOT EXISTS(SELECT 1 FROM managed_artifacts a WHERE a.project=j.project AND a.job=j.id AND a.pinned=1) AND NOT EXISTS(SELECT 1 FROM environment_leases l WHERE l.project=j.project AND l.job=j.id)"))?;
+    let db_before = fs::metadata(root.join("state.sqlite")).map(|m| m.len()).unwrap_or(0)
+        + fs::metadata(root.join("state.sqlite-wal")).map(|m| m.len()).unwrap_or(0);
+    let _gc_lock = GcLock::acquire(root)?;
+    let mut c=connect(root)?;
+    // Serialize collectors across processes, but leave SQLite writers free
+    // while filesystem paths are reclaimed so scheduler cancellation and
+    // settlement can proceed concurrently.
+    let mut q=sql(c.prepare("SELECT j.project,j.id FROM jobs j WHERE j.status IN('succeeded','failed','timed_out','cancelled','rejected','interrupted') AND NOT EXISTS(SELECT 1 FROM managed_artifacts a WHERE a.project=j.project AND a.job=j.id AND a.pinned=1) AND NOT EXISTS(SELECT 1 FROM environment_leases l WHERE l.project=j.project AND l.job=j.id)"))?;
     let rows=sql(q.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))))?.collect::<rusqlite::Result<Vec<_>>>().map_err(|e|e.to_string())?;drop(q);let mut reclaimed=0u64;
-    for(p,j)in rows {let dir=root.join("artifacts").join(&p).join(&j);if dir.exists(){let n=tree_size(&dir)?;safe_remove(root,&dir)?;reclaimed=reclaimed.saturating_add(n);}let log=root.join("logs").join(&p).join(format!("{j}.log"));if log.exists(){let n=fs::metadata(&log).map_err(|e|e.to_string())?.len();safe_remove(root,&log)?;reclaimed=reclaimed.saturating_add(n);}sql(tx.execute("DELETE FROM managed_artifacts WHERE project=?1 AND job=?2 AND pinned=0",params![p,j]))?;}
-    tx.commit().map_err(|e|e.to_string())?;Ok(reclaimed)
+    for(p,j)in &rows {
+        let dir=root.join("artifacts").join(&p).join(&j);
+        if dir.exists(){let n=tree_size(&dir)?;safe_remove(root,&dir)?;reclaimed=reclaimed.saturating_add(n);}
+        let log=root.join("logs").join(&p).join(format!("{j}.log"));
+        if log.exists(){let n=fs::metadata(&log).map_err(|e|e.to_string())?.len();safe_remove(root,&log)?;reclaimed=reclaimed.saturating_add(n);}
+        let stage=root.join("staging").join(format!("{p}_{j}"));
+        if stage.exists(){let n=tree_size(&stage)?;safe_remove(root,&stage)?;reclaimed=reclaimed.saturating_add(n);}
+    }
+
+    let tx=sql(c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate))?;
+    for (p,j) in rows {
+        sql(tx.execute("DELETE FROM managed_artifacts WHERE project=?1 AND job=?2 AND pinned=0",params![p,j]))?;
+    }
+
+    // Enforce explicit SQLite audit/metadata retention policy per project
+    sql(tx.execute(
+        "DELETE FROM events WHERE cursor NOT IN (
+            SELECT cursor FROM events e2 WHERE e2.project = events.project ORDER BY e2.cursor DESC LIMIT ?1
+        )",
+        [MAX_RETAINED_EVENTS_PER_PROJECT],
+    ))?;
+    // Command receipts are durable idempotency fences. Truncating them makes
+    // an old retry a new mutation; retain them until a safe archival protocol exists.
+    sql(tx.execute(
+        "DELETE FROM checkpoints WHERE rowid NOT IN (
+            SELECT rowid FROM checkpoints c2 WHERE c2.project = checkpoints.project AND c2.task = checkpoints.task ORDER BY c2.sequence DESC LIMIT ?1
+        )",
+        [MAX_RETAINED_CHECKPOINTS_PER_TASK],
+    ))?;
+    sql(tx.execute(
+        "DELETE FROM agent_checkpoints WHERE rowid NOT IN (
+            SELECT rowid FROM agent_checkpoints a2 WHERE a2.project = agent_checkpoints.project AND a2.task_id = agent_checkpoints.task_id ORDER BY a2.created_ms DESC, a2.rowid DESC LIMIT ?1
+        )",
+        [MAX_RETAINED_CHECKPOINTS_PER_TASK],
+    ))?;
+
+    // Prune older unpinned, non-scientific terminal jobs and their telemetry beyond MAX_RETAINED_TERMINAL_JOBS_PER_PROJECT
+    sql(tx.execute(
+        "DELETE FROM job_telemetry WHERE (project, job) IN (
+            SELECT j.project, j.id FROM jobs j
+            WHERE j.status IN ('succeeded','failed','timed_out','cancelled','rejected','interrupted')
+              AND NOT EXISTS (SELECT 1 FROM managed_artifacts a WHERE a.project=j.project AND a.job=j.id AND a.pinned=1)
+              AND NOT EXISTS (SELECT 1 FROM environment_leases l WHERE l.project=j.project AND l.job=j.id)
+              AND NOT EXISTS (SELECT 1 FROM scientific_jobs s WHERE s.project=j.project AND s.job=j.id)
+              AND NOT EXISTS (SELECT 1 FROM pipeline_receipts pr WHERE pr.project=j.project AND pr.job=j.id)
+              AND j.rowid NOT IN (
+                  SELECT j2.rowid FROM jobs j2 WHERE j2.project=j.project ORDER BY j2.submitted_ms DESC, j2.rowid DESC LIMIT ?1
+              )
+        )",
+        [MAX_RETAINED_TERMINAL_JOBS_PER_PROJECT],
+    ))?;
+    sql(tx.execute(
+        "DELETE FROM jobs WHERE rowid IN (
+            SELECT j.rowid FROM jobs j
+            WHERE j.status IN ('succeeded','failed','timed_out','cancelled','rejected','interrupted')
+              AND NOT EXISTS (SELECT 1 FROM managed_artifacts a WHERE a.project=j.project AND a.job=j.id AND a.pinned=1)
+              AND NOT EXISTS (SELECT 1 FROM environment_leases l WHERE l.project=j.project AND l.job=j.id)
+              AND NOT EXISTS (SELECT 1 FROM scientific_jobs s WHERE s.project=j.project AND s.job=j.id)
+              AND NOT EXISTS (SELECT 1 FROM pipeline_receipts pr WHERE pr.project=j.project AND pr.job=j.id)
+              AND j.rowid NOT IN (
+                  SELECT j2.rowid FROM jobs j2 WHERE j2.project=j.project ORDER BY j2.submitted_ms DESC, j2.rowid DESC LIMIT ?1
+              )
+        )",
+        [MAX_RETAINED_TERMINAL_JOBS_PER_PROJECT],
+    ))?;
+
+    // Roll up excess settled charges/actions per project so cumulative budget accounting is exact while row count stays bounded
+    let mut proj_stmt = sql(tx.prepare("SELECT id FROM projects"))?;
+    let project_ids: Vec<String> = sql(proj_stmt.query_map([], |r| r.get(0)))?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| e.to_string())?;
+    drop(proj_stmt);
+
+    for pid in project_ids {
+        let mut ch_stmt = sql(tx.prepare(
+            "SELECT c.action, c.amount, c.proof FROM charges c
+             WHERE c.project=?1 AND NOT EXISTS (SELECT 1 FROM reservations r WHERE r.project=c.project AND r.action=c.action AND r.held=1)
+             ORDER BY c.rowid DESC"
+        ))?;
+        let settled: Vec<(String, String, String)> = sql(ch_stmt.query_map([&pid], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))))?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|e| e.to_string())?;
+        drop(ch_stmt);
+
+        if settled.len() > MAX_RETAINED_SETTLED_ACTIONS_PER_PROJECT {
+            let keep_idx = MAX_RETAINED_SETTLED_ACTIONS_PER_PROJECT - 1;
+            let (anchor_action, anchor_amount_str, anchor_proof) = &settled[keep_idx];
+            let mut rolled_amount: BTreeMap<String, i64> = serde_json::from_str(anchor_amount_str).map_err(|e|format!("invalid charge rollup: {e}"))?;
+            let to_compact = &settled[MAX_RETAINED_SETTLED_ACTIONS_PER_PROJECT..];
+            for (_, amt_str, _) in to_compact {
+                let map=serde_json::from_str::<BTreeMap<String, i64>>(amt_str).map_err(|e|format!("invalid charge rollup: {e}"))?;
+                for (k, v) in map {
+                    let sum=rolled_amount.get(&k).copied().unwrap_or(0).checked_add(v).ok_or("charge rollup overflow")?;
+                    if v<0 || sum<0 {return Err("negative charge rollup rejected".into());}
+                    rolled_amount.insert(k,sum);
+                }
+            }
+            let updated_proof = if anchor_proof.contains("rollup") {
+                anchor_proof.clone()
+            } else {
+                format!("{anchor_proof} (+compacted_rollup)")
+            };
+            sql(tx.execute(
+                "UPDATE charges SET amount=?3, proof=?4 WHERE project=?1 AND action=?2",
+                params![pid, anchor_action, serde_json::to_string(&rolled_amount).map_err(|e| e.to_string())?, updated_proof],
+            ))?;
+            for (old_act, _, _) in to_compact {
+                sql(tx.execute("DELETE FROM charges WHERE project=?1 AND action=?2", params![pid, old_act]))?;
+                sql(tx.execute("DELETE FROM reservations WHERE project=?1 AND action=?2 AND held=0", params![pid, old_act]))?;
+                // Settled action identities remain durable retry fences.
+            }
+        }
+    }
+
+    tx.commit().map_err(|e|e.to_string())?;
+    let _ = c.execute_batch("PRAGMA wal_checkpoint(TRUNCATE); VACUUM;");
+    let db_after = fs::metadata(root.join("state.sqlite")).map(|m| m.len()).unwrap_or(0)
+        + fs::metadata(root.join("state.sqlite-wal")).map(|m| m.len()).unwrap_or(0);
+    reclaimed = reclaimed.saturating_add(db_before.saturating_sub(db_after));
+    Ok(reclaimed)
 }
 fn tree_size(path:&Path)->Result<u64>{let mut total=0u64;for e in fs::read_dir(path).map_err(|e|e.to_string())?{let e=e.map_err(|e|e.to_string())?;let m=fs::symlink_metadata(e.path()).map_err(|e|e.to_string())?;if m.file_type().is_symlink(){return Err("managed artifact symlink rejected".into());}if m.is_file(){total=total.saturating_add(m.len());}else if m.is_dir(){total=total.saturating_add(tree_size(&e.path())?);}}Ok(total)}
 fn sample_process(root:&Path,project:&str,job:&str,pid:u32)->Result<Option<ResourceSample>>{
@@ -320,9 +624,16 @@ fn sample_process(root:&Path,project:&str,job:&str,pid:u32)->Result<Option<Resou
 }
 
 pub struct Supervisor { root:PathBuf, lock:fs::File, executable:PathBuf, max_workers:usize, children:Vec<(JobView,Child,ChildStdin,Instant,Instant)> }
+fn default_worker_executable()->Result<PathBuf>{
+    if let Some(p)=std::env::var_os("CARGO_BIN_EXE_mlrescurix-harness"){let pb=PathBuf::from(p);if pb.is_file(){return Ok(pb);}}
+    let exe=std::env::current_exe().map_err(|e|e.to_string())?;
+    if exe.file_name().and_then(|s|s.to_str()).is_some_and(|s|s.starts_with("mlrescurix-harness")){return Ok(exe);}
+    if let Some(candidate)=exe.parent().and_then(|p|p.parent()).map(|p|p.join("mlrescurix-harness")){if candidate.is_file(){return Ok(candidate);}}
+    Ok(exe)
+}
 impl Supervisor {
     pub fn start(root:&Path,max_workers:usize)->Result<Self>{
-        Self::start_with_executable(root,max_workers,&std::env::current_exe().map_err(|e|e.to_string())?)
+        Self::start_with_executable(root,max_workers,&default_worker_executable()?)
     }
     pub fn start_with_executable(root:&Path,max_workers:usize,executable:&Path)->Result<Self>{
         if !cfg!(target_os="macos"){return Err("M1 trusted runner is validated only on macOS".into());}
@@ -334,6 +645,10 @@ impl Supervisor {
         if unsafe{libc::flock(lock.as_raw_fd(),libc::LOCK_EX|libc::LOCK_NB)}!=0{return Err("another supervisor owns this state".into());}
         let c=connect(root)?;
         reconcile_final_tests(root,&c)?;
+        let mut orphan_query=sql(c.prepare("SELECT j.project,j.id FROM jobs j JOIN environments e ON e.id=json_extract(j.spec,'$.environment_id') WHERE e.python LIKE 'docker:%' AND j.status IN('running','terminating','recovering')"))?;
+        let orphans=sql(orphan_query.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))))?.collect::<rusqlite::Result<Vec<_>>>().map_err(|e|e.to_string())?;
+        drop(orphan_query);
+        for (project,job) in orphans {stop_scientific_container(&project,&job)?;}
         sql(c.execute("UPDATE jobs SET status='recovering',reason='supervisor restart; waiting for bounded worker deadline',recovered_deadline_ms=started_ms+CAST(json_extract(spec,'$.timeout_ms') AS INTEGER)+500 WHERE status IN('running','terminating')",[]))?;
         Ok(Self{root:root.to_path_buf(),lock,executable:executable.to_path_buf(),max_workers,children:vec![]})
     }
@@ -342,6 +657,17 @@ impl Supervisor {
         STOP.store(false,Ordering::Relaxed);
         unsafe{libc::signal(libc::SIGINT,stop_signal as *const () as libc::sighandler_t);libc::signal(libc::SIGTERM,stop_signal as *const () as libc::sighandler_t);}
         loop {if STOP.load(Ordering::Relaxed){self.shutdown()?;return Ok(());}self.tick()?;thread::sleep(Duration::from_millis(POLL_MS));}
+    }
+    pub fn drain(mut self)->Result<()> {
+        let _exclusive_lock=&self.lock;
+        for _ in 0..1000 {
+            self.tick()?;
+            let c=connect(&self.root)?;
+            let active_count:i64=sql(c.query_row("SELECT count(*) FROM jobs WHERE status IN('queued','running','terminating','recovering')", [], |r|r.get(0)))?;
+            if active_count==0 {return Ok(());}
+            thread::sleep(Duration::from_millis(POLL_MS));
+        }
+        Err("drain timed out waiting for active jobs to complete".into())
     }
     fn shutdown(&mut self)->Result<()>{
         while let Some((view,mut child,_control,started,_last_sample))=self.children.pop(){terminate(&mut child)?;self.finish(&view,"cancelled",Some("supervisor shutdown".into()),vec![],started.elapsed().as_millis().max(1) as u64)?;let stage=self.root.join("artifacts").join(&view.spec.project_id).join(format!(".{}.staging",view.spec.job_id));if stage.exists(){safe_remove(&self.root,&stage)?;}}
@@ -359,7 +685,8 @@ impl Supervisor {
         let rows=sql(q.query_map([now_ms()],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,Option<String>>(3)?))))?.collect::<rusqlite::Result<Vec<_>>>().map_err(|e|e.to_string())?;drop(q);
         for (p,id,spec,stage) in rows {
             let s:JobSpec=serde_json::from_str(&spec).map_err(|e|e.to_string())?;let task_json:String=sql(c.query_row("SELECT data FROM tasks WHERE project=?1 AND id=?2",params![p,s.task_id],|r|r.get(0)))?;let task:crate::core::Task=serde_json::from_str(&task_json).map_err(|e|e.to_string())?;let (project_state,intent):(String,u64)=sql(c.query_row("SELECT state,intent_revision FROM projects WHERE id=?1",[&p],|r|Ok((r.get(0)?,r.get(1)?))))?;
-            let eligible=matches!(project_state.as_str(),"created"|"paused")&&task.status=="active"&&task.generation==s.generation&&task.intent_revision==intent;
+            let is_finalize=matches!(&s.probe,Probe::Scientific{operation,..} if operation=="finalize");
+            let eligible=(matches!(project_state.as_str(),"created"|"paused")||(is_finalize&&project_state=="finalizing"))&&task.status=="active"&&task.generation==s.generation&&task.intent_revision==intent;
             let final_dir=self.root.join("artifacts").join(&p).join(&id);let stage_path=stage.clone().map(PathBuf::from);
             let mut recovered=if eligible&&final_dir.is_dir(){manifest_dir(&final_dir,s.max_output_bytes).ok()}else{None};
             if recovered.is_none()&&eligible&&!final_dir.exists(){if let Some(path)=&stage_path{if path.is_dir(){if let Ok(artifacts)=manifest_dir(path,s.max_output_bytes){let spec_file=path.join("job.json");if spec_file.exists(){let _=fs::remove_file(spec_file);}if !artifacts.is_empty(){ensure_dir(&self.root,final_dir.parent().unwrap())?;if fs::rename(path,&final_dir).is_ok(){recovered=Some(artifacts);}}}}}}
@@ -373,14 +700,14 @@ impl Supervisor {
         while self.children.len()<self.max_workers {
             let c=connect(&self.root)?;let tx=sql(c.unchecked_transaction())?;
             let cursor:Option<String>=sql(tx.query_row("SELECT value FROM scheduler WHERE key='last_project'",[],|r|r.get(0)).optional())?;
-            let eligible="j.status='queued' AND p.state='created' AND NOT EXISTS(SELECT 1 FROM questions q WHERE q.project=p.id AND q.answer IS NULL) AND NOT EXISTS(SELECT 1 FROM actions a WHERE a.project=j.project AND a.task=j.task AND json_extract(a.data,'$.status') NOT IN('succeeded','failed','cancelled'))";
+            let eligible="j.status='queued' AND (p.state='created' OR (p.state='finalizing' AND EXISTS(SELECT 1 FROM scientific_jobs sj WHERE sj.project=j.project AND sj.job=j.id AND sj.operation='finalize'))) AND NOT EXISTS(SELECT 1 FROM questions q WHERE q.project=p.id AND q.answer IS NULL) AND NOT EXISTS(SELECT 1 FROM actions a WHERE a.project=j.project AND a.task=j.task AND json_extract(a.data,'$.status') NOT IN('succeeded','failed','cancelled'))";
             let rank="((SELECT count(*) FROM jobs prior WHERE prior.project=j.project AND prior.status IN('running','succeeded','failed','timed_out','cancelled','rejected','interrupted'))*1.0/COALESCE((SELECT weight FROM project_weights w WHERE w.project=j.project),1) - (?2-j.submitted_ms)/60000.0)";
             let now=now_ms();let row:Option<(String,String,String)>=sql(tx.query_row(
                 &format!("SELECT j.id,j.project,j.spec FROM jobs j JOIN projects p ON p.id=j.project WHERE {eligible} AND j.project>?1 ORDER BY {rank},j.project,j.submitted_ms,j.id LIMIT 1"),rusqlite::params![cursor.as_deref().unwrap_or(""),now],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional())?;
             let row=match row {Some(x)=>Some(x),None=>sql(tx.query_row(&format!("SELECT j.id,j.project,j.spec FROM jobs j JOIN projects p ON p.id=j.project WHERE {eligible} ORDER BY {rank},j.project,j.submitted_ms,j.id LIMIT 1"),rusqlite::params![cursor.as_deref().unwrap_or(""),now],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional())?};
             let Some((id,p,spec))=row else {tx.commit().map_err(|e|e.to_string())?;break};
             let s:JobSpec=serde_json::from_str(&spec).map_err(|e|e.to_string())?;
-            if let Err(reason)=admission(&tx,&s,self.max_workers) {
+            if let Err(reason)=validate_finalization_job(&self.root,&s).and_then(|_|admission(&tx,&s,self.max_workers)) {
                 if reason.starts_with("capacity unavailable:") || reason=="project worker capacity unavailable" || reason=="device worker capacity unavailable" || reason=="worker slot unavailable" {tx.execute("INSERT INTO scheduler(key,value) VALUES('last_project',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[&p]).map_err(|e|e.to_string())?;tx.commit().map_err(|e|e.to_string())?;break;}
                 sql(tx.execute("UPDATE jobs SET status='rejected',reason=?3,ended_ms=?4 WHERE project=?1 AND id=?2",params![p,id,reason,now_ms()]))?;
                 tx.commit().map_err(|e|e.to_string())?;continue;
@@ -403,21 +730,38 @@ impl Supervisor {
             let log=self.root.join("logs").join(&p).join(format!("{id}.log"));ensure_dir(&self.root,log.parent().unwrap())?;
             let out=fs::File::create(&log).map_err(|e|e.to_string())?;let err=out.try_clone().map_err(|e|e.to_string())?;
             let spec_path=stage.join("job.json");fs::write(&spec_path,&spec).map_err(|e|e.to_string())?;
-            let mut cmd=Command::new(&self.executable);cmd.arg("__worker").arg(&spec_path).arg(&stage).stdin(Stdio::null()).stdout(Stdio::from(out)).stderr(Stdio::from(err)).env_clear().env("PATH","/usr/bin:/bin").env("MLRRESCURIX_STATE",&self.root);
+            let mut cmd=Command::new(&self.executable);cmd.arg("__worker").arg(&spec_path).arg(&stage).stdin(Stdio::null()).stdout(Stdio::from(out)).stderr(Stdio::from(err)).env_clear().env("PATH","/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin").env("MLRRESCURIX_STATE",&self.root);
             cmd.env("MLRESCURIX_NUM_THREADS",s.threads.to_string());
             for key in ["OMP_NUM_THREADS","OPENBLAS_NUM_THREADS","MKL_NUM_THREADS","VECLIB_MAXIMUM_THREADS","NUMEXPR_NUM_THREADS"] {cmd.env(key,s.threads.to_string());}
             if let Probe::Scientific{dataset_id,..}=&s.probe {
                 let env_id=s.environment_id.as_deref().ok_or("scientific environment missing")?;
                 let python=self.root.join("environments").join(env_id).join("bin/python3");
                 let environment_status:String=sql(tx.query_row("SELECT status FROM environments WHERE id=?1",[env_id],|r|r.get(0)))?;
-                if environment_status!="ready"||!python.is_file(){return Err("managed scientific interpreter is unavailable".into());}
+                let container:Option<(String,String)>=sql(tx.query_row("SELECT python,identity FROM environments WHERE id=?1 AND python LIKE 'docker:%'",[env_id],|r|Ok((r.get(0)?,r.get(1)?))).optional())?;
+                if environment_status!="ready"||(!python.is_file()&&container.is_none()){return Err("managed scientific interpreter is unavailable".into());}
                 let (data_path,sha):(String,String)=sql(tx.query_row("SELECT path,sha256 FROM scientific_datasets WHERE project=?1 AND id=?2",params![p,dataset_id],|r|Ok((r.get(0)?,r.get(1)?))))?;
                 let expected=self.root.join("datasets").join(&p).join(format!("{dataset_id}.csv"));
                 if Path::new(&data_path)!=expected||hash(&fs::read(&expected).map_err(|e|e.to_string())?)!=sha{return Err("registered dataset snapshot failed integrity check".into());}
                 let workflow=self.root.join("workflows").join(&p);ensure_dir(&self.root,&workflow)?;
-                let pythonpath=PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../python/src");
+                let pythonpath=crate::assets::ensure_python_src(&self.root)?;
+                let runtime_source=if container.is_some() {
+                    let source_hash=crate::assets::embedded_python_src_hash();
+                    let base=self.root.join("scientific-sources");ensure_dir(&self.root,&base)?;
+                    let snapshot=base.join(&source_hash);
+                    if !snapshot.exists() {
+                        if fs::read_dir(&base).map_err(|e|e.to_string())?.count()>=8||tree_size(&pythonpath)?>1024*1024{return Err("bounded scientific source snapshot storage ceiling reached".into());}
+                        crate::agents::workspace::BranchWorkspaceManager::copy_dir_recursive(&pythonpath,&snapshot)?;
+                    }
+                    if crate::agents::workspace::BranchWorkspaceManager::compute_dir_hash(&snapshot)?!=source_hash{return Err("scientific source snapshot failed content verification".into());}
+                    snapshot
+                } else {pythonpath};
                 cmd.env("MLRRESCURIX_PYTHON",python).env("MLRRESCURIX_DATASET",expected)
-                    .env("MLRRESCURIX_WORKFLOW",workflow).env("MLRRESCURIX_PYTHONPATH",pythonpath);
+                    .env("MLRRESCURIX_WORKFLOW",workflow).env("MLRRESCURIX_PYTHONPATH",runtime_source);
+                if let Some((image,identity))=container {
+                    cmd.env("MLRESCURIX_SCIENTIFIC_IMAGE",image.trim_start_matches("docker:")).env("MLRESCURIX_ENVIRONMENT_IDENTITY",identity);
+                } else if matches!(&s.probe,Probe::Scientific{operation,..} if operation=="pipeline"||operation=="finalize") {
+                    return Err("full pipelines and finalization require a verified container environment; host fallback prohibited".into());
+                }
             }
             cmd.process_group(0);
             cmd.stdin(Stdio::piped());
@@ -456,11 +800,13 @@ impl Supervisor {
         }Ok(())
     }
     fn publish(&self,v:&JobView)->Result<Vec<Value>>{
+        if matches!(&v.spec.probe,Probe::Scientific{operation,..} if operation=="pipeline") {verify_pipeline_receipt(&self.root,&v.spec)?;}
         let stage=self.root.join("artifacts").join(&v.spec.project_id).join(format!(".{}.staging",v.spec.job_id));
         let mut artifacts=vec![];let mut total=0u64;
         for entry in fs::read_dir(&stage).map_err(|e|e.to_string())? {let entry=entry.map_err(|e|e.to_string())?;let meta=fs::symlink_metadata(entry.path()).map_err(|e|e.to_string())?;if meta.file_type().is_symlink()||!meta.is_file(){return Err("worker emitted unsupported artifact type".into());}let name=entry.file_name().to_string_lossy().into_owned();if name=="job.json"{continue;}let bytes=fs::read(entry.path()).map_err(|e|e.to_string())?;total=total.checked_add(bytes.len() as u64).ok_or("artifact size overflow")?;if total>v.spec.max_output_bytes{return Err("worker exceeded artifact output limit".into());}artifacts.push(json!({"name":name,"bytes":bytes.len(),"sha256":hash(&bytes)}));}
         let c=connect(&self.root)?;let task:String=sql(c.query_row("SELECT data FROM tasks WHERE project=?1 AND id=?2",params![v.spec.project_id,v.spec.task_id],|r|r.get(0)))?;let t:crate::core::Task=serde_json::from_str(&task).map_err(|e|e.to_string())?;let (state,intent):(String,u64)=sql(c.query_row("SELECT state,intent_revision FROM projects WHERE id=?1",[&v.spec.project_id],|r|Ok((r.get(0)?,r.get(1)?))))?;
-        if !matches!(state.as_str(),"created"|"paused")||t.status!="active"||t.generation!=v.spec.generation||t.intent_revision!=intent{return Err("stale worker result fenced before publication".into());}
+        let is_finalize=matches!(&v.spec.probe,Probe::Scientific{operation,..} if operation=="finalize");
+        if !(matches!(state.as_str(),"created"|"paused")||(is_finalize&&state=="finalizing"))||t.status!="active"||t.generation!=v.spec.generation||t.intent_revision!=intent{return Err("stale worker result fenced before publication".into());}
         let final_dir=self.root.join("artifacts").join(&v.spec.project_id).join(&v.spec.job_id);if final_dir.exists(){return Err("artifact destination already exists".into());}
         if artifacts.is_empty(){safe_remove(&self.root,&stage)?;return Ok(artifacts);}
         let spec_path=stage.join("job.json");if spec_path.exists(){fs::remove_file(spec_path).map_err(|e|e.to_string())?;}
@@ -470,7 +816,7 @@ impl Supervisor {
         let c=connect(&self.root)?;let tx=sql(c.unchecked_transaction())?;
         if let Probe::Scientific{operation,dataset_id:_,candidate_id,test_access_id,spec}=&v.spec.probe {
             let workflow=self.root.join("workflows").join(&v.spec.project_id);
-            let result_path=if operation=="trial"{
+            let result_path=if operation=="trial"||operation=="pipeline"{
                 let exp_id=spec.as_ref().and_then(|s|s.get("experiment_id")).and_then(|v|v.as_str()).unwrap_or("");
                 workflow.join("trials").join(exp_id).join("trial.json")
             } else {
@@ -479,11 +825,21 @@ impl Supervisor {
             };
             let result_hash=if status=="succeeded"&&result_path.is_file(){Some(hash(&fs::read(&result_path).map_err(|e|e.to_string())?))}else{None};
             sql(tx.execute("UPDATE scientific_jobs SET result_sha256=?3 WHERE project=?1 AND job=?2",params![v.spec.project_id,v.spec.job_id,result_hash]))?;
+            if operation=="pipeline"&&status=="succeeded" {
+                let receipt=verify_pipeline_receipt(&self.root,&v.spec)?;
+                sql(tx.execute("INSERT INTO pipeline_receipts(project,job,candidate,dataset_sha256,source_sha256,environment_identity,protocol_sha256,model_sha256,predictions_sha256,oof_sha256,receipt_json) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",params![v.spec.project_id,v.spec.job_id,receipt["experiment_id"].as_str().unwrap(),receipt["dataset_sha256"].as_str().unwrap(),receipt["source_sha256"].as_str().unwrap(),receipt["environment_identity"].as_str().unwrap(),hash(serde_json::to_string(&receipt["protocol"]).unwrap().as_bytes()),receipt["model_sha256"].as_str().unwrap(),receipt["predictions_sha256"].as_str().unwrap(),receipt["oof_sha256"].as_str().unwrap(),receipt.to_string()]))?;
+            }
             if operation=="finalize"&&status=="succeeded" {
                 let access=test_access_id.as_deref().ok_or("final test key missing")?;let candidate=candidate_id.as_deref().ok_or("candidate missing")?;
                 let gate=serde_json::from_str::<Value>(&fs::read_to_string(workflow.join("test_access.json")).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
                 let final_result=serde_json::from_str::<Value>(&fs::read_to_string(&result_path).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
                 if gate["test_access_id"]!=access||gate["candidate_id"]!=candidate||gate["status"]!="consumed"||final_result["test_access_id"]!=access{return Err("final assessment identity failed verification".into());}
+                verify_finalized_pipeline_bundle(&self.root,&v.spec.project_id,candidate,&gate)?;
+                let bundle_manifest_path=workflow.join("bundle/manifest.json");
+                if bundle_manifest_path.is_file() {
+                    let bm_bytes=fs::read(&bundle_manifest_path).map_err(|e|e.to_string())?;
+                    sql(tx.execute("INSERT OR REPLACE INTO managed_artifacts(project,job,name,bytes,sha256,pinned) VALUES(?1,?2,'bundle/manifest.json',?3,?4,1)",params![v.spec.project_id,v.spec.job_id,bm_bytes.len() as u64,hash(&bm_bytes)]))?;
+                }
                 let test_hash=gate["dataset_sha256"].as_str().ok_or("test gate lacks dataset hash")?;
                 sql(tx.execute("UPDATE final_test_gates SET frozen_model_sha256=?4,status='consumed',result_sha256=?5 WHERE project=?1 AND access_id=?2 AND dataset_sha256=?3 AND status='reserved'",params![v.spec.project_id,access,test_hash,gate["frozen_model_sha256"].as_str().unwrap_or(""),hash(&fs::read(&result_path).map_err(|e|e.to_string())?)]))?;
                 sql(tx.execute("INSERT INTO events(project,kind,payload) VALUES(?1,'final_test.consumed',?2)",params![v.spec.project_id,json!({"job_id":v.spec.job_id,"candidate_id":candidate,"test_access_id":access,"result_sha256":result_hash}).to_string()]))?;
@@ -504,6 +860,165 @@ impl Supervisor {
     }
 }
 
+fn verify_finalized_pipeline_bundle(root:&Path,project:&str,candidate:&str,gate:&Value)->Result<()>{
+    let workflow=root.join("workflows").join(project);
+    let bundle_dir=workflow.join("bundle");
+    crate::bundle::verify_bundle(&bundle_dir,false)?;
+    let lineage_path=workflow.join("lineage.json");
+    if lineage_path.is_file() {
+        let lineage:Value=serde_json::from_slice(&fs::read(&lineage_path).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
+        if lineage["format"]=="mlrescurix.pipeline-lineage.v1" {
+            if lineage["candidate_id"]!=candidate||lineage["frozen_model_sha256"]!=gate["frozen_model_sha256"]||lineage["test_row_intersection"]!=0 {
+                return Err("finalized pipeline lineage binding mismatch".into());
+            }
+            let manifest:Value=serde_json::from_slice(&fs::read(workflow.join("dataset_manifest.json")).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
+            let row_set=|v:&Value|->Result<std::collections::HashSet<u64>>{
+                let values=v.as_array().ok_or("row ids must be an array")?;let mut out=std::collections::HashSet::new();
+                for x in values {if !out.insert(x.as_u64().ok_or("invalid row id")?){return Err("duplicate row id".into());}}Ok(out)
+            };
+            let train=row_set(&manifest["splits"]["train"])?;
+            let val=row_set(&manifest["splits"]["validation"])?;
+            let test=row_set(&manifest["splits"]["test"])?;
+            let trainval:std::collections::HashSet<u64>=train.union(&val).copied().collect();
+            let refit_rows=row_set(&lineage["final_refit_trainval_row_ids"])?;
+            if refit_rows!=trainval||!refit_rows.is_disjoint(&test) {
+                return Err("finalized pipeline trainval rows do not match audited train+validation or overlap test".into());
+            }
+            for fold in lineage["final_refit_folds"].as_array().ok_or("missing final_refit_folds")? {
+                let fit=row_set(&fold["train_row_ids"])?;
+                let held=row_set(&fold["held_row_ids"])?;
+                if fit.is_empty()||held.is_empty()||!fit.is_subset(&trainval)||!held.is_subset(&trainval)||!fit.is_disjoint(&held)||!fit.is_disjoint(&test)||!held.is_disjoint(&test) {
+                    return Err("finalized pipeline OOF fold provenance invalid or overlaps sealed test".into());
+                }
+                if manifest["split_policy"]=="chronological"&&fit.iter().max()>=held.iter().min() {
+                    return Err("finalized pipeline chronological OOF provenance invalid".into());
+                }
+                if manifest["split_policy"]=="grouped" {
+                    let groups=manifest["group_assignments"].as_array().ok_or("audited group assignments missing")?;
+                    let group_set=|rows:&std::collections::HashSet<u64>|->Result<std::collections::HashSet<String>>{
+                        rows.iter().map(|row|groups.get(*row as usize).and_then(Value::as_str).map(str::to_string).ok_or("row lacks an audited group".into())).collect()
+                    };
+                    if !group_set(&fit)?.is_disjoint(&group_set(&held)?) {
+                        return Err("finalized pipeline group OOF provenance overlaps".into());
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Recompute all managed byte bindings, including every OOF fit, before commit.
+fn verify_pipeline_receipt(root:&Path,s:&JobSpec)->Result<Value>{
+    let Probe::Scientific{dataset_id,spec:Some(protocol),..}=&s.probe else{return Err("pipeline lacks protocol".into());};
+    let id=protocol["experiment_id"].as_str().ok_or("missing pipeline id")?;
+    let workflow=root.join("workflows").join(&s.project_id);let directory=workflow.join("trials").join(id);
+    let receipt:Value=serde_json::from_slice(&fs::read(directory.join("trial.json")).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
+    let c=connect(root)?;
+    let dataset:String=sql(c.query_row("SELECT sha256 FROM scientific_datasets WHERE project=?1 AND id=?2",params![s.project_id,dataset_id],|r|r.get(0)))?;
+    let environment:String=sql(c.query_row("SELECT identity FROM environments WHERE id=?1",[s.environment_id.as_deref().ok_or("missing environment")?],|r|r.get(0)))?;
+    let source_hash=crate::assets::embedded_python_src_hash();
+    let manifest_bytes=fs::read(workflow.join("dataset_manifest.json")).map_err(|e|e.to_string())?;
+    let split_hash=hash(&manifest_bytes);
+    let audited:bool=sql(c.query_row("SELECT EXISTS(SELECT 1 FROM scientific_jobs s JOIN jobs j ON s.project=j.project AND s.job=j.id WHERE s.project=?1 AND s.dataset=?2 AND s.operation='audit' AND s.result_sha256=?3 AND j.status='succeeded')",params![s.project_id,dataset_id,split_hash],|r|r.get(0)))?;
+    if !audited||receipt["experiment_id"]!=id||receipt["protocol"]!=*protocol||receipt["dataset_sha256"]!=dataset||receipt["split_sha256"]!=split_hash||receipt["environment_identity"]!=environment||receipt["source_sha256"]!=source_hash{return Err("pipeline receipt source/environment/protocol/dataset binding failed".into());}
+    for (file,key) in [("candidate.joblib","model_sha256"),("predictions.json","predictions_sha256"),("oof.json","oof_sha256")] {
+        if hash(&fs::read(directory.join(file)).map_err(|e|e.to_string())?)!=receipt[key].as_str().unwrap_or(""){return Err(format!("pipeline managed bytes changed: {file}"));}
+    }
+    let manifest:Value=serde_json::from_slice(&manifest_bytes).map_err(|e|e.to_string())?;
+    let row_set=|v:&Value|->Result<std::collections::HashSet<u64>>{
+        let values=v.as_array().ok_or("OOF row ids must be an array")?;let mut out=std::collections::HashSet::new();
+        for x in values {if !out.insert(x.as_u64().ok_or("invalid OOF row id")?){return Err("duplicate OOF row id".into());}}Ok(out)
+    };
+    let train=row_set(&manifest["splits"]["train"])?;
+    let oof:Value=serde_json::from_slice(&fs::read(directory.join("oof.json")).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
+    if oof["dataset_sha256"]!=dataset||oof["split_sha256"]!=split_hash{return Err("OOF dataset/split binding failed".into());}
+    let covered=row_set(&oof["covered_row_ids"])?;let excluded=row_set(&oof["excluded_warmup_row_ids"])?;
+    if covered.is_empty()||!covered.is_disjoint(&excluded)||covered.union(&excluded).copied().collect::<std::collections::HashSet<_>>()!=train{return Err("OOF coverage does not match training partition".into());}
+    if manifest["split_policy"]!="chronological"&&!excluded.is_empty(){return Err("non-time OOF must cover every training row".into());}
+    let parents=protocol["parents"].as_array().ok_or("missing OOF parent protocols")?.len();
+    let mut seen:Vec<std::collections::HashSet<u64>>=(0..parents).map(|_|std::collections::HashSet::new()).collect();
+    for fold in oof["folds"].as_array().ok_or("missing OOF fold evidence")? {
+        let index=fold["parent"].as_u64().ok_or("missing fold parent")? as usize;
+        if index>=parents{return Err("OOF parent outside managed protocol".into());}
+        let fit=row_set(&fold["train_row_ids"])?;let held=row_set(&fold["held_row_ids"])?;
+        if fit.is_empty()||held.is_empty()||!fit.is_subset(&train)||!held.is_subset(&train)||!fit.is_disjoint(&held)||!seen[index].is_disjoint(&held){return Err("OOF fold train/held provenance invalid".into());}
+        if manifest["split_policy"]=="chronological"&&fit.iter().max()>=held.iter().min(){return Err("OOF chronological provenance invalid".into());}
+        if manifest["split_policy"]=="grouped" {
+            let groups=manifest["group_assignments"].as_array().ok_or("audited group assignments missing")?;
+            let group_set=|rows:&std::collections::HashSet<u64>|->Result<std::collections::HashSet<String>>{rows.iter().map(|row|groups.get(*row as usize).and_then(Value::as_str).map(str::to_string).ok_or("OOF row lacks an audited group".into())).collect()};
+            if !group_set(&fit)?.is_disjoint(&group_set(&held)?){return Err("OOF group provenance overlaps".into());}
+        }
+        seen[index].extend(held);
+        let file=fold["model_file"].as_str().ok_or("missing fold model")?;valid_id(file)?;
+        if hash(&fs::read(directory.join(file)).map_err(|e|e.to_string())?)!=fold["model_sha256"].as_str().unwrap_or(""){return Err("OOF fit model hash failed".into());}
+    }
+    if seen.iter().any(|rows|*rows!=covered){return Err("OOF parents do not have identical held-row coverage".into());}
+    for (file,expected) in oof["artifacts"].as_object().ok_or("missing managed parent artifact hashes")? {
+        valid_id(file)?;if hash(&fs::read(directory.join(file)).map_err(|e|e.to_string())?)!=expected.as_str().unwrap_or(""){return Err("parent artifact bytes failed verification".into());}
+    }
+    Ok(receipt)
+}
+
+pub fn finalization_binding(root:&Path,project:&str,candidate:&str)->Result<Value>{
+    valid_id(project)?;valid_id(candidate)?;let c=connect(root)?;
+    let job:String=sql(c.query_row("SELECT job FROM pipeline_receipts WHERE project=?1 AND candidate=?2",params![project,candidate],|r|r.get(0))).map_err(|_|"candidate lacks a verified full-pipeline receipt; metadata approval cannot authorize finalization".to_string())?;
+    let view=load_job(&c,project,&job)?;
+    if view.status!="succeeded"{return Err("candidate pipeline job is not successful".into());}
+    let receipt=verify_pipeline_receipt(root,&view.spec)?;
+    let stored:String=sql(c.query_row("SELECT receipt_json FROM pipeline_receipts WHERE project=?1 AND candidate=?2",params![project,candidate],|r|r.get(0)))?;
+    let recorded:Value=serde_json::from_str(&stored).map_err(|e|e.to_string())?;
+    if receipt!=recorded{return Err("pipeline receipt differs from authoritative committed receipt".into());}
+    let (revision,intent,spec):(i64,i64,i64)=sql(c.query_row("SELECT revision,intent_revision,spec_revision FROM projects WHERE id=?1",[project],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))))?;
+    let binding=json!({"format":"mlrescurix.finalization-binding.v1","project":project,"candidate":candidate,"job":job,"producer_task":view.spec.task_id,"intent_revision":intent,"spec_revision":spec,"pipeline_receipt":receipt});
+    Ok(json!({"binding_sha256":hash(binding.to_string().as_bytes()),"binding":binding,"observed_project_revision":revision,"status":"reviewable_development_candidate","remaining":"refit, fresh target feasibility, sealed test and delivery required"}))
+}
+
+/// Only the local human CLI and the independent critic role call this API.
+pub fn record_content_decision(root:&Path,project:&str,candidate:&str,expected:&str,kind:&str,actor:&str,approved:bool,rationale:&str)->Result<Value>{
+    if !matches!(kind,"user_approval"|"critic_audit")||actor.is_empty()||rationale.is_empty(){return Err("invalid content decision".into());}
+    let review=finalization_binding(root,project,candidate)?;
+    if review["binding_sha256"]!=expected{return Err("approval/audit content binding changed; review current managed bytes".into());}
+    if kind=="critic_audit"&&review["binding"]["producer_task"]==actor{return Err("candidate producer cannot independently audit its own pipeline".into());}
+    let c=connect(root)?;let tx=sql(c.unchecked_transaction())?;
+    let now=now_ms();
+    sql(tx.execute("INSERT INTO content_decisions(project,candidate,binding_sha256,kind,actor,approved,rationale,binding_json,created_ms) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![project,candidate,expected,kind,actor,approved as i64,rationale,review["binding"].to_string(),now]))?;
+    if kind=="user_approval" {
+        sql(tx.execute("INSERT INTO approvals(project,candidate_id,approved,user_identity,rationale,created_ms) VALUES(?1,?2,?3,?4,?5,?6)",params![project,candidate,approved as i64,actor,rationale,now]))?;
+    } else if kind=="critic_audit" {
+        sql(tx.execute("INSERT INTO critic_audits(project,candidate_id,auditor_role,status,rationale,source_hash,protocol,constraints_verified,created_ms) VALUES(?1,?2,'critic',?3,?4,?5,'mlrescurix.pipeline.v1',?6,?7)",params![project,candidate,if approved{"approved"}else{"rejected"},rationale,expected,approved as i64,now]))?;
+    }
+    sql(tx.execute("INSERT INTO events(project,kind,payload) VALUES(?1,'candidate.content_decision',?2)",params![project,json!({"candidate":candidate,"binding_sha256":expected,"kind":kind,"actor":actor,"approved":approved}).to_string()]))?;
+    tx.commit().map_err(|e|e.to_string())?;Ok(review)
+}
+
+pub fn require_finalization_decisions(root:&Path,project:&str,candidate:&str)->Result<Value>{
+    let review=finalization_binding(root,project,candidate)?;let c=connect(root)?;
+    for kind in ["user_approval","critic_audit"] {
+        let decision:Option<(bool,String)>=sql(c.query_row("SELECT approved,binding_sha256 FROM content_decisions WHERE project=?1 AND candidate=?2 AND kind=?3 ORDER BY created_ms DESC LIMIT 1",params![project,candidate,kind],|r|Ok((r.get(0)?,r.get(1)?))).optional())?;
+        if !decision.is_some_and(|(approved,binding)|approved&&review["binding_sha256"]==binding){return Err(format!("finalization requires current content-bound {kind}"));}
+    }
+    Ok(review)
+}
+
+fn validate_finalization_job(root:&Path,s:&JobSpec)->Result<()> {
+    if let Probe::Scientific{operation,dataset_id,candidate_id,..}=&s.probe {
+        if operation=="finalize" {
+            let candidate=candidate_id.as_deref().ok_or("missing finalization candidate")?;
+            let review=require_finalization_decisions(root,&s.project_id,candidate)?;
+            let c=connect(root)?;
+            let producer=load_job(&c,&s.project_id,review["binding"]["job"].as_str().ok_or("missing producer job")?)?;
+            if producer.spec.environment_id!=s.environment_id {
+                return Err("finalization environment differs from approved producer environment".into());
+            }
+            if !matches!(&producer.spec.probe,Probe::Scientific{dataset_id:producer_dataset,..} if producer_dataset==dataset_id) {
+                return Err("finalization dataset differs from approved producer dataset".into());
+            }
+        }
+    }
+    Ok(())
+}
+
 fn reconcile_final_tests(root:&Path,c:&Connection)->Result<()> {
     let mut q=sql(c.prepare("SELECT project,access_id,dataset_sha256,candidate_id FROM final_test_gates WHERE status='reserved'"))?;
     let rows=sql(q.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?))))?
@@ -511,12 +1026,12 @@ fn reconcile_final_tests(root:&Path,c:&Connection)->Result<()> {
     for (project,access,dataset,candidate) in rows {
         let workflow=root.join("workflows").join(&project);
         let gate_path=workflow.join("test_access.json");let result_path=workflow.join("final.json");
-        if !gate_path.is_file()||gate_path.symlink_metadata().map_err(|e|e.to_string())?.file_type().is_symlink()||!result_path.is_file(){continue;}
+        if !gate_path.is_file()||gate_path.symlink_metadata().map_err(|e|e.to_string())?.file_type().is_symlink(){continue;}
         let gate:Value=serde_json::from_slice(&fs::read(&gate_path).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
-        let result:Value=serde_json::from_slice(&fs::read(&result_path).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
-        if gate["status"]=="consumed"&&gate["test_access_id"]==access&&gate["dataset_sha256"]==dataset&&gate["candidate_id"]==candidate&&result["test_access_id"]==access {
+        let result:Option<Value>=if result_path.is_file(){Some(serde_json::from_slice(&fs::read(&result_path).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?)}else{None};
+        if gate["status"]=="consumed"&&gate["test_access_id"]==access&&gate["dataset_sha256"]==dataset&&gate["candidate_id"]==candidate {
             let frozen=gate["frozen_model_sha256"].as_str().ok_or("final gate has no frozen artifact hash")?;
-            let hash_result=hash(&fs::read(&result_path).map_err(|e|e.to_string())?);
+            let hash_result=if result.as_ref().is_some_and(|r|r["test_access_id"]==access){Some(hash(&fs::read(&result_path).map_err(|e|e.to_string())?))}else{None};
             let tx=sql(c.unchecked_transaction())?;
             sql(tx.execute("UPDATE final_test_gates SET status='consumed',frozen_model_sha256=?4,result_sha256=?5 WHERE project=?1 AND access_id=?2 AND dataset_sha256=?3 AND status='reserved'",params![project,access,dataset,frozen,hash_result]))?;
             sql(tx.execute("INSERT INTO events(project,kind,payload) VALUES(?1,'final_test.reconciled',?2)",params![project,json!({"test_access_id":access,"candidate_id":candidate,"result_sha256":hash_result}).to_string()]))?;
@@ -613,6 +1128,9 @@ pub fn worker(spec_path:&Path,output:&Path)->Result<i32>{
         Probe::Write{name,content}=>{if !alive.load(Ordering::Acquire){return Ok(125)}let p=output.join(name);let mut f=fs::OpenOptions::new().write(true).create_new(true).open(p).map_err(|e|e.to_string())?;f.write_all(content.as_bytes()).map_err(|e|e.to_string())?;f.sync_all().map_err(|e|e.to_string())?;},
         Probe::Scientific{operation,dataset_id:_,spec,candidate_id,test_access_id}=>{
             if !alive.load(Ordering::Acquire){return Ok(125)}
+            if let Ok(image)=std::env::var("MLRESCURIX_SCIENTIFIC_IMAGE") {
+                return container_scientific_worker(&s.job_id,&s.project_id,&operation,spec.as_ref(),candidate_id.as_deref(),test_access_id.as_deref(),output,&image,s.timeout_ms,s.threads,alive);
+            }
             let python=std::env::var_os("MLRRESCURIX_PYTHON").ok_or("scientific interpreter was not provisioned")?;
             let dataset=std::env::var_os("MLRRESCURIX_DATASET").ok_or("registered dataset path unavailable")?;
             let workflow=PathBuf::from(std::env::var_os("MLRRESCURIX_WORKFLOW").ok_or("workflow directory unavailable")?);
@@ -648,4 +1166,234 @@ pub fn worker(spec_path:&Path,output:&Path)->Result<i32>{
         }
     }
     Ok(0)
+}
+
+fn scientific_container_name(project:&str,job:&str)->String{format!("mlr-science-{}",&hash(format!("{project}/{job}").as_bytes())[..24])}
+fn stop_scientific_container(project:&str,job:&str)->Result<()> {
+    if !matches!(crate::agents::sandbox::SandboxDetector::detect(),crate::agents::sandbox::SandboxStatus::Available{..}){return Err("cannot reconcile scientific container while Docker is unavailable; reservations remain held".into());}
+    let name=scientific_container_name(project,job);
+    let removal=Command::new("docker").args(["rm","-f",&name]).output().map_err(|e|e.to_string())?;
+    if removal.status.success(){return Ok(());}
+    if String::from_utf8_lossy(&removal.stderr).contains("No such container"){return Ok(());}
+    Err("scientific orphan container could not be stopped; refusing recovery settlement".into())
+}
+fn container_scientific_worker(job:&str,project:&str,operation:&str,spec:Option<&Value>,candidate:Option<&str>,access:Option<&str>,output:&Path,image:&str,timeout:u64,threads:u32,alive:Arc<AtomicBool>)->Result<i32>{
+    let workflow=PathBuf::from(std::env::var("MLRRESCURIX_WORKFLOW").map_err(|e|e.to_string())?);
+    let dataset=std::env::var("MLRRESCURIX_DATASET").map_err(|e|e.to_string())?;
+    let source=std::env::var("MLRRESCURIX_PYTHONPATH").map_err(|e|e.to_string())?;
+    let source_hash=crate::agents::workspace::BranchWorkspaceManager::compute_dir_hash(Path::new(&source))?;
+    let req=output.join("project-spec.json");
+    if let Some(value)=spec {fs::write(&req,serde_json::to_vec(value).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;}
+    let name=scientific_container_name(project,job);
+    let mut cmd=Command::new("docker");
+    cmd.args(["run","--rm","--pull=never","--init","--name",&name,"--network","none","--read-only","--user"])
+        .arg(format!("{}:{}",unsafe{libc::getuid()},unsafe{libc::getgid()}))
+        .args(["--cap-drop","ALL","--security-opt","no-new-privileges:true","--memory","1g","--cpus"])
+        .arg(threads.to_string()).args(["--pids-limit","64","--tmpfs","/tmp:rw,noexec,nosuid,size=64m","-v"])
+        .arg(format!("{}:/workflow:rw",workflow.display())).arg("-v").arg(format!("{dataset}:/data.csv:ro"))
+        .arg("-v").arg(format!("{source}:/source:ro")).arg("-v").arg(format!("{}:/output:rw",output.display()))
+        .args(["--env","PYTHONPATH=/source","--env","PYTHONDONTWRITEBYTECODE=1","--env","OMP_NUM_THREADS=1","--env","OPENBLAS_NUM_THREADS=1","--env"])
+        .arg(format!("MLRESCURIX_SOURCE_SHA256={source_hash}"))
+        .arg("--env").arg(format!("MLRESCURIX_ENVIRONMENT_IDENTITY={}",std::env::var("MLRESCURIX_ENVIRONMENT_IDENTITY").map_err(|e|e.to_string())?))
+        .args([image,"python","-m","mlrescurix_worker.scientific.cli",operation,"--output","/workflow"]);
+    match operation {
+        "audit"=>{cmd.args(["--csv","/data.csv","--spec","/output/project-spec.json"]);},
+        "trial"|"pipeline"=>{cmd.args(["--spec","/output/project-spec.json"]);},
+        "finalize"=>{cmd.args(["--candidate",candidate.ok_or("missing candidate")?,"--test-access-id",access.ok_or("missing test access")?]);},
+        "baselines"=>{},_=>return Err("unsupported container science operation".into()),
+    }
+    let mut child=cmd.stdin(Stdio::null()).stdout(Stdio::inherit()).stderr(Stdio::inherit()).spawn().map_err(|e|e.to_string())?;
+    let deadline=Instant::now()+Duration::from_millis(timeout);
+    let code=loop{
+        if !alive.load(Ordering::Acquire)||Instant::now()>=deadline {
+            let _=Command::new("docker").args(["rm","-f",&name]).output();let _=child.kill();let _=child.wait();break 124;
+        }
+        if let Some(status)=child.try_wait().map_err(|e|e.to_string())?{break status.code().unwrap_or(1);}
+        thread::sleep(Duration::from_millis(50));
+    };
+    let _=Command::new("docker").args(["rm","-f",&name]).output();
+    if req.exists(){fs::remove_file(req).map_err(|e|e.to_string())?;}
+    if code!=0{return Ok(code);}
+    if crate::agents::workspace::BranchWorkspaceManager::compute_dir_hash(Path::new(&source))?!=source_hash{return Err("scientific source changed during execution".into());}
+    let (evidence,name)=match operation {
+        "trial"|"pipeline"=>{let id=spec.and_then(|v|v["experiment_id"].as_str()).ok_or("missing experiment")?;(workflow.join("trials").join(id).join("trial.json"),"trial.json")},
+        "audit"=>(workflow.join("dataset_manifest.json"),"dataset_manifest.json"),
+        "baselines"=>(workflow.join("results.json"),"results.json"),
+        "finalize"=>(workflow.join("final.json"),"final.json"),_=>unreachable!(),
+    };
+    if !evidence.is_file(){return Err("scientific worker produced no committed result".into());}
+    if operation=="finalize" {
+        let final_result:Value=serde_json::from_slice(&fs::read(&evidence).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
+        if final_result["status"]!="verified_development_only" {return Ok(3);}
+    }
+    fs::copy(evidence,output.join(name)).map_err(|e|e.to_string())?;Ok(0)
+}
+
+pub fn register_feature_transform(root: &Path, project: &str, transform_id: &str, transform_spec: &Value, parent_dataset: &str) -> Result<Value> {
+    valid_id(project)?; valid_id(transform_id)?;
+    let conn = connect(root)?;
+    let exists: bool = sql(conn.query_row("SELECT EXISTS(SELECT 1 FROM scientific_datasets WHERE project=?1 AND id=?2)", params![project, parent_dataset], |r| r.get(0)))?;
+    if !exists {
+        return Err(format!("parent dataset '{parent_dataset}' does not exist in scientific_datasets"));
+    }
+    let spec_str = serde_json::to_string(transform_spec).map_err(|e| e.to_string())?;
+    let now = now_ms();
+    let tx = sql(conn.unchecked_transaction())?;
+    sql(tx.execute(
+        "INSERT INTO feature_transforms(project, transform_id, transform_spec, parent_dataset, created_ms) VALUES(?1, ?2, ?3, ?4, ?5)",
+        params![project, transform_id, spec_str, parent_dataset, now],
+    ))?;
+    sql(tx.execute(
+        "INSERT INTO events(project, kind, payload) VALUES(?1, 'feature_transform.registered', ?2)",
+        params![project, json!({"transform_id": transform_id, "parent_dataset": parent_dataset}).to_string()],
+    ))?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(json!({
+        "status": "registered",
+        "project": project,
+        "transform_id": transform_id,
+        "parent_dataset": parent_dataset,
+        "created_ms": now,
+    }))
+}
+
+pub fn register_calibration_record(root: &Path, project: &str, calibration_id: &str, base_candidate_id: &str, method: &str, brier_score: Option<f64>, log_loss: Option<f64>) -> Result<Value> {
+    valid_id(project)?; valid_id(calibration_id)?;
+    if !matches!(method, "isotonic" | "sigmoid") {
+        return Err(format!("unsupported calibration method: '{method}'; must be 'isotonic' or 'sigmoid'"));
+    }
+    let conn = connect(root)?;
+    let exists: bool = sql(conn.query_row("SELECT EXISTS(SELECT 1 FROM trial_results WHERE project=?1 AND experiment_id=?2)", params![project, base_candidate_id], |r| r.get(0)))?;
+    if !exists {
+        let dag_exists: bool = sql(conn.query_row("SELECT EXISTS(SELECT 1 FROM experiment_dag WHERE project=?1 AND id=?2)", params![project, base_candidate_id], |r| r.get(0)))?;
+        if !dag_exists {
+            return Err(format!("base candidate '{base_candidate_id}' not found in experiment_dag or trial_results"));
+        }
+    }
+    let now = now_ms();
+    let tx = sql(conn.unchecked_transaction())?;
+    sql(tx.execute(
+        "INSERT INTO calibration_records(project, calibration_id, base_candidate_id, method, brier_score, log_loss, created_ms) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![project, calibration_id, base_candidate_id, method, brier_score, log_loss, now],
+    ))?;
+    sql(tx.execute(
+        "INSERT INTO events(project, kind, payload) VALUES(?1, 'calibration.registered', ?2)",
+        params![project, json!({"calibration_id": calibration_id, "base_candidate_id": base_candidate_id, "method": method}).to_string()],
+    ))?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(json!({
+        "status": "registered",
+        "project": project,
+        "calibration_id": calibration_id,
+        "base_candidate_id": base_candidate_id,
+        "method": method,
+        "brier_score": brier_score,
+        "log_loss": log_loss,
+        "created_ms": now,
+    }))
+}
+
+pub fn register_scientific_ensemble(root: &Path, project: &str, ensemble_id: &str, recipe_type: &str, parent_ids: &[String], weights: Option<&[f64]>, meta_params: Option<&Value>, is_feasible: bool) -> Result<Value> {
+    valid_id(project)?; valid_id(ensemble_id)?;
+    if !matches!(recipe_type, "voting" | "stacking" | "averaging") {
+        return Err(format!("unsupported ensemble recipe type: '{recipe_type}'; must be 'voting', 'stacking', or 'averaging'"));
+    }
+    if parent_ids.is_empty() {
+        return Err("ensemble requires at least one parent candidate".into());
+    }
+    let mut unique_check = std::collections::HashSet::new();
+    for p in parent_ids {
+        if !unique_check.insert(p) {
+            return Err(format!("duplicate parent candidate id '{p}'"));
+        }
+    }
+    let conn = connect(root)?;
+    for p in parent_ids {
+        let (status, model_sha): (String, String) = sql(conn.query_row(
+            "SELECT status, model_sha256 FROM trial_results WHERE project=?1 AND experiment_id=?2",
+            params![project, p],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )).map_err(|_| format!("Parent candidate '{p}' does not exist or has not been authoritatively evaluated in trial_results"))?;
+        if status != "evaluated" {
+            return Err(format!("Parent candidate '{p}' status is '{status}', expected 'evaluated'"));
+        }
+        if model_sha.is_empty() {
+            return Err(format!("Parent candidate '{p}' lacks verified model artifact sha256 in trial_results"));
+        }
+    }
+    if let Some(w) = weights {
+        if w.len() != parent_ids.len() || w.iter().any(|v| !v.is_finite() || *v < 0.0) || !w.iter().sum::<f64>().is_finite() || w.iter().sum::<f64>() <= 0.0 {
+            return Err("Ensemble weights must match parents and be finite/nonnegative with positive sum".into());
+        }
+    }
+    // Registration is provenance metadata, not trusted evaluation of the ensemble.
+    if is_feasible { return Err("Ensemble feasibility requires trusted full-pipeline evaluation; registration cannot certify it".into()); }
+    let parents_json = serde_json::to_string(parent_ids).map_err(|e| e.to_string())?;
+    let weights_json = weights.map(|w| serde_json::to_string(w).unwrap_or_default());
+    let meta_json = meta_params.map(|m| serde_json::to_string(m).unwrap_or_default());
+    let now = now_ms();
+    let tx = sql(conn.unchecked_transaction())?;
+    sql(tx.execute(
+        "INSERT INTO scientific_ensembles(project, ensemble_id, recipe_type, parent_ids, weights, meta_params, is_feasible, created_ms) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![project, ensemble_id, recipe_type, parents_json, weights_json, meta_json, if is_feasible { 1 } else { 0 }, now],
+    ))?;
+    sql(tx.execute(
+        "INSERT INTO events(project, kind, payload) VALUES(?1, 'ensemble.registered', ?2)",
+        params![project, json!({"ensemble_id": ensemble_id, "recipe_type": recipe_type, "parent_ids": parent_ids, "is_feasible": is_feasible}).to_string()],
+    ))?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(json!({
+        "status": "registered",
+        "project": project,
+        "ensemble_id": ensemble_id,
+        "recipe_type": recipe_type,
+        "parent_ids": parent_ids,
+        "is_feasible": is_feasible,
+        "created_ms": now,
+    }))
+}
+
+pub fn inspect_scientific_lineage(root: &Path, project: &str) -> Result<Value> {
+    let conn = connect(root)?;
+    let mut ensembles_q = sql(conn.prepare("SELECT ensemble_id, recipe_type, parent_ids, weights, meta_params, is_feasible, created_ms FROM scientific_ensembles WHERE project=?1 ORDER BY created_ms"))?;
+    let ensembles = sql(ensembles_q.query_map([project], |r| {
+        Ok(json!({
+            "ensemble_id": r.get::<_, String>(0)?,
+            "recipe_type": r.get::<_, String>(1)?,
+            "parent_ids": serde_json::from_str::<Value>(&r.get::<_, String>(2)?).unwrap_or(json!([])),
+            "weights": r.get::<_, Option<String>>(3)?.and_then(|s| serde_json::from_str::<Value>(&s).ok()),
+            "meta_params": r.get::<_, Option<String>>(4)?.and_then(|s| serde_json::from_str::<Value>(&s).ok()),
+            "is_feasible": r.get::<_, i64>(5)? == 1,
+            "created_ms": r.get::<_, i64>(6)?,
+        }))
+    }))?.collect::<std::result::Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+
+    let mut transforms_q = sql(conn.prepare("SELECT transform_id, transform_spec, parent_dataset, created_ms FROM feature_transforms WHERE project=?1 ORDER BY created_ms"))?;
+    let transforms = sql(transforms_q.query_map([project], |r| {
+        Ok(json!({
+            "transform_id": r.get::<_, String>(0)?,
+            "transform_spec": serde_json::from_str::<Value>(&r.get::<_, String>(1)?).unwrap_or(json!({})),
+            "parent_dataset": r.get::<_, String>(2)?,
+            "created_ms": r.get::<_, i64>(3)?,
+        }))
+    }))?.collect::<std::result::Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+
+    let mut calib_q = sql(conn.prepare("SELECT calibration_id, base_candidate_id, method, brier_score, log_loss, created_ms FROM calibration_records WHERE project=?1 ORDER BY created_ms"))?;
+    let calibrations = sql(calib_q.query_map([project], |r| {
+        Ok(json!({
+            "calibration_id": r.get::<_, String>(0)?,
+            "base_candidate_id": r.get::<_, String>(1)?,
+            "method": r.get::<_, String>(2)?,
+            "brier_score": r.get::<_, Option<f64>>(3)?,
+            "log_loss": r.get::<_, Option<f64>>(4)?,
+            "created_ms": r.get::<_, i64>(5)?,
+        }))
+    }))?.collect::<std::result::Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+
+    Ok(json!({
+        "project": project,
+        "ensembles": ensembles,
+        "feature_transforms": transforms,
+        "calibrations": calibrations,
+    }))
 }

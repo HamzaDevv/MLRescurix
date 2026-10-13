@@ -1,0 +1,89 @@
+{
+  "review_date": "2026-10-13",
+  "release_decision": "NOT_READY",
+  "evidence": {
+    "installed-review-binary.sha256": {
+      "sha256": "6879e38695fe7f1e2735b6ab9720dd3c58bc0b980ad9da68619d59eb06a2ee10",
+      "bytes": 116
+    },
+    "installed-review-capabilities.json": {
+      "sha256": "1ca02032def8daa2e341f3d11ce620bc586f4e3559195734dafc55956868f44c",
+      "bytes": 1329
+    },
+    "review-agent-real-action.log": {
+      "sha256": "9dea0f7f21fcb9dd6d9524e77c4288e9c524bb3a95645e47bb5db35d2c4130aa",
+      "bytes": 1703
+    },
+    "review-bundle-docker-final.log": {
+      "sha256": "a74a8291d6671688f825edc19154bee6e11bb8b75cd0efa978e9f592bdc4e7a8",
+      "bytes": 612
+    },
+    "review-capabilities.json": {
+      "sha256": "1ca02032def8daa2e341f3d11ce620bc586f4e3559195734dafc55956868f44c",
+      "bytes": 1329
+    },
+    "review-finalization-docker-final.log": {
+      "sha256": "383e94777cde9312ed203e018b97d0770a0ad5d4a7954360d9f06300a69611ef",
+      "bytes": 1710
+    },
+    "review-image-dependencies.json": {
+      "sha256": "883f6bd1518b64e3d5ee42a3c0d070e1f6103c89c86f5b8aa4f6e4475f36d2ae",
+      "bytes": 687
+    },
+    "review-python-docker-scoped.log": {
+      "sha256": "5ee415c6141268d9f029cb758ce3a11502ed6a05b033f0741fe32246081aac07",
+      "bytes": 6339
+    },
+    "review-python-docker.log": {
+      "sha256": "a9e952fe97d5d55097a00866f3c012c4890a538fc7eb6604042fcef7e75dbc73",
+      "bytes": 8315
+    },
+    "review-rust-action-evidence-failure.log": {
+      "sha256": "fe1717d875ea9ccd1bd46e0c636352dbf46ce47c5f25889cd91f227c583b2865",
+      "bytes": 3182
+    },
+    "review-rust-final.log": {
+      "sha256": "db59cf0b107a9f4e5c515e67a23493d40dd49b9a1c50c576f9a6e3711818a54b",
+      "bytes": 5998
+    },
+    "review-scientific-docker.log": {
+      "sha256": "ca9a1442d8e543fdf8e8ce960c5ec929b3ec5040cfcc4cf63e4bba52e6b9e899",
+      "bytes": 2047
+    },
+    "review-storage-cycles.json": {
+      "sha256": "2b90db6d996a6ba14425d451b83278cef421b159b6c504b89fac3e18fd083528",
+      "bytes": 7781
+    },
+    "review-followup-initial-failures.log": {
+      "sha256": "0d41beb94d73530032f46d1590b8a5f6ebf61a53b30f88bac33715e1d51ace50",
+      "bytes": 1300
+    }
+  },
+  "source_sha256": {
+    "README.md": "d58f658e26d7795ca5305e5f418e22e597e9df7069be014a603ce0a9cea33f2a",
+    "crates/harness/src/agents/orchestrator.rs": "57fd53995377b76076e8c07188dcbd03d4df7176fad15b46507e0b8c558e46c6",
+    "crates/harness/src/agents/recovery.rs": "bb33eb9391fc82460b27482a914452cac33cc3026bbc4c4876b56cddcad1ce2c",
+    "crates/harness/src/assets.rs": "318301d9fe88aafadc9099e84d5be59924004f23787e76f9ea648a6f08dfb4ef",
+    "crates/harness/src/bundle.rs": "dd28943a316f2683e48be8ff9e15a2de53732ad34af94b3bce8b7af241744bd9",
+    "crates/harness/src/execution.rs": "9a169dae4215c4a201873b346339329a08a382b510031f575a598a750a97dfc2",
+    "crates/harness/src/main.rs": "07e4e313cbd9f3aa0fdadb62849c9c6d9657a73cc2a9ec5ac4db47861e9a8fa5",
+    "crates/harness/tests/agent_m4.rs": "7bf674d2647aa012c78f1e17ab21628b935baf501d6f67603f1d4aacf78c454b",
+    "crates/harness/tests/foundation.rs": "3ff849f9b038da81a1669f327c2fd614e8a75bec815188f41340e1f68443bb1e",
+    "crates/harness/tests/pipeline_docker.rs": "7e4a12a119cf24039efe37b10f4393c744320c4555b669bd3d218ae90f17ed57",
+    "crates/harness/tests/recovery_cycles.rs": "638b4287952fd408d3a531e746a9674a712d044728f158a4d9d4f7f98592e0c5",
+    "docs/evidence/m6/matched-benchmarks.json": "c55b758cc020548d7b8aca3977ee80bb4772a8f3d482a752bfed1e190637a9b4",
+    "docs/m6-completion-status.md": "1281fcd1b5415a66120736ea026c1e06ee83962706dab9d695399d7aa6496f92",
+    "docs/m6-independent-review-2026-10-13.md": "8f8c712997997e0ffff217607337492b76ee2c059ba9157e53e2bbc2bfbd1ff7",
+    "docs/m6-release-notes.md": "15f554120bfbc762a498e307e4427c058cd4f152cf6fa7de6cb346a277a79b8d",
+    "docs/m6-session-prompt.md": "185180aa3204ed39adbb2b60da9a9e804bf5f27da4939b36b18d5ff52377fb41",
+    "python/src/mlrescurix_worker/scientific/workflow.py": "e43016e6d0950f5dfd8a7428cb508f2760c2ac7ebbf1df4f92c15f5417f46ed3",
+    "python/tests/test_scientific_workflow.py": "6287a069b894d174f656f93ef449969187da710c48719131c5e6b770595c93ad",
+    "scripts/run_m6_review_checks.sh": "b47c5701f633000c39e8a70305419d0435c239d935e3cb419e0ad949d33aea93"
+  },
+  "reproduction": "cargo install --path crates/harness --locked --root /tmp/mlrescurix-m6-install --force --offline; run installed capabilities from /tmp; bash scripts/run_m6_review_checks.sh",
+  "boundaries": "No host scientific execution, paid provider calls, fresh matched benchmarks, real candidate approvals or publication. Scientific execution in the review ran only in the digest-pinned image.",
+  "failed_attempts": [
+    "review-python-docker.log: missing native Rust dashboard binary; preserved, then scoped Docker rerun passed",
+    "review-rust-action-evidence-failure.log: old synthetic fixtures lacked authoritative actions; fixed admission setup and rerun passed"
+  ]
+}

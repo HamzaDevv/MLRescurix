@@ -18,7 +18,7 @@ fn hash_bytes(data: &[u8]) -> String {
 pub struct BranchWorkspaceManager;
 
 impl BranchWorkspaceManager {
-    fn checked_path(root: &Path, project: &str, branch: &str, relative: &str) -> Result<PathBuf> {
+    pub(crate) fn checked_path(root: &Path, project: &str, branch: &str, relative: &str) -> Result<PathBuf> {
         crate::contracts::id(project)?;
         crate::contracts::id(branch)?;
         if relative.is_empty() || Path::new(relative).components().any(|c| !matches!(c, std::path::Component::Normal(_))) {
@@ -151,6 +151,11 @@ impl BranchWorkspaceManager {
     ) -> Result<()> {
         for entry in fs::read_dir(dir).map_err(|e| e.to_string())? {
             let entry = entry.map_err(|e| e.to_string())?;
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            if name_str == "__pycache__" || name_str.ends_with(".pyc") || name_str.ends_with(".staging") {
+                continue;
+            }
             let path = entry.path();
             if entry.file_type().map_err(|e| e.to_string())?.is_symlink() {
                 return Err("Workspace symlink rejected".into());

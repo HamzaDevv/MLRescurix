@@ -1,0 +1,27 @@
+{
+  "python": "3.13.16 (main, Oct  6 2026, 02:09:52) [GCC 14.2.0]",
+  "platform": "linux",
+  "worker_version": "0.1.0",
+  "worker_requirements": [
+    "numpy==2.2.6",
+    "pandas==2.3.0",
+    "scipy==1.16.1",
+    "scikit-learn==1.8.0",
+    "joblib==1.5.1"
+  ],
+  "lock_sha256": "257c24036be9413699ba2f3461d1d19a83d7b29c50356a35e86d263aced5ea69",
+  "versions": {
+    "joblib": "1.5.1",
+    "numpy": "2.2.6",
+    "pandas": "2.3.0",
+    "python-dateutil": "2.9.0.post0",
+    "pytz": "2026.5",
+    "scikit-learn": "1.8.0",
+    "scipy": "1.16.1",
+    "setuptools": "80.9.0",
+    "six": "1.17.0",
+    "threadpoolctl": "3.7.0",
+    "tzdata": "2026.5"
+  },
+  "pip_check": "No broken requirements found."
+}

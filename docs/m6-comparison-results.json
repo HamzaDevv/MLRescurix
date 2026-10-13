@@ -1,0 +1,223 @@
+{
+  "benchmark_metadata": {
+    "timestamp": "2026-10-12T16:29:02Z",
+    "evaluation_engine": "Authoritative Rust harness (mlrescurix-harness v0.1.0)",
+    "hardware_platform": "Apple Silicon (macOS)",
+    "python_runtime": "/Library/Frameworks/Python.framework/Versions/3.13/bin/python3",
+    "matched_budget_per_arm": {
+      "max_trials": 16,
+      "max_screen_trials": 4,
+      "max_full_trials": 2,
+      "max_repeats": 3,
+      "search_wall_ms": 180000
+    },
+    "state_storage_total_bytes": 12581193
+  },
+  "tasks": [
+    {
+      "task": "Binary Classification (Unseen Categories & Interactions)",
+      "metric": "balanced_accuracy",
+      "arms": {
+        "M3 Baseline": {
+          "arm": "M3 Baseline",
+          "status": "apex_selected",
+          "apex_candidate_id": "baseline-tree",
+          "recipe": "tree",
+          "validation_metric": 0.6825396825396826,
+          "test_metric": 0.7420634920634921,
+          "test_metric_name": "balanced_accuracy",
+          "feasible_contenders": "3/3",
+          "bundle_bytes": 179791,
+          "bundle_verified": true,
+          "parity_check": "parity_verified_ok",
+          "warm_p95_ms": 4.901579099999999,
+          "timings_ms": {
+            "audit": 1717.1,
+            "baselines": 5002.5,
+            "search": 29092.1,
+            "finalize": 3612.7,
+            "total": 40595.1
+          },
+          "ledger_charged": {
+            "calls": 0,
+            "tokens": 0,
+            "wall_ms": 38899
+          },
+          "provider_spend_usd": 0.0
+        },
+        "M5 Scientific": {
+          "arm": "M5 Scientific",
+          "status": "apex_selected",
+          "apex_candidate_id": "baseline-tree",
+          "recipe": "tree",
+          "validation_metric": 0.5873015873015873,
+          "test_metric": 0.7420634920634921,
+          "test_metric_name": "balanced_accuracy",
+          "feasible_contenders": "3/3",
+          "bundle_bytes": 178967,
+          "bundle_verified": true,
+          "parity_check": "parity_verified_ok",
+          "warm_p95_ms": 4.9420827,
+          "timings_ms": {
+            "audit": 1256.5,
+            "baselines": 4807.8,
+            "search": 27434.7,
+            "finalize": 3676.9,
+            "total": 38347.0
+          },
+          "ledger_charged": {
+            "calls": 0,
+            "tokens": 0,
+            "wall_ms": 36641
+          },
+          "provider_spend_usd": 0.0
+        }
+      },
+      "comparison": {
+        "m3_test_score": 0.7420634920634921,
+        "m5_test_score": 0.7420634920634921,
+        "delta": 0.0,
+        "outcome": "Statistical parity / no difference"
+      }
+    },
+    {
+      "task": "Multiclass Classification (Missing Values, 3 Classes)",
+      "metric": "balanced_accuracy",
+      "arms": {
+        "M3 Baseline": {
+          "arm": "M3 Baseline",
+          "status": "apex_selected",
+          "apex_candidate_id": "baseline-linear",
+          "recipe": "linear",
+          "validation_metric": 0.8598484848484849,
+          "test_metric": 0.8487373737373738,
+          "test_metric_name": "balanced_accuracy",
+          "feasible_contenders": "3/3",
+          "bundle_bytes": 82155,
+          "bundle_verified": true,
+          "parity_check": "parity_verified_ok",
+          "warm_p95_ms": 1.8896756,
+          "timings_ms": {
+            "audit": 1202.4,
+            "baselines": 4623.4,
+            "search": 28029.5,
+            "finalize": 3588.6,
+            "total": 38557.2
+          },
+          "ledger_charged": {
+            "calls": 0,
+            "tokens": 0,
+            "wall_ms": 36921
+          },
+          "provider_spend_usd": 0.0
+        },
+        "M5 Scientific": {
+          "arm": "M5 Scientific",
+          "status": "apex_selected",
+          "apex_candidate_id": "baseline-linear",
+          "recipe": "linear",
+          "validation_metric": 0.9015151515151516,
+          "test_metric": 0.8487373737373738,
+          "test_metric_name": "balanced_accuracy",
+          "feasible_contenders": "3/3",
+          "bundle_bytes": 81686,
+          "bundle_verified": true,
+          "parity_check": "parity_verified_ok",
+          "warm_p95_ms": 1.675517,
+          "timings_ms": {
+            "audit": 1212.3,
+            "baselines": 5168.9,
+            "search": 27763.7,
+            "finalize": 3610.7,
+            "total": 38859.1
+          },
+          "ledger_charged": {
+            "calls": 0,
+            "tokens": 0,
+            "wall_ms": 37292
+          },
+          "provider_spend_usd": 0.0
+        }
+      },
+      "comparison": {
+        "m3_test_score": 0.8487373737373738,
+        "m5_test_score": 0.8487373737373738,
+        "delta": 0.0,
+        "outcome": "Statistical parity / no difference"
+      }
+    },
+    {
+      "task": "Regression (Nonlinear, Group Split)",
+      "metric": "rmse",
+      "arms": {
+        "M3 Baseline": {
+          "arm": "M3 Baseline",
+          "status": "apex_selected",
+          "apex_candidate_id": "baseline-tree",
+          "recipe": "tree",
+          "validation_metric": 2.2273733701177023,
+          "test_metric": 1.4947633180057978,
+          "test_metric_name": "rmse",
+          "feasible_contenders": "3/3",
+          "bundle_bytes": 496579,
+          "bundle_verified": true,
+          "parity_check": "parity_verified_ok",
+          "warm_p95_ms": 5.9950581,
+          "timings_ms": {
+            "audit": 1229.5,
+            "baselines": 4813.1,
+            "search": 29937.5,
+            "finalize": 4067.7,
+            "total": 41270.3
+          },
+          "ledger_charged": {
+            "calls": 0,
+            "tokens": 0,
+            "wall_ms": 39481
+          },
+          "provider_spend_usd": 0.0
+        },
+        "M5 Scientific": {
+          "arm": "M5 Scientific",
+          "status": "apex_selected",
+          "apex_candidate_id": "baseline-tree",
+          "recipe": "tree",
+          "validation_metric": 2.4614241376515675,
+          "test_metric": 1.4947633180057978,
+          "test_metric_name": "rmse",
+          "feasible_contenders": "3/3",
+          "bundle_bytes": 494494,
+          "bundle_verified": true,
+          "parity_check": "parity_verified_ok",
+          "warm_p95_ms": 5.2580211,
+          "timings_ms": {
+            "audit": 1216.7,
+            "baselines": 5002.2,
+            "search": 31618.0,
+            "finalize": 3577.4,
+            "total": 42615.9
+          },
+          "ledger_charged": {
+            "calls": 0,
+            "tokens": 0,
+            "wall_ms": 40915
+          },
+          "provider_spend_usd": 0.0
+        }
+      },
+      "comparison": {
+        "m3_test_score": 1.4947633180057978,
+        "m5_test_score": 1.4947633180057978,
+        "delta": 0.0,
+        "outcome": "Statistical parity / no difference"
+      }
+    }
+  ],
+  "release_acceptance": "not_established",
+  "review_limitations": [
+    "Historical bundle parity executed candidate code on host despite --sandbox",
+    "Recipe-only extension benchmark does not exercise feature/calibration/ensemble integration",
+    "Equal numerical scores do not establish statistical equivalence",
+    "Bounded single-run storage does not prove steady-state cleanup"
+  ]
+}

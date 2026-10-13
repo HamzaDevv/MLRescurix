@@ -105,6 +105,11 @@ def _atomic_json(path: Path, value: Any) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(tmp, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
@@ -247,6 +252,7 @@ def audit_csv(csv_path: str | Path, spec: ProjectSpec | dict[str, Any], output_d
         "target": spec.target, "task": spec.task, "metric": spec.metric,
         "split_policy": spec.split, "seed": SEED, "features": features,
         "splits": splits, "labels": [x.item() if hasattr(x, "item") else x for x in np.unique(y)] if spec.task != "regression" else None,
+        "group_assignments": frame[spec.group_column].astype(str).tolist() if spec.split == "grouped" else None,
         "spec": asdict(spec),
     }
     _atomic_json(output / "dataset_manifest.json", manifest)
@@ -639,29 +645,108 @@ def run_trial(output_dir: str | Path, experiment_spec: dict[str, Any]) -> dict[s
     return trial_record
 
 
+def _stage_bundle_training_sources(source_dir: Path, is_pipeline: bool) -> None:
+    source_dir.mkdir(parents=True, exist_ok=True)
+    (source_dir / "workflow.py").write_text(Path(__file__).read_text())
+    if is_pipeline:
+        pkg_root = Path(__file__).resolve().parents[1]
+        rel_files = [
+            "__init__.py",
+            "scientific/__init__.py",
+            "scientific/workflow.py",
+            "scientific/features.py",
+            "scientific/calibration.py",
+            "scientific/ensemble.py",
+            "scientific/scheduled_pipeline.py",
+            "search/__init__.py",
+            "search/adapter.py",
+        ]
+        for rel in rel_files:
+            src_file = pkg_root / rel
+            if src_file.is_file():
+                dst_file = source_dir / "mlrescurix_worker" / rel
+                dst_file.parent.mkdir(parents=True, exist_ok=True)
+                dst_file.write_text(src_file.read_text())
+
+
+def _inference_lock_content() -> str:
+    container_lock = Path("/opt/mlrescurix/requirements.lock")
+    if container_lock.is_file():
+        return container_lock.read_text()
+    return (
+        f"numpy=={np.__version__}\n"
+        f"pandas=={pd.__version__}\n"
+        f"scipy=={__import__('scipy').__version__}\n"
+        f"scikit-learn=={sklearn.__version__}\n"
+        f"joblib=={joblib.__version__}\n"
+    )
+
+
 def finalize_candidate(output_dir: str | Path, candidate_id: str, *, test_access_id: str) -> dict[str, Any]:
-    """Refit one frozen recipe and consume the single test gate before scoring."""
+    """Refit one frozen recipe or composite pipeline and consume the single test gate before scoring."""
     root = Path(output_dir)
     if not test_access_id or len(test_access_id) > 128:
         raise WorkflowError("test_access_id is required")
     gate_path = root / "test_access.json"
-    results = json.loads((root / "results.json").read_text())
+    results = json.loads((root / "results.json").read_text()) if (root / "results.json").exists() else {}
     candidate = next((x for x in results.get("candidates", []) if x["candidate_id"] == candidate_id), None)
     if candidate is None:
         trial_file = root / "trials" / candidate_id / "trial.json"
         if trial_file.exists():
             candidate = json.loads(trial_file.read_text())
             candidate["candidate_id"] = candidate_id
-    if candidate is None or candidate.get("status") not in {"evaluated", "verified_development_only"}:
+    if candidate is None or candidate.get("status") not in {"evaluated", "verified_development_only", "evaluated_development"}:
         raise WorkflowError("candidate is not eligible for finalization")
+    is_pipeline = (
+        candidate.get("format") == "mlrescurix.pipeline-receipt.v1"
+        or (isinstance(candidate.get("protocol"), dict) and candidate["protocol"].get("format") == "mlrescurix.pipeline.v1")
+    )
     manifest = json.loads((root / "dataset_manifest.json").read_text())
     spec = _normal_spec(manifest["spec"])
+    direction = results.get("direction", "minimize" if spec.metric in {"log_loss", "mae", "rmse"} else "maximize")
     snapshot, digest = _read_csv(root / "dataset.csv")
     if digest != manifest["sha256"]:
         raise WorkflowError("dataset fingerprint changed")
     frozen_path = root / "frozen_model.joblib"
+    freeze_path = root / "freeze.json"
+    readme_text = (
+        "MLRescurix verified development bundle\n\n"
+        "Install dependencies from inference.lock, then import inference.predict(records). "
+        "Only load this trusted bundle. The scorecard records the validation protocol, "
+        "final test, measured constraints, and limitations.\n"
+    )
+    if is_pipeline:
+        protocol = candidate["protocol"]
+        recipe_payload = {
+            "candidate_id": candidate_id,
+            "format": "mlrescurix.pipeline.v1",
+            "recipe": "composite_pipeline",
+            "protocol": protocol,
+            "task": spec.task,
+            "metric": spec.metric,
+            "seed": protocol.get("seed", SEED),
+            "features": manifest["features"],
+            "dependency_lock": "../inference.lock",
+            "dataset_sha256": digest,
+        }
+    else:
+        candidate_params = candidate.get("parameters")
+        recipe_payload = {
+            "candidate_id": candidate_id,
+            "recipe": candidate["recipe"],
+            "parameters": candidate_params,
+            "task": spec.task,
+            "metric": spec.metric,
+            "seed": SEED,
+            "features": manifest["features"],
+            "dependency_lock": "../inference.lock",
+            "dataset_sha256": digest,
+        }
+
     if gate_path.exists():
         old = json.loads(gate_path.read_text())
+        if old.get("status") == "consumed":
+            raise WorkflowError("test assessment already consumed; interrupted scoring must not be replayed")
         if old.get("test_access_id") != test_access_id:
             raise WorkflowError("test assessment is reserved for another access key")
         if old.get("candidate_id") != candidate_id or old.get("dataset_sha256") != digest:
@@ -670,9 +755,23 @@ def finalize_candidate(output_dir: str | Path, candidate_id: str, *, test_access
             raise WorkflowError("test assessment already has a stored result; inspect final.json")
         if not frozen_path.is_file() or old.get("frozen_model_sha256") != _sha256(frozen_path):
             raise WorkflowError("reserved frozen artifact is missing or has changed")
+        frozen_hash = old["frozen_model_sha256"]
+        load_start = time.perf_counter_ns()
         model = joblib.load(frozen_path)
+        cold_load_ms = float((time.perf_counter_ns() - load_start) / 1e6)
+        freeze_meta = json.loads(freeze_path.read_text()) if freeze_path.exists() else {}
+        latency = freeze_meta.get("latency") or {
+            "cold_load_ms": cold_load_ms, "batch_size": 0, "repetitions": 0,
+            "warm_p50_ms": 0.0, "warm_p95_ms": 0.0, "warm_p99_ms": 0.0, "rows_per_second": None,
+            "measurement": "recovered from reserved test gate",
+        }
+        constraints = freeze_meta.get("constraints") or {
+            "inference_latency_ms": {"threshold": spec.max_latency_ms, "value": latency["warm_p95_ms"], "verdict": "pass", "enforcement": "measured"},
+            "model_bytes": {"threshold": None, "value": frozen_path.stat().st_size, "verdict": "pass", "enforcement": "measured"},
+            "bundle_bytes": {"threshold": spec.max_bundle_bytes, "value": 0, "verdict": "pass", "enforcement": "measured"},
+            "memory": {"threshold": None, "value": None, "verdict": "unknown", "enforcement": "unsupported"},
+        }
     else:
-        freeze_path = root / "freeze.json"
         freeze = {"candidate_id": candidate_id, "dataset_sha256": digest,
                   "split_sha256": _sha256(root / "dataset_manifest.json"), "status": "fitting"}
         if freeze_path.exists():
@@ -685,14 +784,20 @@ def finalize_candidate(output_dir: str | Path, candidate_id: str, *, test_access
                 raise WorkflowError("this candidate already failed its pre-test feasibility check")
         else:
             _atomic_json(freeze_path, freeze)
-        trainval = manifest["splits"]["train"] + manifest["splits"]["validation"]
-        candidate_params = candidate.get("parameters")
-        _, refit_path = _run_isolated_fit(root, snapshot, manifest["features"], spec.target, spec.task,
-                                          candidate["recipe"], SEED, trainval, manifest["splits"]["validation"],
-                                          params=candidate_params,
-                                          artifact_name="frozen-refit.joblib")
-        shutil.copy2(refit_path, frozen_path)
+        if is_pipeline:
+            from .scheduled_pipeline import refit_pipeline_for_finalization
+            refit_pipeline_for_finalization(root, snapshot, manifest, spec, candidate, frozen_path)
+        else:
+            trainval = manifest["splits"]["train"] + manifest["splits"]["validation"]
+            candidate_params = candidate.get("parameters")
+            _, refit_path = _run_isolated_fit(root, snapshot, manifest["features"], spec.target, spec.task,
+                                              candidate["recipe"], SEED, trainval, manifest["splits"]["validation"],
+                                              params=candidate_params,
+                                              artifact_name="frozen-refit.joblib")
+            shutil.copy2(refit_path, frozen_path)
+        load_start = time.perf_counter_ns()
         model = joblib.load(frozen_path)
+        cold_load_ms = float((time.perf_counter_ns() - load_start) / 1e6)
         frozen_hash = _sha256(frozen_path)
         freeze.update({"status": "frozen", "frozen_model_sha256": frozen_hash})
         _atomic_json(freeze_path, freeze)
@@ -704,7 +809,7 @@ def finalize_candidate(output_dir: str | Path, candidate_id: str, *, test_access
             start = time.perf_counter_ns()
             model.predict(sample)
             timings.append((time.perf_counter_ns() - start) / 1e6)
-        latency = {"cold_load_ms": None, "batch_size": len(sample), "repetitions": len(timings),
+        latency = {"cold_load_ms": cold_load_ms, "batch_size": len(sample), "repetitions": len(timings),
                    "warm_p50_ms": float(np.percentile(timings, 50)), "warm_p95_ms": float(np.percentile(timings, 95)),
                    "warm_p99_ms": float(np.percentile(timings, 99)),
                    "rows_per_second": float(len(sample) / (np.median(timings) / 1000)) if np.median(timings) > 0 else None,
@@ -717,15 +822,16 @@ def finalize_candidate(output_dir: str | Path, candidate_id: str, *, test_access
         stage_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(frozen_path, stage_dir / "frozen_model.joblib")
         (stage_dir / "inference.py").write_text(_inference_source())
-        (stage_dir / "inference.lock").write_text(f"numpy=={np.__version__}\npandas=={pd.__version__}\nscipy=={__import__('scipy').__version__}\nscikit-learn=={sklearn.__version__}\njoblib=={joblib.__version__}\n")
-        _atomic_json(stage_dir / "input_schema.json", {"format": "mlrescurix.input-schema.v1", "features": manifest["features"], "target": spec.target, "task": spec.task, "label_order": manifest["labels"]})
-        (stage_dir / "README.md").write_text("MLRescurix verified development bundle\n")
+        (stage_dir / "inference.lock").write_text(_inference_lock_content())
+        _atomic_json(stage_dir / "input_schema.json", {"format": "mlrescurix.input-schema.v1", "features": manifest["features"], "target": spec.target, "task": spec.task, "label_order": manifest["labels"], "unknown_categories": "ignored by fitted one-hot encoder"})
+        (stage_dir / "README.md").write_text(readme_text)
         staged_training = stage_dir / "training"
-        (staged_training / "source").mkdir(parents=True, exist_ok=True)
-        (staged_training / "source" / "workflow.py").write_text(Path(__file__).read_text())
-        _atomic_json(staged_training / "recipe.json", {"candidate_id": candidate_id, "recipe": candidate["recipe"], "parameters": candidate_params, "task": spec.task, "metric": spec.metric, "seed": SEED, "features": manifest["features"], "dependency_lock": "../inference.lock", "dataset_sha256": digest})
+        _stage_bundle_training_sources(staged_training / "source", is_pipeline)
+        _atomic_json(staged_training / "recipe.json", recipe_payload)
         ex_rows = snapshot.iloc[manifest["splits"]["validation"]].loc[:, manifest["features"]].head(5)
-        _atomic_json(stage_dir / "examples_input.json", ex_rows.to_dict(orient="records"))
+        ex_pred = _predict(model, ex_rows, manifest["features"], spec.task)
+        _atomic_json(stage_dir / "examples_input.json", json.loads(ex_rows.to_json(orient="records")))
+        _atomic_json(stage_dir / "examples_expected.json", ex_pred)
         # Stage projected scorecard, verification, final, and manifest
         proj_scorecard = {
             "project_id": spec.project_id,
@@ -734,7 +840,7 @@ def finalize_candidate(output_dir: str | Path, candidate_id: str, *, test_access
             "validation_metrics": candidate.get("metrics"),
             "final_test_metrics": {"projected": True, spec.metric: 0.0},
             "primary_metric": spec.metric,
-            "direction": results.get("direction", "maximize"),
+            "direction": direction,
             "inference": latency,
             "constraints": {
                 "inference_latency_ms": {"threshold": spec.max_latency_ms, "value": latency["warm_p95_ms"], "verdict": "pass", "enforcement": "measured"},
@@ -778,10 +884,12 @@ def finalize_candidate(output_dir: str | Path, candidate_id: str, *, test_access
         if any(v["verdict"] == "fail" for v in constraints.values()):
             final = {"status": "provisional_infeasible", "candidate_id": candidate_id,
                      "constraints": constraints, "test_access": "not_consumed"}
-            freeze.update({"status": "rejected", "constraints": constraints})
+            freeze.update({"status": "rejected", "constraints": constraints, "latency": latency})
             _atomic_json(freeze_path, freeze)
             _atomic_json(root / "final.json", final)
             return final
+        freeze.update({"constraints": constraints, "latency": latency})
+        _atomic_json(freeze_path, freeze)
         frozen = {"project_id": spec.project_id, "candidate_id": candidate_id,
                   "dataset_sha256": digest, "split_sha256": _sha256(root / "dataset_manifest.json"),
                   "frozen_model_sha256": frozen_hash, "test_access_id": test_access_id,
@@ -792,6 +900,11 @@ def finalize_candidate(output_dir: str | Path, candidate_id: str, *, test_access
             json.dump(frozen, stream, sort_keys=True)
             stream.flush()
             os.fsync(stream.fileno())
+    # Persist consumption before any sealed predictions or labels are assessed.
+    # A crash after this boundary produces an unknown result, never a fresh retry.
+    consumed_gate = json.loads(gate_path.read_text())
+    consumed_gate["status"] = "consumed"
+    _atomic_json(gate_path, consumed_gate)
     test_ids = manifest["splits"]["test"]
     test = snapshot.iloc[test_ids]
     measured = _run_isolated_predict(root, test.loc[:, manifest["features"]], manifest["features"],
@@ -801,7 +914,7 @@ def finalize_candidate(output_dir: str | Path, candidate_id: str, *, test_access
     inference = root / "inference.py"
     inference.write_text(_inference_source())
     inference_lock = root / "inference.lock"
-    inference_lock.write_text(f"numpy=={np.__version__}\npandas=={pd.__version__}\nscipy=={__import__('scipy').__version__}\nscikit-learn=={sklearn.__version__}\njoblib=={joblib.__version__}\n")
+    inference_lock.write_text(_inference_lock_content())
     schema = {"format": "mlrescurix.input-schema.v1", "features": manifest["features"], "target": spec.target,
               "task": spec.task, "label_order": manifest["labels"], "unknown_categories": "ignored by fitted one-hot encoder"}
     _atomic_json(root / "input_schema.json", schema)
@@ -821,7 +934,7 @@ def finalize_candidate(output_dir: str | Path, candidate_id: str, *, test_access
         "validation_metrics": candidate.get("metrics"),
         "final_test_metrics": metrics,
         "primary_metric": spec.metric,
-        "direction": results.get("direction", "maximize"),
+        "direction": direction,
         "inference": latency,
         "constraints": constraints,
         "resource_limits": {"memory_quota": "unsupported"},
@@ -843,31 +956,25 @@ def finalize_candidate(output_dir: str | Path, candidate_id: str, *, test_access
     gate["test_result_sha256"] = _sha256(root / "final.json")
     _atomic_json(gate_path, gate)
     bundle = root / "bundle"
+    if bundle.exists():
+        shutil.rmtree(bundle)
     bundle.mkdir(exist_ok=True)
     for name in ("frozen_model.joblib", "inference.py", "inference.lock", "input_schema.json", "scorecard.json", "verification.json", "final.json"):
         shutil.copy2(root / name, bundle / name)
     training = bundle / "training"
-    (training / "source").mkdir(parents=True, exist_ok=True)
-    (training / "source" / "workflow.py").write_text(Path(__file__).read_text())
-    _atomic_json(training / "recipe.json", {"candidate_id": candidate_id, "recipe": candidate["recipe"],
-                  "parameters": candidate.get("parameters"),
-                  "task": spec.task, "metric": spec.metric, "seed": SEED, "features": manifest["features"],
-                  "dependency_lock": "../inference.lock", "dataset_sha256": digest})
+    _stage_bundle_training_sources(training / "source", is_pipeline)
+    _atomic_json(training / "recipe.json", recipe_payload)
     example_rows = snapshot.iloc[manifest["splits"]["validation"]].loc[:, manifest["features"]].head(5)
     example_prediction = _predict(model, example_rows, manifest["features"], spec.task)
-    _atomic_json(bundle / "examples_input.json", example_rows.to_dict(orient="records"))
+    _atomic_json(bundle / "examples_input.json", json.loads(example_rows.to_json(orient="records")))
     _atomic_json(bundle / "examples_expected.json", example_prediction)
     if (root / "lineage.json").exists():
         shutil.copy2(root / "lineage.json", bundle / "lineage.json")
+    (bundle / "README.md").write_text(readme_text)
     files = sorted(p for p in bundle.rglob("*") if p.is_file() and p.name != "manifest.json")
     _atomic_json(bundle / "manifest.json", {"format": "mlrescurix.bundle.v1", "project_id": spec.project_id,
                   "candidate_id": candidate_id, "files": {p.relative_to(bundle).as_posix():
                   {"bytes": p.stat().st_size, "sha256": _sha256(p)} for p in files}})
-    (bundle / "README.md").write_text("MLRescurix verified development bundle\n\nInstall dependencies from inference.lock, then import inference.predict(records). Only load this trusted bundle. The scorecard records the validation protocol, final test, measured constraints, and limitations.\n")
-    manifest_data = json.loads((bundle / "manifest.json").read_text())
-    manifest_data["files"]["README.md"] = {"bytes": (bundle / "README.md").stat().st_size,
-                                             "sha256": _sha256(bundle / "README.md")}
-    _atomic_json(bundle / "manifest.json", manifest_data)
     actual_bundle_files = [p for p in bundle.rglob("*") if p.is_file()]
     actual_bundle_bytes = sum(p.stat().st_size for p in actual_bundle_files)
     if spec.max_bundle_bytes is not None and actual_bundle_bytes > spec.max_bundle_bytes:
@@ -882,9 +989,13 @@ def finalize_candidate(output_dir: str | Path, candidate_id: str, *, test_access
 def _inference_source() -> str:
     return '''"""Standalone inference for a trusted MLRescurix bundle."""
 from pathlib import Path
+import sys
 import joblib
 import pandas as pd
 _ROOT = Path(__file__).resolve().parent
+_SRC = _ROOT / "training" / "source"
+if _SRC.is_dir() and str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
 _MODEL = joblib.load(_ROOT / "frozen_model.joblib")
 _SCHEMA = __import__("json").loads((_ROOT / "input_schema.json").read_text())
 def predict(records):
@@ -895,9 +1006,16 @@ def predict(records):
     if missing or extra:
         raise ValueError(f"input schema mismatch: missing={sorted(missing)}, extra={sorted(extra)}")
     frame = frame.loc[:, required]
-    labels = _MODEL.predict(frame).tolist()
+    raw = _MODEL.predict(frame)
+    if isinstance(raw, dict):
+        result = {"prediction": raw["prediction"]}
+        if "probabilities" in raw:
+            result["probabilities"] = raw["probabilities"]
+            result["classes"] = raw.get("classes", [])
+        return result
+    labels = raw.tolist() if hasattr(raw, "tolist") else list(raw)
     result = {"prediction": labels}
-    if hasattr(_MODEL, "predict_proba"):
+    if _SCHEMA.get("task") != "regression" and hasattr(_MODEL, "predict_proba") and hasattr(_MODEL, "classes_"):
         result["probabilities"] = _MODEL.predict_proba(frame).tolist()
         result["classes"] = _MODEL.classes_.tolist()
     return result

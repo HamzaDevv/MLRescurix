@@ -1,0 +1,56 @@
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.68s
+     Running tests/agent_m4.rs (target/debug/deps/agent_m4-c5a176030549b361)
+
+running 21 tests
+test m4_outbound_data_redaction_filter ... ok
+test m4_path_traversal_and_symlink_rejection_in_workspace ... ok
+test m4_authoritative_budget_query_and_remaining_calculation ... ok
+test m4_cross_branch_immutable_snapshot_reuse ... ok
+test m4_role_registry_defines_all_eight_specialist_roles ... ok
+test m4_sandbox_detector_and_honest_refusal_when_unavailable ... ok
+test m4_exhausted_budget_blocks_provider_before_dispatch ... ok
+test m4_achievement_checkpointing_and_context_compaction ... ok
+test m4_conservative_ceiling_settlement_on_provider_failure ... ok
+test m4_reconstructable_checkpoint_and_evidence_integrity ... ok
+test m4_schema_validation_pre_and_post_execution ... ok
+test m4_role_rbac_enforcement ... ok
+test m4_workspace_symlink_cannot_read_or_overwrite_host_file ... ok
+test m4_agent_authors_tests_and_reuses_diagnostic_tool_and_adapts_decision ... ok
+test m6_outbound_view_policy_approval_content_binding_and_expiry ... ok
+test m6_currency_cost_millicents_and_finalization_reserve_enforcement ... ok
+test m6_specialist_scheduling_crash_recovery_and_handoff ... ok
+test m5_delegation_preserves_prior_tasks_and_reports_provider_failure ... ok
+test m4_research_closure_and_critic_finalization ... ok
+test m6_provider_turn_crash_reconciliation_all_four_states ... ok
+test m4_ten_projects_and_three_branches_fairness ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.01s
+
+     Running tests/release_m6.rs (target/debug/deps/release_m6-eef1519a4d8f14cb)
+
+running 8 tests
+test m6_bundle_verification_valid_bundle_and_tampering_detection ... ignored, historical host scientific fixture; replaced by explicit digest-pinned Docker pipeline tests; does not satisfy content-bound finalization
+test m6_end_to_end_autonomous_task_no_manual_edits ... ignored, historical host scientific fixture; no longer valid autonomous delivery evidence; composite finalization remains pending
+test m6_exported_bundle_integrity_without_executing_candidate ... ignored, historical delivery fixture lacks content-bound approval; real bundle integrity/parity now covered in bundle_scientific_docker
+test m6_project_cancellation_isolation ... ok
+test m6_existing_version_six_database_receives_boosting_migration ... FAILED
+test m6_scientific_lineage_registration_and_fencing ... ok
+test m6_lease_safe_storage_gc_and_protected_artifact_retention ... ok
+test m6_standalone_executable_runs_without_source_checkout ... ok
+
+failures:
+
+---- m6_existing_version_six_database_receives_boosting_migration stdout ----
+
+thread 'm6_existing_version_six_database_receives_boosting_migration' (171205) panicked at crates/harness/tests/release_m6.rs:580:31:
+called `Result::unwrap()` on an `Err` value: "table tool_outcomes already exists in \nCREATE TABLE tool_outcomes(\n project TEXT NOT NULL, task TEXT NOT NULL, turn INTEGER NOT NULL, call_id TEXT NOT NULL,\n action TEXT NOT NULL, branch TEXT NOT NULL, name TEXT NOT NULL, arguments TEXT NOT NULL,\n intent_json TEXT NOT NULL, outcome TEXT, outcome_sha256 TEXT,\n PRIMARY KEY(project,task,turn,call_id),\n FOREIGN KEY(project,task,turn) REFERENCES provider_turn_receipts(project,task,turn),\n FOREIGN KEY(project,action) REFERENCES actions(project,id),\n CHECK((outcome IS NULL) = (outcome_sha256 IS NULL))\n);\nPRAGMA user_version=9;\n at offset 14"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    m6_existing_version_six_database_receives_boosting_migration
+
+test result: FAILED. 4 passed; 1 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.69s
+
+error: test failed, to rerun pass `--test release_m6`

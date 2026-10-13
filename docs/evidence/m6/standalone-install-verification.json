@@ -1,0 +1,188 @@
+{
+  "verified_at_utc": "2026-10-13T06:47:24Z",
+  "install_command": "cargo install --path /Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness --offline --force --root /var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/mlr-standalone-install-6tet95j2/install-root",
+  "isolated_working_directory": "/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/mlr-standalone-install-6tet95j2/isolated-workdir",
+  "installed_binary": "/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/mlr-standalone-install-6tet95j2/install-root/bin/mlrescurix-harness",
+  "materialized_runtime_asset": "/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/mlr-standalone-install-6tet95j2/isolated-workdir/state/runtime-assets/033390e45d9766da206e124c3d04a03eb55b50dfc804ea97bebd68ab56f8ad2c/python/src/mlrescurix_worker/scientific/workflow.py",
+  "capabilities": {
+    "agent_authored_tools": true,
+    "agent_coding_harness": true,
+    "arch": "aarch64",
+    "bundle_verification": true,
+    "constrained_search": true,
+    "external_bundle_authenticity": true,
+    "frame_bytes": 65536,
+    "official_evaluation": true,
+    "os": "macos",
+    "phase": "M6",
+    "protocol": "mlrescurix/1",
+    "providers": true,
+    "release_acceptance": "pending",
+    "release_prerequisites": {
+      "bounded_total_storage_cycles": true,
+      "composite_finalization": true,
+      "durable_specialist_outcome_recovery": true,
+      "fresh_matched_benchmarks": false
+    },
+    "resource_enforcement": {
+      "cpu": "best-effort process sample",
+      "disk": "free-space admission and bounded outputs",
+      "memory": "RSS sampled; quota unsupported",
+      "thread_pool_environment_hints": "applied; library dependent",
+      "worker_count": "enforced"
+    },
+    "resumable_search": true,
+    "sandbox_isolation": true,
+    "scientific_execution": true,
+    "standalone_install_without_checkout": true,
+    "supported_platforms": [
+      {
+        "host_arch": "aarch64",
+        "host_os": "macos",
+        "scientific_container_arch": "aarch64",
+        "scientific_container_os": "linux",
+        "status": "verified"
+      }
+    ],
+    "trusted_probe_execution": true,
+    "writer_queue": 64
+  },
+  "environment": {
+    "evidence": {
+      "lock": "# CPython 3.13, Linux aarch64; resolved runtime plus locked build backend.\njoblib==1.5.1 --hash=sha256:4719a31f054c7d766948dcd83e9613686b27114f190f717cec7eaa2084f8a74a\nnumpy==2.2.6 --hash=sha256:f92729c95468a2f4f15e9bb94c432a9229d0d50de67304399627a943201baa2f\npandas==2.3.0 --hash=sha256:bb32dc743b52467d488e7a7c8039b821da2826a9ba4f85b89ea95274f863280f\npython-dateutil==2.9.0.post0 --hash=sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427\npytz==2026.5 --hash=sha256:e658af3757f9e26a9d25dd2aff38335acd92bc9104f890a894b2c1ba28311b03\nscikit-learn==1.8.0 --hash=sha256:74b66d8689d52ed04c271e1329f0c61635bcaf5b926db9b12d58914cdc01fe57\nscipy==1.16.1 --hash=sha256:0851f6a1e537fe9399f35986897e395a1aa61c574b178c0d456be5b1a0f5ca1f\nsetuptools==80.9.0 --hash=sha256:062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922\nsix==1.17.0 --hash=sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274\nthreadpoolctl==3.7.0 --hash=sha256:cd8b60b5641b45c67bbf73c64c843235fc2d8a480c87389f52f5dbee893b86be\ntzdata==2026.5 --hash=sha256:b683bd1b6659ddcd810ff02ad09ba821d4bf1065072805063eb35c49617905ac\n",
+      "python": "3.13.16 (main, Oct  6 2026, 02:09:52) [GCC 14.2.0]",
+      "versions": {
+        "joblib": "1.5.1",
+        "numpy": "2.2.6",
+        "pandas": "2.3.0",
+        "python-dateutil": "2.9.0.post0",
+        "pytz": "2026.5",
+        "scikit-learn": "1.8.0",
+        "scipy": "1.16.1",
+        "setuptools": "80.9.0",
+        "six": "1.17.0",
+        "threadpoolctl": "3.7.0",
+        "tzdata": "2026.5"
+      }
+    },
+    "id": "science",
+    "identity": "366dfe9371dab4b8c9620042fedf94d62a3ea085469da3506b7eb226353934e6",
+    "image": "mlrescurix-scientific@sha256:d094b6becbbd1a1d86b944fd39370bfe26bb96f6290b429c0a51c512faf5f1bd",
+    "status": "ready"
+  },
+  "dataset": {
+    "bytes": 1413,
+    "dataset_id": "d",
+    "project_id": "standalone",
+    "reused": false,
+    "sha256": "78d66db57098fbbd8f8b4b464e6adc280635d3bd86ad2090fa510d6e76dcc9af"
+  },
+  "finalization_binding_sha256": "6fb2c8d54dfbc6eaf465247ac6f51f3cc3e595a3a479eccf22f658907feb3937",
+  "user_approval": {
+    "approved_by": "user",
+    "candidate_id": "full",
+    "project": "standalone",
+    "rationale": "Standalone CLI user approval",
+    "status": "approved"
+  },
+  "critic_audit": {
+    "auditor": "independent-critic-cli",
+    "candidate_id": "full",
+    "project": "standalone",
+    "rationale": "Standalone CLI critic audit",
+    "status": "approved"
+  },
+  "bundle_verification": {
+    "status": "sandbox_examples_verified",
+    "bundle_path": "/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/mlr-standalone-install-6tet95j2/isolated-workdir/state/workflows/standalone/bundle",
+    "project_id": "standalone",
+    "candidate_id": "full",
+    "format": "mlrescurix.bundle.v1",
+    "total_bytes": 206722,
+    "file_count": 22,
+    "manifest_verified": true,
+    "contracts_verified": true,
+    "parity_check": "parity_verified_ok",
+    "constraints_verified": true,
+    "details": {
+      "authenticity": "verified_against_authoritative_state",
+      "constraints": {
+        "bundle_bytes": {
+          "enforcement": "measured",
+          "threshold": null,
+          "value": 206663,
+          "verdict": "pass"
+        },
+        "inference_latency_ms": {
+          "enforcement": "measured",
+          "threshold": null,
+          "value": 5.5993333000000005,
+          "verdict": "pass"
+        },
+        "memory": {
+          "enforcement": "unsupported",
+          "threshold": null,
+          "value": null,
+          "verdict": "unknown"
+        },
+        "model_bytes": {
+          "enforcement": "measured",
+          "threshold": null,
+          "value": 3552,
+          "verdict": "pass"
+        }
+      },
+      "external_binding": {
+        "bundle_manifest_sha256": "cca35ae64fbdac3db9d733777edbca784995d778f06110d0928c53ea4252640e",
+        "dataset_sha256": "78d66db57098fbbd8f8b4b464e6adc280635d3bd86ad2090fa510d6e76dcc9af",
+        "decision_binding_sha256": "6fb2c8d54dfbc6eaf465247ac6f51f3cc3e595a3a479eccf22f658907feb3937",
+        "environment_identity": "366dfe9371dab4b8c9620042fedf94d62a3ea085469da3506b7eb226353934e6",
+        "final_result_sha256": "343994c35e76558aa965e7f78a1b61622d127d3faad6466ecfd098438fa7bb9b",
+        "frozen_model_sha256": "6f10b5f2bec90c9a1bca4ac9dde63e13a664ad82705709a0cec4b90359fc4d32",
+        "state_root": "/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/mlr-standalone-install-6tet95j2/isolated-workdir/state",
+        "test_access_id": "test-gate-standalone",
+        "trusted_source_sha256": "033390e45d9766da206e124c3d04a03eb55b50dfc804ea97bebd68ab56f8ad2c"
+      },
+      "feasibility": "sandbox_measured_and_constraints_verified",
+      "frozen_model_bytes": 3552,
+      "frozen_model_sha256": "6f10b5f2bec90c9a1bca4ac9dde63e13a664ad82705709a0cec4b90359fc4d32",
+      "sandbox_telemetry": {
+        "batch_size": 5,
+        "cold_load_ms": 465.348167,
+        "image_identity": "mlrescurix-scientific@sha256:d094b6becbbd1a1d86b944fd39370bfe26bb96f6290b429c0a51c512faf5f1bd",
+        "image_sha256": "d094b6becbbd1a1d86b944fd39370bfe26bb96f6290b429c0a51c512faf5f1bd",
+        "peak_rss_kb": 152628,
+        "repetitions": 5,
+        "warm_p50_ms": 9.340708,
+        "warm_p95_ms": 9.5071338
+      },
+      "scope": "authoritative external state binding and pinned container sandbox parity verified",
+      "scorecard_metrics": {
+        "balanced_accuracy": 0.6,
+        "log_loss": 0.6929005701210638
+      }
+    },
+    "verified_at_ms": 1791874044796
+  },
+  "storage_policy_summary": {
+    "observed": {
+      "actions_rows": 3,
+      "charges_rows": 3,
+      "commands_rows": 4,
+      "database_bytes": 462848,
+      "events_rows": 28,
+      "held_reservations": 0,
+      "jobs_rows": 3,
+      "total_state_bytes": 1161419
+    },
+    "policy": {
+      "disk_headroom_bytes": 67108864,
+      "max_retained_checkpoints_per_task": 4,
+      "max_retained_commands_per_project": 64,
+      "max_retained_events_per_project": 64,
+      "max_retained_settled_actions_per_project": 24,
+      "max_retained_terminal_jobs_per_project": 24,
+      "max_state_total_bytes": 134217728
+    }
+  }
+}

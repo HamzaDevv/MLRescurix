@@ -1,0 +1,61 @@
+  Installing mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.27
+   Compiling quote v1.0.47
+   Compiling version_check v0.9.5
+   Compiling typenum v1.20.1
+   Compiling find-msvc-tools v0.1.14
+   Compiling shlex v2.0.1
+   Compiling serde_core v1.0.228
+   Compiling cc v1.8.0
+   Compiling pkg-config v0.3.34
+   Compiling libc v0.2.190
+   Compiling generic-array v0.14.7
+   Compiling utf8parse v0.2.2
+   Compiling vcpkg v0.2.15
+   Compiling anstyle-parse v0.2.7
+   Compiling foldhash v0.1.5
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling anstyle v1.0.14
+   Compiling anstyle-query v1.1.5
+   Compiling colorchoice v1.0.5
+   Compiling hashbrown v0.15.5
+   Compiling anstream v0.6.21
+   Compiling once_cell v1.21.4
+   Compiling libsqlite3-sys v0.35.0
+   Compiling clap_lex v0.7.7
+   Compiling strsim v0.11.1
+   Compiling serde_json v1.0.145
+   Compiling heck v0.5.0
+   Compiling pin-project-lite v0.2.17
+   Compiling serde v1.0.228
+   Compiling clap_builder v4.5.50
+   Compiling syn v2.0.119
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling digest v0.10.7
+   Compiling tracing-core v0.1.36
+   Compiling cpufeatures v0.2.17
+   Compiling hashlink v0.10.0
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling fallible-iterator v0.3.0
+   Compiling memchr v2.8.3
+   Compiling itoa v1.0.18
+   Compiling bitflags v2.13.2
+   Compiling ryu v1.0.23
+   Compiling cfg-if v1.0.5
+   Compiling smallvec v1.16.3
+   Compiling sha2 v0.10.9
+   Compiling tracing-attributes v0.1.31
+   Compiling serde_derive v1.0.228
+   Compiling tokio-macros v2.6.1
+   Compiling clap_derive v4.5.49
+   Compiling tokio v1.48.0
+   Compiling tracing v0.1.41
+   Compiling clap v4.5.50
+   Compiling rusqlite v0.37.0
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `release` profile [optimized] target(s) in 33.20s
+  Installing /private/tmp/mlrescurix-m6-clean-install/bin/mlrescurix-harness
+   Installed package `mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)` (executable `mlrescurix-harness`)
+warning: be sure to add `/private/tmp/mlrescurix-m6-clean-install/bin` to your PATH to be able to run the installed binaries

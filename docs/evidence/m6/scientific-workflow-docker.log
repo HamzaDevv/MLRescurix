@@ -1,0 +1,12 @@
+test_chronological_split_preserves_input_order (test_scientific_workflow.ScientificWorkflowTests.test_chronological_split_preserves_input_order) ... ok
+test_classification_audit_baselines_frozen_bundle_and_test_gate (test_scientific_workflow.ScientificWorkflowTests.test_classification_audit_baselines_frozen_bundle_and_test_gate) ... ok
+test_declared_inference_limit_fails_before_test_gate (test_scientific_workflow.ScientificWorkflowTests.test_declared_inference_limit_fails_before_test_gate) ... ok
+test_grouped_split_has_no_group_leakage (test_scientific_workflow.ScientificWorkflowTests.test_grouped_split_has_no_group_leakage) ... ok
+test_multiclass_log_loss_with_explicit_labels (test_scientific_workflow.ScientificWorkflowTests.test_multiclass_log_loss_with_explicit_labels) ... ok
+test_regression_random_split_and_metrics (test_scientific_workflow.ScientificWorkflowTests.test_regression_random_split_and_metrics) ... ok
+test_rejects_missing_targets_and_changed_snapshot (test_scientific_workflow.ScientificWorkflowTests.test_rejects_missing_targets_and_changed_snapshot) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 13.030s
+
+OK

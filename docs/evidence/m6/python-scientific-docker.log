@@ -1,0 +1,25 @@
+test_calibration_rejects_wrong_class_order_and_invalid_probabilities (test_m5_review.M5ReviewTests.test_calibration_rejects_wrong_class_order_and_invalid_probabilities) ... ok
+test_imputation_without_scaling_and_new_missing_columns (test_m5_review.M5ReviewTests.test_imputation_without_scaling_and_new_missing_columns) ... ok
+test_invalid_voting_weights_rejected (test_m5_review.M5ReviewTests.test_invalid_voting_weights_rejected) ... ok
+test_unknown_category_uses_fold_mean_and_ignores_index_labels (test_m5_review.M5ReviewTests.test_unknown_category_uses_fold_mean_and_ignores_index_labels) ... ok
+test_voting_aligns_parent_probability_columns (test_m5_review.M5ReviewTests.test_voting_aligns_parent_probability_columns) ... ok
+test_bounded_stacking_ensemble (test_m5_scientific.M5ScientificTests.test_bounded_stacking_ensemble) ... ok
+test_cpu_hist_boosting_hyperparameter_ranges_and_pipeline (test_m5_scientific.M5ScientificTests.test_cpu_hist_boosting_hyperparameter_ranges_and_pipeline) ... ok
+test_oof_target_encoder_no_leakage (test_m5_scientific.M5ScientificTests.test_oof_target_encoder_no_leakage) ... ok
+test_split_aware_calibrator_binary (test_m5_scientific.M5ScientificTests.test_split_aware_calibrator_binary) ... ok
+test_split_aware_calibrator_sigmoid_multiclass (test_m5_scientific.M5ScientificTests.test_split_aware_calibrator_sigmoid_multiclass) ... ok
+test_split_aware_feature_pipeline (test_m5_scientific.M5ScientificTests.test_split_aware_feature_pipeline) ... /usr/local/lib/python3.13/site-packages/sklearn/preprocessing/_discretization.py:304: FutureWarning: The current default behavior, quantile_method='linear', will be changed to quantile_method='averaged_inverted_cdf' in scikit-learn version 1.9 to naturally support sample weight equivalence properties by default. Pass quantile_method='averaged_inverted_cdf' explicitly to silence this warning.
+  warnings.warn(
+ok
+test_voting_ensemble_execution_and_lineage (test_m5_scientific.M5ScientificTests.test_voting_ensemble_execution_and_lineage) ... ok
+test_sandbox_request_refuses_host_execution (test_m6_bundle.M6BundleTests.test_sandbox_request_refuses_host_execution) ... ok
+test_symlink_root_rejected (test_m6_bundle.M6BundleTests.test_symlink_root_rejected) ... ok
+test_tampered_model_rejected (test_m6_bundle.M6BundleTests.test_tampered_model_rejected) ... ok
+test_untracked_file_rejected (test_m6_bundle.M6BundleTests.test_untracked_file_rejected) ... ok
+test_unverified_constraint_rejected (test_m6_bundle.M6BundleTests.test_unverified_constraint_rejected) ... ok
+test_valid_bundle_verification (test_m6_bundle.M6BundleTests.test_valid_bundle_verification) ... ok
+
+----------------------------------------------------------------------
+Ran 18 tests in 0.071s
+
+OK

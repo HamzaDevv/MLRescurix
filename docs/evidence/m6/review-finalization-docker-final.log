@@ -1,0 +1,15 @@
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.57s
+     Running tests/pipeline_docker.rs (target/debug/deps/pipeline_docker-614e5fea1d248872)
+
+running 1 test
+binary: fits=9 cold_load_ms=1.196666 full_raw_input_p95_ms=10.6380465 delivered_bytes=11491 OOF="1d6f4a139b7565c615541138749396f5dcf7aa2b23e378e09b6016635f0f63db" final_test={"balanced_accuracy":0.5666666666666667,"log_loss":0.6929179953334454}
+multi: fits=11 cold_load_ms=1.297667 full_raw_input_p95_ms=11.772958 delivered_bytes=12843 OOF="ceed8631946d9475fc39a038df75dc4992406df8c86348a188d47488252d330d" final_test={"balanced_accuracy":0.3333333333333333,"log_loss":1.136028530865549}
+reg: fits=9 cold_load_ms=1.449917 full_raw_input_p95_ms=6.7885922999999995 delivered_bytes=10379 OOF="a64be8ce2b16ded8e21781b92ffc71029080b2dda62129d1c0da76a31f219f1e" final_test={"mae":1.1805348117285002,"rmse":1.6297642841666815}
+group: fits=9 cold_load_ms=1.222125 full_raw_input_p95_ms=10.2894922 delivered_bytes=10995 OOF="5e0ca75040f72943a5f20de1f7b8d09304a4e63ac0ba45f21e42f02c01ea11ab" final_test={"balanced_accuracy":0.5,"log_loss":0.6944346345534204}
+time: fits=9 cold_load_ms=1.041292 full_raw_input_p95_ms=5.3476786 delivered_bytes=10379 OOF="160714581c0b1c08e5924e89c4dbcc54712cbd36b6ca781e96642ae52a0bc664" final_test={"mae":0.8812013246222062,"rmse":1.0154701712422036}
+revoked: queued finalization rejected before scientific dispatch and sealed-test access
+test scheduled_features_calibration_ensemble_and_verified_oof ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 34.70s
+

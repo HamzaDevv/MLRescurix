@@ -121,12 +121,20 @@ impl SandboxRunner {
         let env_image = std::env::var("MLRESCURIX_SANDBOX_IMAGE").ok();
         let default_image = "python:3.13-slim";
         let image = sandbox_image.or(env_image.as_deref()).unwrap_or(default_image);
+        static BOX_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let seq = BOX_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let start = Instant::now();
-        let container_name = format!("mlr-box-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos());
+        let container_name = format!(
+            "mlr-box-{}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos(),
+            seq
+        );
 
         let mut cmd = Command::new("docker");
         cmd.args([
             "run",
+            "--pull=never",
             "--name", &container_name,
             "--rm",
             "--network", "none",
