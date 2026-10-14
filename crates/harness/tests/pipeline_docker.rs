@@ -14,10 +14,10 @@ pub fn setup(root:&Path,p:&str){
     ] {let receipt=r.command(Request{command_id:id,project_id:p.into(),expected_revision:None,operation:op}).unwrap();assert_eq!(receipt.status,"applied","{}",receipt.result);}
 }
 fn job(root:&Path,p:&str,id:&str,operation:&str,spec:Option<Value>){
-    execution::submit(root,JobSpec{job_id:id.into(),project_id:p.into(),task_id:"t".into(),generation:2,timeout_ms:45_000,threads:1,max_output_bytes:4_194_304,environment_id:Some("science".into()),probe:Probe::Scientific{operation:operation.into(),dataset_id:"d".into(),spec,candidate_id:None,test_access_id:None}}).unwrap();
+    execution::submit(root,JobSpec{ resources: execution::resources::ResourceRequirements{require_memory_certification:true,..Default::default()},job_id:id.into(),project_id:p.into(),task_id:"t".into(),generation:2,timeout_ms:45_000,threads:1,max_output_bytes:4_194_304,environment_id:Some("science".into()),probe:Probe::Scientific{operation:operation.into(),dataset_id:"d".into(),spec,candidate_id:None,test_access_id:None}}).unwrap();
 }
 fn wait(root:&Path,p:&str,id:&str,s:&mut Supervisor){
-    for _ in 0..600 {s.tick().unwrap();let view=execution::inspect(root,p,id).unwrap();if view.status=="succeeded"{return;}
+    for _ in 0..600 {s.tick().unwrap();let view=execution::inspect(root,p,id).unwrap();if view.status=="succeeded"{let receipt=view.resource_receipt.as_ref().expect("container receipt");assert_eq!(receipt["exit_confirmed"],true);assert_eq!(receipt["measurement_complete"],true,"{receipt}");return;}
         assert!(matches!(view.status.as_str(),"queued"|"running"|"recovering"),"{}: {:?}; log={}",id,view.reason,fs::read_to_string(root.join("logs").join(p).join(format!("{id}.log"))).unwrap_or_default());std::thread::sleep(Duration::from_millis(50));}
     panic!("pipeline deadline");
 }
@@ -75,7 +75,7 @@ fn scheduled_features_calibration_ensemble_and_verified_oof(){
         let verified_decisions=execution::require_finalization_decisions(&root,p,"full").unwrap();
         assert_eq!(verified_decisions["binding_sha256"],binding_sha);
 
-        let substituted=JobSpec{
+        let substituted=JobSpec{ resources: Default::default(),
             job_id:"substituted-finalize".into(),project_id:p.into(),task_id:"t".into(),generation:2,timeout_ms:60_000,threads:1,max_output_bytes:4_194_304,
             environment_id:Some("substitute".into()),
             probe:Probe::Scientific{operation:"finalize".into(),dataset_id:"d".into(),spec:None,candidate_id:Some("full".into()),test_access_id:Some(format!("substituted-gate-{p}"))}
@@ -83,7 +83,7 @@ fn scheduled_features_calibration_ensemble_and_verified_oof(){
         assert!(execution::submit(&root,substituted).unwrap_err().contains("environment differs"));
 
         // Submit and run composite pipeline finalization in the pinned scientific Docker image
-        execution::submit(&root,JobSpec{
+        execution::submit(&root,JobSpec{ resources: Default::default(),
             job_id:"finalize".into(),project_id:p.into(),task_id:"t".into(),generation:2,timeout_ms:60_000,threads:1,max_output_bytes:4_194_304,
             environment_id:Some("science".into()),
             probe:Probe::Scientific{operation:"finalize".into(),dataset_id:"d".into(),spec:None,candidate_id:Some("full".into()),test_access_id:Some(format!("test-gate-{p}"))}
@@ -144,7 +144,7 @@ fn scheduled_features_calibration_ensemble_and_verified_oof(){
         }
 
         // Second finalization or new pipeline after test gate consumption is permanently rejected
-        let dup_err=execution::submit(&root,JobSpec{
+        let dup_err=execution::submit(&root,JobSpec{ resources: Default::default(),
             job_id:"finalize-dup".into(),project_id:p.into(),task_id:"t".into(),generation:2,timeout_ms:60_000,threads:1,max_output_bytes:4_194_304,
             environment_id:Some("science".into()),
             probe:Probe::Scientific{operation:"finalize".into(),dataset_id:"d".into(),spec:None,candidate_id:Some("full".into()),test_access_id:Some(format!("test-gate-{p}-2"))}
@@ -169,7 +169,7 @@ fn scheduled_features_calibration_ensemble_and_verified_oof(){
     let b_sha=binding["binding_sha256"].as_str().unwrap();
     execution::record_content_decision(&root,p,"full",b_sha,"user_approval","human",true,"approve").unwrap();
     execution::record_content_decision(&root,p,"full",b_sha,"critic_audit","critic-task",true,"audit").unwrap();
-    execution::submit(&root,JobSpec{
+    execution::submit(&root,JobSpec{ resources: Default::default(),
         job_id:"finalize-infeasible".into(),project_id:p.into(),task_id:"t".into(),generation:2,timeout_ms:60_000,threads:1,max_output_bytes:4_194_304,
         environment_id:Some("science".into()),
         probe:Probe::Scientific{operation:"finalize".into(),dataset_id:"d".into(),spec:None,candidate_id:Some("full".into()),test_access_id:Some("test-gate-infeasible".into())}

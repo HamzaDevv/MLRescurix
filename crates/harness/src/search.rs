@@ -681,7 +681,7 @@ fn run_single_trial_job(
         }
     }
 
-    let job_spec = JobSpec {
+    let job_spec = JobSpec { resources: Default::default(),
         job_id: job_id.clone(),
         project_id: project.to_string(),
         task_id: task_id.to_string(),

@@ -26,6 +26,7 @@ enum Command {
     SearchRun { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] session:String, #[arg(long)] task:String, #[arg(long)] generation:u64, #[arg(long)] environment:Option<String> },
     PinArtifact { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] job:String, #[arg(long,default_value_t=true)] pinned:bool },
     CollectArtifacts { #[arg(long)] state:PathBuf },
+    ArchiveArtifacts { #[arg(long)] state:PathBuf, #[arg(long)] project:Option<String> },
     SetProjectWeight { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] weight:u8 },
     RegisterDataset { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] id:String, #[arg(long)] csv:PathBuf },
     Dashboard { #[arg(long)] state:PathBuf, #[arg(long,default_value_t=8765)] port:u16 },
@@ -77,6 +78,7 @@ async fn run()->Result<(),String>{
         },
         Command::PinArtifact{state,project,job,pinned}=>{execution::pin_artifact(&state,&project,&job,pinned)?;print(serde_json::json!({"project":project,"job":job,"pinned":pinned}))},
         Command::CollectArtifacts{state}=>print(serde_json::json!({"reclaimed_bytes":execution::collect_artifacts(&state)?})),
+        Command::ArchiveArtifacts{state,project}=>print(execution::archive_artifacts(&state,project.as_deref())?),
         Command::SetProjectWeight{state,project,weight}=>{execution::set_project_weight(&state,&project,weight)?;print(serde_json::json!({"project":project,"weight":weight}))},
         Command::RegisterDataset{state,project,id,csv}=>print(execution::register_dataset(&state,&project,&id,&csv)?),
         Command::Dashboard{state,port}=>{
@@ -217,8 +219,8 @@ async fn run()->Result<(),String>{
             "resource_enforcement":{
                 "worker_count":"enforced",
                 "thread_pool_environment_hints":"applied; library dependent",
-                "memory":"RSS sampled; quota unsupported",
-                "disk":"free-space admission, bounded outputs, and 128 MiB job-admission state reservation",
+                "memory":"Docker per-job limits; cgroup v2 certification requires complete peak/event receipt",
+                "disk":"free-space admission, bounded outputs, and 128 MiB managed-state ceiling",
                 "cpu":"best-effort process sample"
             },
             "providers":true

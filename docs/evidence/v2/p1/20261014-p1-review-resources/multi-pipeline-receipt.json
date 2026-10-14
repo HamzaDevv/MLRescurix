@@ -1,0 +1,51 @@
+{
+  "cold_load_ms": 1.302958,
+  "dataset_sha256": "28c00985f5c863a8174c6ec85a284e919c67b9947e9572be1839c54c904a4d12",
+  "delivered_model_bytes": 12843,
+  "environment_identity": "366dfe9371dab4b8c9620042fedf94d62a3ea085469da3506b7eb226353934e6",
+  "experiment_id": "full",
+  "feasibility": "development measurements only; export bytes and fresh target memory certification pending",
+  "fit_count": 11,
+  "format": "mlrescurix.pipeline-receipt.v1",
+  "metrics": {
+    "balanced_accuracy": 0.2333333333333333,
+    "log_loss": 1.1686130698021804
+  },
+  "model_sha256": "c2f1856e2e505dc134e7618655f117ce96553945b2902b26e68c9998cf86275d",
+  "oof_sha256": "ceed8631946d9475fc39a038df75dc4992406df8c86348a188d47488252d330d",
+  "predictions_sha256": "8bb5e26a085402dfd983516cdc648e02e90c35ffc2c6c60be76bcf08e37ee937",
+  "protocol": {
+    "calibration": "isotonic",
+    "ensemble": "voting",
+    "experiment_id": "full",
+    "features": {
+      "interactions": true,
+      "missing_indicators": true,
+      "target_encoding": true,
+      "transform_id": "features"
+    },
+    "folds": 3,
+    "format": "mlrescurix.pipeline.v1",
+    "parents": [
+      {
+        "parameters": {
+          "C": 1.0
+        },
+        "recipe": "linear"
+      },
+      {
+        "parameters": {
+          "C": 0.5
+        },
+        "recipe": "linear"
+      }
+    ],
+    "seed": 104729
+  },
+  "retained_artifact_bytes": 98150,
+  "source_sha256": "ba387ef585b805092b53bf63f13405bf26fa453d4ae633348200329f8c32c2a7",
+  "split_sha256": "97ee883918b0182b14a3c16be9e757a7fa7ae96bc5daced22c9d1248fa8db7dc",
+  "status": "evaluated_development",
+  "train_ms": 92.541708,
+  "warm_p95_ms": 10.8031128
+}

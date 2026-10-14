@@ -239,10 +239,17 @@ impl AgentContextManager {
             "messages_count": self.messages.len(),
         });
 
+        let snapshot_json = serde_json::to_string(&state_snapshot).unwrap_or_default();
+        let serialized_len = snapshot_json.len() as u64;
         let active_jobs_json = serde_json::to_string(&self.active_jobs).unwrap_or_default();
 
         crate::execution::migrate(root)?;
-        let db = rusqlite::Connection::open(root.join("state.sqlite")).map_err(|e| e.to_string())?;
+        let mut connection=rusqlite::Connection::open(root.join("state.sqlite")).map_err(|e|e.to_string())?;
+        connection.busy_timeout(std::time::Duration::from_secs(10)).map_err(|e|e.to_string())?;
+        let db=connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e|e.to_string())?;
+        crate::execution::enforce_state_write_admission(root, Some(&db), serialized_len, crate::execution::StorageWriteKind::Checkpoint, Some(&self.project_id))?;
+
+
         db.execute(
             "INSERT INTO agent_checkpoints(project, checkpoint_id, task_id, role_id, handoff_version, context_tokens, state_snapshot, active_jobs, created_ms)
              VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
@@ -253,12 +260,20 @@ impl AgentContextManager {
                 self.role_id,
                 self.handoff_version as i64,
                 tokens as i64,
-                serde_json::to_string(&state_snapshot).unwrap_or_default(),
+                snapshot_json,
                 active_jobs_json,
                 now,
             ],
         ).map_err(|e| e.to_string())?;
 
+         db.execute(
+            "DELETE FROM agent_checkpoints WHERE project=?1 AND task_id=?2 AND rowid NOT IN (
+                SELECT rowid FROM agent_checkpoints WHERE project=?1 AND task_id=?2 ORDER BY created_ms DESC, rowid DESC LIMIT ?3
+            )",
+            rusqlite::params![self.project_id, self.task_id, crate::execution::MAX_RETAINED_CHECKPOINTS_PER_TASK],
+        ).map_err(|e|e.to_string())?;
+
+        db.commit().map_err(|e|e.to_string())?;
         Ok(chk_id)
     }
 

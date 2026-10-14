@@ -1,0 +1,8 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/agent_m4.rs (target/debug/deps/agent_m4-c5a176030549b361)
+
+running 1 test
+test p1_scheduler_job_submission_crash_reconciliation_and_fault_regressions ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 21 filtered out; finished in 0.82s
+

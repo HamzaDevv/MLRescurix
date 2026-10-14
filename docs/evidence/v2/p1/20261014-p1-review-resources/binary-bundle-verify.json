@@ -1,0 +1,72 @@
+{
+  "status": "sandbox_examples_verified",
+  "bundle_path": "/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/.tmpgjKBqm/state/workflows/binary/bundle",
+  "project_id": "binary",
+  "candidate_id": "full",
+  "format": "mlrescurix.bundle.v1",
+  "total_bytes": 208268,
+  "file_count": 22,
+  "manifest_verified": true,
+  "contracts_verified": true,
+  "parity_check": "parity_verified_ok",
+  "constraints_verified": true,
+  "details": {
+    "authenticity": "verified_against_authoritative_state",
+    "constraints": {
+      "bundle_bytes": {
+        "enforcement": "measured",
+        "threshold": null,
+        "value": 208179,
+        "verdict": "pass"
+      },
+      "inference_latency_ms": {
+        "enforcement": "measured",
+        "threshold": null,
+        "value": 6.3430042,
+        "verdict": "pass"
+      },
+      "memory": {
+        "enforcement": "unsupported",
+        "threshold": null,
+        "value": null,
+        "verdict": "unknown"
+      },
+      "model_bytes": {
+        "enforcement": "measured",
+        "threshold": null,
+        "value": 3730,
+        "verdict": "pass"
+      }
+    },
+    "external_binding": {
+      "bundle_manifest_sha256": "274583a92cc54d1f6aece4a2a2204569d4ef7418770b1468dae42aeb5b0c8b43",
+      "dataset_sha256": "eaff16c0af92d85f91088490a5cd69e661781a7183aaacbf89c7f7804da8fa82",
+      "decision_binding_sha256": "8737d5e1d5d935a8db25dce30e3b13bd40df1adfffd2cf76b3151ff048b8f612",
+      "environment_identity": "366dfe9371dab4b8c9620042fedf94d62a3ea085469da3506b7eb226353934e6",
+      "final_result_sha256": "703d6a3b5234579bb01050ef341d5eb7897fdb8361f9f9899568df75b05dd370",
+      "frozen_model_sha256": "8342d48359122b50d0f4aebfca7a7d58fd6477ee1dccc3cb21d13d425cff491a",
+      "state_root": "/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/.tmpgjKBqm/state",
+      "test_access_id": "test-gate-binary",
+      "trusted_source_sha256": "ba387ef585b805092b53bf63f13405bf26fa453d4ae633348200329f8c32c2a7"
+    },
+    "feasibility": "sandbox_measured_and_constraints_verified",
+    "frozen_model_bytes": 3730,
+    "frozen_model_sha256": "8342d48359122b50d0f4aebfca7a7d58fd6477ee1dccc3cb21d13d425cff491a",
+    "sandbox_telemetry": {
+      "batch_size": 5,
+      "cold_load_ms": 582.942584,
+      "image_identity": "mlrescurix-scientific@sha256:d094b6becbbd1a1d86b944fd39370bfe26bb96f6290b429c0a51c512faf5f1bd",
+      "image_sha256": "d094b6becbbd1a1d86b944fd39370bfe26bb96f6290b429c0a51c512faf5f1bd",
+      "peak_rss_kb": 152456,
+      "repetitions": 5,
+      "warm_p50_ms": 10.268334,
+      "warm_p95_ms": 11.1356502
+    },
+    "scope": "authoritative external state binding and pinned container sandbox parity verified",
+    "scorecard_metrics": {
+      "balanced_accuracy": 0.5666666666666667,
+      "log_loss": 0.6929179953334454
+    }
+  },
+  "verified_at_ms": 1791975033831
+}

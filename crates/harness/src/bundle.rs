@@ -410,7 +410,7 @@ pub fn verify_bundle_with_state(
 
     // 8. Standalone inference parity & sandbox telemetry in the managed container only.
     let (parity_result, sandbox_telemetry) = if run_parity_check {
-        let (status, telemetry) = verify_inference_parity(bundle_dir, &manifest_sha)?;
+        let (status, telemetry) = verify_inference_parity(bundle_dir, &manifest_sha, state_root, Some(&manifest.project_id), total_bytes)?;
         if let Some(threshold_ms) = declared_latency_threshold_ms {
             if let Some(warm_p95) = telemetry.get("warm_p95_ms").and_then(|v| v.as_f64()) {
                 if warm_p95 > threshold_ms {
@@ -472,7 +472,7 @@ pub fn verify_bundle_with_state(
 /// 2. Schema rejection: missing feature column raises ValueError.
 /// 3. Schema rejection: extra unexpected column raises ValueError.
 /// 4. Captures container cold load time, warm p50/p95 latency, and peak RSS.
-fn verify_inference_parity(bundle_dir: &Path, manifest_sha: &str) -> Result<(String, Value)> {
+fn verify_inference_parity(bundle_dir: &Path, manifest_sha: &str, state_root: Option<&Path>, project_id: Option<&str>, total_bytes: u64) -> Result<(String, Value)> {
     let image = std::env::var("MLRESCURIX_BUNDLE_IMAGE").map_err(|_| "Sandbox parity requires MLRESCURIX_BUNDLE_IMAGE with a pinned scientific image; host execution is prohibited".to_string())?;
     let digest = image.rsplit_once("@sha256:").map(|(_, digest)| digest).unwrap_or("");
     if digest.len() != 64 || !digest.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -585,7 +585,15 @@ print("PARITY_TELEMETRY:" + json.dumps({
 print("PARITY_VERIFIED_OK")
 "#;
 
-    let stage = std::env::temp_dir().join(format!("mlr-bundle-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()));
+    if let Some(root) = state_root {
+        crate::execution::enforce_state_write_admission(root, None, total_bytes, crate::execution::StorageWriteKind::BundleStaging, project_id)?;
+    }
+    let stage = if let Some(root) = state_root {
+        let _ = fs::create_dir_all(root.join("staging"));
+        root.join("staging").join(format!("bundle_verification_{}_{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()))
+    } else {
+        std::env::temp_dir().join(format!("mlr-bundle-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()))
+    };
     fs::create_dir(&stage).map_err(|e| e.to_string())?;
     let result = (|| {
         crate::agents::workspace::BranchWorkspaceManager::copy_dir_recursive(bundle_dir, &stage.join("bundle"))?;

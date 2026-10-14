@@ -70,14 +70,74 @@ impl Runtime {
 fn connect(path:&Path)->Result<Connection>{
     let c=sql(Connection::open(path.join("state.sqlite")))?;
     sql(c.busy_timeout(std::time::Duration::from_secs(2)))?;
-    sql(c.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA wal_autocheckpoint=256;"))?;Ok(c)
+    sql(c.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA wal_autocheckpoint=256;
+    CREATE TABLE IF NOT EXISTS tombstones(
+        project TEXT NOT NULL REFERENCES projects(id),
+        entity_kind TEXT NOT NULL CHECK(entity_kind IN('job','artifact','action')),
+        entity_id TEXT NOT NULL,
+        parent_id TEXT NOT NULL,
+        identity_hash TEXT NOT NULL,
+        reclaimed_bytes INTEGER NOT NULL,
+        details_json TEXT NOT NULL,
+        tombstoned_ms INTEGER NOT NULL,
+        PRIMARY KEY(project, entity_kind, entity_id)
+    );
+    CREATE INDEX IF NOT EXISTS tombstones_project_kind ON tombstones(project, entity_kind, tombstoned_ms);
+    CREATE TABLE IF NOT EXISTS action_fences(
+        project TEXT NOT NULL REFERENCES projects(id),
+        action_id TEXT NOT NULL,
+        task_id TEXT NOT NULL,
+        generation INTEGER NOT NULL,
+        intent_revision INTEGER NOT NULL,
+        lease_id TEXT NOT NULL,
+        input_hash TEXT NOT NULL,
+        status TEXT NOT NULL,
+        receipt_json TEXT,
+        tombstoned_ms INTEGER NOT NULL,
+        PRIMARY KEY(project, action_id)
+    );
+    CREATE INDEX IF NOT EXISTS action_fences_task ON action_fences(project, task_id);"))?;Ok(c)
 }
 fn validate_policy(p:&Policy)->Result<()>{amounts(&p.budget)?;amounts(&p.capacity)?;if p.max_tasks==0 || p.max_tasks>1024 {return Err("invalid task ceiling".into());}Ok(())}
 fn event(c:&Connection,p:&str,kind:&str,payload:Value)->Result<()> {sql(c.execute("INSERT INTO events(project,kind,payload) VALUES(?1,?2,?3)",params![p,kind,ser(&payload)?]))?;Ok(())}
 fn revision(c:&Connection,p:&str)->Result<u64>{sql(c.query_row("SELECT revision FROM projects WHERE id=?1",[p],|r|r.get(0)))}
 fn intent_rev(c:&Connection,p:&str)->Result<u64>{sql(c.query_row("SELECT intent_revision FROM projects WHERE id=?1",[p],|r|r.get(0)))}
 fn task(c:&Connection,p:&str,t:&str)->Result<Task>{de(&sql(c.query_row("SELECT data FROM tasks WHERE project=?1 AND id=?2",params![p,t],|r|r.get::<_,String>(0)))?)}
-fn action(c:&Connection,p:&str,a:&str)->Result<Action>{de(&sql(c.query_row("SELECT data FROM actions WHERE project=?1 AND id=?2",params![p,a],|r|r.get::<_,String>(0)))?)}
+fn action(c:&Connection,p:&str,a:&str)->Result<Action>{
+    let row: Option<String> = sql(c.query_row("SELECT data FROM actions WHERE project=?1 AND id=?2", params![p, a], |r| r.get(0)).optional())?;
+    if let Some(data) = row {
+        return de(&data);
+    }
+    let has_fences: bool = sql(c.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='action_fences')", [], |r| r.get(0)))?;
+    if has_fences {
+        let fence: Option<(String, u64, u64, String, String, String, Option<String>)> = sql(c.query_row(
+            "SELECT task_id, generation, intent_revision, lease_id, input_hash, status, receipt_json FROM action_fences WHERE project=?1 AND action_id=?2",
+            params![p, a],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)),
+        ).optional())?;
+        if let Some((task_id, generation, intent_revision, lease_id, input_hash, status, receipt_json)) = fence {
+            let receipt = receipt_json.and_then(|r| serde_json::from_str(&r).ok());
+            return Ok(Action {
+                action_id: a.to_string(),
+                task_id,
+                generation,
+                intent_revision,
+                lease_id,
+                input: input_hash,
+                budget: Amounts::new(),
+                capacity: Amounts::new(),
+                deadline_ms: 0,
+                status,
+                attempt_id: None,
+                external_request_id: None,
+                response: None,
+                receipt,
+                uncertainty: None,
+            });
+        }
+    }
+    Err("action not found".into())
+}
 fn save_task(c:&Connection,p:&str,t:&Task)->Result<()> {sql(c.execute("UPDATE tasks SET data=?3 WHERE project=?1 AND id=?2",params![p,t.task_id,ser(t)?]))?;Ok(())}
 fn save_action(c:&Connection,p:&str,a:&Action)->Result<()> {sql(c.execute("UPDATE actions SET data=?3 WHERE project=?1 AND id=?2",params![p,a.action_id,ser(a)?]))?;Ok(())}
 fn active(c:&Connection,p:&str)->Result<()> {let s:String=sql(c.query_row("SELECT state FROM projects WHERE id=?1",[p],|r|r.get(0)))?;if s!="created" {return Err(format!("admission unavailable in state {s}"));}Ok(())}
@@ -96,7 +156,18 @@ fn execute(c:&mut Connection,req:Request)->Result<Receipt>{
     id(&req.command_id)?;id(&req.project_id)?;let encoded=ser(&req)?;
     let tx=sql(c.transaction_with_behavior(TransactionBehavior::Immediate))?;
     let old:Option<(String,String)>=sql(tx.query_row("SELECT request,receipt FROM commands WHERE id=?1 AND project=?2",params![&req.command_id,&req.project_id],|r|Ok((r.get(0)?,r.get(1)?))).optional())?;
-    if let Some((request,receipt))=old {if request!=encoded{return Err("command identity reused with different payload/scope".into());}return de(&receipt);}
+    if let Some((request,receipt))=old {
+        let compact_hash = format!("hash:{}", hash(&encoded));
+        if request!=encoded && request!=compact_hash {return Err("command identity reused with different payload/scope".into());}
+        return de(&receipt);
+    }
+    // Serialize the byte check with command mutation, including rejected-command
+    // receipts. Existing retries above allocate no new state.
+    let kind = if matches!(req.operation, Operation::Recover { .. } | Operation::Lifecycle { .. } | Operation::Commit { .. } | Operation::Resolve { .. } | Operation::MarkUnknown { .. }) {
+        crate::execution::StorageWriteKind::EmergencyRecovery
+    } else { crate::execution::StorageWriteKind::Checkpoint };
+    crate::execution::enforce_state_write_admission_conn(&tx,
+        (encoded.len() as u64).saturating_mul(8).saturating_add(64*1024),kind,Some(&req.project_id))?;
     // Isolate rejected operation effects while retaining a durable rejection receipt.
     sql(tx.execute_batch("SAVEPOINT operation"))?;
     let result=(||{
@@ -172,7 +243,13 @@ fn apply(c:&Transaction<'_>,p:&str,op:&Operation)->Result<Value>{
             if deadline_ms<=now_ms {return Err("deadline must follow admission".into());}
             if !pending_questions(c,p)?.is_empty(){return Err("pending human answer blocks dispatch admission".into());}
             if let Ok(a)=action(c,p,action_id) {
-                if a.task_id!=*task_id || a.input!=*input || a.budget!=*budget || a.capacity!=*capacity || a.deadline_ms!=*deadline_ms {return Err("action identity payload conflict".into());}
+                let matches_input = a.input == *input || a.input == format!("hash:{}", hash(input));
+                let matches_budget = a.budget.is_empty() || a.budget == *budget;
+                let matches_capacity = a.capacity.is_empty() || a.capacity == *capacity;
+                let matches_deadline = a.deadline_ms == 0 || a.deadline_ms == *deadline_ms;
+                if a.task_id != *task_id || !matches_input || !matches_budget || !matches_capacity || !matches_deadline {
+                    return Err("action identity payload conflict".into());
+                }
                 return Ok(json!(a));
             }
             if rows::<Action>(c,"actions",p)?.iter().any(|a|a.task_id==*task_id && ["dispatched","outcome_unknown","responded"].contains(&a.status.as_str())) {return Err("prior action requires receipt reconciliation before retry".into());}
@@ -322,6 +399,7 @@ fn boundary(c:&Connection,p:&str,t:&Task,b:&str)->Result<()> {
     let cp=Checkpoint{checkpoint_id:format!("{}.{sequence}",t.task_id),sequence,project_id:p.into(),branch_id:t.branch_id.clone(),task_id:t.task_id.clone(),spec_revision:sql(c.query_row("SELECT spec_revision FROM projects WHERE id=?1",[p],|r|r.get(0)))?,intent_revision:intent_rev(c,p)?,generation:t.generation,event_cursor:event_cursor.to_string(),boundary:b.into(),context};
     cp.validate()?;let data=ser(&cp)?;
     if data.len()>MAX_FRAME {return Err("checkpoint size bound".into());}
+    crate::execution::enforce_state_write_admission_conn(c, data.len() as u64, crate::execution::StorageWriteKind::Checkpoint, Some(p))?;
     sql(c.execute("INSERT INTO checkpoints VALUES(?1,?2,?3,?4,?5)",params![p,t.task_id,sequence,data,hash(&data)]))?;
     sql(c.execute("DELETE FROM checkpoints WHERE project=?1 AND task=?2 AND sequence<=?3",params![p,t.task_id,sequence.saturating_sub(4)]))?;
     Ok(())
@@ -407,7 +485,35 @@ fn snapshot(c:&mut Connection,p:&str)->Result<Value> {
 }
 fn restore(c:&mut Connection,p:&str,t:&str)->Result<RecoveryTask> {
     let tx=sql(c.transaction())?;let cp=validated_checkpoint(&tx,p,t)?;
-    let task=task(&tx,p,t)?;let actions=rows::<Action>(&tx,"actions",p)?.into_iter().filter(|a|a.task_id==t).collect::<Vec<_>>();
+    let task=task(&tx,p,t)?;let mut actions=rows::<Action>(&tx,"actions",p)?.into_iter().filter(|a|a.task_id==t).collect::<Vec<_>>();
+    let has_fences: bool = sql(tx.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='action_fences')", [], |r| r.get(0)))?;
+    if has_fences {
+        let mut fence_stmt = sql(tx.prepare("SELECT action_id, task_id, generation, intent_revision, lease_id, input_hash, status, receipt_json FROM action_fences WHERE project=?1 AND task_id=?2"))?;
+        let fences = sql(fence_stmt.query_map(params![p, t], |r| Ok((r.get::<_,String>(0)?, r.get::<_,String>(1)?, r.get::<_,u64>(2)?, r.get::<_,u64>(3)?, r.get::<_,String>(4)?, r.get::<_,String>(5)?, r.get::<_,String>(6)?, r.get::<_,Option<String>>(7)?))))?
+            .collect::<rusqlite::Result<Vec<_>>>().map_err(|e|e.to_string())?;
+        for (a_id, task_id, generation, intent_rev, lease_id, input_hash, status, receipt_json) in fences {
+            if !actions.iter().any(|a| a.action_id == a_id) {
+                let receipt = receipt_json.and_then(|r| serde_json::from_str(&r).ok());
+                actions.push(Action {
+                    action_id: a_id,
+                    task_id,
+                    generation,
+                    intent_revision: intent_rev,
+                    lease_id,
+                    input: input_hash,
+                    budget: Amounts::new(),
+                    capacity: Amounts::new(),
+                    deadline_ms: 0,
+                    status,
+                    attempt_id: None,
+                    external_request_id: None,
+                    response: None,
+                    receipt,
+                    uncertainty: None,
+                });
+            }
+        }
+    }
     let state:String=sql(tx.query_row("SELECT state FROM projects WHERE id=?1",[p],|r|r.get(0)))?;
     let eligibility=if state!="created" {state.as_str()}else if !pending_questions(&tx,p)?.is_empty(){"awaiting_human"}else if actions.iter().any(|a|a.status=="outcome_unknown" || a.status=="dispatched" || a.status=="responded"){"reconcile_actions"}else if task.owner.is_none(){"acquire_ownership"}else{"continue_from_safe_boundary"};
     let checkpoint_cursor=cursor(&cp.event_cursor)?;

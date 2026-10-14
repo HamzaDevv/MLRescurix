@@ -420,7 +420,7 @@ fn m3_end_to_end_search_and_finalization() {
     let bin = Path::new(env!("CARGO_BIN_EXE_mlrescurix-harness"));
     let mut sup = Supervisor::start_with_executable(&root, 1, bin).unwrap();
 
-    let audit_job = JobSpec {
+    let audit_job = JobSpec { resources: Default::default(),
         job_id: "job-audit".into(),
         project_id: "p-e2e".into(),
         task_id: "t-e2e".into(),
@@ -449,7 +449,7 @@ fn m3_end_to_end_search_and_finalization() {
     run_job_to_completion(&mut sup, &root, "p-e2e", "job-audit");
     assert_eq!(execution::inspect(&root, "p-e2e", "job-audit").unwrap().status, "succeeded");
 
-    let baselines_job = JobSpec {
+    let baselines_job = JobSpec { resources: Default::default(),
         job_id: "job-baselines".into(),
         project_id: "p-e2e".into(),
         task_id: "t-e2e".into(),
@@ -498,7 +498,7 @@ fn m3_end_to_end_search_and_finalization() {
     assert_eq!(selection.status, "apex_selected");
     let apex_id = selection.selected_candidate_id.expect("Apex candidate must be selected");
 
-    let finalize_job = JobSpec {
+    let finalize_job = JobSpec { resources: Default::default(),
         job_id: "job-finalize".into(),
         project_id: "p-e2e".into(),
         task_id: "t-e2e".into(),

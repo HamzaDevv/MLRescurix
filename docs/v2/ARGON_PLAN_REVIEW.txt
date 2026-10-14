@@ -1,0 +1,1169 @@
+### Concise Review of the `docs/v2/` Planning Packet
+
+#### 1. Strongest Parts of the Current `docs/v2/` Set
+
+* **Rigorous Invariant Preservation (`AUDIT.md`, `DECISIONS.md`)**: The current `docs/v2/` documents properly audit both original Argon blueprints against the actual repository state (`abf1f235030a79f9a606b429e34608431e37603d`) and rightly reject unsafe proposals—including weakening SQLite `synchronous = FULL` to `NORMAL`, executing candidate code inside a label-bearing trusted evaluator process, replacing Docker isolation with host `setrlimit`/RSS polling, sharding SQLite per project before measuring contention, and promising unverified speedups or zero-copy memory.
+* **M6 Release Gate Alignment (`PROGRESS.md`, `ROADMAP.md`)**: Mapping the five open M6 release gates (`docs/m6-completion-status.md`) directly into P1 and P7 prevents v2 feature work from bypassing unresolved state-bound, recovery, and memory-certification defects.
+* **Incremental Migration Strategy (`ROADMAP.md`)**: Keeping existing `CustomEstimator` contracts, M6 tables, and embedded runtime assets (`assets.rs`) working alongside new v2 adapters avoids a flag-day rewrite.
+
+#### 2. Codebase Touchpoints & Internal Contradictions Corrected
+
+* **Missed Cross-Language Contract Pipeline (`contracts/v1/`, `scripts/generate_contracts.py`, `crates/harness/src/contracts.rs`, `python/src/mlrescurix_worker/protocol/frame.schema.json`)**: The current docs mention `contracts.rs` in P4 but omit the repository's schema generation pipeline (`contracts/v1/` and `scripts/generate_contracts.py`) and worker wire protocol (`frame.schema.json`). Every new v2 contract (artifact versions, leases, candidate manifests, feasibility reports) must flow through this pipeline to prevent Rust/Python drift.
+* **Missed Outbound Sanitization Boundary (`crates/harness/src/agents/gateway.rs::OutboundFilter`)**: `AUDIT.md` and `ROADMAP.md` omit `gateway.rs::OutboundFilter` from P2/P4/P5 touchpoints. New generic tool outputs (`workspace_fs`, `sandbox_exec`, `artifact_crud`) and user steering notes must pass through `OutboundFilter` before provider serialization.
+* **Missed M5 Calibration/Ensembling & Search Couplings (`scientific/scheduled_pipeline.py`, `calibration.py`, `ensemble.py`, `search/adapter.py`)**: Decoupling recipes in `schema_m6.sql` and `workflow.py` is not enough; `calibration.py`, `ensemble.py`, `scheduled_pipeline.py`, and `search/adapter.py` currently assume built-in estimator objects. They need a prediction-table and hyperparameter-space adapter to work with CLI-based `Candidate v2` directories.
+* **Internal Contradiction — Dashboard Views (4 vs. 5)**: `AUDIT.md` and `ROADMAP.md` (P6.4) adopt the 5th multi-project resource drawer, but `ARCHITECTURE.md` still specifies `"Four views"`. Updated `ARCHITECTURE.md` to specify all five views and decoupled P6.1–P6.4 (read/telemetry UI, depending only on P2–P3) from P6.5 (human steering into the orchestrator, depending on P5).
+* **Internal Contradiction — `sandbox_exec` Workspace Writability**: `AUDIT.md` states `SandboxRunner::execute` uses a read-only workspace (`/workspace:ro`) with writable bounded scratch, whereas `ARCHITECTURE.md` says *"Mount one task's staged writable output/workspace only"*. Resolved by keeping `/workspace:ro` as the default for `sandbox_exec` (all source edits go through `workspace_fs`, or an explicit staged copy-on-write overlay validated on exit), which makes `sandbox_exec` calls side-effect-isolated from the live worktree and cleanly recoverable on crash.
+* **Default Sandbox Image Drift (`python:3.13-slim` vs. `docker/scientific/image.ref`)**: `SandboxRunner::execute` defaults to `python:3.13-slim`, which lacks the pinned scientific stack (`docker/scientific/requirements.lock`). P4 now requires binding both candidate `sandbox_exec` and `evaluate_submission` to the same digest-pinned environment profile (`docker/scientific/image.ref` or an approved locked profile).
+
+#### 3. Critical Scientific, Security & Recovery Gaps Fixed
+
+* **Process-Isolated K-Fold Cross-Validation for Black-Box CLI Candidates (`P4.2`, `P4.4`, `ARCHITECTURE.md`)**: If `Candidate v2` only exposes `fit --train-path` and `predict --input-path` and is allowed to run K-fold CV internally on `train.csv`, an untrusted candidate script can leak target statistics across folds or fabricate OOF scores. The harness split driver must materialize fold-specific views (`fold_k/train.csv` and feature-only `fold_k/val_features.csv`) and execute `fit`/`predict` per fold in isolated jobs, with the Trusted Evaluator scoring the resulting OOF predictions against sealed `fold_k/val_labels`.
+* **Minimum Slice Support & Adaptive Validation Budgeting (`P4.4`, `ARCHITECTURE.md`)**: Returning fine-grained validation slice diagnostics can leak validation labels if slice sizes are tiny (e.g., 1–3 rows). Added a mandatory `min_slice_support` threshold, coarsened validation diagnostics, and an explicit adaptive validation query budget (`max_validation_queries`).
+* **In-Sample Memorization Hazard in Model Rescue (`P4.5`, `ARCHITECTURE.md`)**: If a user supplies a pre-trained `legacy_model.pkl` that was originally fitted on rows now present in the validation or sealed test split, evaluating that pickle directly produces leaked metrics. Rescue Mode now distinguishes **Unfitted Code Rescue** (refitted cleanly on `train_split`) from **Pre-Trained Artifact Rescue** (which requires either a clean refit on `train_split` or an explicitly attested disjoint post-training evaluation dataset before it can compete for Apex).
+* **Daemon Container Orphan Reaping (`P1.5`, `P3.4`)**: Killing the host Rust process (`SIGKILL`) terminates the `docker run` CLI client but can leave the container running inside the Docker daemon. Added mandatory container labels (`mlrescurix.project`, `mlrescurix.lease_id`, `mlrescurix.epoch`) so startup/recovery explicitly reaps orphaned daemon containers (`docker ps`/`docker rm -f`) before releasing leases.
+* **Two-Tier Storage Budget & Two-Tier Artifact Summaries (`P1.3`, `P2.1`, `P5.3`)**: Clarified that P1.3 enforces the `128 MiB` control-plane state ceiling while establishing a separate, explicitly accounted `artifact_cas_bytes` quota before P2/P4 store multi-megabyte models. Separated `index_digest` (`<=512 B` for context-window leaderboard/DAG injection) from `summary_text` (`<=4 KiB` fetched on demand) so 20 artifact summaries cannot silently consume 20,000 tokens of context.
+
+#### 4. Non-Blocking Policy Questions (Tracked in `DECISIONS.md` for Owning Phases)
+
+None of these block starting **P1.1 + P1.2 (job submission)** immediately, as `DECISIONS.md` establishes safe conservative defaults:
+
+1. **P1.3 Quota Defaults**: What default project/global byte cap should apply to the new `artifact_cas_bytes` and `export_bytes` pools alongside the preserved `128 MiB` control-state budget (recommended default: `128 MiB` control state + `2 GiB` CAS/export budget per project, configurable via CLI)?
+2. **P4.4 Adaptive Validation Cap**: What default `max_validation_queries` budget per session should trigger an overfitting warning or require user confirmation (recommended default: `50` full-validation evaluations, with screening evaluations tracked separately)?
+3. **P4.5 Pre-Trained Pickle Rescue Policy**: Should a pre-trained user pickle ever be eligible for final sealed-test evaluation without a clean refit on `train_split` when the user provides a separate, explicitly attested out-of-sample test dataset (recommended default: require clean refit for official Apex certification; allow pre-trained evaluation only as an explicitly labeled `unverified_legacy_baseline` unless disjoint holdout provenance is configured)?
+
+#### 5. Change Log of Replacement Files
+
+* **`docs/v2/README.md`**: Clarified the 10-file inventory (7 authored docs, 2 verbatim archived blueprints, 1 generated review packet) and split P6 dependencies so read-only/resource UI slices (`P6.1–P6.4`) can proceed after `P2–P3` while interactive agent steering (`P6.5`) waits for `P5`.
+* **`docs/v2/PROGRESS.md`**: Updated the file-count wording for exact precision and added `contracts/v1/` and container-label reaping notes to the P1 next-step guidance.
+* **`docs/v2/AUDIT.md`**: Added verified audit rows for `contracts/v1/` + `scripts/generate_contracts.py` + `protocol/frame.schema.json`, `agents/gateway.rs::OutboundFilter`, `scientific/scheduled_pipeline.py` + `calibration.py` + `ensemble.py` + `search/adapter.py`, and `docker/scientific/image.ref`. Added scientific boundary corrections for harness-driven fold isolation, minimum slice support, and pre-trained rescue memorization.
+* **`docs/v2/ROADMAP.md`**: Added explicit tasks and acceptance criteria for two-tier storage quotas (`P1.3`), labeled Docker container reaping (`P1.5`, `P3.4`), cross-language schema generation (`P2.1`, `P4.1`), harness-driven fold isolation and minimum slice support (`P4.2`, `P4.4`), pre-trained vs. unfitted model rescue (`P4.5`), calibration/ensemble adapter compatibility (`P4.2`, `P7.1`), and `OutboundFilter` coverage (`P5.3`).
+* **`docs/v2/ARCHITECTURE.md`**: Reconciled the 4-view vs. 5-view contradiction (explicitly defining all 5 dashboard views), unified `/workspace:ro` + `/scratch:rw` + `/outputs:rw` sandbox semantics, specified harness-owned K-fold CV execution for `Candidate v2`, separated `<=512 B` index digests from `<=4 KiB` on-demand summaries, and added `min_slice_support` and rescue provenance rules.
+* **`docs/v2/DECISIONS.md`**: Added `D15` (read-only `/workspace:ro` during `sandbox_exec` with mutations routed through `workspace_fs`), `D16` (harness-owned fold splitting and `min_slice_support` diagnostic coarsening), and `D17` (clean-refit requirement for official Apex certification in Model Rescue), plus concrete default recommendations under phase resolutions.
+* **`docs/v2/SESSION_PROMPT.md`**: Added explicit guardrails for `/workspace:ro` execution, `contracts/v1/` schema synchronization, `OutboundFilter` preservation, and labeled Docker container cleanup on recovery.
+* *(Unchanged)* **`docs/v2/ARGON_BLUEPRINT.md`** and **`docs/v2/ARGON_REPO_BLUEPRINT.md`**: Preserved byte-for-byte as verbatim historical archives matching the SHA-256 hashes recorded in `PROGRESS.md`.
+
+<<<FILE: docs/v2/README.md>>>
+
+# MLRescurix v2 implementation hub
+
+Created 2026-10-14. Planning baseline: `abf1f235030a79f9a606b429e34608431e37603d`.
+
+Build an agent-first ML coding harness that delivers the best verified feasible
+candidate discovered within a declared budget, its training/inference code,
+weights, scorecard, provenance and independently runnable pipeline. Begin with
+tabular ML; expand through evaluated task/backend adapters and compute negotiation.
+
+## Read and continue
+
+1. [Progress and current handoff](PROGRESS.md): authoritative implementation status.
+2. [Repository audit and blueprint corrections](AUDIT.md): what exists and what changes.
+3. [Phased roadmap](https://www.google.com/search?q=ROADMAP.md): ordered slices, dependencies and acceptance gates.
+4. [Target architecture and contracts](ARCHITECTURE.md): boundaries shared by phases.
+5. [Decision register](https://www.google.com/search?q=DECISIONS.md): rationale and unresolved choices.
+6. [Next-session prompt](https://www.google.com/search?q=SESSION_PROMPT.md): paste into a local coding agent.
+7. [Original supplied blueprint](https://www.google.com/search?q=ARGON_BLUEPRINT.md): preserved reference, not acceptance evidence.
+8. [Second repository-informed blueprint](https://www.google.com/search?q=ARGON_REPO_BLUEPRINT.md): additional reference reviewed in AUDIT.md.
+9. [Argon review packet](https://www.google.com/search?q=ARGON_REVIEW_PACKET.txt): one paste-ready file containing this doc set, both original blueprints, and the review prompt. Regenerate with `python3 scripts/build_argon_review_packet.py` after edits.
+
+The user requested planning and persistent documentation in this session. No v2
+runtime implementation is authorized by merely creating these documents. Future
+instructions such as "implement P1" authorize that scope; avoid repeatedly asking
+for permission for ordinary fixes inside the authorized phase. Existing project
+handoffs remain the authority on M6 release evidence. This roadmap supersedes the
+supplied blueprints' suggested implementation order and literal SQL/prompt examples;
+it does not change current capability or release claims.
+
+## Phase map
+
+| Phase | Outcome | Dependency |
+| --- | --- | --- |
+| P0 | Reviewable plan and durable continuation docs | Complete in this session |
+| P1 | Recoverable, bounded control plane and M6 prerequisite repairs | P0 |
+| P2 | Versioned artifact registry and durable event contracts | P1 |
+| P3 | Global CPU/RAM/resource lease broker | P1; P2 for telemetry publication |
+| P4 | Generic coding tools and executable candidate contract | P2, P3 |
+| P5 | Durable agent collaboration and bounded context | P4 |
+| P6 | Transparent local dashboard and human collaboration | P2–P3 for read/resource views (P6.1–P6.4); P4–P5 for steering commands (P6.5–P6.6) |
+| P7 | Standalone Apex delivery and release evidence | P1–P6 |
+| P8 | Measured feasibility estimator and local alternatives | P3, P4, P7 |
+| P9 | Task adapters, remote execution and optional warm workers | P8; separate gates per extension |
+
+P1–P7 form the agent-first tabular release. P8 adds resource-aware planning. P9
+expands scope selectively; "universal" describes extensible contracts, not a claim
+that every ML problem fits on a laptop. Implement one small slice at a time and
+update progress, decisions and evidence before ending every implementation session.
+<<>>
+
+<<<FILE: docs/v2/PROGRESS.md>>>
+
+# Persistent progress and session handoff
+
+Last updated: 2026-10-14 (Asia/Kolkata).
+Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
+
+## Current state
+
+* Current work completed: documentation planning, static source review,
+reconciliation of both user-supplied Argon blueprints, and post-review
+tightening of scientific, sandbox, contract and recovery boundaries.
+* Runtime implementation: no v2 changes made in the planning session.
+* Release: M6 remains **NOT READY**, as recorded in `docs/m6-completion-status.md`.
+* Authorization: user requested phased plans and persistent docs, then review of
+the second blueprint and packet refinement. No implementation phase selected yet.
+* Next recommended slice: P1.1 mutation/effect inventory plus P1.2 scheduler job
+submission reconciliation. Scope/test proposal is in ROADMAP.md.
+
+| Phase | Status | Evidence / next step |
+| --- | --- | --- |
+| P0 | Complete | This doc set, archived inputs, static audit and documentation validation |
+| P1 | Planned | Start P1.1/P1.2; preserve existing reviewer repairs and two-tier quota accounting |
+| P2 | Planned | Artifact contracts and `contracts/v1/` sync after P1 safety prerequisites |
+| P3 | Planned | Extend existing reservations and labeled container reaping; no unconditional 50-job claim |
+| P4 | Planned | Add executable candidate adapter with harness-owned fold splits; keep old API working |
+| P5 | Planned | Context/task recovery and `OutboundFilter` coverage on generic tool substrate |
+| P6 | Planned | API plus 5-view dashboard (P6.1–P6.4 after P2–P3; P6.5–P6.6 after P4–P5) |
+| P7 | Planned | Installed delivery, calibration/ensemble v2 parity, prospective benchmarks, release matrix |
+| P8 | Planned | Pilot-calibrated feasibility reports |
+| P9 | Optional/planned | Approve and certify each adapter/backend separately |
+
+Allowed implementation statuses: planned, in_progress, blocked, implemented_unverified,
+verified, complete. Complete requires the phase gate and evidence; code presence
+or a specialist's assertion alone does not meet it. P0 is documentation complete.
+
+## M6 acceptance register
+
+| Gate | Status at planning baseline | Owner in this roadmap |
+| --- | --- | --- |
+| 1: automatic non-file/specialist reconciliation | Open | P1.2, P5 |
+| 2: all-write state bounds/archive/scheduler ENOSPC | Open | P1.3–P1.6, P2 |
+| 3: installed end-to-end delivery/recovery/upgrade | Open | P7.5 |
+| 4: fresh prospective matched benchmark evidence | Open | P7.6 |
+| 5: required memory certification | Open | P1.5, P3, P7.3 |
+
+## Session ledger
+
+| Date | Scope | Outcome |
+| --- | --- | --- |
+| 2026-10-14 | P0 planning, two-blueprint review and boundary refinement | Saved source specs, corrected unsafe/unsupported claims, added fold-isolation/rescue-provenance/container-reaping/contract-sync requirements, created phased architecture and continuation docs; no runtime tests or implementation |
+
+## Update at the end of every implementation session
+
+Copy and fill one entry; update phase/task statuses above too.
+
+```text
+Date / phase / task IDs:
+User-authorized scope:
+Starting commit and pre-existing dirty files:
+Changes and source paths:
+Decisions added or revised:
+Exact verification commands and exit results:
+Evidence paths plus source/image/schema hashes:
+Implemented but unverified:
+Failure/recovery scenarios still open:
+Budget / compatibility / migration implications:
+Next small actionable slice:
+
+```
+
+Save new evidence under `docs/evidence/v2/<phase>/<session>/` only when produced;
+do not create fake evidence placeholders. Keep raw logs bounded and redacted. Before
+ending, make this file sufficient for a fresh agent to continue without chat history.
+
+## Planning validation
+
+Only documentation/link/source-copy/diff checks are applicable in P0. Historical
+M6 runtime evidence was read but not rerun. Checks performed on 2026-10-14:
+
+* Host `python3` documentation-only script: all local Markdown links in the seven
+authored v2 documents resolved; nine Markdown documents exist (seven authored docs
+plus two verbatim archived blueprints), alongside the generated
+`ARGON_REVIEW_PACKET.txt` review bundle. Both archive files matched their source
+attachment bytes exactly.
+* Source archive SHA-256: first input
+`71629ee827ccc7e1b6558effa174836ea611f755682ea109e198d0c90578cd34`;
+second input
+`e87cfaf1187a8860ec723181e27c9cf6c21071786a47a87459276ac3847513f5`.
+* `git diff --check`: passed for tracked changes. `git status --short`: only README
+and the new `docs/v2/` directory changed. New authored docs also checked for
+trailing whitespace separately before final handoff.
+* No Rust, scientific Python, Docker, live-provider or benchmark tests run for
+this documentation-only change. No commits, pushes or deployment performed.
+<<>>
+
+<<<FILE: docs/v2/AUDIT.md>>>
+
+# Repository audit and blueprint reconciliation
+
+Static review on 2026-10-14 at `abf1f235030a79f9a606b429e34608431e37603d`.
+The checkout was clean and its origin matches the user-supplied GitHub repository.
+This audit read local source and historical evidence; it did not rerun runtime,
+Docker, provider or benchmark suites. Historical passes are not fresh certification.
+
+## Findings that affect implementation
+
+| Source | Verified observation | Plan consequence |
+| --- | --- | --- |
+| `docs/m6-completion-status.md` | Five release gates remain open, including installed full delivery and matched benchmarks | Carry all five gates into P1/P7; the blueprints' initial phases cover only portions |
+| `storage.rs`, `execution.rs` | Runtime has a bounded writer thread, but execution and agent modules also open writable SQLite connections | Inventory and converge authoritative mutations; do not assume a single writer already owns every write |
+| `execution.rs::migrate`, `storage.rs::Runtime::open` | Latest supported database version is 9 | Allocate new migration numbers when implementing; update every version guard and embedded migration asset |
+| `contracts/v1/`, `scripts/generate_contracts.py`, `contracts.rs`, `protocol/frame.schema.json` | JSON schemas and Rust/Python worker wire frames are contract-checked and generated via scripts | Route all new v2 schemas (artifacts, leases, candidate manifests, feasibility reports) through the contract generator and worker frame validators |
+| `schema_m6.sql`, `search.rs`, `scientific/workflow.py`, `scheduled_pipeline.py` | SQL recipe enum is fixed; Python built-in fitting, scheduled pipelines and parameter dispatch are also recipe-specific | Removing SQL CHECK alone cannot support arbitrary candidates; add an executable candidate adapter end to end |
+| `scientific/calibration.py`, `scientific/ensemble.py`, `search/adapter.py` | Calibration, ensembling and Optuna search currently operate on in-memory built-in or `CustomEstimator` objects | Define a prediction-table and search-space protocol so post-hoc calibration, stacking ensembles and HPO work over CLI executable candidates without in-process environment clashes |
+| `agents/tools.rs` | File tools, `sandbox_python`, agent-authored registered tools, scheduling and delegation already exist | Introduce generic aliases/adapters gradually; preserve lifecycle/delegation controls and useful project tools |
+| `agents/gateway.rs` | `OutboundFilter` sanitizes outbound payloads before provider dispatch | Extend `OutboundFilter` tests and rules to cover all v2 generic tool receipts, artifact summaries and user steering notes |
+| `custom/contract.py`, `custom/preflight.py`, `custom/runner.py` | Custom-estimator/transformer class contracts exist | Add executable-directory support beside existing contracts; retire old support only with compatibility evidence |
+| `agents/sandbox.rs::SandboxRunner::execute`, `docker/scientific/image.ref` | Docker script execution uses a read-only workspace and writable bounded scratch; `SandboxRunner` defaults to `python:3.13-slim` while scientific jobs use digest-pinned `image.ref` | Keep `/workspace:ro` during `sandbox_exec`; bind both agent `sandbox_exec` and evaluator runs to approved digest-pinned scientific profiles so candidate dev and evaluation environments never drift |
+| `execution.rs` | Worker/thread capacity and several BLAS environment limits already exist; unsupported dimensions are rejected | Extend admission to memory/accelerators/storage, label spawned containers for orphan reaping, and route every runner through the broker |
+| `agents/recovery.rs` | Durable file intents/outcomes and branch lock exist; unknown effects refuse replay | Add authoritative reconciliation for non-file effects; preserve refusal where evidence is absent |
+| `agents/context.rs` | 16,384-token default, 4,096 reserve, checkpointing and compaction already exist; estimator uses bytes/4 | Improve accounting and summaries rather than replacing the entire memory system |
+| `scientific/dashboard.py` | Session authentication, Host checks, command revisions, snapshots and EventSource already exist | Rust service replaces a working event bridge; preserve auth/revision semantics and fix unsafe HTML rendering |
+| `bundle.rs`, `scientific/bundle.py`, `workflow.py` | Existing state-bound manifest/parity/final-test protections | Extend delivery versions without creating a second trust authority |
+
+Paths in this table are relative to `crates/harness/src/` or
+`python/src/mlrescurix_worker/` unless prefixed with `docs/`, `contracts/`,
+`scripts/` or `docker/`.
+
+## Keep, revise, defer
+
+**Keep:** agent-authored Python, independent evaluation, resource leases,
+artifact-backed transparency, milestone memory, feasibility negotiation and task
+adapters. These match the existing product goal and can be added incrementally.
+
+**Revise:**
+
+* Four generic *coding/data* tools are a compact surface, not the entire harness
+API. Delegation, completion, status, cancellation and finalization still need
+governed control commands. Generic tools must not bypass scheduling, `OutboundFilter`
+or scoring.
+* Keep `/workspace:ro` (read-only source tree) during `sandbox_exec` by default, with
+writable bounded `/scratch:rw` and `/outputs:rw`. All source edits flow through
+`workspace_fs` (or a validated staging diff committed via `workspace_fs`). This
+prevents arbitrary shell commands from corrupting branch worktrees mid-flight and
+makes interrupted `sandbox_exec` calls safely repeatable by clearing `/outputs/<call_id>`.
+* A worktree reset cannot undo an external side effect, remote job, SQLite mutation
+or consumed holdout. Reconcile by authoritative receipt; retry only isolated
+replayable operations. Provider dispatch without a saved response can have an
+uncertain billed outcome. Promise reduced duplicate work, not zero waste.
+* SHA-256 addresses immutable blobs, not mutable artifact identity. Separate
+records, versions, blobs, references and many-to-many lineage. Separate compact
+index digests (`<=512 B` for context injection) from detailed summaries (`<=4 KiB`
+fetched on demand). Scorecards need evaluator authority; an agent artifact cannot
+self-certify official metrics.
+* A single `is_apex` column does not enforce one current Apex or explain a Pareto
+set. Use a revisioned project selection record pointing to a verified candidate.
+* A new local HTTP service needs authentication, project authorization, safe
+rendering and cursor replay. Loopback binding alone does not supply these.
+* Black-box CLI candidates (`fit`/`predict`) must not be trusted to execute their
+own internal K-fold splitting on full training labels without verification, as
+buggy or adversarial code can leak target statistics across folds. The harness
+split driver must materialize fold-isolated training files and feature-only
+validation inputs per fold, scoring fold predictions in the trusted evaluator.
+* Hidden validation labels do not prevent repeated-score overfitting or leakage
+through fine-grained error slices. Enforce a minimum slice support threshold
+(`min_slice_support`), coarsen validation diagnostics, budget adaptive validation
+submissions, and preserve an untouched final test. Data agents may inspect
+training-split residuals, never row-level sealed validation or test residuals.
+* Model rescue (`legacy_model.pkl` or legacy code) must guard against in-sample
+memorization: a pre-trained model file may have been trained on rows that overlap
+the harness's validation or sealed test split. Official Apex competition requires
+either refitting the rescued pipeline from scratch on `train_split` or evaluating
+on an explicitly attested, disjoint post-training holdout dataset.
+* A 128 MiB total-state ceiling conflicts with large weights/runtime assets and
+permanent retry fences. Enforce the current 128 MiB control-state policy first in
+P1.3 while defining a separate, explicitly accounted `artifact_cas_bytes` and
+`export_bytes` quota before P2/P4 store multi-file model artifacts.
+* Ten projects with five scripts each means 50 queued/runnable intents. Fifty
+simultaneously running jobs are conditional on admitted resource demand. Memory
+limits are caps, not reservations of physical RAM; summed demands are a planning
+risk, not proof that container limits allocate 50 GiB immediately.
+* Killing the host harness process can orphan running `docker run` containers inside
+the Docker daemon. Stamp every container with deterministic labels
+(`mlrescurix.project`, `mlrescurix.lease_id`, `mlrescurix.epoch`) so startup and
+recovery explicitly reap surviving daemon containers before releasing leases.
+* Reserve host/VM capacity by measured capabilities and configurable headroom;
+fixed "2 cores + 2 GiB" is unsuitable for every device. Docker's Linux VM budget
+can be lower than macOS host RAM. MPS on the host is not exposed merely because
+Apple Silicon exists.
+* CPU thread settings already exist in one path; apply them to all backends.
+Fractional CPU quotas still require at least one library thread and are not an
+integer thread allocation. Required resource claims need measurement provenance.
+* Context limits include schemas, message overhead and response allowance. Bytes/4
+is not a hard token guarantee. Compaction must preserve tool-call/result pairs,
+latest steering and pending actions, not merely the earliest 300 request characters.
+* Three seeds are configurable repeated runs, not an automatic confidence interval
+or proof of generalization. Choose confirmation protocols by task and budget.
+* A formula cannot return an exact GPU-hour deficit. Use bounded pilots and report
+estimate ranges, confidence and assumptions. Unsupervised internal metrics and
+offline RL OPE cannot universally certify downstream usefulness or policy safety.
+
+**Defer:** warm zygote workers, broad remote execution, RL and small-LLM training
+until the corresponding capability and scientific acceptance gates pass. Shared
+containers enlarge the isolation problem; a child directory and privilege drop
+do not establish per-job namespace, process or memory separation.
+
+## External design checks
+
+The following primary sources informed these corrections, accessed 2026-10-14:
+
+* Python 3.13 warns that mixing threads with `fork()` is unsafe. A preloaded
+scientific-library daemon therefore needs a dedicated compatibility experiment:
+[Python os.fork documentation](https://docs.python.org/3.13/library/os.html#os.fork).
+* Cgroup `memory.max` is enforcement; `memory.peak` is measurement of the cgroup
+and descendants. A shared container's lifetime peak is not a job-specific
+certificate. Kernel/version/reset support must be checked:
+[Linux cgroup v2 documentation](https://docs.kernel.org/admin-guide/cgroup-v2.html).
+* WAL allows reader/writer concurrency, but long readers can prevent checkpoint
+completion and grow WAL files. Bound read transactions and size the pool from
+measured load rather than hardcoding 16 connections:
+[SQLite WAL documentation](https://www.sqlite.org/wal.html).
+
+## Priority defects and evidence gaps
+
+P1 must investigate non-file uncertain outcomes, universal state growth and
+scheduler ENOSPC, supported cgroup measurement, labeled container orphan reaping,
+and direct mutation ownership. P6 must eliminate untrusted `innerHTML` interpolation
+while preserving the current session and command protections. P7 must prove
+installed end-to-end recovery, upgrade and matched prospective benchmarks. These
+are design/review findings; new test evidence must be attached before labeling any
+repair complete.
+
+## Second Argon blueprint review
+
+The second input claims repository-informed findings and proposes seven tools,
+native sandbox fallback, per-project SQLite, Arrow ingestion, MCTS, six roles,
+rescue mode and a fifth resource pane. Both original inputs are archived verbatim.
+
+**Adopted additions:** resource matrix in P6.4 (bringing the dashboard to five views),
+explicit rescue slice in P4.5 (with clean-refit/disjoint-holdout provenance rules),
+optional dataset query/tree convenience tools in P4.1, native-format export and
+service recipes in P7, optional training checkpoints in P5.5, Arrow/out-of-core
+adapter in P9.1 and drift reports in P9.9.
+
+**Repository claims corrected:**
+
+* `bash_exec` is not the current sandbox tool in `tools.rs`; `sandbox_python` is.
+* Dashboard reads `state.sqlite`/Rust snapshots and already uses SSE EventSource;
+it is not just a static `mlrescurix.db` polling page disconnected from Rust.
+* Compaction is also called from orchestrator paths and
+`ensure_context_within_bounds()` runs before dispatch. The weakness is token
+estimation/preservation, not total absence of a dispatch bound.
+* SandboxLimits values are configurable struct defaults, not proof all real jobs
+have immutable 30-second/512 MiB limits. Measure effective operation-specific limits.
+* Branch flock serializes writes in one branch; independent branches can run in
+parallel. Removing it without replacement ownership weakens recovery.
+* Embedded runtime assets enable standalone execution. Additional locked library
+profiles do not require abandoning embedded trusted code.
+* Actual migration wiring is in `execution.rs::migrate`, with version guards in
+`storage.rs`; renaming a v7/v8 table and wiring only `core.rs` is insufficient.
+
+**Rejected as defaults:**
+
+1. Switching SQLite from FULL to NORMAL while advertising the same crash/power-loss
+durability. WAL NORMAL can lose committed transactions on power loss; keep FULL
+for authoritative receipts unless a separate durability decision changes the
+product contract. [SQLite synchronous documentation](https://www.sqlite.org/pragma.html#pragma_synchronous).
+2. Per-project databases before profiling. This splits atomic global resource
+admission across databases and introduces another recovery problem. A semaphore
+hierarchy alone also loses admission state on restart; persist leases.
+3. macOS host fallback using setrlimit/RSS polling as equivalent isolation. Resource
+ceilings do not supply label/filesystem/network boundaries, and polling can miss
+peaks. A new backend must independently pass the existing sandbox threat model.
+4. Loading candidate `pipeline_entry.py` in a label-bearing trusted evaluator.
+Execute predictions in the untrusted job and score validated outputs separately.
+Candidate evaluation must not repeatedly consume the sealed final lockbox.
+5. Arrow as guaranteed "zero RAM duplication." Memory mapping can reuse input pages,
+but transformations, pandas conversion and training buffers can allocate copies;
+benchmark end-to-end peak use. [Arrow memory interfaces](https://arrow.apache.org/docs/python/memory.html).
+6. One BPE encoding as exact counting for every provider. Select provider/model
+tokenizer and overhead policy; reject unsupported hard guarantees.
+7. Universal batch/row equality as proof of zero leakage, universal successful
+inference on invalid input, or every ensemble component requiring individually
+positive ablation. These are task-specific checks; ensembles can gain jointly.
+8. Guaranteed <3 GiB fine-tuning, four-minute training/2.4ms inference, 8–12x search
+speedups, <40ms worker startup, or automatic drift-triggered retraining. Preserve
+these as proposed experiments, not release promises. Full encoder cost matters.
+
+The second document's six-phase master prompt omits the open M6 release repair
+sequence and combines too many incompatible changes. Use SESSION_PROMPT.md with
+one ROADMAP.md task scope instead of executing either master prompt literally.
+<<>>
+
+<<<FILE: docs/v2/ROADMAP.md>>>
+
+# Phased implementation roadmap
+
+Updated 2026-10-14 after both supplied Argon blueprints, local source review and
+packet boundary audit. Each task ID is stable for progress tracking. Proposed module
+names may change; keep their ownership and contracts. No time estimates are asserted
+before sizing the implementation slices. Do not undertake the entire roadmap in a
+single session.
+
+## Shared completion rules
+
+Every implemented slice needs changed-source references, meaningful tests of its
+boundary, exact command/results, source/image/schema identities, known limitations,
+and a next-session handoff. Tests must check failure/restart/concurrency behavior
+where relevant. Update capabilities honestly; metadata registration is not proof
+of execution, integrity is not parity, and screening is not certified feasibility.
+
+Use `cargo test --locked -p mlrescurix-harness` for relevant Rust regressions and
+the digest-pinned scientific image (`docker/scientific/image.ref`) for Python/
+scientific fitting or inference. Whenever a slice modifies cross-language schemas
+or wire frames, update `contracts/v1/`, `scripts/generate_contracts.py`,
+`crates/harness/src/contracts.rs` and `python/src/mlrescurix_worker/protocol/frame.schema.json`
+in the same slice. The existing Python tests use `unittest`; do not assume a host
+`pytest` invocation is the authoritative test command. Select suites appropriate to
+the slice and run integrated gates at phase completion. Preserve old evidence; the
+existing `scripts/run_m6_review_checks.sh` overwrites M6 evidence files, so revise
+its output handling or capture fresh phase-specific logs before using it for new
+acceptance.
+
+## P0 — Audit and durable planning
+
+**Outcome:** shared scope, corrected contracts and files that survive chat loss.
+
+* P0.1 Review source, M6 handoff and both supplied blueprints.
+* P0.2 Preserve input specifications, create audit/architecture/roadmap/decisions.
+* P0.3 Create status tracker and paste-ready continuation prompt; link from README.
+
+**Gate:** documentation links resolve; current runtime status remains unchanged;
+plan clearly distinguishes proposed/implemented/verified work. Documentation only.
+
+## P1 — Recovery, storage and release prerequisites
+
+**Depends on:** P0. **Outcome:** trustworthy state transitions before new surfaces.
+
+**Touchpoints:** `storage.rs`, `execution.rs`, `core.rs`, agent recovery/orchestrator/
+context, `sandbox.rs`, `assets.rs`, bundle/finalization code; foundation/recovery/
+release tests.
+
+* P1.1 Inventory every SQLite/filesystem mutation and runner entrypoint. Produce a
+mutation/effect matrix with ownership, reservation and recovery classification.
+Converge authoritative writes behind a command service incrementally; retain
+bounded queues and cross-process serialization until callers are migrated.
+* P1.2 Extend durable tool intent/outcome reconciliation to scheduler submission,
+specialist delegation, registration and delivery publication. Bind call identity
+to project/task/turn/generation/policy plus canonical inputs. Add provider
+response-before-tools persistence and explicit unknown dispatch/billing state.
+Pure cache results require dataset/split/environment/protocol identities too.
+* P1.3 Route checkpoints, provider receipts, logs, managed blobs, runtime assets
+and bundle staging through reservation accounting. Include SQLite/WAL growth and
+emergency recovery headroom. Enforce the existing 128 MiB control-state policy
+while establishing an explicit, separately accounted `artifact_cas_bytes` and
+`export_bytes` quota contract (so P2/P4 model artifacts do not collide with
+control-plane state limits, and no write path is silently exempted).
+* P1.4 Add lease-aware archival/tombstones, compact retry fences and interrupted
+publication reconciliation. Indefinite unique-history retention cannot fit a
+finite cap: archive under explicit bounded policy, or stop admission honestly.
+* P1.5 Implement supported per-job cgroup enforcement/measurement receipts,
+deterministic Docker container labels (`mlrescurix.project`, `mlrescurix.lease_id`,
+`mlrescurix.epoch`) for daemon-level orphan container discovery/reaping, and
+feature detection. Collect peak/events before cgroup removal; prove refusal when
+required certification is unavailable. Preserve Docker-only candidate execution.
+* P1.6 Prove scheduler ENOSPC recovery on disposable bounded storage, repeated
+restart/cleanup and cancellation without losing protected artifacts or fences.
+
+**Gate:** fault injection before/after effect/result/checkpoint cannot duplicate
+known effects; unknown irreversible effects refuse. Concurrent writers cannot
+over-admit state. ENOSPC leaves recoverable receipts. Orphan containers and workers
+are reaped in the Docker daemon before lease release. Memory enforcement is measured
+on declared supported targets.
+
+**First implementation slice:** P1.1 plus one non-file operation from P1.2 (job
+submission), with a crash after effect but before outcome checkpoint. This is a
+reviewable starting point; do not begin by deleting tool APIs or rebuilding schemas.
+
+**Remaining M6 mapping:** release gate 1 -> P1.2/P5 recovery; gate 2 -> P1.3/P1.4/
+P1.6; gate 5 -> P1.5/P3/P7. Installed full delivery (gate 3) and fresh matched
+benchmarks (gate 4) remain P7 gates; P1 completion alone is not M6 release readiness.
+
+## P2 — Artifact versions, lineage and events
+
+**Depends on:** P1. **Outcome:** one artifact authority for agents and humans.
+
+**Touchpoints:** new artifact service/migrations/contracts (`contracts/v1/`,
+`scripts/generate_contracts.py`, `contracts.rs`); storage snapshots/events; existing
+managed artifacts and scientific registration adapters.
+
+* P2.1 Add blobs, logical artifacts, immutable versions, lineage edges, annotations
+and project selection references. Separate compact `index_digest` (`<=512 B` for
+context-window lists) from `summary_text` (`<=4 KiB` fetched on demand). Use
+project-scoped foreign keys; allow kind extensions through versioned schemas in
+`contracts/v1/`. Allocate migrations from actual latest version (currently 9);
+update all guards, fixtures and embedded assets.
+* P2.2 Implement reserved staging/hash/fsync/publication/commit/reconciliation and
+lease-aware GC under P1.3's two-tier storage quotas. Add bounded manifest handling
+for multi-file models/directories.
+* P2.3 Add query/lineage/pin/successor/tombstone commands with revision/idempotency
+checks. Restrict official scorecards to evaluator authority. Bridge M6 records;
+do not replace all scientific tables before readers and writers are migrated.
+* P2.4 Define durable event schemas, snapshot cursor, replay retention and reset
+behavior. Publish registry mutation and event in the same database transaction.
+* P2.5 Add bounded read connection pool and short transactions, observing WAL
+checkpoints and contention. Measure needed pool size; avoid holding DB reads for SSE.
+
+**Gate:** old states upgrade without lost selection/final-test records; partial
+CAS/DB commits reconcile; protected references survive concurrent GC; stale updates
+and forged scores reject; restart/reconnect delivers committed events consistently.
+
+## P3 — Resource leases across projects
+
+**Depends on:** P1, P2 telemetry. **Outcome:** ten projects/five intents per project
+remain responsive within device capacity; concurrency scales down when necessary.
+
+**Touchpoints:** broker module, existing execution reservations/supervisor, sandbox
+and capability probes; resource contracts (`contracts/v1/`) and isolated runner tests.
+
+* P3.1 Discover effective host/container-VM CPU, memory, disk and accelerator
+capabilities. Configure headroom and request presets; reject infeasible requests.
+* P3.2 Add atomic global/project capacity reservations, weighted fair queues with
+aging, bounded queues and stable tie ordering. Distinguish concurrency caps from
+CPU/RAM allocation. Persist lease/heartbeat/recovery transitions.
+* P3.3 Route generic tools, preflight, evaluation, benchmarking, final fit, inference
+checks and environment jobs through the broker. Apply thread caps everywhere,
+including estimator `n_jobs` and nested fold/HPO execution.
+* P3.4 Add pressure backoff, per-project pause/stop isolation, labeled daemon-container
+orphan reconciliation (`docker ps`/`docker rm -f` by lease label) and resource-release-on-reap.
+Preserve capacity for finalization/control-plane work.
+* P3.5 Test ten projects x five queued intents, mixed-size jobs, starvation bounds,
+worker crash and cancel/restart; attach aggregate allocation/resource timelines.
+
+**Gate:** admitted sums stay within declared capacity; a large queued job receives
+service under the documented policy; one project's cancellation leaves others
+running; no runner bypasses leases. Report actual active count and queue waits.
+Use synthetic/small jobs; do not intentionally exhaust the user's host RAM.
+
+## P4 — Agent-first tools and executable candidates
+
+**Depends on:** P2, P3. **Outcome:** agents can create/fix arbitrary candidate code
+without modifying a recipe registry, while evaluation, fold isolation and budgets
+remain trusted.
+
+**Touchpoints:** `agents/tools.rs`, `workspace.rs`, `sandbox.rs`, `gateway.rs`
+(`OutboundFilter`), `contracts/v1/`, `scripts/generate_contracts.py`, `contracts.rs`,
+`protocol/frame.schema.json`, `custom/preflight.py`, `custom/runner.py`,
+`scientific/workflow.py`, `scheduled_pipeline.py`, `calibration.py`, `ensemble.py`,
+`search/adapter.py`, experiment DAG and delivery adapter.
+
+* P4.1 Add versioned `workspace_fs`, `sandbox_exec`, `evaluate_submission` and
+`artifact_crud` adapters; retain existing operations during migration. Enforce
+`/workspace:ro` + writable `/scratch:rw` and `/outputs:rw` during `sandbox_exec`
+so source mutations occur only via `workspace_fs` (or validated staging diffs) and
+interrupted `sandbox_exec` runs are safely repeatable. Bind `sandbox_exec` to the
+approved digest-pinned scientific image (`docker/scientific/image.ref`) rather than
+unpinned `python:3.13-slim`. Extend `OutboundFilter` to cover all new tool outputs.
+Optional `dataset_query` and `experiment_tree` are convenience surfaces using the
+same authority boundaries.
+* P4.2 Define executable candidate manifest (`Candidate v2`) and CLI `fit`/`predict`
+protocol, raw-input schemas, stable row keys, class order, source/model/environment
+bindings, optional hyperparameter search-space hooks (`search/adapter.py`) and
+standardized prediction-table outputs for post-hoc calibration (`calibration.py`)
+and ensembling (`ensemble.py`). Support old `CustomEstimator` via an adapter.
+* P4.3 Decouple experiment identity from built-in recipe enum across SQL, Rust,
+contracts (`contracts/v1/`), `scheduled_pipeline.py` and Python dispatch. Keep
+lifecycle states validated; distinguish search operation (`draft`/`debug`/`improve`/
+`ablate`/`hyperopt`/`ensemble`) from run status and fidelity.
+* P4.4 Enforce harness-driven fold isolation: the trusted split driver materializes
+fold-specific training files (`fold_k/train.csv`) and feature-only validation
+inputs (`fold_k/val_features.csv`), running candidate `fit`/`predict` in isolated
+jobs per fold so candidate scripts cannot leak validation fold labels or fabricate
+OOF scores. Trusted evaluator receives only validated prediction outputs, enforces
+an adaptive validation query budget (`max_validation_queries`) and minimum slice
+support (`min_slice_support`) on returned error slices, and never imports arbitrary
+candidate code into a label-bearing process.
+* P4.5 Add no-dependency custom model and legacy-code rescue vertical slices.
+Distinguish *unfitted code rescue* (refitted cleanly on `train_split`) from
+*pre-trained artifact rescue* (which requires either a clean refit on `train_split`
+or an explicitly attested disjoint post-training holdout dataset to prevent
+in-sample memorization leakage). Add optional locked library profiles later;
+environment provisioning is separate from offline training. Keep embedded trusted
+runtime assets for standalone use.
+* P4.6 Preflight schema/missingness/category behavior, reload parity and batch/row
+consistency where the task requires it. Invalid input may be rejected according
+to contract; do not force every model to predict on Inf/all-null input.
+
+**Gate:** an unregistered algorithm completes fold-isolated fit/evaluate/calibrate/
+ensemble/delivery through the same trusted boundary; existing candidates still work;
+row/class/source substitution rejects; candidate process cannot access evaluation
+labels, leak across CV folds, reconstruct labels via small diagnostic slices, or
+mutate official scores. Pre-trained rescue models without disjoint holdout provenance
+cannot crown Apex without a clean refit.
+
+## P5 — Orchestration, checkpoints and context
+
+**Depends on:** P4. **Outcome:** bounded collaborative research survives steering,
+crashes and long experiment runs without losing scientific state.
+
+**Touchpoints:** agent `context.rs`, `gateway.rs`, `roles.rs`, `orchestrator.rs`,
+`recovery.rs`, `workspace.rs` and versioned task/handoff contracts.
+
+* P5.1 Introduce versioned task assignment/completion schemas. Consolidate default
+roles without deleting specialized capabilities. Give each concurrent mutation
+task its own branch/workspace; branch lock remains useful for ownership.
+* P5.2 Maintain experiment DAG operations and parent evidence. Begin with bounded
+best-first/multi-fidelity selection; add MCTS/UCB as an optional strategy with
+explicit reward, costs and adaptive-validation assumptions, then compare fairly.
+* P5.3 Enforce provider-specific complete request accounting and `OutboundFilter`
+redaction before every dispatch. Retain economical ~16K default; configurable hard
+upper window <=64K. Inject `<=512 B` artifact `index_digest` entries rather than
+4 KiB summaries into leaderboard/DAG digests; bound schemas/logs/handoffs and
+response reserve; refuse when essential state cannot fit.
+* P5.4 Compact at task/milestone boundaries and budget pressure. Store durable
+summaries with evidence IDs; preserve current steering, pending tool pairs,
+constraints, approvals and final-test identity. Recover without replaying LLM
+requests whose responses are already durable.
+* P5.5 Define pause/cancel/resume semantics; reconcile parallel workers and provider
+receipts. Because `sandbox_exec` mounts `/workspace:ro`, interrupted stateless
+runs clean `/outputs/<call_id>` and safely re-run; staged workspace-mutating tools
+reconcile via pre-image receipts. Optional epoch checkpoints bind code/data/
+environment/seeds and include optimizer/RNG state where needed; not every algorithm
+supports mid-fit resume.
+* P5.6 Version/test role prompts for hypothesis quality, fold locality, honest
+evidence, escalation and independent critique. Agent critic complements deterministic
+checks; neither can prove absence of every domain-specific leakage source.
+
+**Gate:** long mocked-provider runs remain bounded; restore latest steering and
+unfinished jobs; duplicate delegation/result delivery does not duplicate charges
+or work; parallel branches cannot overwrite one another; `OutboundFilter` blocks
+unredacted host/label leaks. Compare token overhead against the current orchestrator.
+Paid-provider evidence is a separate approved run.
+
+## P6 — Transparent dashboard and human controls
+
+**Depends on:** P2–P3 for read/telemetry views (P6.1–P6.4); P4–P5 for steering
+commands (P6.5–P6.6). **Outcome:** users see actual work, resources and evidence
+and can steer safely. Build API first, then one vertical UI view at a time.
+
+**Touchpoints:** Rust HTTP/SSE service (`axum` candidate), embedded UI assets,
+scientific dashboard compatibility bridge, artifact and lifecycle command services.
+
+* P6.1 Port authenticated snapshots/events/commands to Rust with cursor replay,
+revisions, request caps, project authorization and Host/Origin/CSRF checks.
+* P6.2 Add safe research/artifact renderer and code/log viewer; remove untrusted
+`innerHTML` interpolation. Validate diagnostic specs and render bounded summaries.
+* P6.3 Add actual experiment DAG/search operations, leaderboard/Pareto view,
+diagnostic gallery and research feed (views 1–4). Show feasible/unverified/failed
+and pre-trained rescue baselines separately.
+* P6.4 Add fifth resource drawer (view 5): allocated vs measured CPU/RAM, queue wait,
+running slots, backend capacity and contention across projects.
+* P6.5 Add revisioned notes, pin/baseline actions, prune/cancel and steering deltas.
+A note editing "constraints" must issue an explicit project-intent command;
+merely editing Markdown cannot silently alter the locked evaluation protocol.
+* P6.6 Test reconnect/restart, expired cursor, event duplication, large DAGs,
+malicious notes/plot payloads, slow clients and reduced-motion accessibility.
+
+**Gate:** UI recovers from snapshot plus cursor; mutation receipts agree with CLI/
+agent behavior; unsafe rendering/project crossing reject; animations reflect committed
+state. No unsupported "zero lag" guarantee. Embed built UI for standalone installs.
+
+## P7 — Apex delivery and release certification
+
+**Depends on:** P1–P6. **Outcome:** a complete agent-first tabular release with
+working standalone output and scoped claims.
+
+**Touchpoints:** `bundle.rs`, `scientific/bundle.py`, `workflow.py`, runtime assets,
+install/migration tests, benchmark drivers and release capabilities/docs.
+
+* P7.1 Version bundle manifest for executable candidates (`Candidate v2`) and
+post-hoc calibrated/ensembled pipelines; include weights, training source,
+ingestion/preprocess/postprocess, inference CLI/API, schemas, separate training/
+inference locks, score/model cards, lineage and measurements.
+* P7.2 Prefer supported native/ONNX/safetensors exports where parity holds. These
+formats do not sandbox custom Python or certify the complete bundle. Record
+numerical tolerances per adapter; do not hardcode `1e-6` for every modality.
+* P7.3 Verify final reload/raw-input parity/cold-warm latency/peak memory/size on
+the declared target. Preserve bound approvals and single-use sealed assessment.
+Golden examples are synthetic/explicitly permitted; no private-data packaging.
+* P7.4 Optional serving recipe adds health/predict and locked runtime dependencies;
+benchmark service overhead independently. "Zero dependency inference" is not
+plausible for arbitrary scientific models; exclude harness/LLM dependencies instead.
+* P7.5 Prove installed binary outside checkout -> research/custom candidate ->
+crash/resume -> finalization -> verified bundle -> standalone prediction. Upgrade
+populated version-9 states and older supported states without changing consumed gates.
+* P7.6 Predeclare representative datasets/splits/seeds/metrics/budgets and compare
+random/search/agent baselines with matched total costs, including refit, evaluation,
+calibration, downloads and LLM costs. Preserve disappointing/failing trials.
+* P7.7 Publish capability matrix and evidence index bound to source/image hashes.
+Explicitly decide each of the five M6 release gates and new v2 gates.
+
+**Gate:** no manual state edits; runnable exact frozen bundle; honest unknown/failure
+outcomes; installed/recovery/storage/benchmark scenarios demonstrate their specific
+claims. No superiority/statistical-equivalence claim from convenient synthetic parity.
+
+## P8 — Compute feasibility and local alternatives
+
+**Depends on:** P3, P4, P7. **Outcome:** estimate before spending substantial training
+budget, explain limits and choose evidence-backed local alternatives.
+
+* P8.1 Define `HardwareProfile`, `DatasetMetadata`, `FeasibilityReport` and
+`ExecutionPlan` artifacts in `contracts/v1/`. Reuse broker discovery; include
+Docker VM/accelerator capability limits.
+* P8.2 Add family-specific analytical ranges and capped micro-pilots, accounting
+for CV/final fit/benchmark cost, transformed data expansion and concurrent leases.
+* P8.3 Report `local_feasible` / `feasible_with_adaptation` / `requires_external_compute` /
+`unknown`. Include assumptions, confidence, predicted ranges and measured pilot IDs.
+* P8.4 Suggest streaming, smaller models, sparse linear baselines, frozen embeddings,
+progressive fidelity and distillation where appropriate. Compare actual quality
+and complete inference cost; a tiny head still pays encoder latency.
+* P8.5 Negotiate changed goals/latency, downloads, external teacher/data transfer or
+cloud cost explicitly. Existing authorized local constraints may guide automatic
+downscaling; do not quietly change semantics or purchase resources.
+
+**Gate:** estimates are calibrated against bounded real runs; misleading guarantees
+are absent; remote/cloud calls never occur simply because the agent recommends them;
+unsupported backends return useful alternatives rather than crash.
+
+## P9 — Separately gated expansion and optimizations
+
+**Depends on:** P8. Each slice is optional and independently scoped.
+
+* P9.1 Out-of-core/Arrow data adapter: feature-only split views, ingestion fingerprints,
+byte limits and memory-mapped reuse. Measure actual preprocessing/model copies;
+Arrow mmap does not make arbitrary training zero-copy.
+* P9.2 Time-series adapter: horizons, feature availability, entity/temporal splits,
+rolling backtests, naive baselines and correct forecasting delivery interface.
+* P9.3 Anomaly/clustering adapter: task-defined utility, optional labels, stability
+and baseline protocols; internal cluster metrics alone do not certify usefulness.
+* P9.4 Text/vision frozen-embedding adapters before broad fine-tuning. Budget model
+downloads/licensing, caching, full preprocessing/encoder inference and privacy.
+* P9.5 Small-model fine-tuning: proven accelerator/runtime profile, measured
+sequence/batch/optimizer/activation memory, checkpoint and quantized export parity.
+* P9.6 Remote runner: durable remote job IDs, scoped credentials, data policy,
+reservations/cost/shutdown, artifact transfer validation and uncertain-outcome
+reconciliation. A trusted remote evaluator is a separately reviewed boundary.
+* P9.7 Warm worker experiment: compare disposable containers vs pooled isolated
+jobs; certify per-job process/filesystem/cgroup isolation, cancellation, reset,
+memory accounting and import/fork/thread compatibility. No privileged fallback.
+Enable only if measured savings justify increased complexity.
+* P9.8 Bandits/offline RL last: logged propensities/support assumptions, OPE limits,
+environment adapters and task-specific safety review; no real-world policy control
+or claimed reward improvement from offline metrics alone.
+* P9.9 Optional drift reports/retraining proposals: task-calibrated thresholds,
+privacy/count windows and explicit lifecycle policy. PSI >0.20 is not a universal
+retraining trigger; changed training still needs a fresh valid evaluation protocol.
+
+**Gate per adapter:** complete fit/predict/evaluate/package vertical slice, negative
+scientific cases, resource-failure recovery, locked supported environment, delivery
+parity and declared limitations. Unsupported task types remain rejected.
+
+## Recommendation priority
+
+Ship model rescue and transparent evidence first; they distinguish the product
+without needing exotic ML. Next add reproducible environment profiles, better
+diagnostics and compute estimates. Add out-of-core/time-series/frozen embeddings
+before small-LLM/RL ambitions. Benchmark MCTS, warm pools and DB sharding as optional
+optimizations; do not make them prerequisites for a useful tabular coding harness.
+<<>>
+
+<<<FILE: docs/v2/ARCHITECTURE.md>>>
+
+# Target architecture and contract requirements
+
+Status: proposed implementation contracts, 2026-10-14. Names below are design
+targets, not existing commands or generated schemas. Implement versioned schemas
+in `contracts/v1/`, run `scripts/generate_contracts.py`, and add cross-language
+fixtures in `crates/harness/src/contracts.rs` and `python/src/mlrescurix_worker/protocol/`
+in the phase that owns each contract.
+
+## Ownership and flow
+
+```mermaid
+flowchart TD
+    U[User: problem, data, existing code, constraints] --> I[Intake and feasibility plan]
+    I --> O[Lead agent and durable task graph]
+    O --> T[Generic tool gateway + OutboundFilter]
+    T --> B[Global resource lease broker]
+    B --> S[Isolated candidate jobs: /workspace:ro, /scratch:rw, /outputs:rw]
+    S --> E[Trusted split driver, evaluator and benchmark runner]
+    E --> A[Candidate evidence and Apex selection]
+    A --> V[Independent verifier and critic]
+    V --> F[Frozen finalization and sealed test]
+    F --> D[Standalone deployable bundle]
+    T --> R[Artifact registry and event journal]
+    E --> R
+    R --> UI[Authenticated local 5-view dashboard]
+    UI --> C[Revisioned user commands and notes]
+    C --> O
+
+```
+
+Rust owns identity, authorization, lifecycle, admission, budgets, durable receipts,
+artifact publication, official-result registration, outbound provider sanitization
+(`gateway.rs::OutboundFilter`), event ordering and delivery gates. Python owns
+data/ML computation and evaluator implementations in an isolated trusted evaluator
+scope. Candidate code never shares label access or mutation authority with that
+evaluator. Agents own hypotheses and code choices; their claims remain proposals
+until deterministic checks accept their evidence.
+
+"Deterministic" applies to state transitions, input binding, receipts and admission.
+Model training/LLM reasoning may vary; record seeds, environment/device identities
+and numerical tolerances. Identical hashes do not promise cross-device equality.
+
+## Storage budgets and artifact registry
+
+Enforce a two-tier storage reservation contract so artifact growth never starves
+control-plane recovery:
+
+1. **Control-Plane State Budget (`control_state_bytes`)**: Enforces the existing
+`128 MiB` default cap across SQLite tables, WAL growth, durable tool/provider
+receipts, retry fences, checkpoints and emergency recovery headroom.
+2. **Managed Artifact & Export Budget (`artifact_cas_bytes` + `export_bytes`)**:
+Separately accounted configurable project/global quotas for CAS blobs (weights,
+predictions, plots), staged candidate outputs and finalized delivery bundles.
+No write path is exempt from reservation accounting.
+
+Use additive migrations from the actual latest schema version (currently 9) and
+retain M6 scientific records during transition.
+
+| Entity | Required data and responsibility |
+| --- | --- |
+| Blob | SHA-256, verified bytes, owned CAS path, media type; immutable content |
+| Artifact | Project-scoped logical ID, kind, producer identity/authority, current version, pins, visibility, tombstone |
+| Artifact version | Immutable version ID, blob reference, compact `index_digest` (`<=512 B`), bounded `summary_text` (`<=4 KiB`), schema version, source/environment/job bindings |
+| Lineage edge | Project-scoped source/destination version IDs and relation: `derived_from`, `evaluates`, `calibrates`, `ensembles`, `packages`, `supersedes` |
+| Annotation | User/agent note, author, revision, referenced artifact version; never edits an official score |
+| Selection | Project revision, candidate and scorecard version, protocol, rationale; unique current Apex pointer |
+| Event | Monotonic cursor, project, type/version, committed revision and bounded payload/reference |
+
+Kinds initially cover data profiles, research notes, code snapshots, run logs/curves,
+diagnostic specs, fold/validation predictions, scorecards and Apex bundles. Validate
+payloads with versioned kind schemas in `contracts/v1/`; keep extensions namespaced
+rather than another permanent SQL enum bottleneck. Directory artifacts use canonical
+manifests of file hashes; validate paths, symlinks, file count and aggregate size
+before committing.
+
+CRUD means create immutable version, read/query/lineage, update annotations or
+publish successor version, and tombstone an unprotected record. Delete never
+rewrites lineage, score history, consumed assessments or retry fences. Pinning
+controls retention; baseline designation controls comparison; neither crowns Apex.
+
+Publication protocol: acquire byte reservation (from `control_state_bytes` for DB
+metadata and `artifact_cas_bytes` for blob bytes) -> write bounded staging -> hash
+and fsync -> atomically publish owned bytes -> commit registry plus event -> settle
+reservation. Filesystem and SQLite are not one transaction: reconcile staged files,
+orphan blobs and incomplete publication receipts on restart. GC marks references
+and leases, tombstones, deletes owned unreferenced bytes, then records completion.
+Cross-project deduplication must not expose another project's data or retention.
+
+Agents and UI use the same command service. Official scorecards are writeable only
+by evaluator authority; claimed agent metrics are explicitly unofficial. List and
+leaderboard queries inject `index_digest` (`<=512 B` / ~120 tokens) so multi-item
+digests stay compact; full `summary_text` (`<=4 KiB`) and bounded raw log slices
+require explicit read calls. `OutboundFilter` redaction policy applies before
+notes, summaries or tool outputs enter provider views.
+
+## Coding tools, fold isolation and candidate boundary
+
+Expose four versioned tool families, backed by existing operations where possible:
+
+| Tool | Contract |
+| --- | --- |
+| `workspace_fs` | Scoped read/write/patch/glob/search in the branch worktree; expected content hash for mutations; bounded results; reject path and symlink escapes |
+| `sandbox_exec` | Prefer structured `argv`; explicit shell mode for agent scripts; approved digest-pinned environment (`docker/scientific/image.ref` or locked profile), task generation, lease, deadline, `/workspace:ro`, bounded `/scratch:rw` and `/outputs:rw` caps, durable receipt |
+| `evaluate_submission` | Trigger harness-managed fold/validation execution and score bound prediction artifacts against locked metric/split; trusted validation and benchmark receipts; adaptive-query budget (`max_validation_queries`) and minimum slice support (`min_slice_support`) |
+| `artifact_crud` | Project-scoped publication/query/version/lineage/pin/tombstone; expected revision and reservation; no official-score forgery |
+
+Keep governed orchestration controls: delegate, inspect status, complete subtask,
+pause/cancel/resume, steering and request finalization. No sandbox tool may run
+directly without a broker lease. Retain registered project tools as optional
+reusable descriptors calling the same gateway rather than an independent runner.
+
+Candidate v2 is an executable directory plus manifest (`candidate/manifest.json`).
+The manifest binds source tree hash, training environment lock, inference environment
+lock, input/output schemas, task type, supported operations, optional hyperparameter
+search space (`search/adapter.py`), seeds and declared resource request:
+
+```text
+candidate/manifest.json
+candidate/entrypoint.py
+candidate/source/...
+training.lock
+inference.lock
+
+```
+
+```sh
+python -m candidate.entrypoint fit --train-path /inputs/train.csv --model-dir /outputs/model
+python -m candidate.entrypoint predict --input-path /inputs/features.csv --model-dir /inputs/model --output-path /outputs/predictions.csv
+
+```
+
+**Sandbox Mount & Isolation Contract**:
+
+* During `sandbox_exec` and candidate `fit`/`predict`, the branch source workspace
+is mounted **read-only (`/workspace:ro`)**, while per-job `/scratch:rw` and
+`/outputs:rw` are mounted writable with strict byte quotas. Code mutations happen
+exclusively through `workspace_fs` (or via an explicit copy-on-write staging mode
+whose diff is validated and committed through `workspace_fs` on exit).
+* Never mount shared control state, evaluator labels, other branches, credentials
+or the Docker socket inside candidate containers.
+
+**Harness-Owned Fold Isolation, Calibration & Ensembling**:
+
+* An untrusted candidate script must not be relied upon to partition its own K-fold
+cross-validation on full training data, because it could fit preprocessors globally
+or leak validation fold labels into OOF predictions.
+* Instead, the **Trusted Split Driver** materializes immutable fold-specific training
+splits (`/inputs/folds/fold_k/train.csv`) and feature-only validation splits
+(`/inputs/folds/fold_k/val_features.csv`) using the locked split strategy
+(stratified, grouped, or temporal). Each fold executes `fit` and `predict` in
+isolated candidate runs that never see `fold_k/val_labels`.
+* Standardized prediction tables (`row_id`, `pred`, `prob_<class_0>...`) bound to
+the candidate/model/split hash are scored by the **Trusted Evaluator** and can be
+consumed directly by the harness's trusted `calibration.py` and `ensemble.py`
+modules without importing untrusted candidate classes into the evaluator process.
+* Validation diagnostics returned to agents enforce `min_slice_support` (e.g., at
+least 20 rows or 5% of the validation split) and coarsened metrics so agents
+cannot reconstruct individual validation labels from small error slices.
+
+**Model Rescue Provenance Boundary**:
+
+* Legacy models and `.pkl` files are untrusted code and must only be inspected or
+loaded inside the candidate sandbox.
+* Rescue tasks distinguish **Unfitted Code Rescue** (legacy code repaired and refitted
+cleanly on `train_split`) from **Pre-Trained Artifact Rescue** (weights fitted
+prior to harness intake). Because a pre-trained pickle may have memorized rows in
+`val_split` or `final_test`, it is recorded as an `unverified_legacy_baseline`
+unless it is either refitted cleanly on `train_split` or evaluated against an
+explicitly attested, disjoint post-training holdout dataset.
+
+## Resource broker and execution
+
+Lease fields: project/task/job, generation, backend and device, container label ID,
+CPU millicores, library threads, memory limit/reservation, accelerator units/bytes
+where supported, scratch/output bytes, PID cap, deadline, heartbeat and environment
+hash. Persist reserve/start/finish/reconcile transitions; terminate and reap
+containers in the Docker daemon (`docker rm -f` by `mlrescurix.lease_id` label)
+before releasing lease capacity.
+
+Use capacity accounting for instantaneous CPU/RAM/GPU/storage and cumulative
+accounting for time/tokens/cost. Start with weighted fair queues, per-project limits
+and aging; add dominant-resource fairness only when multi-resource traces justify
+its complexity. Suspend new admissions under pressure. Do not kill a training job
+for fairness unless it explicitly supports resumable checkpoint/preemption.
+
+Available capacity is the constrained runner/device budget minus configurable
+headroom, warm-worker overhead and active reservations. Docker VM limits matter on
+macOS. `MICRO`/`STANDARD`/`HEAVY` are configurable request presets, not universal
+truth. Fractional CPU jobs normally use one library thread; integral leases cap BLAS,
+OpenMP, Polars and estimator-specific jobs. Nested CV/HPO parallelism shares the
+same allocation. Fifty jobs can queue; actual dispatch satisfies aggregate limits.
+
+Backend capability reports distinguish enforcement, telemetry and certification.
+Record per-job `memory.max`/`memory.peak`/`memory.events` and measurement scope on
+supported Linux cgroups. An OOM is a failed trial; missing measurements cannot pass
+a required constraint. Training peak, inference peak and warm worker overhead are
+separate. Metrics collector is trusted and candidate-write-protected. Initially
+retain one disposable container per job; pooling is a later measured optimization.
+
+## Durable agents, recovery and memory
+
+Default roles: lead, data/diagnostics, experiment engineer, independent verifier,
+critic. Estimator combines deterministic hardware/pilot evidence with agent task
+interpretation. Specialist roles are capabilities, not five always-running LLMs.
+Keep deterministic verifier separate from an advisory/binding-policy critic.
+
+Task contract: goal, falsifiable hypothesis, immutable inputs, allowed tools,
+branch ownership, limits, expected artifacts, acceptance criteria and dependency
+IDs. Completion receipt: verdict, experiment/candidate/source IDs, measured metric
+delta and protocol, failures, bounded learnings and next actions. Enforce receipt
+schema before updating the lead's memory. Invoke research/critic specialists only
+when uncertainty or a milestone justifies their cost. External research requires
+approved egress and content provenance; training remains offline.
+
+Provider turn ledger binds canonical request, model/settings, prompt/policy/tool
+versions, dispatch identity, raw response and usage settlement. Persist the response
+before executing tools. Crash before response persistence may leave unknown billing;
+reconcile provider evidence when available and refuse to claim exactly-once billing.
+
+Classify tools: pure read, transactional command, isolated replayable job
+(including `/workspace:ro` `sandbox_exec` runs writing to `/outputs/<call_id>`),
+reconcilable external operation, irreversible operation. Store intent before effects
+and result before context update. Unknown outcomes reconcile using job/command/blob
+receipts; never reset-and-replay arbitrary shell effects on a writable worktree.
+Finalization stays tied to its original frozen artifact; exposed assessment cannot
+be recreated by retry.
+
+Pause stops admission and checkpoints at a safe boundary. Cancel fences tasks and
+terminates descendants (including labeled Docker containers); restart discovers
+surviving containers/processes and leases. Resume loads authoritative state and the
+unfinished operation, not a reconstructed conversation guess. Latest steering
+changes intent revision and invalidates stale worker proposals. Lost workers,
+paused projects and failed projects remain distinct.
+
+Context policy: default approximately 16K total window when supported; maximum
+64,000 or provider's smaller window. Count system/messages/schemas/tool results plus
+response allowance. Suggested upper-window allocations: 4K pinned state, 12K bounded
+milestone summaries (using `<=512 B` `index_digest` entries for leaderboard/DAG
+tables), 32K active work, 8K response, 8K schemas/overhead/safety margin. Unused
+portions are optional capacity, not required padding. Trigger compaction before the
+next request exceeds its budget. Use exact tokenizer where available; otherwise a
+conservative bound and an explicit unsupported hard-guarantee report.
+
+Preserve full constraints, newest user steering, Apex/protocol identity, current
+leases/tool pairs, unresolved failures and final-test status. Full logs live in
+artifacts; provide bounded excerpts and IDs. Summaries are cached with input hashes,
+versioned and recoverable; they are never official scientific evidence.
+
+## API and transparent dashboard
+
+Serve loopback Rust API and static UI. Preserve authentication, Host/Origin checks,
+CSRF protection for cookie-authenticated mutations, expected revision and idempotent
+command IDs. Reuse current `/v1` contracts or add explicit version negotiation;
+avoid an accidental `/api/v1` break. Stream durable events after commit with SSE
+cursor IDs and `Last-Event-ID` replay. Snapshot includes revision and cursor; expired
+cursors trigger a new snapshot. Disconnect slow readers without blocking writers.
+Transient telemetry can be coalesced; terminal state/selection events remain durable.
+
+Five views (four project views plus one global/project resource drawer):
+
+1. **Experiment DAG**: actual queued, screening, running, pruned, failed and verified
+states with parent/child lineage.
+2. **Leaderboard & Pareto view**: validated candidates, feasibility status, pre-trained
+rescue baselines and Pareto alternatives across metric, latency and size.
+3. **Data & Model Diagnostics**: distribution profiles, calibration curves and
+coarsened error slices (`min_slice_support`) with sample counts and provenance.
+4. **Research Feed & Code Diffs**: hypothesis, code snapshots, evidence receipts and
+critic notes.
+5. **Resource & Lease Drawer**: allocated vs measured CPU/RAM, active worker slots,
+queue wait times, backend capacity and contention across projects.
+
+Animation follows receipts, never invents progress or hides waiting for resources.
+Use accessible status text, reduced-motion support, virtualization and safe markdown
+rendering. Treat plot specs as data; reject executable JS/HTML and remote loads.
+
+User notes/edits become revisioned artifacts/commands. Agents receive a bounded
+steering delta at safe boundaries after passing `OutboundFilter`. Downloads verify
+authorization and immutable manifest identity. Readers use bounded snapshots/
+transactions, not a transaction held open for the lifetime of an SSE connection.
+
+## Delivery and expansion
+
+Freeze candidate, environment, selection and approvals; refit within reserved budget;
+reload and certify the exact pipeline; consume sealed test once; package matching
+weights, inference CLI/API, schemas, locks, training source, scorecard, model card,
+lineage and verification receipts. An optional container/service recipe follows;
+live hosting is separately authorized. No final verified label for missing evidence.
+
+`TaskAdapter` specifies input/schema/split protocol, fit/predict/evaluate operations,
+constraints and packaging. Begin with tabular supervised; extend to time-series,
+anomaly/clustering, frozen text embeddings and small fine-tuning individually.
+Remote `RunnerAdapter` preserves the same lease/result/artifact contracts. Transfer
+policy explicitly controls data/labels/secrets, bytes, cost and shutdown. Sealed
+assessment remains local when feasible; a trusted remote evaluator requires its
+own explicit threat model and acceptance gate.
+<<>>
+
+<<<FILE: docs/v2/DECISIONS.md>>>
+
+# Architecture decision register
+
+Initial proposed defaults, 2026-10-14. These are planning decisions, not claims of
+implementation or irrevocable user approvals. Record reversals with evidence.
+
+| ID | Decision | Reason / revisit trigger |
+| --- | --- | --- |
+| D01 | Repair safety prerequisites before new runtime surfaces | M6 recovery/storage/release gates remain open |
+| D02 | Preserve Rust control plane and Docker-only candidate execution initially | Existing isolation requirement; native runtime is a separately certified backend |
+| D03 | Keep shared SQLite WAL with FULL durability and converge writes | Cross-project leases and retry fences need durable atomicity; shard only after measured contention and cross-DB recovery design |
+| D04 | Immutable blobs/versions, mutable annotations and revisioned selection | CRUD must preserve evidence and distinguish pin/baseline/Apex |
+| D05 | Four core coding tool families plus governed controls and optional conveniences | Small generic surface without losing delegation/evaluation/finalization authority |
+| D06 | CLI executable contract beside legacy class adapter | Support arbitrary ML/legacy repair without a new universal Python ABC bottleneck |
+| D07 | Disposable container per job first; warm pools later | Prove isolation/accounting before optimizing import latency |
+| D08 | Capacity-driven dispatch, weighted queues before DRF | 10x5 is a workload/cap scenario, not a minimum hardware guarantee |
+| D09 | Keep ~16K economical default with <=64K complete-window cap | Larger windows increase cost; tokenizer must match provider |
+| D10 | Replay only known safe operations with full input identities | Resetting files cannot reverse arbitrary effects; zero waste is not guaranteed |
+| D11 | Best-first/multi-fidelity default, optional measured MCTS | Search strategy should earn complexity through matched experiments |
+| D12 | Deterministic evaluator and independent advisory critic | An LLM does not own official scoring or prove zero leakage |
+| D13 | Capability-scoped modality expansion | Local resources and evaluation validity vary by task/backend |
+| D14 | Embedded trusted runtime remains; locked optional environments added | Source-independent installs and optional libraries are compatible |
+| D15 | Keep `/workspace:ro` during `sandbox_exec`; route source edits via `workspace_fs` | Preserves `SandboxRunner` read-only workspace invariant and makes interrupted `sandbox_exec` calls safely repeatable by clearing `/outputs/<call_id>` |
+| D16 | Harness-owned K-fold split driver, `min_slice_support` and validation query budget | Prevents untrusted CLI candidates from leaking across CV folds or reconstructing validation labels from tiny diagnostic slices |
+| D17 | Distinguish unfitted code rescue from pre-trained pickle rescue | Prevents pre-trained legacy pickles from claiming Apex via in-sample memorization of validation/test splits without a clean refit or attested disjoint holdout |
+
+## Resolve in the owning phase (with recommended initial defaults)
+
+* P1: exact control-state/archive/artifact/environment/export quotas and emergency
+headroom. **Recommended default:** preserve `128 MiB` for `control_state_bytes`
+(SQLite, WAL, receipts, fences) and add a configurable `2 GiB` per-project
+`artifact_cas_bytes` + `export_bytes` quota, with every write path accounted.
+* P2: kind schema extension/visibility policy in `contracts/v1/`, `<=512 B`
+`index_digest` vs. `<=4 KiB` `summary_text` bounds, event retention, reader pool
+sizing and migration compatibility lifetime.
+* P3: effective Docker VM capacity probing, container lease labels (`mlrescurix.lease_id`)
+for daemon orphan reaping, initial fair-queue weights, admission request presets,
+and supported cgroup/kernel/platform matrix.
+* P4: prediction wire format (`row_id`, `pred`, `prob_<class>...`), `argv` vs. shell
+surface, binding `sandbox_exec` to digest-pinned `docker/scientific/image.ref`,
+adaptive validation query budget (**recommended default:** `max_validation_queries = 50`
+full evaluations per session, `min_slice_support = max(20, 5% of val rows)`),
+and dataset query restrictions (deny external file readers/extensions/network via
+container boundary).
+* P5: provider tokenizers, `OutboundFilter` rules for new tool/note surfaces,
+summary bounds, prompt versions and search strategy.
+* P6: UI framework and packaging for the 5-view dashboard, loopback session
+lifecycle and safe artifact renderer.
+* P7: safe-export support per family, calibration/ensemble v2 packaging, and target
+benchmark protocol.
+* P8/P9: estimate calibration, remote data policy, licensed weights, accelerator
+backends and thresholds for enabling optimization experiments.
+
+Do not choose per-project databases, weaken fsync, expose a host Python fallback
+or remove branch ownership locks based only on a blueprint's throughput claims.
+<<>>
+
+<<<FILE: docs/v2/SESSION_PROMPT.md>>>
+
+# Paste-ready continuation prompt
+
+Use this in a fresh local coding session. Replace `[PHASE_OR_TASK]` with the work
+you authorize; the recommended first slice is `P1.1 and P1.2 job submission`.
+
+```text
+Continue MLRescurix in /Users/hamza/Developer/Imp_Projects/MLRescurix.
+Authorized scope for this session: [PHASE_OR_TASK].
+
+Read docs/v2/README.md, PROGRESS.md, AUDIT.md, ROADMAP.md, ARCHITECTURE.md
+and DECISIONS.md. Then read docs/m6-completion-status.md and the relevant
+source/tests. The Argon files in docs/v2 are archived suggestions; the corrected
+roadmap governs implementation. Inspect git status and preserve prior user work.
+Check applicable repository instructions before edits.
+
+Implement the authorized slice directly after a concise scope/acceptance recap.
+Do not ask again for routine reversible fixes within that scope. Do not implement
+every later phase. When scope is missing, establish the next concrete slice from
+PROGRESS.md and obtain phase authorization before runtime edits.
+
+Preserve authoritative scoring, harness-owned fold/split/label isolation,
+minimum diagnostic slice support, final-test single use, state-bound finalization,
+epoch/intent fencing, durable retry fences, OutboundFilter sanitization, offline
+training, approved digest-pinned scientific environments (docker/scientific/image.ref)
+and prohibition on candidate execution on the host. Keep /workspace:ro during
+sandbox_exec so source edits go through workspace_fs and interrupted runs can
+clean /outputs/<call_id> safely. Label spawned Docker containers by lease/epoch
+and reap orphans before releasing leases. Unknown effects must reconcile; never
+reset-and-replay arbitrary commands on a writable worktree.
+
+Use additive migrations from the actual current schema version (9), update every
+version guard/asset, synchronize cross-language contracts (contracts/v1/,
+scripts/generate_contracts.py, crates/harness/src/contracts.rs, and
+python/src/mlrescurix_worker/protocol/frame.schema.json), and test populated-state
+upgrade. Keep compatibility adapters until replacement vertical slices pass. No
+live provider/cloud spending, data transfer, commits, pushes or deployment without
+applicable authorization.
+
+Run meaningful tests appropriate to this slice. Scientific Python fitting,
+inference and parity tests run only inside the approved pinned Docker image.
+Existing Python tests use unittest. Preserve historical evidence and use fresh
+docs/evidence/v2/<phase>/<session>/ logs; do not overwrite M6 evidence accidentally.
+Report unsupported required constraints as refusal, not success.
+
+Before ending, update PROGRESS.md with task statuses, exact changes/tests/results,
+evidence identities, limitations and next slice; update DECISIONS.md when design
+changes. Report implemented/verified/unverified separately. Do not claim phase
+completion until ROADMAP.md's acceptance gate passes. Leave a self-contained
+handoff that a fresh coding agent can resume without this conversation.
+
+```
+
+<<>>

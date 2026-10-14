@@ -1,0 +1,11 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src/lib.rs (target/debug/deps/mlrescurix_harness-c9b0a6a2da25d54f)
+
+running 4 tests
+test execution::tests::low_disk_admission_boundary ... ok
+test agents::tools::tests::unavailable_sandbox_refuses_tool_before_any_state_or_workspace_write ... ok
+test bundle::tests::integrity_does_not_certify_execution_or_unknown_constraints ... ok
+test assets::tests::runtime_assets_reject_directory_and_file_symlink_escape ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+

@@ -490,7 +490,10 @@ pub fn record_provider_accounting(
     status: &str,
 ) -> Result<()> {
     crate::execution::migrate(root)?;
-    let db = rusqlite::Connection::open(root.join("state.sqlite")).map_err(|e| e.to_string())?;
+    let mut connection=rusqlite::Connection::open(root.join("state.sqlite")).map_err(|e|e.to_string())?;
+    connection.busy_timeout(Duration::from_secs(10)).map_err(|e|e.to_string())?;
+    let db=connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e|e.to_string())?;
+    crate::execution::enforce_state_write_admission(root, Some(&db), (model.len()+status.len()+request_id.len()+task_id.len()+role_id.len()) as u64*4+16*1024, crate::execution::StorageWriteKind::ProviderReceipt, Some(project_id))?;
     db.execute(
         "INSERT INTO provider_accounting(project, request_id, task_id, role_id, model, prompt_tokens, completion_tokens, cost_millicents, latency_ms, status, created_ms)
          VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
@@ -515,6 +518,7 @@ pub fn record_provider_accounting(
         ],
     ).map_err(|e| e.to_string())?;
 
+    db.commit().map_err(|e|e.to_string())?;
     // M0 action settlement owns charges; this table is supplemental telemetry.
     Ok(())
 }

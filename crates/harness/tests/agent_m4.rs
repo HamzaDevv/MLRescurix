@@ -1,6 +1,7 @@
 use std::{
     collections::BTreeMap,
     fs,
+    path::Path,
     sync::Arc,
 };
 use sha2::{Digest, Sha256};
@@ -116,7 +117,7 @@ fn execution_task(r: &Runtime, p: &str, t: &str) {
 }
 
 fn job(p: &str, id: &str, t: &str, probe: Probe, timeout: u64) -> JobSpec {
-    JobSpec {
+    JobSpec { resources: Default::default(),
         job_id: id.into(),
         project_id: p.into(),
         task_id: t.into(),
@@ -1431,4 +1432,1353 @@ fn m6_currency_cost_millicents_and_finalization_reserve_enforcement() {
     orch.context.add_message(ChatMessage::user("[FINALIZE] Proceed with finalization review"));
     let fin_turn = orch.step().unwrap();
     assert!(fin_turn.stopped);
+}
+
+#[test]
+fn p1_scheduler_job_submission_crash_reconciliation_and_fault_regressions() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("state");
+    let runtime = Runtime::init(&root, m1policy(200, 8)).unwrap();
+    create_m1(&runtime, "p-sub", 200);
+    branch_task(&runtime, "p-sub", "main", "t-sub");
+    let now = chrono_free_now();
+    assert_eq!(
+        runtime.command(req("p-sub", "claim-t-sub", Operation::Claim {
+            task_id: "t-sub".into(),
+            owner: "agent-t-sub".into(),
+            lease_id: "leaset-sub".into(),
+            now_ms: now,
+            expires_ms: now + 3_600_000,
+            expected_generation: 1,
+        })).unwrap().status,
+        "applied"
+    );
+    execution::migrate(&root).unwrap();
+
+    // Register test dataset
+    let ds_path = dir.path().join("dataset.csv");
+    fs::write(&ds_path, "row_id,feature,target\n1,0.1,0\n2,0.9,1\n3,0.5,1\n").unwrap();
+    execution::register_dataset(&root, "p-sub", "ds-1", &ds_path).unwrap();
+
+    // Register ready container environment
+    let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+    db.execute(
+        "INSERT INTO environments(id, python, identity, path, status) VALUES('env-test', 'docker:mlrescurix-scientific@sha256:d094b6becbbd1a1d86b944fd39370bfe26bb96f6290b429c0a51c512faf5f1bd', 'ident-test', '/test/env', 'ready')",
+        [],
+    ).unwrap();
+
+    struct NoReplayGateway;
+    impl mlrescurix_harness::agents::ProviderGateway for NoReplayGateway {
+        fn chat_completion(&self, _: &mlrescurix_harness::agents::ChatCompletionRequest) -> mlrescurix_harness::Result<ChatCompletionResponse> {
+            panic!("Reconciliation must never replay an uncertain provider call");
+        }
+    }
+
+    let mut orch = AgentOrchestrator::new(&root, OrchestratorConfig {
+        project_id: "p-sub".into(), task_id: "t-sub".into(), role_id: "feature_engineer".into(),
+        branch_id: "main".into(), model: "fixture".into(), max_turns: 10,
+    }, Arc::new(NoReplayGateway)).unwrap();
+
+    let now = chrono_free_now();
+
+    // -------------------------------------------------------------
+    // Regression 1: Crash before submission (intent saved, job not in jobs table)
+    // Missing authoritative evidence must produce explicit uncertain/rejected outcome.
+    // -------------------------------------------------------------
+    let act1 = "act-turn-1";
+    assert_eq!(runtime.command(req("p-sub", "prep-1", Operation::Prepare {
+        task_id: "t-sub".into(), generation: 2, lease_id: "leaset-sub".into(),
+        action_id: act1.into(), input: "in1".into(),
+        budget: BTreeMap::from([("calls".into(), 1), ("tokens".into(), 5000), ("wall_ms".into(), 60000)]),
+        capacity: BTreeMap::from([("workers".into(), 1)]),
+        deadline_ms: now + 60_000, now_ms: now,
+    })).unwrap().status, "applied");
+    assert_eq!(runtime.command(req("p-sub", "disp-1", Operation::Dispatch {
+        task_id: "t-sub".into(), generation: 2, lease_id: "leaset-sub".into(),
+        action_id: act1.into(), attempt_id: act1.into(), external_request_id: None, now_ms: now,
+    })).unwrap().status, "applied");
+
+    let protocol_1 = json!({
+        "format": "mlrescurix.pipeline.v1",
+        "experiment_id": "cand-pre-crash",
+        "target_column": "target",
+        "folds": 2
+    });
+    let call_args_1 = json!({
+        "job_id": "job-pre-crash",
+        "dataset_id": "ds-1",
+        "environment_id": "env-test",
+        "protocol": protocol_1
+    }).to_string();
+
+    let resp_turn_1 = ChatCompletionResponse {
+        id: "resp-1".into(),
+        model: "fixture".into(),
+        content: Some("Scheduling pipeline before crash".into()),
+        tool_calls: vec![ToolCall {
+            id: "call-1".into(),
+            call_type: "function".into(),
+            function: FunctionCall {
+                name: "schedule_pipeline".into(),
+                arguments: call_args_1.clone(),
+            },
+        }],
+        usage: TokenUsage { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+        latency_ms: 20,
+    };
+
+    // Simulate crash: intent row was committed to tool_outcomes, but process crashed before execution::submit
+    db.execute(
+        "INSERT INTO provider_turn_receipts(project,task,turn,action,status,response_json,tool_protocol,updated_ms) VALUES('p-sub','t-sub',1,?1,'executing_tools',?2,1,?3)",
+        rusqlite::params![act1, serde_json::to_string(&resp_turn_1).unwrap(), now],
+    ).unwrap();
+
+    let planned_spec_1 = JobSpec { resources: Default::default(),
+        job_id: "job-pre-crash".into(),
+        project_id: "p-sub".into(),
+        task_id: "t-sub".into(),
+        generation: 2,
+        timeout_ms: 45_000,
+        threads: 1,
+        max_output_bytes: 4 * 1024 * 1024,
+        environment_id: Some("env-test".into()),
+        probe: Probe::Scientific {
+            operation: "pipeline".into(),
+            dataset_id: "ds-1".into(),
+            spec: Some(protocol_1.clone()),
+            candidate_id: None,
+            test_access_id: None,
+        },
+    };
+    let planned_spec_1_json = serde_json::to_string(&planned_spec_1).unwrap();
+    let planned_spec_1_sha = format!("{:x}", Sha256::digest(planned_spec_1_json.as_bytes()));
+
+    let intent_1 = json!({
+        "kind": "scheduler_job_submission",
+        "operation": "schedule_pipeline",
+        "project": "p-sub",
+        "task": "t-sub",
+        "turn": 1,
+        "call_id": "call-1",
+        "action": act1,
+        "job_id": "job-pre-crash",
+        "generation": 2,
+        "intent_revision": 1,
+        "policy_sha256": format!("{:x}", Sha256::digest(serde_json::to_string(&m1policy(200, 8)).unwrap().as_bytes())),
+        "dataset_id": "ds-1",
+        "dataset_sha256": "fake-ds-sha",
+        "environment_id": "env-test",
+        "environment_identity": "ident-test",
+        "protocol_sha256": format!("{:x}", Sha256::digest(serde_json::to_string(&protocol_1).unwrap().as_bytes())),
+        "canonical_arguments": mlrescurix_harness::agents::recovery::canonicalize_value(&serde_json::from_str::<serde_json::Value>(&call_args_1).unwrap()),
+        "canonical_arguments_sha256": format!("{:x}", Sha256::digest(serde_json::to_string(&mlrescurix_harness::agents::recovery::canonicalize_value(&serde_json::from_str::<serde_json::Value>(&call_args_1).unwrap())).unwrap().as_bytes())),
+        "planned_spec": planned_spec_1,
+        "planned_spec_sha256": planned_spec_1_sha,
+    });
+    db.execute(
+        "INSERT INTO tool_outcomes(project,task,turn,call_id,action,branch,name,arguments,intent_json) VALUES('p-sub','t-sub',1,'call-1',?1,'main','schedule_pipeline',?2,?3)",
+        rusqlite::params![act1, call_args_1, intent_1.to_string()],
+    ).unwrap();
+
+    // Reconcile turn 1!
+    let rec1 = orch.reconcile().unwrap();
+    assert_eq!(rec1["reconciled_turns"][0]["prior_status"], "executing_tools");
+    assert_eq!(rec1["reconciled_turns"][0]["tools_executed"], 1);
+
+    // Verify outcome recorded was uncertain/rejected:
+    let outcome_1: String = db.query_row(
+        "SELECT outcome FROM tool_outcomes WHERE project='p-sub' AND task='t-sub' AND turn=1 AND call_id='call-1'",
+        [], |r| r.get(0),
+    ).unwrap();
+    let outcome_val_1: serde_json::Value = serde_json::from_str(&outcome_1).unwrap();
+    assert_eq!(outcome_val_1["status"], "rejected");
+    assert_eq!(outcome_val_1["reason"], "unconfirmed_submission_crash");
+    assert_eq!(outcome_val_1["effect_outcome"], "uncertain");
+
+    // Verify NO job was created in jobs table:
+    let job_count: i64 = db.query_row("SELECT count(*) FROM jobs WHERE id='job-pre-crash'", [], |r| r.get(0)).unwrap();
+    assert_eq!(job_count, 0, "Pre-submission crash must not leave phantom job");
+
+    // Turn 1 receipt must be completed:
+    let turn1_status: String = db.query_row("SELECT status FROM provider_turn_receipts WHERE project='p-sub' AND turn=1", [], |r| r.get(0)).unwrap();
+    assert_eq!(turn1_status, "completed");
+
+    // -------------------------------------------------------------
+    // Regression 2: Crash after admission, before outcome persistence
+    // Submission succeeded, job is queued in `jobs`, outcome is NULL.
+    // Restart must reconcile against authoritative job without duplicate submission.
+    // -------------------------------------------------------------
+    let act2 = "act-turn-2";
+    db.execute("INSERT INTO actions(project,id,task,data) SELECT project,?1,task,json_set(data,'$.action_id',?1,'$.receipt.action_id',?1) FROM actions WHERE project='p-sub' AND id=?2", rusqlite::params![act2, act1]).unwrap();
+
+    let protocol_2 = json!({
+        "format": "mlrescurix.pipeline.v1",
+        "experiment_id": "cand-post-crash",
+        "target_column": "target",
+        "folds": 2
+    });
+    let call_args_2 = json!({
+        "job_id": "job-post-crash",
+        "dataset_id": "ds-1",
+        "environment_id": "env-test",
+        "protocol": protocol_2
+    }).to_string();
+
+    let resp_turn_2 = ChatCompletionResponse {
+        id: "resp-2".into(),
+        model: "fixture".into(),
+        content: Some("Scheduling pipeline with crash after admission".into()),
+        tool_calls: vec![ToolCall {
+            id: "call-2".into(),
+            call_type: "function".into(),
+            function: FunctionCall {
+                name: "schedule_pipeline".into(),
+                arguments: call_args_2.clone(),
+            },
+        }],
+        usage: TokenUsage { prompt_tokens: 110, completion_tokens: 55, total_tokens: 165 },
+        latency_ms: 25,
+    };
+
+    // Submission succeeded:
+    let submitted_view = execution::submit(&root, JobSpec { resources: Default::default(),
+        job_id: "job-post-crash".into(),
+        project_id: "p-sub".into(),
+        task_id: "t-sub".into(),
+        generation: 2,
+        timeout_ms: 45_000,
+        threads: 1,
+        max_output_bytes: 4 * 1024 * 1024,
+        environment_id: Some("env-test".into()),
+        probe: Probe::Scientific {
+            operation: "pipeline".into(),
+            dataset_id: "ds-1".into(),
+            spec: Some(protocol_2.clone()),
+            candidate_id: None,
+            test_access_id: None,
+        },
+    }).unwrap();
+    assert_eq!(submitted_view.status, "queued");
+
+    // Process crashed before updating tool_outcomes:
+    db.execute(
+        "INSERT INTO provider_turn_receipts(project,task,turn,action,status,response_json,tool_protocol,updated_ms) VALUES('p-sub','t-sub',2,?1,'executing_tools',?2,1,?3)",
+        rusqlite::params![act2, serde_json::to_string(&resp_turn_2).unwrap(), now],
+    ).unwrap();
+
+    let planned_spec_2_json = serde_json::to_string(&submitted_view.spec).unwrap();
+    let planned_spec_2_sha = format!("{:x}", Sha256::digest(planned_spec_2_json.as_bytes()));
+    let canonical_args_2 = mlrescurix_harness::agents::recovery::canonicalize_value(&serde_json::from_str::<serde_json::Value>(&call_args_2).unwrap());
+    let canonical_args_2_sha = format!("{:x}", Sha256::digest(serde_json::to_string(&canonical_args_2).unwrap().as_bytes()));
+    let intent_2 = json!({
+        "kind": "scheduler_job_submission",
+        "operation": "schedule_pipeline",
+        "project": "p-sub",
+        "task": "t-sub",
+        "turn": 2,
+        "call_id": "call-2",
+        "action": act2,
+        "job_id": "job-post-crash",
+        "generation": 2,
+        "intent_revision": 1,
+        "policy_sha256": format!("{:x}", Sha256::digest(serde_json::to_string(&m1policy(200, 8)).unwrap().as_bytes())),
+        "dataset_id": "ds-1",
+        "dataset_sha256": "fake-ds-sha",
+        "environment_id": "env-test",
+        "environment_identity": "ident-test",
+        "protocol_sha256": format!("{:x}", Sha256::digest(serde_json::to_string(&protocol_2).unwrap().as_bytes())),
+        "canonical_arguments": canonical_args_2,
+        "canonical_arguments_sha256": canonical_args_2_sha,
+        "planned_spec": submitted_view.spec,
+        "planned_spec_sha256": planned_spec_2_sha,
+    });
+    db.execute(
+        "INSERT INTO tool_outcomes(project,task,turn,call_id,action,branch,name,arguments,intent_json) VALUES('p-sub','t-sub',2,'call-2',?1,'main','schedule_pipeline',?2,?3)",
+        rusqlite::params![act2, call_args_2, intent_2.to_string()],
+    ).unwrap();
+
+    // Reconcile turn 2!
+    let rec2 = orch.reconcile().unwrap();
+    assert_eq!(rec2["reconciled_turns"][0]["prior_status"], "executing_tools");
+    assert_eq!(rec2["reconciled_turns"][0]["tools_executed"], 1);
+
+    // Verify outcome was populated from the authoritative job:
+    let outcome_2: String = db.query_row(
+        "SELECT outcome FROM tool_outcomes WHERE project='p-sub' AND task='t-sub' AND turn=2 AND call_id='call-2'",
+        [], |r| r.get(0),
+    ).unwrap();
+    let outcome_val_2: serde_json::Value = serde_json::from_str(&outcome_2).unwrap();
+    assert_eq!(outcome_val_2["spec"]["job_id"], "job-post-crash");
+    assert_eq!(outcome_val_2["status"], "queued");
+
+    // Exactly one job in jobs table:
+    let job_count_2: i64 = db.query_row("SELECT count(*) FROM jobs WHERE id='job-post-crash'", [], |r| r.get(0)).unwrap();
+    assert_eq!(job_count_2, 1, "Must reconcile against existing job without duplicate submission");
+
+    // -------------------------------------------------------------
+    // Regression 3: Crash after outcome persistence, before context checkpoint
+    // Outcome is in tool_outcomes, but context checkpoint is missing tool message.
+    // Reconcile must deliver the outcome to context without creating a job.
+    // -------------------------------------------------------------
+    let act3 = "act-turn-3";
+    db.execute("INSERT INTO actions(project,id,task,data) SELECT project,?1,task,json_set(data,'$.action_id',?1,'$.receipt.action_id',?1) FROM actions WHERE project='p-sub' AND id=?2", rusqlite::params![act3, act1]).unwrap();
+
+    let resp_turn_3 = ChatCompletionResponse {
+        id: "resp-3".into(),
+        model: "fixture".into(),
+        content: Some("Scheduling pipeline with crash before checkpoint".into()),
+        tool_calls: vec![ToolCall {
+            id: "call-3".into(),
+            call_type: "function".into(),
+            function: FunctionCall {
+                name: "schedule_pipeline".into(),
+                arguments: call_args_2.clone(),
+            },
+        }],
+        usage: TokenUsage { prompt_tokens: 110, completion_tokens: 55, total_tokens: 165 },
+        latency_ms: 25,
+    };
+    db.execute(
+        "INSERT INTO provider_turn_receipts(project,task,turn,action,status,response_json,tool_protocol,updated_ms) VALUES('p-sub','t-sub',3,?1,'executing_tools',?2,1,?3)",
+        rusqlite::params![act3, serde_json::to_string(&resp_turn_3).unwrap(), now],
+    ).unwrap();
+
+    let outcome_3_str = serde_json::to_string(&submitted_view).unwrap();
+    let outcome_3_sha = format!("{:x}", Sha256::digest(outcome_3_str.as_bytes()));
+    db.execute(
+        "INSERT INTO tool_outcomes(project,task,turn,call_id,action,branch,name,arguments,intent_json,outcome,outcome_sha256) VALUES('p-sub','t-sub',3,'call-3',?1,'main','schedule_pipeline',?2,?3,?4,?5)",
+        rusqlite::params![act3, call_args_2, intent_2.to_string(), outcome_3_str, outcome_3_sha],
+    ).unwrap();
+
+    // Context does NOT have tool message for call-3 yet (lost in crash).
+    let rec3 = orch.reconcile().unwrap();
+    assert_eq!(rec3["reconciled_turns"][0]["prior_status"], "executing_tools");
+    assert_eq!(rec3["reconciled_turns"][0]["tools_executed"], 1);
+
+    // Verify context now has tool message:
+    assert!(orch.context.messages.iter().any(|m| m.role == "tool" && m.tool_call_id.as_deref() == Some("call-3")));
+
+    // -------------------------------------------------------------
+    // Regression 4: Duplicate recovery idempotency
+    // Calling reconcile again must be a clean no-op (0 tools executed).
+    // -------------------------------------------------------------
+    let rec_dup = orch.reconcile().unwrap();
+    assert!(rec_dup["reconciled_turns"].as_array().unwrap().is_empty());
+
+    // -------------------------------------------------------------
+    // Regression 5: Conflicting payloads / Identity reuse rejection
+    // Same call_id with different arguments must error.
+    // -------------------------------------------------------------
+    let conflicting_args = json!({
+        "job_id": "job-conflicting",
+        "dataset_id": "ds-1",
+        "environment_id": "env-test",
+        "protocol": protocol_1
+    }).to_string();
+
+    let conflict_err = mlrescurix_harness::agents::recovery::execute(&root,
+        mlrescurix_harness::agents::recovery::ToolIdentity {
+            project: "p-sub", task: "t-sub", branch: "main",
+            turn: 2, call_id: "call-2", name: "schedule_pipeline",
+            arguments: &conflicting_args,
+        }, false, || panic!("Conflicting payload must not dispatch")
+    ).unwrap_err();
+    assert!(conflict_err.contains("tool intent is not bound to the authoritative cached response"), "{conflict_err}");
+
+    // If cached response contains the new arguments, but tool_outcomes already has an intent for that call_id:
+    let resp_turn_2_conflict = ChatCompletionResponse {
+        id: "resp-2-conflict".into(),
+        model: "fixture".into(),
+        content: Some("Conflicting args test".into()),
+        tool_calls: vec![ToolCall {
+            id: "call-2".into(),
+            call_type: "function".into(),
+            function: FunctionCall {
+                name: "schedule_pipeline".into(),
+                arguments: conflicting_args.clone(),
+            },
+        }],
+        usage: TokenUsage { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+        latency_ms: 10,
+    };
+    db.execute(
+        "UPDATE provider_turn_receipts SET response_json=?1 WHERE project='p-sub' AND turn=2",
+        rusqlite::params![serde_json::to_string(&resp_turn_2_conflict).unwrap()],
+    ).unwrap();
+
+    let identity_err = mlrescurix_harness::agents::recovery::execute(&root,
+        mlrescurix_harness::agents::recovery::ToolIdentity {
+            project: "p-sub", task: "t-sub", branch: "main",
+            turn: 2, call_id: "call-2", name: "schedule_pipeline",
+            arguments: &conflicting_args,
+        }, false, || panic!("Conflicting payload must not dispatch")
+    ).unwrap_err();
+    assert!(identity_err.contains("durable tool identity conflict"), "{identity_err}");
+
+    // Restore turn 2 cached response
+    db.execute(
+        "UPDATE provider_turn_receipts SET response_json=?1 WHERE project='p-sub' AND turn=2",
+        rusqlite::params![serde_json::to_string(&resp_turn_2).unwrap()],
+    ).unwrap();
+
+    // Also test contradictory job spec in jobs table:
+    let act5b = "act-turn-5b";
+    db.execute("INSERT INTO actions(project,id,task,data) SELECT project,?1,task,json_set(data,'$.action_id',?1,'$.receipt.action_id',?1) FROM actions WHERE project='p-sub' AND id=?2", rusqlite::params![act5b, act1]).unwrap();
+
+    let resp_turn_5b = ChatCompletionResponse {
+        id: "resp-5b".into(),
+        model: "fixture".into(),
+        content: Some("Contradictory spec test".into()),
+        tool_calls: vec![ToolCall {
+            id: "call-5b".into(),
+            call_type: "function".into(),
+            function: FunctionCall {
+                name: "schedule_pipeline".into(),
+                arguments: call_args_2.clone(),
+            },
+        }],
+        usage: TokenUsage { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+        latency_ms: 10,
+    };
+    db.execute(
+        "INSERT INTO provider_turn_receipts(project,task,turn,action,status,response_json,tool_protocol,updated_ms) VALUES('p-sub','t-sub',5,?1,'executing_tools',?2,1,?3)",
+        rusqlite::params![act5b, serde_json::to_string(&resp_turn_5b).unwrap(), now],
+    ).unwrap();
+
+    let mut intent_5b = intent_2.clone();
+    intent_5b["turn"] = json!(5);
+    intent_5b["call_id"] = json!("call-5b");
+    intent_5b["action"] = json!(act5b);
+    intent_5b["planned_spec_sha256"] = json!("contradictory-spec-sha256"); // deliberate mismatch
+    db.execute(
+        "INSERT INTO tool_outcomes(project,task,turn,call_id,action,branch,name,arguments,intent_json) VALUES('p-sub','t-sub',5,'call-5b',?1,'main','schedule_pipeline',?2,?3)",
+        rusqlite::params![act5b, call_args_2, intent_5b.to_string()],
+    ).unwrap();
+
+    let rec5b = orch.reconcile().unwrap();
+    assert_eq!(rec5b["reconciled_turns"][0]["turn"], 5);
+    let outcome_5b: String = db.query_row(
+        "SELECT outcome FROM tool_outcomes WHERE project='p-sub' AND task='t-sub' AND turn=5 AND call_id='call-5b'",
+        [], |r| r.get(0),
+    ).unwrap();
+    let outcome_val_5b: serde_json::Value = serde_json::from_str(&outcome_5b).unwrap();
+    assert_eq!(outcome_val_5b["status"], "rejected");
+    assert_eq!(outcome_val_5b["reason"], "contradictory_job_spec");
+    assert_eq!(outcome_val_5b["effect_outcome"], "rejected");
+
+    // -------------------------------------------------------------
+    // Regression 6: Stale generation fencing
+    // Intent has generation 2, but task advances to generation 3.
+    // Recovery must reject with stale_generation_fenced.
+    // -------------------------------------------------------------
+    let act6 = "act-turn-6";
+    let intent_6 = json!({
+        "kind": "scheduler_job_submission",
+        "operation": "schedule_pipeline",
+        "project": "p-sub",
+        "task": "t-sub",
+        "turn": 6,
+        "call_id": "call-6",
+        "action": act6,
+        "job_id": "job-post-crash",
+        "generation": 2, // stale generation
+        "intent_revision": 1,
+        "policy_sha256": format!("{:x}", Sha256::digest(serde_json::to_string(&m1policy(200, 8)).unwrap().as_bytes())),
+        "dataset_id": "ds-1",
+        "dataset_sha256": "fake-ds-sha",
+        "environment_id": "env-test",
+        "environment_identity": "ident-test",
+        "protocol_sha256": format!("{:x}", Sha256::digest(serde_json::to_string(&protocol_2).unwrap().as_bytes())),
+        "canonical_arguments": canonical_args_2,
+        "canonical_arguments_sha256": canonical_args_2_sha,
+        "planned_spec": submitted_view.spec,
+        "planned_spec_sha256": planned_spec_2_sha,
+    });
+    let resp_turn_6 = ChatCompletionResponse {
+        id: "resp-6".into(),
+        model: "fixture".into(),
+        content: Some("Stale generation test".into()),
+        tool_calls: vec![ToolCall {
+            id: "call-6".into(),
+            call_type: "function".into(),
+            function: FunctionCall {
+                name: "schedule_pipeline".into(),
+                arguments: call_args_2.clone(),
+            },
+        }],
+        usage: TokenUsage { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+        latency_ms: 10,
+    };
+    db.execute("INSERT INTO actions(project,id,task,data) SELECT project,?1,task,json_set(data,'$.action_id',?1,'$.receipt.action_id',?1) FROM actions WHERE project='p-sub' AND id=?2", rusqlite::params![act6, act1]).unwrap();
+    db.execute(
+        "INSERT INTO provider_turn_receipts(project,task,turn,action,status,response_json,tool_protocol,updated_ms) VALUES('p-sub','t-sub',6,?1,'executing_tools',?2,1,?3)",
+        rusqlite::params![act6, serde_json::to_string(&resp_turn_6).unwrap(), now],
+    ).unwrap();
+    db.execute(
+        "INSERT INTO tool_outcomes(project,task,turn,call_id,action,branch,name,arguments,intent_json) VALUES('p-sub','t-sub',6,'call-6',?1,'main','schedule_pipeline',?2,?3)",
+        rusqlite::params![act6, call_args_2, intent_6.to_string()],
+    ).unwrap();
+
+    // Bump task generation in tasks table:
+    db.execute("UPDATE tasks SET data=json_set(data, '$.generation', 3) WHERE project='p-sub' AND id='t-sub'", []).unwrap();
+
+    let rec6 = orch.reconcile().unwrap();
+    assert_eq!(rec6["reconciled_turns"][0]["turn"], 6);
+    let outcome_6: String = db.query_row(
+        "SELECT outcome FROM tool_outcomes WHERE project='p-sub' AND task='t-sub' AND turn=6 AND call_id='call-6'",
+        [], |r| r.get(0),
+    ).unwrap();
+    let outcome_val_6: serde_json::Value = serde_json::from_str(&outcome_6).unwrap();
+    assert_eq!(outcome_val_6["status"], "rejected");
+    assert_eq!(outcome_val_6["reason"], "stale_generation_fenced");
+    assert_eq!(outcome_val_6["effect_outcome"], "uncertain_fenced");
+
+    // -------------------------------------------------------------
+    // Regression 7: Verify one authoritative job/reservation and charge settlement
+    // Restore generation to 2 so supervisor can process queued job-post-crash.
+    // -------------------------------------------------------------
+    db.execute("UPDATE tasks SET data=json_set(data, '$.generation', 2) WHERE project='p-sub' AND id='t-sub'", []).unwrap();
+
+    // Verify exactly one job exists for job-post-crash
+    let pre_jobs: i64 = db.query_row("SELECT count(*) FROM jobs WHERE id='job-post-crash'", [], |r| r.get(0)).unwrap();
+    assert_eq!(pre_jobs, 1);
+
+    // Verify no actions or charges yet for job.job-post-crash
+    let pre_actions: i64 = db.query_row("SELECT count(*) FROM actions WHERE id='job.job-post-crash'", [], |r| r.get(0)).unwrap();
+    assert_eq!(pre_actions, 0);
+
+    // Supervisor ticks: admits job, creates exactly 1 action, reserves resources
+    let binary = Path::new(env!("CARGO_BIN_EXE_mlrescurix-harness"));
+    let mut supervisor = Supervisor::start_with_executable(&root, 1, binary).unwrap();
+    supervisor.tick().unwrap();
+
+    let post_admit_actions: i64 = db.query_row("SELECT count(*) FROM actions WHERE id='job.job-post-crash'", [], |r| r.get(0)).unwrap();
+    assert_eq!(post_admit_actions, 1, "Exactly one action created for admitted job");
+
+    let post_admit_reservations: i64 = db.query_row("SELECT count(*) FROM reservations WHERE action='job.job-post-crash' AND held=1", [], |r| r.get(0)).unwrap();
+    assert_eq!(post_admit_reservations, 1, "Exactly one reservation held for admitted job");
+
+    // Wait for worker to finish and supervisor to reap
+    for _ in 0..250 {
+        supervisor.tick().unwrap();
+        let j = execution::inspect(&root, "p-sub", "job-post-crash").unwrap();
+        if !matches!(j.status.as_str(), "queued" | "running" | "recovering" | "terminating") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    drop(supervisor);
+
+    // Verify charge settlement: exactly 1 charge row, held reservation released
+    let post_finish_charges: i64 = db.query_row("SELECT count(*) FROM charges WHERE action='job.job-post-crash'", [], |r| r.get(0)).unwrap();
+    assert_eq!(post_finish_charges, 1, "Exactly one charge settled for completed job");
+
+    let held_reservations: i64 = db.query_row("SELECT count(*) FROM reservations WHERE action='job.job-post-crash' AND held=1", [], |r| r.get(0)).unwrap();
+    assert_eq!(held_reservations, 0, "Held reservation must be released upon settlement");
+
+    // Reconcile again: must remain authoritative and not create new jobs or duplicate charges
+    let final_jobs: i64 = db.query_row("SELECT count(*) FROM jobs WHERE id='job-post-crash'", [], |r| r.get(0)).unwrap();
+    assert_eq!(final_jobs, 1);
+    let final_charges: i64 = db.query_row("SELECT count(*) FROM charges WHERE action='job.job-post-crash'", [], |r| r.get(0)).unwrap();
+    assert_eq!(final_charges, 1);
+}
+
+#[test]
+fn p1_delegation_and_registration_crash_reconciliation_and_fault_regressions() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("state");
+    let runtime = Runtime::init(&root, m1policy(200, 8)).unwrap();
+    create_m1(&runtime, "p-del", 200);
+    branch_task(&runtime, "p-del", "main", "t-del");
+    let now = chrono_free_now();
+    assert_eq!(
+        runtime.command(req("p-del", "claim-t-del", Operation::Claim {
+            task_id: "t-del".into(),
+            owner: "agent-t-del".into(),
+            lease_id: "leaset-del".into(),
+            now_ms: now,
+            expires_ms: now + 3_600_000,
+            expected_generation: 1,
+        })).unwrap().status,
+        "applied"
+    );
+    execution::migrate(&root).unwrap();
+
+    struct NoReplayGateway;
+    impl mlrescurix_harness::agents::ProviderGateway for NoReplayGateway {
+        fn chat_completion(&self, _: &mlrescurix_harness::agents::ChatCompletionRequest) -> mlrescurix_harness::Result<ChatCompletionResponse> {
+            panic!("Reconciliation must never replay an uncertain provider call");
+        }
+    }
+
+    let mut orch = AgentOrchestrator::new(&root, OrchestratorConfig {
+        project_id: "p-del".into(), task_id: "t-del".into(), role_id: "lead".into(),
+        branch_id: "main".into(), model: "fixture".into(), max_turns: 20,
+    }, Arc::new(NoReplayGateway)).unwrap();
+
+    let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+
+    // -------------------------------------------------------------
+    // Part 1: Specialist Delegation
+    // -------------------------------------------------------------
+
+    // Regression 1: Crash before child task admission (intent saved, child task not in agent_tasks/tasks)
+    // Missing authoritative evidence must produce explicit uncertain/rejected outcome with "unconfirmed_delegation_crash".
+    let act1 = "act-del-1";
+    assert_eq!(runtime.command(req("p-del", "prep-1", Operation::Prepare {
+        task_id: "t-del".into(), generation: 2, lease_id: "leaset-del".into(),
+        action_id: act1.into(), input: "in1".into(),
+        budget: BTreeMap::from([("calls".into(), 1), ("tokens".into(), 5000), ("wall_ms".into(), 60000)]),
+        capacity: BTreeMap::from([("workers".into(), 1)]),
+        deadline_ms: now + 60_000, now_ms: now,
+    })).unwrap().status, "applied");
+    assert_eq!(runtime.command(req("p-del", "disp-1", Operation::Dispatch {
+        task_id: "t-del".into(), generation: 2, lease_id: "leaset-del".into(),
+        action_id: act1.into(), attempt_id: act1.into(), external_request_id: None, now_ms: now,
+    })).unwrap().status, "applied");
+
+    let call_args_1 = json!({
+        "role_id": "auditor",
+        "intent": "Audit dataset schema and distributions",
+        "hypothesis": "Feature missingness affects baseline",
+        "sub_task_id": "t-child-pre",
+    }).to_string();
+
+    let resp_turn_1 = ChatCompletionResponse {
+        id: "resp-del-1".into(),
+        model: "fixture".into(),
+        content: Some("Delegating to auditor before crash".into()),
+        tool_calls: vec![ToolCall {
+            id: "call-del-1".into(),
+            call_type: "function".into(),
+            function: FunctionCall {
+                name: "delegate_task".into(),
+                arguments: call_args_1.clone(),
+            },
+        }],
+        usage: TokenUsage { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+        latency_ms: 20,
+    };
+
+    db.execute(
+        "INSERT INTO provider_turn_receipts(project,task,turn,action,status,response_json,tool_protocol,updated_ms) VALUES('p-del','t-del',1,?1,'executing_tools',?2,1,?3)",
+        rusqlite::params![act1, serde_json::to_string(&resp_turn_1).unwrap(), now],
+    ).unwrap();
+
+    let canonical_args_1 = mlrescurix_harness::agents::recovery::canonicalize_value(&serde_json::from_str::<serde_json::Value>(&call_args_1).unwrap());
+    let canonical_args_1_sha = format!("{:x}", Sha256::digest(serde_json::to_string(&canonical_args_1).unwrap().as_bytes()));
+
+    let intent_1 = json!({
+        "kind": "specialist_delegation",
+        "operation": "delegate_task",
+        "project": "p-del",
+        "task": "t-del",
+        "turn": 1,
+        "call_id": "call-del-1",
+        "action": act1,
+        "generation": 2,
+        "intent_revision": 1,
+        "policy_sha256": format!("{:x}", Sha256::digest(serde_json::to_string(&m1policy(200, 8)).unwrap().as_bytes())),
+        "target_role": "auditor",
+        "target_task_id": "t-child-pre",
+        "canonical_arguments": canonical_args_1,
+        "canonical_arguments_sha256": canonical_args_1_sha,
+    });
+    db.execute(
+        "INSERT INTO tool_outcomes(project,task,turn,call_id,action,branch,name,arguments,intent_json) VALUES('p-del','t-del',1,'call-del-1',?1,'main','delegate_task',?2,?3)",
+        rusqlite::params![act1, call_args_1, intent_1.to_string()],
+    ).unwrap();
+
+    // Reconcile turn 1: process crashed before child task admission
+    let rec1 = orch.reconcile().unwrap();
+    assert_eq!(rec1["reconciled_turns"][0]["prior_status"], "executing_tools");
+    assert_eq!(rec1["reconciled_turns"][0]["tools_executed"], 1);
+
+    let outcome_1: String = db.query_row(
+        "SELECT outcome FROM tool_outcomes WHERE project='p-del' AND task='t-del' AND turn=1 AND call_id='call-del-1'",
+        [], |r| r.get(0),
+    ).unwrap();
+    let outcome_val_1: serde_json::Value = serde_json::from_str(&outcome_1).unwrap();
+    assert_eq!(outcome_val_1["status"], "rejected");
+    assert_eq!(outcome_val_1["reason"], "unconfirmed_delegation_crash");
+    assert_eq!(outcome_val_1["effect_outcome"], "uncertain");
+
+    // Verify NO child task in agent_tasks or tasks
+    let agent_task_count_1: i64 = db.query_row("SELECT count(*) FROM agent_tasks WHERE project='p-del' AND task_id='t-child-pre'", [], |r| r.get(0)).unwrap();
+    assert_eq!(agent_task_count_1, 0, "Pre-delegation crash must not leave phantom child task");
+    let task_count_1: i64 = db.query_row("SELECT count(*) FROM tasks WHERE project='p-del' AND id='t-child-pre'", [], |r| r.get(0)).unwrap();
+    assert_eq!(task_count_1, 0);
+
+    // Turn 1 receipt marked completed:
+    let turn1_status: String = db.query_row("SELECT status FROM provider_turn_receipts WHERE project='p-del' AND turn=1", [], |r| r.get(0)).unwrap();
+    assert_eq!(turn1_status, "completed");
+
+    // -------------------------------------------------------------
+    // Regression 2: Crash after child task admission, before outcome persistence
+    // Child task exists in agent_tasks, outcome is NULL in tool_outcomes.
+    // Reconcile must recover authoritative child task view without duplicate child tasks or double billing.
+    // -------------------------------------------------------------
+    let act2 = "act-del-2";
+    db.execute("INSERT INTO actions(project,id,task,data) SELECT project,?1,task,json_set(data,'$.action_id',?1,'$.receipt.action_id',?1) FROM actions WHERE project='p-del' AND id=?2", rusqlite::params![act2, act1]).unwrap();
+
+    let call_args_2 = json!({
+        "role_id": "auditor",
+        "intent": "Audit dataset missingness",
+        "hypothesis": "Nulls in colA affect score",
+        "sub_task_id": "t-child-post",
+    }).to_string();
+
+    let resp_turn_2 = ChatCompletionResponse {
+        id: "resp-del-2".into(),
+        model: "fixture".into(),
+        content: Some("Delegating to auditor with crash after admission".into()),
+        tool_calls: vec![ToolCall {
+            id: "call-del-2".into(),
+            call_type: "function".into(),
+            function: FunctionCall {
+                name: "delegate_task".into(),
+                arguments: call_args_2.clone(),
+            },
+        }],
+        usage: TokenUsage { prompt_tokens: 110, completion_tokens: 55, total_tokens: 165 },
+        latency_ms: 25,
+    };
+
+    // Child task was admitted prior to crash:
+    db.execute(
+        "INSERT INTO agent_tasks(project, task_id, role_id, parent_task_id, status, hypothesis, intent, assigned_branch, created_ms, updated_ms)
+         VALUES('p-del', 't-child-post', 'auditor', 't-del', 'paused', 'Nulls in colA affect score', 'Audit dataset missingness', 'branch-child-post', ?1, ?1)",
+        rusqlite::params![now],
+    ).unwrap();
+
+    db.execute(
+        "INSERT INTO provider_turn_receipts(project,task,turn,action,status,response_json,tool_protocol,updated_ms) VALUES('p-del','t-del',2,?1,'executing_tools',?2,1,?3)",
+        rusqlite::params![act2, serde_json::to_string(&resp_turn_2).unwrap(), now],
+    ).unwrap();
+
+    let canonical_args_2 = mlrescurix_harness::agents::recovery::canonicalize_value(&serde_json::from_str::<serde_json::Value>(&call_args_2).unwrap());
+    let canonical_args_2_sha = format!("{:x}", Sha256::digest(serde_json::to_string(&canonical_args_2).unwrap().as_bytes()));
+
+    let intent_2 = json!({
+        "kind": "specialist_delegation",
+        "operation": "delegate_task",
+        "project": "p-del",
+        "task": "t-del",
+        "turn": 2,
+        "call_id": "call-del-2",
+        "action": act2,
+        "generation": 2,
+        "intent_revision": 1,
+        "policy_sha256": format!("{:x}", Sha256::digest(serde_json::to_string(&m1policy(200, 8)).unwrap().as_bytes())),
+        "target_role": "auditor",
+        "target_task_id": "t-child-post",
+        "canonical_arguments": canonical_args_2,
+        "canonical_arguments_sha256": canonical_args_2_sha,
+    });
+    db.execute(
+        "INSERT INTO tool_outcomes(project,task,turn,call_id,action,branch,name,arguments,intent_json) VALUES('p-del','t-del',2,'call-del-2',?1,'main','delegate_task',?2,?3)",
+        rusqlite::params![act2, call_args_2, intent_2.to_string()],
+    ).unwrap();
+
+    // Reconcile turn 2:
+    let rec2 = orch.reconcile().unwrap();
+    assert_eq!(rec2["reconciled_turns"][0]["prior_status"], "executing_tools");
+    assert_eq!(rec2["reconciled_turns"][0]["tools_executed"], 1);
+
+    let outcome_2: String = db.query_row(
+        "SELECT outcome FROM tool_outcomes WHERE project='p-del' AND task='t-del' AND turn=2 AND call_id='call-del-2'",
+        [], |r| r.get(0),
+    ).unwrap();
+    let outcome_val_2: serde_json::Value = serde_json::from_str(&outcome_2).unwrap();
+    assert_eq!(outcome_val_2["status"], "scheduled");
+    assert_eq!(outcome_val_2["sub_task_id"], "t-child-post");
+    assert_eq!(outcome_val_2["role"], "auditor");
+    assert_eq!(outcome_val_2["reconciled"], true);
+
+    // Exactly one child task in agent_tasks:
+    let count_post: i64 = db.query_row("SELECT count(*) FROM agent_tasks WHERE project='p-del' AND task_id='t-child-post'", [], |r| r.get(0)).unwrap();
+    assert_eq!(count_post, 1, "Must reconcile against existing child task without duplicate");
+
+    // -------------------------------------------------------------
+    // Regression 3: Crash after outcome persistence, before context checkpoint
+    // -------------------------------------------------------------
+    let act3 = "act-del-3";
+    db.execute("INSERT INTO actions(project,id,task,data) SELECT project,?1,task,json_set(data,'$.action_id',?1,'$.receipt.action_id',?1) FROM actions WHERE project='p-del' AND id=?2", rusqlite::params![act3, act1]).unwrap();
+
+    let resp_turn_3 = ChatCompletionResponse {
+        id: "resp-del-3".into(),
+        model: "fixture".into(),
+        content: Some("Delegating with crash before checkpoint".into()),
+        tool_calls: vec![ToolCall {
+            id: "call-del-3".into(),
+            call_type: "function".into(),
+            function: FunctionCall {
+                name: "delegate_task".into(),
+                arguments: call_args_2.clone(),
+            },
+        }],
+        usage: TokenUsage { prompt_tokens: 110, completion_tokens: 55, total_tokens: 165 },
+        latency_ms: 25,
+    };
+    db.execute(
+        "INSERT INTO provider_turn_receipts(project,task,turn,action,status,response_json,tool_protocol,updated_ms) VALUES('p-del','t-del',3,?1,'executing_tools',?2,1,?3)",
+        rusqlite::params![act3, serde_json::to_string(&resp_turn_3).unwrap(), now],
+    ).unwrap();
+
+    let outcome_3_str = outcome_2.clone();
+    let outcome_3_sha = format!("{:x}", Sha256::digest(outcome_3_str.as_bytes()));
+    db.execute(
+        "INSERT INTO tool_outcomes(project,task,turn,call_id,action,branch,name,arguments,intent_json,outcome,outcome_sha256) VALUES('p-del','t-del',3,'call-del-3',?1,'main','delegate_task',?2,?3,?4,?5)",
+        rusqlite::params![act3, call_args_2, intent_2.to_string(), outcome_3_str, outcome_3_sha],
+    ).unwrap();
+
+    let rec3 = orch.reconcile().unwrap();
+    assert_eq!(rec3["reconciled_turns"][0]["turn"], 3);
+    assert_eq!(rec3["reconciled_turns"][0]["tools_executed"], 1);
+
+    // -------------------------------------------------------------
+    // Regression 4: Conflicting arguments rejection
+    // -------------------------------------------------------------
+    let conflicting_call_args = json!({
+        "role_id": "auditor",
+        "intent": "CONTRADICTORY INTENT",
+        "hypothesis": "Contradictory hypothesis",
+        "sub_task_id": "t-child-post",
+    }).to_string();
+
+    let conflict_err = mlrescurix_harness::agents::recovery::execute(&root,
+        mlrescurix_harness::agents::recovery::ToolIdentity {
+            project: "p-del", task: "t-del", branch: "main",
+            turn: 2, call_id: "call-del-2", name: "delegate_task",
+            arguments: &conflicting_call_args,
+        },
+        false,
+        || panic!("must not execute on conflicting identity"),
+    ).unwrap_err();
+    assert!(conflict_err.contains("tool intent is not bound to the authoritative cached response"), "{conflict_err}");
+
+    // If cached response contains the new arguments, but tool_outcomes already has an intent for that call_id:
+    let resp_turn_2_conflict = ChatCompletionResponse {
+        id: "resp-del-2-conflict".into(),
+        model: "fixture".into(),
+        content: Some("Conflicting args test".into()),
+        tool_calls: vec![ToolCall {
+            id: "call-del-2".into(),
+            call_type: "function".into(),
+            function: FunctionCall {
+                name: "delegate_task".into(),
+                arguments: conflicting_call_args.clone(),
+            },
+        }],
+        usage: TokenUsage { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+        latency_ms: 10,
+    };
+    db.execute(
+        "UPDATE provider_turn_receipts SET response_json=?1 WHERE project='p-del' AND turn=2",
+        rusqlite::params![serde_json::to_string(&resp_turn_2_conflict).unwrap()],
+    ).unwrap();
+
+    let identity_err = mlrescurix_harness::agents::recovery::execute(&root,
+        mlrescurix_harness::agents::recovery::ToolIdentity {
+            project: "p-del", task: "t-del", branch: "main",
+            turn: 2, call_id: "call-del-2", name: "delegate_task",
+            arguments: &conflicting_call_args,
+        },
+        false,
+        || panic!("must not execute on conflicting identity"),
+    ).unwrap_err();
+    assert!(identity_err.contains("durable tool identity conflict"), "{identity_err}");
+
+    // Restore turn 2 cached response
+    db.execute(
+        "UPDATE provider_turn_receipts SET response_json=?1 WHERE project='p-del' AND turn=2",
+        rusqlite::params![serde_json::to_string(&resp_turn_2).unwrap()],
+    ).unwrap();
+
+    // -------------------------------------------------------------
+    // Regression 5: Target task identity reuse rejection
+    // -------------------------------------------------------------
+    let act5 = "act-del-5";
+    db.execute("INSERT INTO actions(project,id,task,data) SELECT project,?1,task,json_set(data,'$.action_id',?1,'$.receipt.action_id',?1) FROM actions WHERE project='p-del' AND id=?2", rusqlite::params![act5, act1]).unwrap();
+
+    // Trying to build intent with an existing sub_task_id ("t-child-post" already in agent_tasks)
+    let tx5 = db.unchecked_transaction().unwrap();
+    let reuse_err = mlrescurix_harness::agents::recovery::build_delegation_intent(
+        &tx5,
+        &mlrescurix_harness::agents::recovery::ToolIdentity {
+            project: "p-del", task: "t-del", branch: "main",
+            turn: 5, call_id: "call-del-5", name: "delegate_task",
+            arguments: &call_args_2,
+        },
+        &serde_json::from_str::<serde_json::Value>(&call_args_2).unwrap(),
+        act5,
+    ).unwrap_err();
+    assert!(reuse_err.contains("target task identity reuse"));
+    tx5.rollback().unwrap();
+
+    // Also test crash recovery: if child task in agent_tasks has a different role/parent
+    let act5b = "act-del-5b";
+    db.execute("INSERT INTO actions(project,id,task,data) SELECT project,?1,task,json_set(data,'$.action_id',?1,'$.receipt.action_id',?1) FROM actions WHERE project='p-del' AND id=?2", rusqlite::params![act5b, act1]).unwrap();
+
+    let call_args_5b = json!({
+        "role_id": "model_specialist", // different role than what is in agent_tasks
+        "intent": "Audit dataset missingness",
+        "sub_task_id": "t-child-post",
+    }).to_string();
+
+    let resp_turn_5b = ChatCompletionResponse {
+        id: "resp-del-5b".into(),
+        model: "fixture".into(),
+        content: Some("Delegating with role mismatch".into()),
+        tool_calls: vec![ToolCall {
+            id: "call-del-5b".into(),
+            call_type: "function".into(),
+            function: FunctionCall {
+                name: "delegate_task".into(),
+                arguments: call_args_5b.clone(),
+            },
+        }],
+        usage: TokenUsage { prompt_tokens: 110, completion_tokens: 55, total_tokens: 165 },
+        latency_ms: 25,
+    };
+    db.execute(
+        "INSERT INTO provider_turn_receipts(project,task,turn,action,status,response_json,tool_protocol,updated_ms) VALUES('p-del','t-del',5,?1,'executing_tools',?2,1,?3)",
+        rusqlite::params![act5b, serde_json::to_string(&resp_turn_5b).unwrap(), now],
+    ).unwrap();
+
+    let mut intent_5b = intent_2.clone();
+    intent_5b["turn"] = json!(5);
+    intent_5b["call_id"] = json!("call-del-5b");
+    intent_5b["action"] = json!(act5b);
+    intent_5b["target_role"] = json!("model_specialist");
+    intent_5b["canonical_arguments"] = mlrescurix_harness::agents::recovery::canonicalize_value(&serde_json::from_str::<serde_json::Value>(&call_args_5b).unwrap());
+    intent_5b["canonical_arguments_sha256"] = json!(format!("{:x}", Sha256::digest(serde_json::to_string(&intent_5b["canonical_arguments"]).unwrap().as_bytes())));
+
+    db.execute(
+        "INSERT INTO tool_outcomes(project,task,turn,call_id,action,branch,name,arguments,intent_json) VALUES('p-del','t-del',5,'call-del-5b',?1,'main','delegate_task',?2,?3)",
+        rusqlite::params![act5b, call_args_5b, intent_5b.to_string()],
+    ).unwrap();
+
+    let rec5b = orch.reconcile().unwrap();
+    assert_eq!(rec5b["reconciled_turns"][0]["turn"], 5);
+    let outcome_5b: String = db.query_row(
+        "SELECT outcome FROM tool_outcomes WHERE project='p-del' AND task='t-del' AND turn=5 AND call_id='call-del-5b'",
+        [], |r| r.get(0),
+    ).unwrap();
+    let outcome_val_5b: serde_json::Value = serde_json::from_str(&outcome_5b).unwrap();
+    assert_eq!(outcome_val_5b["status"], "rejected");
+    assert_eq!(outcome_val_5b["reason"], "target_task_identity_reuse");
+    assert_eq!(outcome_val_5b["effect_outcome"], "rejected");
+
+    // -------------------------------------------------------------
+    // Regression 6: Stale generation fencing for delegation
+    // -------------------------------------------------------------
+    let act6 = "act-del-6";
+    db.execute("INSERT INTO actions(project,id,task,data) SELECT project,?1,task,json_set(data,'$.action_id',?1,'$.receipt.action_id',?1) FROM actions WHERE project='p-del' AND id=?2", rusqlite::params![act6, act1]).unwrap();
+
+    let call_args_6 = json!({
+        "role_id": "auditor",
+        "intent": "Audit dataset missingness",
+        "sub_task_id": "t-child-post",
+    }).to_string();
+
+    let resp_turn_6 = ChatCompletionResponse {
+        id: "resp-del-6".into(),
+        model: "fixture".into(),
+        content: Some("Stale gen test".into()),
+        tool_calls: vec![ToolCall {
+            id: "call-del-6".into(),
+            call_type: "function".into(),
+            function: FunctionCall {
+                name: "delegate_task".into(),
+                arguments: call_args_6.clone(),
+            },
+        }],
+        usage: TokenUsage { prompt_tokens: 110, completion_tokens: 55, total_tokens: 165 },
+        latency_ms: 25,
+    };
+    db.execute(
+        "INSERT INTO provider_turn_receipts(project,task,turn,action,status,response_json,tool_protocol,updated_ms) VALUES('p-del','t-del',6,?1,'executing_tools',?2,1,?3)",
+        rusqlite::params![act6, serde_json::to_string(&resp_turn_6).unwrap(), now],
+    ).unwrap();
+
+    let mut intent_6 = intent_2.clone();
+    intent_6["turn"] = json!(6);
+    intent_6["call_id"] = json!("call-del-6");
+    intent_6["action"] = json!(act6);
+    intent_6["generation"] = json!(2); // Intent recorded at generation 2
+    intent_6["canonical_arguments"] = mlrescurix_harness::agents::recovery::canonicalize_value(&serde_json::from_str::<serde_json::Value>(&call_args_6).unwrap());
+    intent_6["canonical_arguments_sha256"] = json!(format!("{:x}", Sha256::digest(serde_json::to_string(&intent_6["canonical_arguments"]).unwrap().as_bytes())));
+
+    db.execute(
+        "INSERT INTO tool_outcomes(project,task,turn,call_id,action,branch,name,arguments,intent_json) VALUES('p-del','t-del',6,'call-del-6',?1,'main','delegate_task',?2,?3)",
+        rusqlite::params![act6, call_args_6, intent_6.to_string()],
+    ).unwrap();
+
+    // Advance task generation to 3
+    db.execute("UPDATE tasks SET data=json_set(data, '$.generation', 3) WHERE project='p-del' AND id='t-del'", []).unwrap();
+
+    let rec6 = orch.reconcile().unwrap();
+    assert_eq!(rec6["reconciled_turns"][0]["turn"], 6);
+    let outcome_6: String = db.query_row(
+        "SELECT outcome FROM tool_outcomes WHERE project='p-del' AND task='t-del' AND turn=6 AND call_id='call-del-6'",
+        [], |r| r.get(0),
+    ).unwrap();
+    let outcome_val_6: serde_json::Value = serde_json::from_str(&outcome_6).unwrap();
+    assert_eq!(outcome_val_6["status"], "rejected");
+    assert_eq!(outcome_val_6["reason"], "stale_generation_fenced");
+    assert_eq!(outcome_val_6["effect_outcome"], "uncertain_fenced");
+
+    // Restore generation to 2
+    db.execute("UPDATE tasks SET data=json_set(data, '$.generation', 2) WHERE project='p-del' AND id='t-del'", []).unwrap();
+
+    // -------------------------------------------------------------
+    // Part 2: Dataset Registration
+    // -------------------------------------------------------------
+
+    // Regression 7: Crash before dataset registration
+    let act7 = "act-reg-7";
+    db.execute("INSERT INTO actions(project,id,task,data) SELECT project,?1,task,json_set(data,'$.action_id',?1,'$.receipt.action_id',?1) FROM actions WHERE project='p-del' AND id=?2", rusqlite::params![act7, act1]).unwrap();
+
+    let sample_csv_path = dir.path().join("sample.csv");
+    fs::write(&sample_csv_path, "col1,col2,target\n1,2,0\n3,4,1\n").unwrap();
+    let sample_csv_bytes = fs::read(&sample_csv_path).unwrap();
+    let sample_csv_sha = format!("{:x}", Sha256::digest(&sample_csv_bytes));
+
+    let call_args_7 = json!({
+        "dataset_id": "ds-crash-pre",
+        "path": sample_csv_path.to_str().unwrap(),
+    }).to_string();
+
+    let resp_turn_7 = ChatCompletionResponse {
+        id: "resp-reg-7".into(),
+        model: "fixture".into(),
+        content: Some("Registering dataset before crash".into()),
+        tool_calls: vec![ToolCall {
+            id: "call-reg-7".into(),
+            call_type: "function".into(),
+            function: FunctionCall {
+                name: "register_dataset".into(),
+                arguments: call_args_7.clone(),
+            },
+        }],
+        usage: TokenUsage { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+        latency_ms: 20,
+    };
+    db.execute(
+        "INSERT INTO provider_turn_receipts(project,task,turn,action,status,response_json,tool_protocol,updated_ms) VALUES('p-del','t-del',7,?1,'executing_tools',?2,1,?3)",
+        rusqlite::params![act7, serde_json::to_string(&resp_turn_7).unwrap(), now],
+    ).unwrap();
+
+    let canonical_args_7 = mlrescurix_harness::agents::recovery::canonicalize_value(&serde_json::from_str::<serde_json::Value>(&call_args_7).unwrap());
+    let canonical_args_7_sha = format!("{:x}", Sha256::digest(serde_json::to_string(&canonical_args_7).unwrap().as_bytes()));
+
+    let intent_7 = json!({
+        "kind": "dataset_registration",
+        "operation": "register_dataset",
+        "project": "p-del",
+        "task": "t-del",
+        "turn": 7,
+        "call_id": "call-reg-7",
+        "action": act7,
+        "generation": 2,
+        "intent_revision": 1,
+        "policy_sha256": format!("{:x}", Sha256::digest(serde_json::to_string(&m1policy(200, 8)).unwrap().as_bytes())),
+        "target_dataset_id": "ds-crash-pre",
+        "source_path": sample_csv_path.to_str().unwrap(),
+        "source_sha256": sample_csv_sha,
+        "source_bytes": sample_csv_bytes.len(),
+        "canonical_arguments": canonical_args_7,
+        "canonical_arguments_sha256": canonical_args_7_sha,
+    });
+    db.execute(
+        "INSERT INTO tool_outcomes(project,task,turn,call_id,action,branch,name,arguments,intent_json) VALUES('p-del','t-del',7,'call-reg-7',?1,'main','register_dataset',?2,?3)",
+        rusqlite::params![act7, call_args_7, intent_7.to_string()],
+    ).unwrap();
+
+    let rec7 = orch.reconcile().unwrap();
+    assert_eq!(rec7["reconciled_turns"][0]["turn"], 7);
+    let outcome_7: String = db.query_row(
+        "SELECT outcome FROM tool_outcomes WHERE project='p-del' AND task='t-del' AND turn=7 AND call_id='call-reg-7'",
+        [], |r| r.get(0),
+    ).unwrap();
+    let outcome_val_7: serde_json::Value = serde_json::from_str(&outcome_7).unwrap();
+    assert_eq!(outcome_val_7["status"], "rejected");
+    assert_eq!(outcome_val_7["reason"], "unconfirmed_registration_crash");
+    assert_eq!(outcome_val_7["effect_outcome"], "uncertain");
+
+    let ds_count_7: i64 = db.query_row("SELECT count(*) FROM scientific_datasets WHERE project='p-del' AND id='ds-crash-pre'", [], |r| r.get(0)).unwrap();
+    assert_eq!(ds_count_7, 0, "Pre-registration crash must not leave phantom dataset");
+
+    // Regression 8: Crash after dataset registration, before tool outcome persistence
+    let act8 = "act-reg-8";
+    db.execute("INSERT INTO actions(project,id,task,data) SELECT project,?1,task,json_set(data,'$.action_id',?1,'$.receipt.action_id',?1) FROM actions WHERE project='p-del' AND id=?2", rusqlite::params![act8, act1]).unwrap();
+
+    let reg_result = execution::register_dataset(&root, "p-del", "ds-crash-post", &sample_csv_path).unwrap();
+    assert_eq!(reg_result["reused"], false);
+
+    let call_args_8 = json!({
+        "dataset_id": "ds-crash-post",
+        "path": sample_csv_path.to_str().unwrap(),
+    }).to_string();
+
+    let resp_turn_8 = ChatCompletionResponse {
+        id: "resp-reg-8".into(),
+        model: "fixture".into(),
+        content: Some("Registering dataset with crash after registration".into()),
+        tool_calls: vec![ToolCall {
+            id: "call-reg-8".into(),
+            call_type: "function".into(),
+            function: FunctionCall {
+                name: "register_dataset".into(),
+                arguments: call_args_8.clone(),
+            },
+        }],
+        usage: TokenUsage { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+        latency_ms: 20,
+    };
+    db.execute(
+        "INSERT INTO provider_turn_receipts(project,task,turn,action,status,response_json,tool_protocol,updated_ms) VALUES('p-del','t-del',8,?1,'executing_tools',?2,1,?3)",
+        rusqlite::params![act8, serde_json::to_string(&resp_turn_8).unwrap(), now],
+    ).unwrap();
+
+    let canonical_args_8 = mlrescurix_harness::agents::recovery::canonicalize_value(&serde_json::from_str::<serde_json::Value>(&call_args_8).unwrap());
+    let canonical_args_8_sha = format!("{:x}", Sha256::digest(serde_json::to_string(&canonical_args_8).unwrap().as_bytes()));
+
+    let intent_8 = json!({
+        "kind": "dataset_registration",
+        "operation": "register_dataset",
+        "project": "p-del",
+        "task": "t-del",
+        "turn": 8,
+        "call_id": "call-reg-8",
+        "action": act8,
+        "generation": 2,
+        "intent_revision": 1,
+        "policy_sha256": format!("{:x}", Sha256::digest(serde_json::to_string(&m1policy(200, 8)).unwrap().as_bytes())),
+        "target_dataset_id": "ds-crash-post",
+        "source_path": sample_csv_path.to_str().unwrap(),
+        "source_sha256": sample_csv_sha,
+        "source_bytes": sample_csv_bytes.len(),
+        "canonical_arguments": canonical_args_8,
+        "canonical_arguments_sha256": canonical_args_8_sha,
+    });
+    db.execute(
+        "INSERT INTO tool_outcomes(project,task,turn,call_id,action,branch,name,arguments,intent_json) VALUES('p-del','t-del',8,'call-reg-8',?1,'main','register_dataset',?2,?3)",
+        rusqlite::params![act8, call_args_8, intent_8.to_string()],
+    ).unwrap();
+
+    let rec8 = orch.reconcile().unwrap();
+    assert_eq!(rec8["reconciled_turns"][0]["turn"], 8);
+    let outcome_8: String = db.query_row(
+        "SELECT outcome FROM tool_outcomes WHERE project='p-del' AND task='t-del' AND turn=8 AND call_id='call-reg-8'",
+        [], |r| r.get(0),
+    ).unwrap();
+    let outcome_val_8: serde_json::Value = serde_json::from_str(&outcome_8).unwrap();
+    assert_eq!(outcome_val_8["dataset_id"], "ds-crash-post");
+    assert_eq!(outcome_val_8["reused"], true);
+    assert_eq!(outcome_val_8["sha256"], sample_csv_sha);
+
+    let ds_count_8: i64 = db.query_row("SELECT count(*) FROM scientific_datasets WHERE project='p-del' AND id='ds-crash-post'", [], |r| r.get(0)).unwrap();
+    assert_eq!(ds_count_8, 1, "Must reconcile against authoritative dataset without duplicate");
+
+    // Regression 9: Contradictory dataset content rejection
+    let act9 = "act-reg-9";
+    db.execute("INSERT INTO actions(project,id,task,data) SELECT project,?1,task,json_set(data,'$.action_id',?1,'$.receipt.action_id',?1) FROM actions WHERE project='p-del' AND id=?2", rusqlite::params![act9, act1]).unwrap();
+
+    let mut intent_9 = intent_8.clone();
+    intent_9["turn"] = json!(9);
+    intent_9["call_id"] = json!("call-reg-9");
+    intent_9["action"] = json!(act9);
+    intent_9["source_sha256"] = json!("contradictory-dataset-sha256");
+
+    let resp_turn_9 = ChatCompletionResponse {
+        id: "resp-reg-9".into(),
+        model: "fixture".into(),
+        content: Some("Contradictory dataset test".into()),
+        tool_calls: vec![ToolCall {
+            id: "call-reg-9".into(),
+            call_type: "function".into(),
+            function: FunctionCall {
+                name: "register_dataset".into(),
+                arguments: call_args_8.clone(),
+            },
+        }],
+        usage: TokenUsage { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+        latency_ms: 20,
+    };
+    db.execute(
+        "INSERT INTO provider_turn_receipts(project,task,turn,action,status,response_json,tool_protocol,updated_ms) VALUES('p-del','t-del',9,?1,'executing_tools',?2,1,?3)",
+        rusqlite::params![act9, serde_json::to_string(&resp_turn_9).unwrap(), now],
+    ).unwrap();
+    db.execute(
+        "INSERT INTO tool_outcomes(project,task,turn,call_id,action,branch,name,arguments,intent_json) VALUES('p-del','t-del',9,'call-reg-9',?1,'main','register_dataset',?2,?3)",
+        rusqlite::params![act9, call_args_8, intent_9.to_string()],
+    ).unwrap();
+
+    let rec9 = orch.reconcile().unwrap();
+    assert_eq!(rec9["reconciled_turns"][0]["turn"], 9);
+    let outcome_9: String = db.query_row(
+        "SELECT outcome FROM tool_outcomes WHERE project='p-del' AND task='t-del' AND turn=9 AND call_id='call-reg-9'",
+        [], |r| r.get(0),
+    ).unwrap();
+    let outcome_val_9: serde_json::Value = serde_json::from_str(&outcome_9).unwrap();
+    assert_eq!(outcome_val_9["status"], "rejected");
+    assert_eq!(outcome_val_9["reason"], "contradictory_dataset_content");
+    assert_eq!(outcome_val_9["effect_outcome"], "rejected");
+
+    // -------------------------------------------------------------
+    // Part 3: Delivery Publication
+    // -------------------------------------------------------------
+
+    // Setup candidate critic audit and approval for delivery publication
+    let cand_id = "cand-pub-1";
+    db.execute(
+        "INSERT INTO critic_audits(project, candidate_id, auditor_role, status, rationale, source_hash, protocol, constraints_verified, created_ms)
+         VALUES('p-del', ?1, 'critic', 'approved', 'Verified under declared protocol', 'src-hash', 'standard_holdout', 1, ?2)",
+        rusqlite::params![cand_id, now],
+    ).unwrap();
+    db.execute(
+        "INSERT INTO approvals(project, candidate_id, approved, user_identity, rationale, created_ms)
+         VALUES('p-del', ?1, 1, 'user', 'Approved for finalization', ?2)",
+        rusqlite::params![cand_id, now],
+    ).unwrap();
+
+    // Regression 10: Crash before finalization job admission
+    let act10 = "act-pub-10";
+    db.execute("INSERT INTO actions(project,id,task,data) SELECT project,?1,task,json_set(data,'$.action_id',?1,'$.receipt.action_id',?1) FROM actions WHERE project='p-del' AND id=?2", rusqlite::params![act10, act1]).unwrap();
+
+    let call_args_10 = json!({
+        "candidate_id": cand_id,
+        "rationale": "Final freeze justification",
+        "approval_token": "token-user",
+    }).to_string();
+
+    let resp_turn_10 = ChatCompletionResponse {
+        id: "resp-pub-10".into(),
+        model: "fixture".into(),
+        content: Some("Requesting finalization before crash".into()),
+        tool_calls: vec![ToolCall {
+            id: "call-pub-10".into(),
+            call_type: "function".into(),
+            function: FunctionCall {
+                name: "request_finalization".into(),
+                arguments: call_args_10.clone(),
+            },
+        }],
+        usage: TokenUsage { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+        latency_ms: 20,
+    };
+    db.execute(
+        "INSERT INTO provider_turn_receipts(project,task,turn,action,status,response_json,tool_protocol,updated_ms) VALUES('p-del','t-del',10,?1,'executing_tools',?2,1,?3)",
+        rusqlite::params![act10, serde_json::to_string(&resp_turn_10).unwrap(), now],
+    ).unwrap();
+
+    let canonical_args_10 = mlrescurix_harness::agents::recovery::canonicalize_value(&serde_json::from_str::<serde_json::Value>(&call_args_10).unwrap());
+    let canonical_args_10_sha = format!("{:x}", Sha256::digest(serde_json::to_string(&canonical_args_10).unwrap().as_bytes()));
+
+    let intent_10 = json!({
+        "kind": "delivery_publication",
+        "operation": "request_finalization",
+        "project": "p-del",
+        "task": "t-del",
+        "turn": 10,
+        "call_id": "call-pub-10",
+        "action": act10,
+        "generation": 2,
+        "intent_revision": 1,
+        "policy_sha256": format!("{:x}", Sha256::digest(serde_json::to_string(&m1policy(200, 8)).unwrap().as_bytes())),
+        "candidate_id": cand_id,
+        "target_bundle_id": cand_id,
+        "finalize_job_id": format!("finalize-{cand_id}"),
+        "canonical_arguments": canonical_args_10,
+        "canonical_arguments_sha256": canonical_args_10_sha,
+    });
+    db.execute(
+        "INSERT INTO tool_outcomes(project,task,turn,call_id,action,branch,name,arguments,intent_json) VALUES('p-del','t-del',10,'call-pub-10',?1,'main','request_finalization',?2,?3)",
+        rusqlite::params![act10, call_args_10, intent_10.to_string()],
+    ).unwrap();
+
+    let rec10 = orch.reconcile().unwrap();
+    assert_eq!(rec10["reconciled_turns"][0]["turn"], 10);
+    let outcome_10: String = db.query_row(
+        "SELECT outcome FROM tool_outcomes WHERE project='p-del' AND task='t-del' AND turn=10 AND call_id='call-pub-10'",
+        [], |r| r.get(0),
+    ).unwrap();
+    let outcome_val_10: serde_json::Value = serde_json::from_str(&outcome_10).unwrap();
+    assert_eq!(outcome_val_10["status"], "rejected");
+    assert_eq!(outcome_val_10["reason"], "unconfirmed_publication_crash");
+    assert_eq!(outcome_val_10["effect_outcome"], "uncertain");
+
+    // Regression 11: Crash after finalization job admission, before tool outcome persistence
+    let act11 = "act-pub-11";
+    db.execute("INSERT INTO actions(project,id,task,data) SELECT project,?1,task,json_set(data,'$.action_id',?1,'$.receipt.action_id',?1) FROM actions WHERE project='p-del' AND id=?2", rusqlite::params![act11, act1]).unwrap();
+
+    // Finalize job was admitted to jobs table
+    let finalize_spec = JobSpec { resources: Default::default(),
+        job_id: format!("finalize-{cand_id}"),
+        project_id: "p-del".into(),
+        task_id: "t-del".into(),
+        generation: 2,
+        timeout_ms: 60_000,
+        threads: 1,
+        max_output_bytes: 4 * 1024 * 1024,
+        environment_id: Some("env-test".into()),
+        probe: Probe::Scientific {
+            operation: "finalize".into(),
+            dataset_id: "ds-crash-post".into(),
+            spec: None,
+            candidate_id: Some(cand_id.into()),
+            test_access_id: Some("final-test-1".into()),
+        },
+    };
+    db.execute(
+        "INSERT INTO jobs(id, project, task, generation, spec, status, submitted_ms) VALUES(?1, 'p-del', 't-del', 2, ?2, 'queued', ?3)",
+        rusqlite::params![format!("finalize-{cand_id}"), serde_json::to_string(&finalize_spec).unwrap(), now],
+    ).unwrap();
+
+    let resp_turn_11 = ChatCompletionResponse {
+        id: "resp-pub-11".into(),
+        model: "fixture".into(),
+        content: Some("Requesting finalization with crash after job admission".into()),
+        tool_calls: vec![ToolCall {
+            id: "call-pub-11".into(),
+            call_type: "function".into(),
+            function: FunctionCall {
+                name: "request_finalization".into(),
+                arguments: call_args_10.clone(),
+            },
+        }],
+        usage: TokenUsage { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+        latency_ms: 20,
+    };
+    db.execute(
+        "INSERT INTO provider_turn_receipts(project,task,turn,action,status,response_json,tool_protocol,updated_ms) VALUES('p-del','t-del',11,?1,'executing_tools',?2,1,?3)",
+        rusqlite::params![act11, serde_json::to_string(&resp_turn_11).unwrap(), now],
+    ).unwrap();
+
+    let mut intent_11 = intent_10.clone();
+    intent_11["turn"] = json!(11);
+    intent_11["call_id"] = json!("call-pub-11");
+    intent_11["action"] = json!(act11);
+
+    db.execute(
+        "INSERT INTO tool_outcomes(project,task,turn,call_id,action,branch,name,arguments,intent_json) VALUES('p-del','t-del',11,'call-pub-11',?1,'main','request_finalization',?2,?3)",
+        rusqlite::params![act11, call_args_10, intent_11.to_string()],
+    ).unwrap();
+
+    let rec11 = orch.reconcile().unwrap();
+    assert_eq!(rec11["reconciled_turns"][0]["turn"], 11);
+    let outcome_11: String = db.query_row(
+        "SELECT outcome FROM tool_outcomes WHERE project='p-del' AND task='t-del' AND turn=11 AND call_id='call-pub-11'",
+        [], |r| r.get(0),
+    ).unwrap();
+    let outcome_val_11: serde_json::Value = serde_json::from_str(&outcome_11).unwrap();
+    assert_eq!(outcome_val_11["status"], "finalization_queued");
+    assert_eq!(outcome_val_11["candidate_id"], cand_id);
+    assert_eq!(outcome_val_11["finalize_job_id"], format!("finalize-{cand_id}"));
+    assert_eq!(outcome_val_11["reconciled"], true);
+
+    let job_count_11: i64 = db.query_row("SELECT count(*) FROM jobs WHERE id=?1", [format!("finalize-{cand_id}")], |r| r.get(0)).unwrap();
+    assert_eq!(job_count_11, 1, "Must reconcile against authoritative finalize job without duplicate");
 }

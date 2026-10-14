@@ -78,15 +78,13 @@ impl BranchWorkspaceManager {
         }
         let target_path = Self::checked_path(root, project_id, branch_id, relative_path)?;
 
-        if let Some(parent) = target_path.parent() {
-            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-
-        fs::write(&target_path, content.as_bytes()).map_err(|e| e.to_string())?;
-        let file_hash = hash_bytes(content.as_bytes());
-
-        Self::update_branch_head(root, project_id, branch_id)?;
-        Ok(file_hash)
+        crate::execution::with_state_write(root,content.len() as u64,crate::execution::StorageWriteKind::ManagedBlob,Some(project_id),|db|{
+            if let Some(parent)=target_path.parent(){fs::create_dir_all(parent).map_err(|e|e.to_string())?;}
+            fs::write(&target_path,content.as_bytes()).map_err(|e|e.to_string())?;
+            let head=Self::compute_branch_hash(root,project_id,branch_id)?;
+            db.execute("UPDATE branch_workspaces SET head_sha256=?1,updated_ms=?2 WHERE project=?3 AND branch_id=?4",rusqlite::params![head,now_ms(),project_id,branch_id]).map_err(|e|e.to_string())?;
+            Ok(hash_bytes(content.as_bytes()))
+        })
     }
 
     pub fn read_file(

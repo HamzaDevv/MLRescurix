@@ -1,0 +1,159 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running unittests src/lib.rs (target/debug/deps/mlrescurix_harness-c9b0a6a2da25d54f)
+
+running 4 tests
+test execution::tests::low_disk_admission_boundary ... ok
+test agents::tools::tests::unavailable_sandbox_refuses_tool_before_any_state_or_workspace_write ... ok
+test bundle::tests::integrity_does_not_certify_execution_or_unknown_constraints ... ok
+test assets::tests::runtime_assets_reject_directory_and_file_symlink_escape ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running unittests src/main.rs (target/debug/deps/mlrescurix_harness-2e97b1e088d3c065)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/agent_m4.rs (target/debug/deps/agent_m4-c5a176030549b361)
+
+running 23 tests
+test m4_outbound_data_redaction_filter ... ok
+test m4_authoritative_budget_query_and_remaining_calculation ... ok
+test m4_path_traversal_and_symlink_rejection_in_workspace ... ok
+test m4_cross_branch_immutable_snapshot_reuse ... ok
+test m4_role_registry_defines_all_eight_specialist_roles ... ok
+test m4_exhausted_budget_blocks_provider_before_dispatch ... ok
+test m4_achievement_checkpointing_and_context_compaction ... ok
+test m4_conservative_ceiling_settlement_on_provider_failure ... ok
+test m4_reconstructable_checkpoint_and_evidence_integrity ... ok
+test m4_role_rbac_enforcement ... ok
+test m4_schema_validation_pre_and_post_execution ... ok
+test m4_workspace_symlink_cannot_read_or_overwrite_host_file ... ok
+test m4_sandbox_detector_and_honest_refusal_when_unavailable ... ok
+test m4_agent_authors_tests_and_reuses_diagnostic_tool_and_adapts_decision ... ok
+test m6_outbound_view_policy_approval_content_binding_and_expiry ... ok
+test m6_currency_cost_millicents_and_finalization_reserve_enforcement ... ok
+test m5_delegation_preserves_prior_tasks_and_reports_provider_failure ... ok
+test m6_specialist_scheduling_crash_recovery_and_handoff ... ok
+test m4_research_closure_and_critic_finalization ... ok
+test m6_provider_turn_crash_reconciliation_all_four_states ... ok
+test p1_delegation_and_registration_crash_reconciliation_and_fault_regressions ... ok
+test p1_scheduler_job_submission_crash_reconciliation_and_fault_regressions ... ok
+test m4_ten_projects_and_three_branches_fairness ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.76s
+
+     Running tests/bundle_scientific_docker.rs (target/debug/deps/bundle_scientific_docker-0e0cd06c47ab8bc3)
+
+running 1 test
+test scientific_bundle_parity_schema_and_hostile_containment ... ignored, requires explicit local digest-pinned scientific Docker image
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/foundation.rs (target/debug/deps/foundation-f44b3b4d15c905f6)
+
+running 26 tests
+test durable_crash_actor ... ok
+test cross_language_fixture_corpus ... ok
+test lifecycle_cli_initializes_fresh_state_and_returns_receipts ... ok
+test fake_observations_cannot_publish_official_scores_or_finalize ... ok
+test event_and_timer_cursors_replay_and_questions_survive ... ok
+test corrupted_checkpoint_and_dangling_references_fail_explicitly ... ok
+test duplicates_fencing_uncertainty_and_charge_debt ... ok
+test cleanup_preserves_old_command_idempotency_fences ... ok
+test m1_restart_reconciles_published_artifact_and_discards_incomplete_stage ... ok
+test m1_fair_queue_and_contract_bounds ... ok
+test m1_pause_drains_active_job_and_resume_reopens_queued_admission ... ok
+test m1_managed_python_environment_is_owned_and_leases_block_removal ... ok
+test m1_deadline_crash_and_project_cancellation_reap_only_owned_workers ... ok
+test m2_dataset_registration_copies_and_hashes_only_into_owned_state ... ok
+test m1_trusted_worker_publishes_hashed_artifact_and_records_terminal_state ... ok
+test m2_final_test_access_is_reserved_transactionally_once_per_dataset ... ok
+test m2_scientific_jobs_are_typed_and_reference_registered_datasets ... ok
+test m2_restart_reconciles_consumed_final_test_identity ... ok
+test state_root_is_owned_and_migrations_are_checked ... ok
+test simultaneous_reservations_respect_device_and_project_caps ... ok
+test ten_projects_three_branches_reserve_atomically_and_cancel_in_isolation ... ok
+test m6_restart_consumes_interrupted_assessment_without_result ... ok
+test process_crashes_recover_each_commit_boundary ... ok
+test m1_supervisor_death_closes_worker_control_and_keeps_budget_reserved_until_recovery ... ok
+test m1_ten_projects_and_three_branch_jobs_stay_within_two_worker_allocation ... ok
+test m1_process_telemetry_is_optional_and_bounded_to_latest_value ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.50s
+
+     Running tests/pipeline_docker.rs (target/debug/deps/pipeline_docker-614e5fea1d248872)
+
+running 1 test
+test scheduled_features_calibration_ensemble_and_verified_oof ... ignored, explicit pinned scientific Docker image required; no host fallback
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/provider_live.rs (target/debug/deps/provider_live-fec14d47d1479fd6)
+
+running 1 test
+test test_live_openrouter_deepseek_call_and_accounting ... ignored, Spends provider funds; run explicitly only with current user authorization and a replacement credential
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/recovery_cycles.rs (target/debug/deps/recovery_cycles-0b28c321f449fe02)
+
+running 7 tests
+test fixtures::scheduled_features_calibration_ensemble_and_verified_oof ... ignored, explicit pinned scientific Docker image required; no host fallback
+test oversized_output_refusal_and_write_recovery ... ok
+test total_state_limit_refuses_new_admission_and_keeps_retry_identity ... ok
+test p1_storage_exhaustion_enospc_and_reservation_fault_regressions ... ok
+test leased_artifacts_survive_concurrent_gc_and_cancellation ... ok
+test p1_archival_tombstone_fencing_and_publication_recovery_fault_regressions ... ok
+test twenty_five_fault_cleanup_restart_cycles_bound_payload_and_measure_durable_metadata ... ok
+
+test result: ok. 6 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 3.52s
+
+     Running tests/release_m6.rs (target/debug/deps/release_m6-eef1519a4d8f14cb)
+
+running 8 tests
+test m6_bundle_verification_valid_bundle_and_tampering_detection ... ignored, historical host scientific fixture; replaced by explicit digest-pinned Docker pipeline tests; does not satisfy content-bound finalization
+test m6_end_to_end_autonomous_task_no_manual_edits ... ignored, historical host scientific fixture; no longer valid autonomous delivery evidence; composite finalization remains pending
+test m6_exported_bundle_integrity_without_executing_candidate ... ignored, historical delivery fixture lacks content-bound approval; real bundle integrity/parity now covered in bundle_scientific_docker
+test m6_project_cancellation_isolation ... ok
+test m6_existing_version_six_database_receives_boosting_migration ... ok
+test m6_scientific_lineage_registration_and_fencing ... ok
+test m6_lease_safe_storage_gc_and_protected_artifact_retention ... ok
+test m6_standalone_executable_runs_without_source_checkout ... ok
+
+test result: ok. 5 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.52s
+
+     Running tests/sandbox_docker.rs (target/debug/deps/sandbox_docker-ef395dd1f8a7a199)
+
+running 5 tests
+test test_docker_live_network_isolation ... ok
+test test_docker_live_output_bound_enforcement ... ok
+test test_docker_live_read_only_root_and_scratch_writable ... ok
+test test_docker_live_timeout_enforcement ... ok
+test test_docker_live_non_root_uid_and_cap_drop ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests/search_m3.rs (target/debug/deps/search_m3-5b7b320110943fbf)
+
+running 10 tests
+test m3_end_to_end_search_and_finalization ... ignored, historical host scientific fixture; replaced by explicit digest-pinned Docker pipeline tests; does not satisfy content-bound finalization
+test m3_minimize_direction_selects_lowest_metric ... ok
+test m3_infeasible_candidate_cannot_qualify_for_apex ... ok
+test m3_tie_tolerance_prefers_lower_latency_then_smaller_size ... ok
+test m3_parameter_bounds_and_identity_hashing ... ok
+test m3_capabilities_reports_phase_m3_and_scientific_flags ... ok
+test m3_research_closure_rejects_search_after_gate_reservation ... ok
+test m3_baseline_derivation_and_constraint_checking ... ok
+test m3_search_init_is_idempotent_and_ingests_baselines ... ok
+test m3_budget_guard_triggers_provisional_outcome ... ok
+
+test result: ok. 9 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+   Doc-tests mlrescurix_harness
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

@@ -24,11 +24,15 @@ Always ground your choices in concrete observations from the dataset and validat
             capabilities: vec![
                 "inspect_dataset".into(),
                 "inspect_data".into(),
+                "register_dataset".into(),
                 "delegate".into(),
+                "delegate_task".into(),
                 "schedule_specialist".into(),
                 "propose_hypothesis".into(),
                 "record_finding".into(),
                 "request_finalization".into(),
+                "publish_delivery".into(),
+                "publish_bundle".into(),
                 "schedule_pipeline".into(),
                 "query_budget".into(),
                 "retrieve_evidence".into(),
@@ -49,6 +53,7 @@ Your responsibility is to thoroughly analyze the registered dataset: verify feat
 Report factual summaries without speculative assumptions."#.into(),
             capabilities: vec![
                 "inspect_dataset".into(),
+                "register_dataset".into(),
                 "inspect_schema".into(),
                 "compute_missingness".into(),
                 "compute_class_balance".into(),

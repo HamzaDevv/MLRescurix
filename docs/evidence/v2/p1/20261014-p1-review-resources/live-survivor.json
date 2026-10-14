@@ -1,0 +1,61 @@
+{
+  "docker_state": {
+    "Dead": false,
+    "Error": "",
+    "ExitCode": 137,
+    "FinishedAt": "2026-10-14T10:54:15.369890926Z",
+    "OOMKilled": false,
+    "Paused": false,
+    "Pid": 0,
+    "Restarting": false,
+    "Running": false,
+    "StartedAt": "2026-10-14T10:54:12.4437023Z",
+    "Status": "exited"
+  },
+  "exit_confirmed": true,
+  "id": "f4d38b1fe3f78a9d8b6d30946cce72e0ae0c40ba34402f0f81398230a3165676",
+  "job": "j",
+  "labels": {
+    "io.mlrescurix.generation": "2",
+    "io.mlrescurix.intent": "1",
+    "io.mlrescurix.job": "j",
+    "io.mlrescurix.lease": "lease",
+    "io.mlrescurix.owner": "mlrescurix.scientific.v1",
+    "io.mlrescurix.owner-id": "4e38bca6d268103916f3bb83b9759f60fe77b6174e9f5845cb5e37beb7ccb6cf",
+    "io.mlrescurix.project": "p",
+    "io.mlrescurix.spec": "945b6d007477a4c75c6655c3a29b4b9d0c90d90d74d1346519067da391b5aa9d",
+    "io.mlrescurix.state-root": "d1560a18f2bee88ac5fb2546f3803a4b2a208c244fcc6d1d62c5579db33d4e43",
+    "io.mlrescurix.task": "t"
+  },
+  "measurement": {
+    "before": {
+      "cpu.max": "100000 100000",
+      "cpu.stat": "usage_usec 22950\nuser_usec 16256\nsystem_usec 6693\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0",
+      "memory.current": "6475776",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+      "memory.max": "1073741824",
+      "memory.peak": "6475776",
+      "memory.swap.max": "0",
+      "pids.events": "max 0",
+      "pids.max": "64"
+    },
+    "complete": false,
+    "memory_bytes": 1073741824,
+    "supported": true,
+    "threads": 1
+  },
+  "measurement_complete": false,
+  "pre_stop_measurement": {
+    "cpu.max": "100000 100000",
+    "cpu.stat": "usage_usec 49591\nuser_usec 37689\nsystem_usec 11901\nnr_periods 2\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0",
+    "memory.current": "15286272",
+    "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+    "memory.max": "1073741824",
+    "memory.peak": "15294464",
+    "memory.swap.max": "0",
+    "pids.events": "max 0",
+    "pids.max": "64"
+  },
+  "project": "p",
+  "removed": true
+}

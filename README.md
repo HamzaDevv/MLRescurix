@@ -60,6 +60,7 @@ MLRESCURIX_BUNDLE_IMAGE="mlrescurix-scientific@sha256:d094b6becbbd1a1d86b944fd39
 
 ## Project Documents
 
+- [v2 Phased Roadmap & Persistent Session Handoff](docs/v2/README.md)
 - [M6 Completion Status & Evidence Handoff](docs/m6-completion-status.md)
 - [M6 Release Notes & Verification Report](docs/m6-release-notes.md)
 - [Build Plan](BUILD_PLAN.md)

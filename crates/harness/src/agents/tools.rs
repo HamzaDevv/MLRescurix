@@ -172,6 +172,21 @@ impl ToolRegistry {
             ToolDefinition {
                 tool_type: "function".into(),
                 function: ToolFunction {
+                    name: "register_dataset".into(),
+                    description: "Register an explicitly selected CSV dataset for project scientific evaluation.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "dataset_id": { "type": "string", "description": "Unique identifier for the registered dataset" },
+                            "path": { "type": "string", "description": "Path to the dataset CSV file" }
+                        },
+                        "required": ["dataset_id", "path"]
+                    }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
                     name: "delegate".into(),
                     description: "Delegate a subtask to a specialist role with a testable hypothesis and assigned branch.".into(),
                     parameters: json!({
@@ -179,7 +194,25 @@ impl ToolRegistry {
                         "properties": {
                             "role_id": { "type": "string", "description": "Specialist role to delegate to" },
                             "intent": { "type": "string", "description": "Goal and specification of delegated subtask" },
-                            "hypothesis": { "type": "string", "description": "Testable hypothesis being investigated" }
+                            "hypothesis": { "type": "string", "description": "Testable hypothesis being investigated" },
+                            "sub_task_id": { "type": "string", "description": "Optional explicit child task identifier" }
+                        },
+                        "required": ["role_id", "intent"]
+                    }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "delegate_task".into(),
+                    description: "Delegate a subtask to a specialist role with durable intent binding and crash recovery.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "role_id": { "type": "string", "description": "Specialist role to delegate to" },
+                            "intent": { "type": "string", "description": "Goal and specification of delegated subtask" },
+                            "hypothesis": { "type": "string", "description": "Testable hypothesis being investigated" },
+                            "sub_task_id": { "type": "string", "description": "Optional explicit child task identifier" }
                         },
                         "required": ["role_id", "intent"]
                     }),
@@ -195,7 +228,8 @@ impl ToolRegistry {
                         "properties": {
                             "role_id": { "type": "string", "description": "Specialist role to schedule" },
                             "intent": { "type": "string", "description": "Goal and specification of scheduled subtask" },
-                            "hypothesis": { "type": "string", "description": "Testable hypothesis being investigated" }
+                            "hypothesis": { "type": "string", "description": "Testable hypothesis being investigated" },
+                            "sub_task_id": { "type": "string", "description": "Optional explicit child task identifier" }
                         },
                         "required": ["role_id", "intent"]
                     }),
@@ -214,6 +248,22 @@ impl ToolRegistry {
                 function: ToolFunction {
                     name: "request_finalization".into(),
                     description: "Submit a finalization request for a verified candidate or baseline after critic audit.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "candidate_id": { "type": "string", "description": "Identifier of the verified candidate or baseline" },
+                            "rationale": { "type": "string", "description": "Summary of evidence justifying final freeze under declared protocol" },
+                            "approval_token": { "type": "string", "description": "Authenticated user approval token for this candidate" }
+                        },
+                        "required": ["candidate_id", "rationale", "approval_token"]
+                    }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "publish_delivery".into(),
+                    description: "Publish verified delivery bundle for a candidate after critic audit and approval.".into(),
                     parameters: json!({
                         "type": "object",
                         "properties": {

@@ -1,0 +1,7 @@
+{
+  "CgroupVersion": "2",
+  "CpuCfsQuota": true,
+  "MemoryLimit": true,
+  "PidsLimit": true,
+  "SwapLimit": true
+}

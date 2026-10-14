@@ -125,7 +125,7 @@ fn m6_bundle_verification_valid_bundle_and_tampering_detection() {
     let mut sup = Supervisor::start_with_executable(&root, 1, bin).unwrap();
 
     // 1. Audit
-    let audit_job = JobSpec {
+    let audit_job = JobSpec { resources: Default::default(),
         job_id: "job-audit-b".into(), project_id: "p-bundle".into(), task_id: "t-bundle".into(),
         generation: 2, timeout_ms: 30_000, threads: 1, max_output_bytes: 4 * 1024 * 1024,
         environment_id: Some("scientific".into()),
@@ -143,7 +143,7 @@ fn m6_bundle_verification_valid_bundle_and_tampering_detection() {
     run_job_to_completion(&mut sup, &root, "p-bundle", "job-audit-b");
 
     // 2. Baselines
-    let baselines_job = JobSpec {
+    let baselines_job = JobSpec { resources: Default::default(),
         job_id: "job-baselines-b".into(), project_id: "p-bundle".into(), task_id: "t-bundle".into(),
         generation: 2, timeout_ms: 30_000, threads: 1, max_output_bytes: 4 * 1024 * 1024,
         environment_id: Some("scientific".into()),
@@ -170,7 +170,7 @@ fn m6_bundle_verification_valid_bundle_and_tampering_detection() {
     let apex_id = selection.selected_candidate_id.expect("Apex candidate must be selected");
 
     // 4. Finalize
-    let finalize_job = JobSpec {
+    let finalize_job = JobSpec { resources: Default::default(),
         job_id: "job-finalize-b".into(), project_id: "p-bundle".into(), task_id: "t-bundle".into(),
         generation: 2, timeout_ms: 60_000, threads: 1, max_output_bytes: 4 * 1024 * 1024,
         environment_id: Some("scientific".into()),
@@ -246,7 +246,7 @@ fn m6_exported_bundle_integrity_without_executing_candidate() {
     let bin = Path::new(env!("CARGO_BIN_EXE_mlrescurix-harness"));
     let mut sup = Supervisor::start_with_executable(&root, 1, bin).unwrap();
 
-    let audit_job = JobSpec {
+    let audit_job = JobSpec { resources: Default::default(),
         job_id: "j-aud".into(), project_id: "p-inf".into(), task_id: "t-inf".into(),
         generation: 2, timeout_ms: 30_000, threads: 1, max_output_bytes: 4 * 1024 * 1024,
         environment_id: Some("scientific".into()),
@@ -263,7 +263,7 @@ fn m6_exported_bundle_integrity_without_executing_candidate() {
     execution::submit(&root, audit_job).unwrap();
     run_job_to_completion(&mut sup, &root, "p-inf", "j-aud");
 
-    let baselines_job = JobSpec {
+    let baselines_job = JobSpec { resources: Default::default(),
         job_id: "j-base".into(), project_id: "p-inf".into(), task_id: "t-inf".into(),
         generation: 2, timeout_ms: 30_000, threads: 1, max_output_bytes: 4 * 1024 * 1024,
         environment_id: Some("scientific".into()),
@@ -274,7 +274,7 @@ fn m6_exported_bundle_integrity_without_executing_candidate() {
     execution::submit(&root, baselines_job).unwrap();
     run_job_to_completion(&mut sup, &root, "p-inf", "j-base");
 
-    let finalize_job = JobSpec {
+    let finalize_job = JobSpec { resources: Default::default(),
         job_id: "j-fin".into(), project_id: "p-inf".into(), task_id: "t-inf".into(),
         generation: 2, timeout_ms: 60_000, threads: 1, max_output_bytes: 4 * 1024 * 1024,
         environment_id: Some("scientific".into()),
@@ -443,7 +443,7 @@ fn m6_lease_safe_storage_gc_and_protected_artifact_retention() {
     let r = Runtime::init(&root, m1policy(20, 2)).unwrap();
     create_m1(&r, "p-gc", 20);
     execution_task(&r, "p-gc", "t-gc");
-    let spec = JobSpec {
+    let spec = JobSpec { resources: Default::default(),
         job_id: "job-1".into(),
         project_id: "p-gc".into(),
         task_id: "t-gc".into(),
@@ -498,7 +498,7 @@ fn m6_end_to_end_autonomous_task_no_manual_edits() {
     let mut sup = Supervisor::start_with_executable(&root, 1, bin).unwrap();
 
     // Step 1: Audit
-    let audit_job = JobSpec {
+    let audit_job = JobSpec { resources: Default::default(),
         job_id: "auto-audit".into(), project_id: "p-auto".into(), task_id: "t-auto".into(),
         generation: 2, timeout_ms: 30_000, threads: 1, max_output_bytes: 4 * 1024 * 1024,
         environment_id: Some("scientific".into()),
@@ -516,7 +516,7 @@ fn m6_end_to_end_autonomous_task_no_manual_edits() {
     run_job_to_completion(&mut sup, &root, "p-auto", "auto-audit");
 
     // Step 2: Baselines
-    let baselines_job = JobSpec {
+    let baselines_job = JobSpec { resources: Default::default(),
         job_id: "auto-base".into(), project_id: "p-auto".into(), task_id: "t-auto".into(),
         generation: 2, timeout_ms: 30_000, threads: 1, max_output_bytes: 4 * 1024 * 1024,
         environment_id: Some("scientific".into()),
@@ -542,7 +542,7 @@ fn m6_end_to_end_autonomous_task_no_manual_edits() {
     let apex_id = selection.selected_candidate_id.expect("Apex candidate must be selected");
 
     // Step 4: Finalize
-    let finalize_job = JobSpec {
+    let finalize_job = JobSpec { resources: Default::default(),
         job_id: "auto-fin".into(), project_id: "p-auto".into(), task_id: "t-auto".into(),
         generation: 2, timeout_ms: 60_000, threads: 1, max_output_bytes: 4 * 1024 * 1024,
         environment_id: Some("scientific".into()),
@@ -631,7 +631,7 @@ fn m6_standalone_executable_runs_without_source_checkout() {
     drop(r);
 
     let job_spec_path = work_dir.join("job.json");
-    let spec = JobSpec {
+    let spec = JobSpec { resources: Default::default(),
         job_id: "standalone-job-1".into(),
         project_id: "p-standalone".into(),
         task_id: "t-standalone".into(),

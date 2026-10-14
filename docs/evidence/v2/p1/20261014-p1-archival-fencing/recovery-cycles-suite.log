@@ -1,0 +1,14 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests/recovery_cycles.rs (target/debug/deps/recovery_cycles-0b28c321f449fe02)
+
+running 7 tests
+test fixtures::scheduled_features_calibration_ensemble_and_verified_oof ... ignored, explicit pinned scientific Docker image required; no host fallback
+test oversized_output_refusal_and_write_recovery ... ok
+test total_state_limit_refuses_new_admission_and_keeps_retry_identity ... ok
+test p1_storage_exhaustion_enospc_and_reservation_fault_regressions ... ok
+test leased_artifacts_survive_concurrent_gc_and_cancellation ... ok
+test p1_archival_tombstone_fencing_and_publication_recovery_fault_regressions ... ok
+test twenty_five_fault_cleanup_restart_cycles_bound_payload_and_measure_durable_metadata ... ok
+
+test result: ok. 6 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 3.36s
+

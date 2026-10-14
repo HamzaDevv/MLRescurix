@@ -78,6 +78,10 @@ fn asset_directory(root:&Path,directory:&Path)->Result<()> {
 pub fn ensure_python_root(state_root: &Path) -> Result<PathBuf> {
     let src_hash = embedded_python_src_hash();
     let target_root = state_root.join("runtime-assets").join(&src_hash).join("python");
+    let approx_bytes: u64 = EMBEDDED_PYTHON_FILES.iter().map(|(_, content)| content.len() as u64).sum();
+    if !target_root.exists() {
+        crate::execution::enforce_state_write_admission(state_root, None, approx_bytes, crate::execution::StorageWriteKind::RuntimeAsset, None)?;
+    }
     asset_directory(state_root,&target_root)?;
     for (rel, content) in EMBEDDED_PYTHON_FILES {
         let dest = target_root.join(rel);
@@ -91,6 +95,7 @@ pub fn ensure_python_root(state_root: &Path) -> Result<PathBuf> {
             Err(_) => true,
         };
         if needs_write {
+            crate::execution::enforce_state_write_admission(state_root,None,expected_bytes.len() as u64,crate::execution::StorageWriteKind::RuntimeAsset,None)?;
             use std::io::Write;
             static NEXT_STAGE:std::sync::atomic::AtomicU64=std::sync::atomic::AtomicU64::new(0);
             let sequence=NEXT_STAGE.fetch_add(1,std::sync::atomic::Ordering::Relaxed);

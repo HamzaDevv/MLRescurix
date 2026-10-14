@@ -591,7 +591,10 @@ impl AgentOrchestrator {
         }
         self.current_turn += 1;
         self.context.record_checkpoint(&self.root)?;
-        db.execute("INSERT INTO provider_turn_receipts(project,task,turn,action,status,updated_ms) VALUES(?1,?2,?3,?4,'awaiting_response',?5)",rusqlite::params![self.config.project_id,self.config.task_id,self.current_turn,action_id,now_ms()]).map_err(|e|e.to_string())?;
+        crate::execution::with_state_write(&self.root,16*1024,crate::execution::StorageWriteKind::ProviderReceipt,Some(&self.config.project_id),|tx|{
+        tx.execute("INSERT INTO provider_turn_receipts(project,task,turn,action,status,updated_ms) VALUES(?1,?2,?3,?4,'awaiting_response',?5)",rusqlite::params![self.config.project_id,self.config.task_id,self.current_turn,action_id,now_ms()]).map_err(|e|e.to_string())?;
+            Ok(())
+        })?;
         let response = match self.gateway.chat_completion(&req) {
             Ok(resp) => resp,
             Err(e) => {
@@ -611,7 +614,11 @@ impl AgentOrchestrator {
                 return Err(e);
             }
         };
-        db.execute("UPDATE provider_turn_receipts SET response_json=?4,status='response_received',updated_ms=?5 WHERE project=?1 AND task=?2 AND turn=?3",rusqlite::params![self.config.project_id,self.config.task_id,self.current_turn,serde_json::to_string(&response).map_err(|e|e.to_string())?,now_ms()]).map_err(|e|e.to_string())?;
+        let resp_json = serde_json::to_string(&response).map_err(|e|e.to_string())?;
+        crate::execution::with_state_write(&self.root,resp_json.len() as u64*4+16*1024,crate::execution::StorageWriteKind::ProviderReceipt,Some(&self.config.project_id),|tx|{
+        tx.execute("UPDATE provider_turn_receipts SET response_json=?4,status='response_received',updated_ms=?5 WHERE project=?1 AND task=?2 AND turn=?3",rusqlite::params![self.config.project_id,self.config.task_id,self.current_turn,resp_json,now_ms()]).map_err(|e|e.to_string())?;
+            Ok(())
+        })?;
         let (actual_cost, pricing_status) = match resolve_model_pricing(&self.root, &response.model)?
             .or(model_pricing)
         {
@@ -727,7 +734,7 @@ impl AgentOrchestrator {
                 let db=rusqlite::Connection::open(self.root.join("state.sqlite")).map_err(|e|e.to_string())?;
                 let data:String=db.query_row("SELECT data FROM tasks WHERE project=?1 AND id=?2",rusqlite::params![self.config.project_id,self.config.task_id],|r|r.get(0)).map_err(|e|e.to_string())?;
                 let task:Task=serde_json::from_str(&data).map_err(|e|e.to_string())?;
-                let view=crate::execution::submit(&self.root,crate::execution::JobSpec {
+                let view=crate::execution::submit(&self.root,crate::execution::JobSpec { resources: Default::default(),
                     job_id:args["job_id"].as_str().ok_or("job_id missing")?.into(),project_id:self.config.project_id.clone(),task_id:self.config.task_id.clone(),generation:task.generation,
                     timeout_ms:45_000,threads:1,max_output_bytes:4*1024*1024,
                     environment_id:Some(args["environment_id"].as_str().ok_or("environment_id missing")?.into()),
@@ -924,18 +931,36 @@ impl AgentOrchestrator {
                 }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
                 Ok(json!({"datasets": datasets}).to_string())
             }
+            "register_dataset" => {
+                let ds_id = args.get("dataset_id").or(args.get("id")).and_then(Value::as_str).ok_or("dataset_id missing")?;
+                let path_str = args.get("path").or(args.get("source")).and_then(Value::as_str).ok_or("path missing")?;
+                let src_path = if Path::new(path_str).is_absolute() {
+                    std::path::PathBuf::from(path_str)
+                } else {
+                    match BranchWorkspaceManager::checked_path(&self.root, &self.config.project_id, &self.config.branch_id, path_str) {
+                        Ok(p) => p,
+                        Err(_) => self.root.join(path_str),
+                    }
+                };
+                let receipt = crate::execution::register_dataset(&self.root, &self.config.project_id, ds_id, &src_path)?;
+                Ok(receipt.to_string())
+            }
             "schedule_specialist" => {
                 let target_role = args["role_id"].as_str().ok_or("role_id missing")?;
                 let intent = args["intent"].as_str().ok_or("intent missing")?;
                 let hypothesis = args.get("hypothesis").and_then(|v| v.as_str());
-                let receipt = self.schedule_specialist(target_role, intent, hypothesis)?;
+                let sub_task_id = args.get("sub_task_id").or(args.get("child_task_id")).or(args.get("task_id")).and_then(Value::as_str);
+                let specialist_branch = args.get("assigned_branch").or(args.get("branch")).and_then(Value::as_str);
+                let receipt = self.schedule_specialist_with_ids(target_role, intent, hypothesis, sub_task_id, specialist_branch)?;
                 Ok(receipt.to_string())
             }
-            "delegate" => {
+            "delegate" | "delegate_task" => {
                 let target_role = args["role_id"].as_str().ok_or("role_id missing")?;
                 let intent = args["intent"].as_str().ok_or("intent missing")?;
                 let hypothesis = args.get("hypothesis").and_then(|v| v.as_str());
-                let scheduled = self.schedule_specialist(target_role, intent, hypothesis)?;
+                let sub_task_id = args.get("sub_task_id").or(args.get("child_task_id")).or(args.get("task_id")).and_then(Value::as_str);
+                let specialist_branch = args.get("assigned_branch").or(args.get("branch")).and_then(Value::as_str);
+                let scheduled = self.schedule_specialist_with_ids(target_role, intent, hypothesis, sub_task_id, specialist_branch)?;
                 let sub_task_id = scheduled["sub_task_id"].as_str().ok_or("missing sub_task_id")?.to_string();
                 let specialist_branch = scheduled["assigned_branch"].as_str().ok_or("missing assigned_branch")?.to_string();
                 let run_summary = Self::run_scheduled_specialists(&self.root, &self.config.project_id, self.gateway.clone(), 3)?;
@@ -959,7 +984,7 @@ impl AgentOrchestrator {
                 let budget_info = AgentContextManager::query_authoritative_budget(&self.root, &self.config.project_id)?;
                 Ok(budget_info.to_string())
             }
-            "request_finalization" => {
+            "request_finalization" | "publish_delivery" | "publish_bundle" => {
                 if self.is_research_closed()? {
                     return Err("Research admission is permanently closed; cannot re-finalize".into());
                 }
@@ -1056,7 +1081,7 @@ impl AgentOrchestrator {
 
                 let finalize_job_id=format!("finalize-{cand_id}");
                 let test_access_id=args.get("test_access_id").and_then(|v|v.as_str()).map(str::to_string).unwrap_or_else(||format!("final-test-{cand_id}"));
-                let finalize_spec=crate::execution::JobSpec{
+                let finalize_spec=crate::execution::JobSpec{ resources: Default::default(),
                     job_id:finalize_job_id.clone(),
                     project_id:self.config.project_id.clone(),
                     task_id:task.task_id.clone(),
@@ -1166,6 +1191,17 @@ impl AgentOrchestrator {
         intent: &str,
         hypothesis: Option<&str>,
     ) -> Result<Value> {
+        self.schedule_specialist_with_ids(target_role, intent, hypothesis, None, None)
+    }
+
+    pub fn schedule_specialist_with_ids(
+        &self,
+        target_role: &str,
+        intent: &str,
+        hypothesis: Option<&str>,
+        custom_sub_task_id: Option<&str>,
+        custom_branch: Option<&str>,
+    ) -> Result<Value> {
         if self.is_research_closed()? {
             return Err("research admission is closed".into());
         }
@@ -1182,8 +1218,8 @@ impl AgentOrchestrator {
             .ok_or_else(|| format!("Unknown specialist role: {target_role}"))?;
 
         let delegation_id = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_nanos();
-        let specialist_branch = format!("{}-{}-{delegation_id}", self.config.branch_id, target_role);
-        let sub_task_id = format!("{}-{}-{delegation_id}", self.config.task_id, target_role);
+        let specialist_branch = custom_branch.map(str::to_string).unwrap_or_else(|| format!("{}-{}-{delegation_id}", self.config.branch_id, target_role));
+        let sub_task_id = custom_sub_task_id.map(str::to_string).unwrap_or_else(|| format!("{}-{}-{delegation_id}", self.config.task_id, target_role));
 
         BranchWorkspaceManager::init_branch(&self.root, &self.config.project_id, &specialist_branch, &self.config.branch_id)?;
         let parent_dir = BranchWorkspaceManager::get_branch_dir(&self.root, &self.config.project_id, &self.config.branch_id);
