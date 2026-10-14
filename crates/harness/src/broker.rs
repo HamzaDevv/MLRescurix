@@ -6,9 +6,12 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
+use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::core::Policy;
 use crate::execution::{JobSpec, Probe, OUTPUT_CAP};
 use crate::execution::resources::ResourceFeatures;
 use crate::Result;
@@ -646,4 +649,686 @@ pub fn check_request_feasibility_with_probe(
     }
 
     Ok(())
+}
+
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .min(i64::MAX as u128) as i64
+}
+
+fn default_pid_cap() -> u32 {
+    64
+}
+
+/// Headroom reserved exclusively for finalization and control-plane jobs.
+pub const FINALIZATION_RESERVE_WORKERS: i64 = 1;
+pub const FINALIZATION_RESERVE_THREADS: i64 = 1;
+pub const FINALIZATION_RESERVE_MEMORY_BYTES: i64 = 512 * 1024 * 1024; // 512 MiB
+
+/// Default aging factor for weighted fair queues (1 minute = 1 rank score reduction).
+pub const WFQ_DEFAULT_AGING_FACTOR_MS: f64 = 60_000.0;
+
+/// Persistent resource lease lifecycle states.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LeaseStatus {
+    Reserved,
+    Active,
+    Heartbeated,
+    Recovering,
+    Reaped,
+    Released,
+}
+
+impl LeaseStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            LeaseStatus::Reserved => "reserved",
+            LeaseStatus::Active => "active",
+            LeaseStatus::Heartbeated => "heartbeated",
+            LeaseStatus::Recovering => "recovering",
+            LeaseStatus::Reaped => "reaped",
+            LeaseStatus::Released => "released",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "reserved" => Some(LeaseStatus::Reserved),
+            "active" => Some(LeaseStatus::Active),
+            "heartbeated" => Some(LeaseStatus::Heartbeated),
+            "recovering" => Some(LeaseStatus::Recovering),
+            "reaped" => Some(LeaseStatus::Reaped),
+            "released" => Some(LeaseStatus::Released),
+            _ => None,
+        }
+    }
+}
+
+/// Resource lease allocated for an admitted job.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ResourceLease {
+    pub lease_id: String,
+    pub project: String,
+    pub task: String,
+    pub job: String,
+    pub generation: u64,
+    pub status: LeaseStatus,
+    pub backend: String,
+    pub device: String,
+    pub cpu_millicores: u32,
+    pub library_threads: u32,
+    pub memory_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accelerator_type: Option<AcceleratorType>,
+    #[serde(default)]
+    pub accelerator_units: u32,
+    pub scratch_bytes: u64,
+    pub output_bytes: u64,
+    #[serde(default = "default_pid_cap")]
+    pub pid_cap: u32,
+    pub deadline_ms: i64,
+    pub heartbeat_ms: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub environment_hash: Option<String>,
+    pub created_ms: i64,
+    pub updated_ms: i64,
+}
+
+/// Instantaneous capacity allocation across concurrent workers.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct CapacityAllocation {
+    pub workers: i64,
+    pub cpu_threads: i64,
+    pub memory_bytes: i64,
+}
+
+/// Atomically persist a new resource lease in 'reserved' status and record its initial transition.
+pub fn reserve_lease(
+    tx: &rusqlite::Transaction<'_>,
+    lease: &ResourceLease,
+    reason: Option<&str>,
+) -> Result<()> {
+    let now = now_ms();
+    let accel_str = lease.accelerator_type.map(|a| {
+        serde_json::to_string(&a)
+            .unwrap_or_default()
+            .trim_matches('"')
+            .to_string()
+    });
+
+    tx.execute(
+        "INSERT INTO resource_leases(
+            lease_id, project, task, job, generation, status, backend, device,
+            cpu_millicores, library_threads, memory_bytes, accelerator_type,
+            accelerator_units, scratch_bytes, output_bytes, pid_cap,
+            deadline_ms, heartbeat_ms, environment_hash, created_ms, updated_ms
+        ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+        params![
+            lease.lease_id,
+            lease.project,
+            lease.task,
+            lease.job,
+            lease.generation,
+            lease.status.as_str(),
+            lease.backend,
+            lease.device,
+            lease.cpu_millicores,
+            lease.library_threads,
+            lease.memory_bytes as i64,
+            accel_str,
+            lease.accelerator_units,
+            lease.scratch_bytes as i64,
+            lease.output_bytes as i64,
+            lease.pid_cap,
+            lease.deadline_ms,
+            lease.heartbeat_ms,
+            lease.environment_hash,
+            lease.created_ms,
+            lease.updated_ms,
+        ],
+    )
+    .map_err(|e| format!("cannot insert resource lease {}: {}", lease.lease_id, e))?;
+
+    tx.execute(
+        "INSERT INTO resource_lease_transitions(
+            lease_id, project, job, from_status, to_status, reason, transitioned_ms
+        ) VALUES(?1, ?2, ?3, NULL, ?4, ?5, ?6)",
+        params![
+            lease.lease_id,
+            lease.project,
+            lease.job,
+            lease.status.as_str(),
+            reason.unwrap_or("lease reserved"),
+            now,
+        ],
+    )
+    .map_err(|e| format!("cannot record lease transition: {}", e))?;
+
+    let _ = tx.execute(
+        "INSERT INTO events(project, kind, payload) VALUES(?1, 'resource_lease.reserved', ?2)",
+        params![
+            lease.project,
+            serde_json::to_string(lease).unwrap_or_default(),
+        ],
+    );
+
+    Ok(())
+}
+
+/// Transition an existing resource lease to a new state and record the durable transition.
+pub fn transition_lease(
+    conn: &rusqlite::Connection,
+    lease_id: &str,
+    to_status: LeaseStatus,
+    reason: Option<&str>,
+) -> Result<()> {
+    let now = now_ms();
+    let (project, job, from_status_str): (String, String, String) = conn
+        .query_row(
+            "SELECT project, job, status FROM resource_leases WHERE lease_id=?1",
+            [lease_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .map_err(|e| format!("lease {} not found: {}", lease_id, e))?;
+
+    if to_status == LeaseStatus::Heartbeated {
+        conn.execute(
+            "UPDATE resource_leases SET status=?2, heartbeat_ms=?3, updated_ms=?3 WHERE lease_id=?1",
+            params![lease_id, to_status.as_str(), now],
+        )
+        .map_err(|e| format!("cannot update lease {}: {}", lease_id, e))?;
+    } else {
+        conn.execute(
+            "UPDATE resource_leases SET status=?2, updated_ms=?3 WHERE lease_id=?1",
+            params![lease_id, to_status.as_str(), now],
+        )
+        .map_err(|e| format!("cannot update lease {}: {}", lease_id, e))?;
+    }
+
+    conn.execute(
+        "INSERT INTO resource_lease_transitions(
+            lease_id, project, job, from_status, to_status, reason, transitioned_ms
+        ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            lease_id,
+            project,
+            job,
+            from_status_str,
+            to_status.as_str(),
+            reason.unwrap_or(""),
+            now,
+        ],
+    )
+    .map_err(|e| format!("cannot record lease transition: {}", e))?;
+
+    let event_kind = format!("resource_lease.{}", to_status.as_str());
+    let _ = conn.execute(
+        "INSERT INTO events(project, kind, payload) VALUES(?1, ?2, ?3)",
+        params![
+            project,
+            event_kind,
+            serde_json::json!({
+                "lease_id": lease_id,
+                "job_id": job,
+                "from_status": from_status_str,
+                "to_status": to_status.as_str(),
+                "reason": reason,
+                "timestamp_ms": now,
+            })
+            .to_string(),
+        ],
+    );
+
+    Ok(())
+}
+
+/// Update lease heartbeat.
+pub fn heartbeat_lease(conn: &rusqlite::Connection, lease_id: &str) -> Result<()> {
+    transition_lease(conn, lease_id, LeaseStatus::Heartbeated, Some("heartbeat"))
+}
+
+/// Release a lease when execution terminates and resources are reclaimed.
+pub fn release_lease(conn: &rusqlite::Connection, lease_id: &str, reason: Option<&str>) -> Result<()> {
+    transition_lease(conn, lease_id, LeaseStatus::Released, reason.or(Some("released on reap")))
+}
+
+/// Fetch a resource lease by its unique ID.
+pub fn get_lease(conn: &rusqlite::Connection, lease_id: &str) -> Result<Option<ResourceLease>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT lease_id, project, task, job, generation, status, backend, device,
+                    cpu_millicores, library_threads, memory_bytes, accelerator_type,
+                    accelerator_units, scratch_bytes, output_bytes, pid_cap,
+                    deadline_ms, heartbeat_ms, environment_hash, created_ms, updated_ms
+             FROM resource_leases WHERE lease_id=?1",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let row = stmt
+        .query_row([lease_id], |r| {
+            let status_str: String = r.get(5)?;
+            let status = LeaseStatus::from_str(&status_str).unwrap_or(LeaseStatus::Reserved);
+            let accel_str: Option<String> = r.get(11)?;
+            let accelerator_type = accel_str.and_then(|s| match s.as_str() {
+                "apple_metal" => Some(AcceleratorType::AppleMetal),
+                "nvidia_cuda" => Some(AcceleratorType::NvidiaCuda),
+                _ => None,
+            });
+
+            Ok(ResourceLease {
+                lease_id: r.get(0)?,
+                project: r.get(1)?,
+                task: r.get(2)?,
+                job: r.get(3)?,
+                generation: r.get(4)?,
+                status,
+                backend: r.get(6)?,
+                device: r.get(7)?,
+                cpu_millicores: r.get(8)?,
+                library_threads: r.get(9)?,
+                memory_bytes: r.get::<_, i64>(10)? as u64,
+                accelerator_type,
+                accelerator_units: r.get(12)?,
+                scratch_bytes: r.get::<_, i64>(13)? as u64,
+                output_bytes: r.get::<_, i64>(14)? as u64,
+                pid_cap: r.get(15)?,
+                deadline_ms: r.get(16)?,
+                heartbeat_ms: r.get(17)?,
+                environment_hash: r.get(18)?,
+                created_ms: r.get(19)?,
+                updated_ms: r.get(20)?,
+            })
+        })
+        .optional()
+        .map_err(|e| e.to_string())?;
+
+    Ok(row)
+}
+
+/// Fetch the active lease for a specific project job.
+pub fn get_lease_for_job(conn: &rusqlite::Connection, project: &str, job: &str) -> Result<Option<ResourceLease>> {
+    let lease_id: Option<String> = conn
+        .query_row(
+            "SELECT lease_id FROM resource_leases WHERE project=?1 AND job=?2 ORDER BY rowid DESC LIMIT 1",
+            params![project, job],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+
+    match lease_id {
+        Some(id) => get_lease(conn, &id),
+        None => Ok(None),
+    }
+}
+
+/// List all active leases (reserved, active, heartbeated, recovering).
+pub fn list_active_leases(conn: &rusqlite::Connection, project: Option<&str>) -> Result<Vec<ResourceLease>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT lease_id, project, task, job, generation, status, backend, device,
+                    cpu_millicores, library_threads, memory_bytes, accelerator_type,
+                    accelerator_units, scratch_bytes, output_bytes, pid_cap,
+                    deadline_ms, heartbeat_ms, environment_hash, created_ms, updated_ms
+             FROM resource_leases
+             WHERE status IN ('reserved', 'active', 'heartbeated', 'recovering')
+               AND (?1 IS NULL OR project=?1)
+             ORDER BY created_ms ASC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([project], |r| {
+            let status_str: String = r.get(5)?;
+            let status = LeaseStatus::from_str(&status_str).unwrap_or(LeaseStatus::Reserved);
+            let accel_str: Option<String> = r.get(11)?;
+            let accelerator_type = accel_str.and_then(|s| match s.as_str() {
+                "apple_metal" => Some(AcceleratorType::AppleMetal),
+                "nvidia_cuda" => Some(AcceleratorType::NvidiaCuda),
+                _ => None,
+            });
+
+            Ok(ResourceLease {
+                lease_id: r.get(0)?,
+                project: r.get(1)?,
+                task: r.get(2)?,
+                job: r.get(3)?,
+                generation: r.get(4)?,
+                status,
+                backend: r.get(6)?,
+                device: r.get(7)?,
+                cpu_millicores: r.get(8)?,
+                library_threads: r.get(9)?,
+                memory_bytes: r.get::<_, i64>(10)? as u64,
+                accelerator_type,
+                accelerator_units: r.get(12)?,
+                scratch_bytes: r.get::<_, i64>(13)? as u64,
+                output_bytes: r.get::<_, i64>(14)? as u64,
+                pid_cap: r.get(15)?,
+                deadline_ms: r.get(16)?,
+                heartbeat_ms: r.get(17)?,
+                environment_hash: r.get(18)?,
+                created_ms: r.get(19)?,
+                updated_ms: r.get(20)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(rows)
+}
+
+/// Retrieve the durable transition history for a lease.
+pub fn get_lease_transitions(conn: &rusqlite::Connection, lease_id: &str) -> Result<Vec<Value>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, lease_id, project, job, from_status, to_status, reason, transitioned_ms
+             FROM resource_lease_transitions WHERE lease_id=?1 ORDER BY transitioned_ms ASC, id ASC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let transitions = stmt
+        .query_map([lease_id], |r| {
+            Ok(serde_json::json!({
+                "id": r.get::<_, i64>(0)?,
+                "lease_id": r.get::<_, String>(1)?,
+                "project": r.get::<_, String>(2)?,
+                "job": r.get::<_, String>(3)?,
+                "from_status": r.get::<_, Option<String>>(4)?,
+                "to_status": r.get::<_, String>(5)?,
+                "reason": r.get::<_, Option<String>>(6)?,
+                "transitioned_ms": r.get::<_, i64>(7)?,
+            }))
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(transitions)
+}
+
+/// Query active capacity allocation across held reservations.
+pub fn get_active_capacity_allocation(
+    conn: &rusqlite::Connection,
+    project: Option<&str>,
+) -> Result<CapacityAllocation> {
+    let (workers, cpu_threads, memory_bytes): (i64, i64, i64) = conn
+        .query_row(
+            "SELECT COALESCE(SUM(json_extract(capacity,'$.workers')),0),
+                    COALESCE(SUM(json_extract(capacity,'$.cpu_threads')),0),
+                    COALESCE(SUM(json_extract(capacity,'$.memory_bytes')),0)
+             FROM reservations WHERE held=1 AND (?1 IS NULL OR project=?1)",
+            [project],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .map_err(|e| e.to_string())?;
+
+    Ok(CapacityAllocation {
+        workers,
+        cpu_threads,
+        memory_bytes,
+    })
+}
+
+/// Verify atomic capacity admission against global and project limits.
+///
+/// Distinguishes:
+/// - Concurrency caps (`workers`) from CPU allocation (`cpu_threads`) and RAM allocation (`memory_bytes`).
+/// - Preserves control-plane and finalization headroom (`FINALIZATION_RESERVE_*`).
+pub fn check_capacity_admission(
+    root: &Path,
+    conn: &rusqlite::Connection,
+    project_id: &str,
+    spec: &JobSpec,
+    worker_ceiling: usize,
+) -> Result<()> {
+    let (device_json, project_json): (String, String) = conn
+        .query_row(
+            "SELECT d.policy, p.policy FROM device d JOIN projects p ON p.id=?1 WHERE d.id=1",
+            [project_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(|e| e.to_string())?;
+
+    let d: Policy = serde_json::from_str(&device_json).map_err(|e| e.to_string())?;
+    let p: Policy = serde_json::from_str(&project_json).map_err(|e| e.to_string())?;
+
+    let available = get_available_capacity(root)?;
+    let is_finalize = matches!(&spec.probe, Probe::Scientific { operation, .. } if operation == "finalize");
+
+    // 1. Worker slot concurrency ceiling
+    let active_workers: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM jobs WHERE status IN('running','terminating','recovering')",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if active_workers >= worker_ceiling as i64 {
+        return Err("worker slot unavailable".into());
+    }
+
+    // 2. Global device workers capacity
+    let device_workers_used: i64 = conn
+        .query_row(
+            "SELECT COALESCE(SUM(json_extract(capacity,'$.workers')),0) FROM reservations WHERE held=1",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    let device_worker_limit = d.capacity.get("workers").copied().unwrap_or(worker_ceiling as i64);
+
+    let has_finalization_work: bool = conn
+        .query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM projects WHERE state='finalizing'
+                UNION
+                SELECT 1 FROM scientific_jobs sj JOIN jobs j ON j.project=sj.project AND j.id=sj.job
+                WHERE sj.operation='finalize' AND j.status='queued'
+            )",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(false);
+
+    let reserved_workers = if (worker_ceiling > 2 || has_finalization_work) && !is_finalize {
+        FINALIZATION_RESERVE_WORKERS
+    } else {
+        0
+    };
+    if device_workers_used + 1 > device_worker_limit - reserved_workers {
+        if device_workers_used + 1 <= device_worker_limit && reserved_workers > 0 {
+            return Err("capacity unavailable: workers (reserved for finalization)".into());
+        }
+        return Err("device worker capacity unavailable".into());
+    }
+
+    // 3. Project worker concurrency cap
+    let project_workers_used: i64 = conn
+        .query_row(
+            "SELECT COALESCE(SUM(json_extract(capacity,'$.workers')),0) FROM reservations WHERE held=1 AND project=?1",
+            [project_id],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    if let Some(limit) = p.capacity.get("workers") {
+        if project_workers_used + 1 > *limit {
+            return Err("project worker capacity unavailable".into());
+        }
+    }
+
+    // 4. Global CPU threads capacity
+    let device_cpu_used: i64 = conn
+        .query_row(
+            "SELECT COALESCE(SUM(json_extract(capacity,'$.cpu_threads')),0) FROM reservations WHERE held=1",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    let device_cpu_limit = d
+        .capacity
+        .get("cpu_threads")
+        .copied()
+        .unwrap_or(available.available_cpus as i64);
+
+    let reserved_cpu = if (device_cpu_limit > FINALIZATION_RESERVE_THREADS * 2 || has_finalization_work) && !is_finalize {
+        FINALIZATION_RESERVE_THREADS
+    } else {
+        0
+    };
+    let req_threads = spec.threads as i64;
+    if device_cpu_used + req_threads > device_cpu_limit - reserved_cpu {
+        if device_cpu_used + req_threads <= device_cpu_limit && reserved_cpu > 0 {
+            return Err("capacity unavailable: cpu_threads (reserved for finalization)".into());
+        }
+        return Err("capacity unavailable: cpu_threads".into());
+    }
+
+    // 5. Project CPU threads capacity
+    if let Some(limit) = p.capacity.get("cpu_threads") {
+        let project_cpu_used: i64 = conn
+            .query_row(
+                "SELECT COALESCE(SUM(json_extract(capacity,'$.cpu_threads')),0) FROM reservations WHERE held=1 AND project=?1",
+                [project_id],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        if project_cpu_used + req_threads > *limit {
+            return Err("project capacity unavailable: cpu_threads".into());
+        }
+    }
+
+    // 6. Global Memory capacity
+    let device_mem_used: i64 = conn
+        .query_row(
+            "SELECT COALESCE(SUM(json_extract(capacity,'$.memory_bytes')),0) FROM reservations WHERE held=1",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    let device_mem_limit = d
+        .capacity
+        .get("memory_bytes")
+        .copied()
+        .unwrap_or(available.available_memory_bytes as i64);
+
+    let reserved_mem = if device_mem_limit > FINALIZATION_RESERVE_MEMORY_BYTES * 2 && !is_finalize {
+        FINALIZATION_RESERVE_MEMORY_BYTES
+    } else {
+        0
+    };
+    let req_mem = spec.resources.memory_bytes as i64;
+    if device_mem_used + req_mem > device_mem_limit - reserved_mem {
+        if device_mem_used + req_mem <= device_mem_limit && reserved_mem > 0 {
+            return Err("capacity unavailable: memory_bytes (reserved for finalization)".into());
+        }
+        return Err("capacity unavailable: memory_bytes".into());
+    }
+
+    // 7. Project Memory capacity
+    if let Some(limit) = p.capacity.get("memory_bytes") {
+        let project_mem_used: i64 = conn
+            .query_row(
+                "SELECT COALESCE(SUM(json_extract(capacity,'$.memory_bytes')),0) FROM reservations WHERE held=1 AND project=?1",
+                [project_id],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        if project_mem_used + req_mem > *limit {
+            return Err("project capacity unavailable: memory_bytes".into());
+        }
+    }
+
+    Ok(())
+}
+
+/// Check if system is currently under resource pressure.
+pub fn is_under_pressure(root: &Path) -> Result<bool> {
+    if std::env::var("MLRESCURIX_PRESSURE_BACKOFF").ok().as_deref() == Some("1") {
+        return Ok(true);
+    }
+    let (_, avail) = get_disk_capacity(root)?;
+    if avail < DEFAULT_DISK_HEADROOM_BYTES {
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+/// Apply thread caps to all runtime and library thread environments.
+pub fn apply_thread_caps_to_command(cmd: &mut std::process::Command, threads: u32) {
+    let t = threads.to_string();
+    cmd.env("MLRESCURIX_NUM_THREADS", &t);
+    cmd.env("OMP_NUM_THREADS", &t);
+    cmd.env("OPENBLAS_NUM_THREADS", &t);
+    cmd.env("MKL_NUM_THREADS", &t);
+    cmd.env("VECLIB_MAXIMUM_THREADS", &t);
+    cmd.env("NUMEXPR_NUM_THREADS", &t);
+    cmd.env("POLARS_MAX_THREADS", &t);
+}
+
+/// Record a point-in-time capacity allocation and queue wait snapshot.
+pub fn record_allocation_snapshot(conn: &rusqlite::Connection) -> Result<Value> {
+    let now = now_ms();
+    let (active_jobs, running_jobs): (i64, i64) = conn
+        .query_row(
+            "SELECT (SELECT count(*) FROM jobs WHERE status IN('running','terminating','recovering')),
+                    (SELECT count(*) FROM jobs WHERE status='running')",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(|e| e.to_string())?;
+
+    let (allocated_workers, allocated_cpus, allocated_mem): (i64, i64, i64) = conn
+        .query_row(
+            "SELECT COALESCE(SUM(json_extract(capacity,'$.workers')),0),
+                    COALESCE(SUM(json_extract(capacity,'$.cpu_threads')),0),
+                    COALESCE(SUM(json_extract(capacity,'$.memory_bytes')),0)
+             FROM reservations WHERE held=1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .map_err(|e| e.to_string())?;
+
+    let queued_count: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM jobs WHERE status='queued'",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    let mut waits_stmt = conn
+        .prepare(
+            "SELECT id, project, (?1 - submitted_ms) as wait_ms
+             FROM jobs WHERE status='queued' ORDER BY submitted_ms ASC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let queued_waits: Vec<Value> = waits_stmt
+        .query_map([now], |r| {
+            Ok(serde_json::json!({
+                "job_id": r.get::<_, String>(0)?,
+                "project": r.get::<_, String>(1)?,
+                "wait_ms": r.get::<_, i64>(2)?,
+            }))
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(serde_json::json!({
+        "timestamp_ms": now,
+        "active_jobs": active_jobs,
+        "running_jobs": running_jobs,
+        "queued_jobs": queued_count,
+        "allocated_workers": allocated_workers,
+        "allocated_cpus": allocated_cpus,
+        "allocated_memory_bytes": allocated_mem,
+        "queued_waits": queued_waits,
+    }))
 }

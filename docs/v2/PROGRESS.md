@@ -30,18 +30,23 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
   - Full `cargo test --locked` passed; live pinned-Docker cgroup/OOM/survivor checks, six end-to-end scientific pipeline modes, and real ENOSPC regression passed. See the fresh evidence below.
   - Architecture decisions D20–D25 recorded in `docs/v2/DECISIONS.md`.
   - Historical M6 evidence preserved untouched.
-  - Runtime implementation: P1.1–P1.6 complete and verified. P2 (P2.1–P2.6 and full P2 Roadmap Acceptance Gate) is complete and fully verified: schema v10 CAS, artifact inspection queries, durable event replay, four shared query-only readers, revision-fenced successor/tombstone commands, populated upgrade preservation, partial CAS/filesystem/DB commit reconciliation, protected references under concurrent GC, and restart/reconnect event consistency. P2 phase gate is closed.
-  - P3.1 capability discovery, headroom, presets, and early infeasible-request rejection implemented and verified: effective host and container-VM CPU/RAM/disk/accelerator discovery (`min(host, vm)` for container execution), passive accelerator discovery (Apple Metal on macOS arm64, NVIDIA CUDA on Linux), configured headroom (1000 millicores, 512 MiB RAM, 64 MiB disk), bounded presets (`MICRO`, `STANDARD`, `HEAVY`, `CUSTOM`), and deterministic early rejection in `execution::submit` prior to SQLite queue admission (0 rows added to `jobs`). Verified across 5 tests in `crates/harness/tests/resource_broker_p3.rs` and full locked regression suites. Evidence in `docs/evidence/v2/p3/20261014-p31-capability-discovery/`.
+  - Runtime implementation: P1.1–P1.6 complete and verified. P2 (P2.1–P2.6 and full P2 Roadmap Acceptance Gate) complete and verified. P3 (P3.1–P3.5 and full Phase P3 Acceptance Gate) complete and verified:
+    1. P3.1: Host/container-VM capability discovery (`min(host, vm)`), passive accelerator detection (Apple Metal/NVIDIA CUDA), configurable headroom, bounded presets (`MICRO`, `STANDARD`, `HEAVY`, `CUSTOM`), and deterministic early infeasible rejection in `submit()` with zero SQLite job insertion.
+    2. P3.2: Atomic global/project capacity reservations, weighted fair queueing with aging (`(now - submitted_ms)/60000.0`), bounded queues, stable tie ordering (`project, submitted_ms, id`), dimension distinction between worker concurrency and CPU/RAM allocations, and durable `resource_leases` / `resource_lease_transitions` across `reserved -> active -> heartbeated -> recovering -> reaped -> released`.
+    3. P3.3: Routing generic tools, preflight, evaluation, benchmarking, final fit, inference checks, and environment jobs through thread-capped execution (`MLRESCURIX_NUM_THREADS`, `OMP_NUM_THREADS`, etc.) and scikit-learn `n_jobs` via `_leased_threads()`.
+    4. P3.4: Pressure backoff via disk headroom and `MLRESCURIX_PRESSURE_BACKOFF`, per-project cancellation and pause isolation, finalization/control-plane headroom preservation (1 worker, 1 CPU thread, 512 MiB RAM), and safe Docker survivor discovery skipping foreign supervisor workers.
+    5. P3.5: Multi-project stress and resilience verification across 10 projects x 5 queued intents (50 jobs) under mixed-size jobs, worker crashes, cancellations, and supervisor restarts, with recorded allocation timelines and queue waits.
+    6. Phase P3 Acceptance Gate passed: admitted sums stay within declared capacity, large queued jobs receive service under aging policy, one project's cancellation leaves others running, zero runner lease bypass. Verified across 13 integration tests in `crates/harness/tests/resource_broker_p3.rs` and 88 passing tests across full repository suites. Evidence in `docs/evidence/v2/p3/20261014-p3-gate-closure/`. Phase P3 is closed.
 - Release: M6 remains **NOT READY**, as recorded in `docs/m6-completion-status.md`.
-  - Authorization: P2 gate closure and P3.1 were authorized and completed in this session. P3.2 or later phases are NOT begun.
-  - Next recommended slice: P3.2 atomic global/project capacity reservations, weighted fair queues with aging, bounded queues, and stable tie ordering. M6 release gates remain independently open.
+  - Authorization: P3.2–P3.5 and Phase P3 Acceptance Gate were authorized and completed in this session. P4 or later phases are NOT begun.
+  - Next recommended slice: Phase P4 (when explicitly authorized). M6 release gates remain independently open.
 
 | Phase | Status | Evidence / next step |
 | --- | --- | --- |
 | P0 | Complete | This doc set, archived inputs, static audit and documentation validation |
 | P1 | complete | P1.1–P1.6 verified; see `20261014-p1-review-resources/` evidence. M6 release remains independently NOT READY. |
 | P2 | complete | P2.1–P2.6 and full P2 roadmap acceptance gate complete and fully evidenced. Populated upgrade preservation, partial CAS/DB reconciliation, protected references under concurrent GC, and event restart/reconnect consistency verified across 14 tests in artifact_registry_p2 and full regression suites. Evidence in `20261014-p2-gate-closure/`. M6 remains independently NOT READY. |
-| P3 | in_progress | P3.1 verified in `20261014-p31-capability-discovery/`; P3.2–P3.5 planned; no unconditional 50-job claim |
+| P3 | complete | P3.1–P3.5 and full Phase P3 Acceptance Gate verified across 13 tests in resource_broker_p3 and full regression suites (88 total passed tests). Fresh logs and timelines in `20261014-p3-gate-closure/`. M6 remains independently NOT READY. |
 | P4 | Planned | Add executable candidate adapter; keep old API working |
 | P5 | Planned | Context/task recovery on generic tool substrate |
 | P6 | Planned | Read/resource views after P2/P3; new semantics/steering after P4/P5 |
@@ -80,6 +85,7 @@ or a specialist's assertion alone does not meet it. P0 is documentation complete
 | 2026-10-14 | P2.6 revisioned successor/tombstone commands | Added `publish_successor_command` and `tombstone_artifact_command` using the shared project revision and existing durable `(project, command_id)` request/receipt fences. Successors atomically publish an immutable version, advance current pointer, add `supersedes` lineage and increment revision; tombstones retain version/lineage/bytes and refuse pinned, selection-history-referenced, or actively produced artifacts. Tombstone event trigger is installed idempotently on already-v10 states. `artifact_registry_p2` (10 passed), `recovery_cycles` (8 passed, 2 ignored), `foundation` (26 passed), and `release_m6` (5 passed, 3 ignored) passed serial rerun; one initial foundation timing failure under concurrent Cargo runs passed in isolated and serial reruns. Evidence in `docs/evidence/v2/p2/20261014-p26-successor-tombstone/`. P2 remains in progress; M6 remains NOT READY. |
 | 2026-10-14 | P2 Roadmap Gate Closure | Verified all remaining P2 acceptance checks: populated upgrade preservation (retaining `final_test_gates`, `search_sessions`, `trial_results`, `pipeline_receipts`), partial CAS/DB commit reconciliation (`cas/.staging` sweep in `collect_artifacts`, blob adoption on retry, SHA-256 corruption repair), protected references under concurrent GC (pinned artifacts, Apex selection, lineage survive GC), and event restart/reconnect consistency across process boundaries. 14 `artifact_registry_p2` tests passed; full locked suites passed (`foundation`, `recovery_cycles`, `release_m6`, `agent_m4`, `search_m3`, `lib`, python protocol). Evidence in `docs/evidence/v2/p2/20261014-p2-gate-closure/`. P2 complete; M6 remains NOT READY. |
 | 2026-10-14 | P3.1 capability discovery, presets, headroom, & infeasible-request rejection | Discovered effective host and container-VM CPU, memory, disk, and accelerator capabilities; clamped container jobs to container-VM limits (`min(host, vm)`); configured headroom (1 core, 512 MiB RAM, 64 MiB disk); added bounded presets (`MICRO`, `STANDARD`, `HEAVY`, `CUSTOM`); early infeasible rejection in submit() with zero SQLite jobs rows inserted. 5 tests passed in resource_broker_p3; full regression suites passed. Evidence in `docs/evidence/v2/p3/20261014-p31-capability-discovery/`. M6 remains NOT READY. |
+| 2026-10-14 | P3.2–P3.5 & Phase P3 Acceptance Gate Closure | Implemented atomic capacity reservations and dimension distinction (workers vs cpu_threads vs memory_bytes), durable resource leases and transitions (reserved -> active -> heartbeated -> recovering -> reaped -> released), weighted fair queueing with aging term and stable tie ordering, thread caps across execution backends and scikit-learn n_jobs via _leased_threads(), pressure backoff via disk headroom and MLRESCURIX_PRESSURE_BACKOFF, finalization/control-plane headroom preservation (1 worker, 1 CPU thread, 512 MiB RAM), per-project cancellation and pause isolation, and safe Docker survivor discovery. All 13 tests in resource_broker_p3 passed, including 50-job 10x5 stress test and acceptance gate; 88 passing tests across all full repository regression suites. Added D33. Fresh logs in docs/evidence/v2/p3/20261014-p3-gate-closure/. Phase P3 is closed; M6 remains NOT READY. |
 
 ## Update at the end of every implementation session
 
@@ -544,6 +550,80 @@ Budget / compatibility / migration implications:
   - Backward compatibility preserved with existing JobSpec JSON serialization via serde defaults and skip_serializing_if.
 Next small actionable slice:
   - P3.2 atomic global/project capacity reservations, weighted fair queues with aging, bounded queues, and stable tie ordering upon explicit user authorization.
+```
+
+### Implementation Session 2026-10-14 (P3.2–P3.5 Slice & Phase P3 Acceptance Gate Closure)
+
+```text
+Date / phase / task IDs: 2026-10-14 / P3 / P3.2–P3.5, Phase P3 Acceptance Gate
+User-authorized scope: Implement the remainder of Phase P3 (P3.2–P3.5) and close the Phase P3 acceptance gate as defined in docs/v2/ROADMAP.md, ARCHITECTURE.md, DECISIONS.md, and PROGRESS.md. Do not begin P4 or later phases.
+Starting commit and pre-existing dirty files: abf1f235030a79f9a606b429e34608431e37603d; dirty: docs/v2/{PROGRESS.md,ROADMAP.md,DECISIONS.md}
+Changes and source paths:
+  - crates/harness/src/schema_p3_leases.sql: DDL for `resource_leases` and `resource_lease_transitions` with indexes, executed idempotently in execution::connect().
+  - crates/harness/src/broker.rs:
+    * Implemented LeaseStatus enum, ResourceLease struct, and durable transition operations: reserve_lease, transition_lease, heartbeat_lease, release_lease, get_lease, get_lease_transitions.
+    * Implemented check_capacity_admission distinguishing workers concurrency from cpu_threads and memory_bytes across device and project policies.
+    * Implemented is_under_pressure checking MLRESCURIX_PRESSURE_BACKOFF and disk headroom.
+    * Implemented apply_thread_caps_to_command setting thread caps across all math/threading runtimes.
+    * Implemented record_allocation_snapshot returning active jobs, capacity allocations, and per-job queue wait distributions.
+    * Implemented finalization/control-plane headroom reservation (1 worker, 1 CPU thread, 512 MiB RAM) when worker_ceiling > 2 or active finalization work is queued/present.
+  - crates/harness/src/execution.rs:
+    * Transitioned leases to recovering on supervisor startup and released leases on interrupted recovery jobs.
+    * Routed admission through check_capacity_admission with pressure backoff deferrals, project-level capacity skip tracking, thread-cap environment variable injection, and atomic lease reservation transitioned to Active.
+    * Added supervisor heartbeat ticks and transition to Reaped on exit; released leases via release_lease on terminal finish.
+    * Injected thread-cap environment variables into scientific worker containers.
+  - crates/harness/src/execution_resources.rs:
+    * Updated container discovery to validate ownership against active supervisor epochs and skip foreign/inactive supervisor containers.
+  - crates/harness/src/agents/sandbox.rs:
+    * Injected thread cap environment variables derived from limits.max_cpus into sandbox execution environments.
+  - python/src/mlrescurix_worker/scientific/workflow.py:
+    * Added _leased_threads() reading MLRESCURIX_NUM_THREADS.
+    * Bound estimator n_jobs to _leased_threads() across RandomForestRegressor, LogisticRegression, and RandomForestClassifier; forwarded thread caps to isolated fit and predict child processes.
+  - crates/harness/tests/resource_broker_p3.rs:
+    * Authored 13 comprehensive integration tests covering P3.1–P3.5 and Phase P3 Acceptance Gate:
+      1. p3_test_host_and_container_vm_capability_discovery
+      2. p3_test_resource_headroom_accounting
+      3. p3_test_resource_presets_bounds_and_resolution
+      4. p3_test_infeasible_request_early_rejection_before_admission
+      5. p3_test_container_vm_memory_cap_prevents_host_overestimate
+      6. p3_test_atomic_capacity_reservations_and_dimension_distinction
+      7. p3_test_lease_lifecycle_heartbeats_and_recovery_transitions
+      8. p3_test_weighted_fair_queueing_aging_and_stable_tie_ordering
+      9. p3_test_thread_caps_and_broker_routing
+      10. p3_test_pressure_backoff_and_finalization_headroom_preservation
+      11. p3_test_per_project_cancellation_and_pause_isolation
+      12. p3_test_multi_project_stress_and_resilience_10x5 (50 jobs: 10 projects x 5 intents, mixed presets, starvation bounds, worker crash, cancel/restart, allocation timelines)
+      13. p3_acceptance_gate (capacity bound verification, aging service verification, project cancellation isolation, and zero runner lease bypass verification).
+Decisions added or revised: D33 added (Resource Lease Lifecycle, Capacity Dimension Distinction, Weighted Fair Queueing with Aging, and Finalization Headroom Preservation).
+Exact verification commands and exit results:
+  - cargo test --locked --test resource_broker_p3 -- --test-threads=1 (exit code 0; 13 passed, 0 failed)
+  - cargo test --locked --test artifact_registry_p2 (exit code 0; 14 passed, 0 failed)
+  - cargo test --locked --test foundation -- --test-threads=1 (exit code 0; 26 passed, 0 failed)
+  - cargo test --locked --test recovery_cycles -- --test-threads=1 (exit code 0; 8 passed, 0 failed, 2 ignored)
+  - cargo test --locked --test agent_m4 (exit code 0; 23 passed, 0 failed)
+  - cargo test --locked --test release_m6 -- --test-threads=1 (exit code 0; 5 passed, 0 failed, 3 ignored)
+  - PYTHONPATH=python/src python3 -m unittest python/tests/test_protocol.py (exit code 0; 3 passed, 0 failed)
+Evidence paths plus source/image/schema hashes:
+  - docs/evidence/v2/p3/20261014-p3-gate-closure/test_resource_broker_p3.log
+  - docs/evidence/v2/p3/20261014-p3-gate-closure/test_artifact_registry_p2.log
+  - docs/evidence/v2/p3/20261014-p3-gate-closure/test_foundation.log
+  - docs/evidence/v2/p3/20261014-p3-gate-closure/test_recovery_cycles.log
+  - docs/evidence/v2/p3/20261014-p3-gate-closure/test_agent_m4.log
+  - docs/evidence/v2/p3/20261014-p3-gate-closure/test_release_m6.log
+  - docs/evidence/v2/p3/20261014-p3-gate-closure/test_python_protocol.log
+  - docs/evidence/v2/p3/20261014-p3-gate-closure/summary.md
+Implemented but unverified:
+  - None within Phase P3 scope (all P3 deliverables implemented and verified with passing tests).
+Failure/recovery scenarios still open:
+  - Host RAM exhaustion is intentionally avoided per acceptance criteria; small/synthetic workloads used.
+  - Phase P4+ agent-first tools and executable candidates remain planned and not begun.
+Budget / compatibility / migration implications:
+  - Zero schema version bump required (user_version remains 10).
+  - 128 MiB policy ceiling strictly preserved.
+  - M0–M6 compatibility fully preserved across all regression suites.
+  - Historical evidence in docs/evidence/m6/ left untouched.
+Next small actionable slice:
+  - Phase P4 (P4.1 workspace_fs/sandbox_exec adapters) upon explicit user authorization.
 ```
 
 Copy and fill one entry; update phase/task statuses above too.

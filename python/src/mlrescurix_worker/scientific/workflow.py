@@ -259,6 +259,13 @@ def audit_csv(csv_path: str | Path, spec: ProjectSpec | dict[str, Any], output_d
     return manifest
 
 
+def _leased_threads() -> int:
+    try:
+        return max(1, int(os.environ.get("MLRESCURIX_NUM_THREADS", "1")))
+    except Exception:
+        return 1
+
+
 def _pipeline(frame: pd.DataFrame, features: list[str], task: str, recipe: str, seed: int, params: dict[str, Any] | None = None) -> Pipeline:
     p = normalize_parameters(recipe, task, params or {}) if params else {}
     numeric = [c for c in features if pd.api.types.is_numeric_dtype(frame[c].dtype)]
@@ -277,6 +284,7 @@ def _pipeline(frame: pd.DataFrame, features: list[str], task: str, recipe: str, 
         ]), categorical))
     preprocess = ColumnTransformer(transformers, remainder="drop", sparse_threshold=0.3,
                                    verbose_feature_names_out=False)
+    n_jobs = _leased_threads()
     if task == "regression":
         if recipe == "dummy":
             estimator = DummyRegressor(strategy="median")
@@ -297,14 +305,14 @@ def _pipeline(frame: pd.DataFrame, features: list[str], task: str, recipe: str, 
                 max_depth=p.get("max_depth", 12),
                 min_samples_leaf=p.get("min_samples_leaf", 2),
                 max_features=p.get("max_features", 1.0),
-                n_jobs=1,
+                n_jobs=n_jobs,
                 random_state=seed,
             )
     else:
         if recipe == "dummy":
             estimator = DummyClassifier(strategy="prior")
         elif recipe == "linear":
-            estimator = LogisticRegression(max_iter=500, C=p.get("C", 1.0), random_state=seed, n_jobs=1)
+            estimator = LogisticRegression(max_iter=500, C=p.get("C", 1.0), random_state=seed, n_jobs=n_jobs)
         elif recipe == "hist_boosting":
             estimator = HistGradientBoostingClassifier(
                 learning_rate=p.get("learning_rate", 0.1),
@@ -320,7 +328,7 @@ def _pipeline(frame: pd.DataFrame, features: list[str], task: str, recipe: str, 
                 max_depth=p.get("max_depth", 12),
                 min_samples_leaf=p.get("min_samples_leaf", 2),
                 max_features=p.get("max_features", 1.0),
-                n_jobs=1,
+                n_jobs=n_jobs,
                 random_state=seed,
             )
     return Pipeline([("preprocess", preprocess), ("model", estimator)])
@@ -406,8 +414,10 @@ def _run_isolated_fit(root: Path, frame: pd.DataFrame, features: list[str], targ
                       "parameters": params})
         env = {key: value for key, value in os.environ.items()
                if key in {"PATH", "PYTHONPATH", "TMPDIR", "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS",
-                          "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS"}}
-        env["OMP_NUM_THREADS"] = env["OPENBLAS_NUM_THREADS"] = env["MKL_NUM_THREADS"] = "1"
+                          "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS",
+                          "POLARS_MAX_THREADS", "MLRESCURIX_NUM_THREADS"}}
+        threads_str = str(_leased_threads())
+        env["MLRESCURIX_NUM_THREADS"] = env["OMP_NUM_THREADS"] = env["OPENBLAS_NUM_THREADS"] = env["MKL_NUM_THREADS"] = env["VECLIB_MAXIMUM_THREADS"] = env["NUMEXPR_NUM_THREADS"] = env["POLARS_MAX_THREADS"] = threads_str
         proc = subprocess.run([sys.executable, "-m", "mlrescurix_worker.scientific.cli", "fit-trial",
                               "--spec", str(scratch / "worker-spec.json"), "--output", str(scratch)],
                              env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
@@ -452,7 +462,10 @@ def _run_isolated_predict(root: Path, features_frame: pd.DataFrame, features: li
         _atomic_json(scratch / "worker-spec.json", {"features": features, "task": task, "row_ids": row_ids})
         env = {key: value for key, value in os.environ.items()
                if key in {"PATH", "PYTHONPATH", "TMPDIR", "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS",
-                          "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS"}}
+                          "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS",
+                          "POLARS_MAX_THREADS", "MLRESCURIX_NUM_THREADS"}}
+        threads_str = str(_leased_threads())
+        env["MLRESCURIX_NUM_THREADS"] = env["OMP_NUM_THREADS"] = env["OPENBLAS_NUM_THREADS"] = env["MKL_NUM_THREADS"] = env["VECLIB_MAXIMUM_THREADS"] = env["NUMEXPR_NUM_THREADS"] = env["POLARS_MAX_THREADS"] = threads_str
         proc = subprocess.run([sys.executable, "-m", "mlrescurix_worker.scientific.cli", "predict-trial",
                               "--spec", str(scratch / "worker-spec.json"), "--output", str(scratch)],
                              env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,

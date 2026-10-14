@@ -153,8 +153,15 @@ service under the documented policy; one project's cancellation leaves others
 running; no runner bypasses leases. Report actual active count and queue waits.
 Use synthetic/small jobs; do not intentionally exhaust the user's host RAM.
 
-**Status (2026-10-14): P3.1 implemented and verified; P3 phase gate remains open for P3.2–P3.5 broker leases, fair queueing, and multi-project tests.**
-P3.1 is implemented in `crates/harness/src/broker.rs`, `execution.rs`, and `execution_resources.rs`. It discovers host and container-VM capabilities (`min(host, vm)`), passively probes accelerators (Apple Metal on macOS arm64, NVIDIA CUDA on Linux), configures headroom (default 1 core, 512 MiB RAM, 64 MiB disk), bounds request presets (`MICRO`, `STANDARD`, `HEAVY`, `CUSTOM`), and deterministically rejects infeasible requests before admission in `execution::submit` (0 rows added to SQLite `jobs`). Verified across 5 tests in `crates/harness/tests/resource_broker_p3.rs` and full locked regression suites. Evidence in `docs/evidence/v2/p3/20261014-p31-capability-discovery/`. M6 remains independently NOT READY.
+**Status (2026-10-14): Complete. Phase P3 acceptance gate passed.**
+P3.1–P3.5 are implemented and verified in `crates/harness/src/broker.rs`, `execution.rs`, `execution_resources.rs`, `schema_p3_leases.sql`, and `python/src/mlrescurix_worker/scientific/workflow.py`. The Phase P3 acceptance gate is closed:
+1. **Capacity Admission Bound**: Admitted concurrency, CPU threads, and memory sums stay within declared device/project capacity limits; concurrency caps (`workers`) are distinguished from resource allocations (`cpu_threads`, `memory_bytes`).
+2. **Fair Queue Service with Aging**: Aged large queued jobs receive service under weighted fair queueing with continuous aging terms (`(now - submitted_ms)/60000.0`) and stable deterministic tie-breaking.
+3. **Cancellation & Pause Isolation**: Cancelling or pausing one project cleanly drains and reaps only that project's workers, leaving sibling project workloads running and completing to successful termination.
+4. **Zero Lease Bypass**: All succeeded and executing jobs require atomic `resource_leases` reservations with complete durable transition records (`reserved -> active -> heartbeated -> recovering -> reaped -> released`); zero runners bypass leases.
+5. **Thread Caps & Pressure Backoff**: Thread caps enforced across execution backends and estimator libraries; disk headroom and `MLRESCURIX_PRESSURE_BACKOFF` defer queue admission; finalization and control-plane headroom preserved.
+6. **Multi-Project Resilience**: Verified across 10 projects x 5 queued intents (50 jobs) under mixed-size jobs, worker crashes, cancellations, and supervisor restarts; recorded aggregate capacity timelines and queue waits.
+Verified across 13 integration tests in `crates/harness/tests/resource_broker_p3.rs` and 88 passing tests across full repository suites (`artifact_registry_p2`, `foundation`, `recovery_cycles`, `agent_m4`, `release_m6`, `python/tests/test_protocol.py`). Fresh logs and timelines captured in `docs/evidence/v2/p3/20261014-p3-gate-closure/`. Phase P3 is closed. M6 remains independently NOT READY.
 
 ## P4 — Agent-first tools and executable candidates
 

@@ -51,7 +51,7 @@ fn now_ms() -> i64 { SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_defa
 fn sql<T>(x:rusqlite::Result<T>)->Result<T>{x.map_err(|e|e.to_string())}
 fn hash(data:&[u8])->String{format!("{:x}",Sha256::digest(data))}
 fn valid_id(s:&str)->Result<()>{if s.is_empty()||s.len()>128||!s.bytes().all(|b|b.is_ascii_alphanumeric()||b"_.:-".contains(&b)){Err("invalid job identity".into())}else{Ok(())}}
-pub(crate) fn connect(root:&Path)->Result<Connection>{
+pub fn connect(root:&Path)->Result<Connection>{
     if fs::symlink_metadata(root).map_err(|e|e.to_string())?.file_type().is_symlink(){return Err("state root cannot be a symlink".into());}
     if fs::read_to_string(root.join("OWNED")).map_err(|e|e.to_string())?!=OWNER_MARKER{return Err("unowned state".into());}
     for name in ["state.sqlite","state.sqlite-wal","state.sqlite-shm","OWNED"] {if fs::symlink_metadata(root.join(name)).is_ok_and(|m|m.file_type().is_symlink()){return Err("state file symlink rejected".into());}}
@@ -88,6 +88,7 @@ pub(crate) fn connect(root:&Path)->Result<Connection>{
     // The schema fragment is idempotent. Reapply it so additive trigger fixes
     // (including artifact tombstone journaling) reach already-v10 databases.
     sql(c.execute_batch(include_str!("schema_p2_events.sql")))?;
+    sql(c.execute_batch(include_str!("schema_p3_leases.sql")))?;
     sql(c.execute_batch("CREATE TABLE IF NOT EXISTS tombstones(
         project TEXT NOT NULL REFERENCES projects(id),
         entity_kind TEXT NOT NULL CHECK(entity_kind IN('job','artifact','action')),
@@ -1393,6 +1394,7 @@ impl Supervisor {
         // Fence old workers before daemon discovery. The lifecycle lock prevents
         // a create racing this transition from escaping the survivor sweep.
         sql(c.execute("UPDATE jobs SET status='recovering',reason='supervisor restart; waiting for bounded worker deadline',recovered_deadline_ms=started_ms+CAST(json_extract(spec,'$.timeout_ms') AS INTEGER)+500 WHERE status IN('running','terminating')",[]))?;
+        let _ = c.execute("UPDATE resource_leases SET status='recovering', updated_ms=?1 WHERE status IN ('reserved','active','heartbeated')", [now_ms()]);
         resources::recover(root)?;
         Ok(Self{root:root.to_path_buf(),lock,executable:executable.to_path_buf(),max_workers,children:vec![]})
     }
@@ -1437,22 +1439,45 @@ impl Supervisor {
             if recovered.is_none(){if final_dir.exists(){let _=safe_remove(&self.root,&final_dir);}if let Some(path)=stage_path{if path.exists(){let _=safe_remove(&self.root,&path);}}}
             let view=JobView{spec:s.clone(),status:"recovering".into(),reason:None,pid:None,submitted_ms:0,started_ms:None,ended_ms:None,artifacts:vec![],telemetry:None,resource_receipt:None};
             if let Some(artifacts)=recovered{self.finish(&view,"succeeded",Some("recovered published output after supervisor restart".into()),artifacts,s.timeout_ms)?;}
-            else{let tx=sql(rusqlite::Transaction::new_unchecked(&c,rusqlite::TransactionBehavior::Immediate))?;sql(tx.execute("UPDATE jobs SET status='interrupted',reason='worker deadline elapsed while supervisor was stopped',ended_ms=?3,pid=NULL,stage=NULL WHERE project=?1 AND id=?2 AND status='recovering'",params![p,id,now_ms()]))?;sql(tx.execute("DELETE FROM environment_leases WHERE project=?1 AND job=?2",params![p,id]))?;settle_job_action(&tx,&p,&id,s.timeout_ms,"interrupted")?;sql(tx.execute("INSERT INTO events(project,kind,payload) VALUES(?1,'job.terminal',?2)",params![p,json!({"job_id":id,"status":"interrupted"}).to_string()]))?;tx.commit().map_err(|e|e.to_string())?;}
+            else{let tx=sql(rusqlite::Transaction::new_unchecked(&c,rusqlite::TransactionBehavior::Immediate))?;sql(tx.execute("UPDATE jobs SET status='interrupted',reason='worker deadline elapsed while supervisor was stopped',ended_ms=?3,pid=NULL,stage=NULL WHERE project=?1 AND id=?2 AND status='recovering'",params![p,id,now_ms()]))?;sql(tx.execute("DELETE FROM environment_leases WHERE project=?1 AND job=?2",params![p,id]))?;settle_job_action(&tx,&p,&id,s.timeout_ms,"interrupted")?;let _=crate::broker::release_lease(&tx,&format!("lease-{p}-{id}"),Some("recovering job interrupted on deadline"));sql(tx.execute("INSERT INTO events(project,kind,payload) VALUES(?1,'job.terminal',?2)",params![p,json!({"job_id":id,"status":"interrupted"}).to_string()]))?;tx.commit().map_err(|e|e.to_string())?;}
         }Ok(())
     }
     fn admit(&mut self)->Result<()> {
+        let mut skipped_projects = std::collections::HashSet::new();
         while self.children.len()<self.max_workers {
             let c=connect(&self.root)?;let tx=sql(rusqlite::Transaction::new_unchecked(&c,rusqlite::TransactionBehavior::Immediate))?;
             let cursor:Option<String>=sql(tx.query_row("SELECT value FROM scheduler WHERE key='last_project'",[],|r|r.get(0)).optional())?;
-            let eligible="j.status='queued' AND (p.state='created' OR (p.state='finalizing' AND EXISTS(SELECT 1 FROM scientific_jobs sj WHERE sj.project=j.project AND sj.job=j.id AND sj.operation='finalize'))) AND NOT EXISTS(SELECT 1 FROM questions q WHERE q.project=p.id AND q.answer IS NULL) AND NOT EXISTS(SELECT 1 FROM actions a WHERE a.project=j.project AND a.task=j.task AND json_extract(a.data,'$.status') NOT IN('succeeded','failed','cancelled'))";
+            let mut eligible="j.status='queued' AND (p.state='created' OR (p.state='finalizing' AND EXISTS(SELECT 1 FROM scientific_jobs sj WHERE sj.project=j.project AND sj.job=j.id AND sj.operation='finalize'))) AND NOT EXISTS(SELECT 1 FROM questions q WHERE q.project=p.id AND q.answer IS NULL) AND NOT EXISTS(SELECT 1 FROM actions a WHERE a.project=j.project AND a.task=j.task AND json_extract(a.data,'$.status') NOT IN('succeeded','failed','cancelled'))".to_string();
+            if !skipped_projects.is_empty() {
+                let quoted: Vec<String> = skipped_projects.iter().map(|p: &String| format!("'{}'", p.replace('\'', "''"))).collect();
+                eligible.push_str(&format!(" AND j.project NOT IN ({})", quoted.join(",")));
+            }
             let rank="((SELECT count(*) FROM jobs prior WHERE prior.project=j.project AND prior.status IN('running','succeeded','failed','timed_out','cancelled','rejected','interrupted'))*1.0/COALESCE((SELECT weight FROM project_weights w WHERE w.project=j.project),1) - (?2-j.submitted_ms)/60000.0)";
             let now=now_ms();let row:Option<(String,String,String)>=sql(tx.query_row(
                 &format!("SELECT j.id,j.project,j.spec FROM jobs j JOIN projects p ON p.id=j.project WHERE {eligible} AND j.project>?1 ORDER BY {rank},j.project,j.submitted_ms,j.id LIMIT 1"),rusqlite::params![cursor.as_deref().unwrap_or(""),now],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional())?;
             let row=match row {Some(x)=>Some(x),None=>sql(tx.query_row(&format!("SELECT j.id,j.project,j.spec FROM jobs j JOIN projects p ON p.id=j.project WHERE {eligible} ORDER BY {rank},j.project,j.submitted_ms,j.id LIMIT 1"),rusqlite::params![cursor.as_deref().unwrap_or(""),now],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional())?};
             let Some((id,p,spec))=row else {tx.commit().map_err(|e|e.to_string())?;break};
             let s:JobSpec=serde_json::from_str(&spec).map_err(|e|e.to_string())?;
+
+            let is_finalize = matches!(&s.probe, Probe::Scientific { operation, .. } if operation == "finalize");
+            if !is_finalize && crate::broker::is_under_pressure(&self.root).unwrap_or(false) {
+                tracing::warn!("system under pressure; deferring non-finalization job admission");
+                tx.commit().map_err(|e| e.to_string())?;
+                break;
+            }
+
             if let Err(reason)=validate_finalization_job(&self.root,&s).and_then(|_|resources::check_certification_request(&s)).and_then(|_|crate::broker::check_request_feasibility(&self.root,&s)).and_then(|_|admission(&tx,&s,self.max_workers)) {
-                if reason.starts_with("capacity unavailable:") || reason=="project worker capacity unavailable" || reason=="device worker capacity unavailable" || reason=="worker slot unavailable" {tx.execute("INSERT INTO scheduler(key,value) VALUES('last_project',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[&p]).map_err(|e|e.to_string())?;tx.commit().map_err(|e|e.to_string())?;break;}
+                if reason.starts_with("project capacity unavailable:") || reason=="project worker capacity unavailable" {
+                    skipped_projects.insert(p.clone());
+                    tx.execute("INSERT INTO scheduler(key,value) VALUES('last_project',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[&p]).map_err(|e|e.to_string())?;
+                    tx.commit().map_err(|e|e.to_string())?;
+                    continue;
+                }
+                if reason.starts_with("capacity unavailable:") || reason=="device worker capacity unavailable" || reason=="worker slot unavailable" {
+                    tx.execute("INSERT INTO scheduler(key,value) VALUES('last_project',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[&p]).map_err(|e|e.to_string())?;
+                    tx.commit().map_err(|e|e.to_string())?;
+                    break;
+                }
                 sql(tx.execute("UPDATE jobs SET status='rejected',reason=?3,ended_ms=?4 WHERE project=?1 AND id=?2",params![p,id,reason,now_ms()]))?;
                 tx.commit().map_err(|e|e.to_string())?;continue;
             }
@@ -1480,8 +1505,7 @@ impl Supervisor {
             let spec_path=stage.join("job.json");fs::write(&spec_path,&spec).map_err(|e|e.to_string())?;
             let mut cmd=Command::new(&self.executable);cmd.arg("__worker").arg(&spec_path).arg(&stage).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).env_clear().env("PATH","/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin").env("MLRRESCURIX_STATE",&self.root);
             for key in ["HOME","DOCKER_HOST","DOCKER_CONTEXT","DOCKER_CONFIG"] {if let Some(value)=std::env::var_os(key){cmd.env(key,value);}}
-            cmd.env("MLRESCURIX_NUM_THREADS",s.threads.to_string());
-            for key in ["OMP_NUM_THREADS","OPENBLAS_NUM_THREADS","MKL_NUM_THREADS","VECLIB_MAXIMUM_THREADS","NUMEXPR_NUM_THREADS"] {cmd.env(key,s.threads.to_string());}
+            crate::broker::apply_thread_caps_to_command(&mut cmd, s.threads);
             if let Probe::Scientific{dataset_id,..}=&s.probe {
                 let env_id=s.environment_id.as_deref().ok_or("scientific environment missing")?;
                 let python=self.root.join("environments").join(env_id).join("bin/python3");
@@ -1514,19 +1538,44 @@ impl Supervisor {
             }
             cmd.process_group(0);
             cmd.stdin(Stdio::piped());
-            let mut child=match cmd.spawn(){Ok(c)=>c,Err(e)=>{safe_remove(&self.root,&stage)?;sql(tx.execute("UPDATE jobs SET status='failed',reason=?3,ended_ms=?4 WHERE project=?1 AND id=?2",params![p,id,format!("worker launch failed: {e}"),now_ms()]))?;tx.commit().map_err(|e|e.to_string())?;continue;}};
-            let log_threads=vec![bounded_log(child.stdout.take().ok_or("stdout unavailable")?,sink.clone()),bounded_log(child.stderr.take().ok_or("stderr unavailable")?,sink)];
             let (budget,capacity)=reservation(&tx,&p,&s)?;
             let lease_id=t.lease_id.clone().ok_or("task has no execution lease")?;let deadline=now_ms().saturating_add(s.timeout_ms as i64);
             let mut action=Action{action_id:action_id.clone(),task_id:s.task_id.clone(),generation:s.generation,intent_revision:t.intent_revision,lease_id,input:spec.clone(),budget:budget.clone(),capacity:capacity.clone(),deadline_ms:deadline,status:"dispatched".into(),attempt_id:Some(format!("{}.1",s.job_id)),external_request_id:Some(s.job_id.clone()),response:None,receipt:None,uncertainty:None};
             sql(tx.execute("INSERT INTO actions(project,id,task,data) VALUES(?1,?2,?3,?4)",params![p,action_id,s.task_id,serde_json::to_string(&action).map_err(|e|e.to_string())?]))?;
             sql(tx.execute("INSERT INTO reservations(project,action,budget,capacity,held) VALUES(?1,?2,?3,?4,1)",params![p,action_id,serde_json::to_string(&budget).map_err(|e|e.to_string())?,serde_json::to_string(&capacity).map_err(|e|e.to_string())?]))?;
+            let r_lease = crate::broker::ResourceLease {
+                lease_id: format!("lease-{p}-{id}"),
+                project: p.clone(),
+                task: s.task_id.clone(),
+                job: id.clone(),
+                generation: s.generation,
+                status: crate::broker::LeaseStatus::Reserved,
+                backend: if s.environment_id.is_some() { "container".into() } else { "process".into() },
+                device: "local".into(),
+                cpu_millicores: s.threads * 1000,
+                library_threads: s.threads,
+                memory_bytes: s.resources.memory_bytes,
+                accelerator_type: None,
+                accelerator_units: 0,
+                scratch_bytes: 64 * 1024 * 1024,
+                output_bytes: s.max_output_bytes,
+                pid_cap: 64,
+                deadline_ms: deadline,
+                heartbeat_ms: now,
+                environment_hash: s.environment_id.clone(),
+                created_ms: now,
+                updated_ms: now,
+            };
+            crate::broker::reserve_lease(&tx, &r_lease, Some("job admitted"))?;
+            let mut child=match cmd.spawn(){Ok(c)=>c,Err(e)=>{safe_remove(&self.root,&stage)?;let _=crate::broker::release_lease(&tx,&format!("lease-{p}-{id}"),Some("spawn failed"));sql(tx.execute("UPDATE jobs SET status='failed',reason=?3,ended_ms=?4 WHERE project=?1 AND id=?2",params![p,id,format!("worker launch failed: {e}"),now_ms()]))?;tx.commit().map_err(|e|e.to_string())?;continue;}};
+            let log_threads=vec![bounded_log(child.stdout.take().ok_or("stdout unavailable")?,sink.clone()),bounded_log(child.stderr.take().ok_or("stderr unavailable")?,sink)];
             sql(tx.execute("UPDATE jobs SET status='running',action=?3,pid=?4,started_ms=?5,stage=?6,log_path=?7 WHERE project=?1 AND id=?2",params![p,id,action_id,child.id(),now_ms(),stage.to_string_lossy(),log.to_string_lossy()]))?;
             sql(tx.execute("INSERT INTO scheduler(key,value) VALUES('last_project',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[&p]))?;
             sql(tx.execute("INSERT INTO events(project,kind,payload) VALUES(?1,'job.started',?2)",params![p,json!({"job_id":id,"pid":child.id()}).to_string()]))?;
             if let Some(environment)=&s.environment_id {sql(tx.execute("INSERT INTO environment_leases(environment,project,job) VALUES(?1,?2,?3)",params![environment,p,id]))?;}
             tx.execute("INSERT INTO events(project,kind,payload) VALUES(?1,'action.dispatched',?2)",params![p,json!({"action_id":action_id,"job_id":id}).to_string()]).map_err(|e|e.to_string())?;
             tx.commit().map_err(|e|e.to_string())?;
+            let _ = crate::broker::transition_lease(&c, &format!("lease-{p}-{id}"), crate::broker::LeaseStatus::Active, Some("worker started"));
             let mut control=child.stdin.take().ok_or("worker start gate unavailable")?;
             if let Err(e)=control.write_all(&[1]) {action.status="outcome_unknown".into();action.uncertainty=Some(format!("worker start gate response lost: {e}"));save_action(&self.root,&p,&action)?;let _=terminate(&mut child);}
             let control=WorkerControl{_stdin:control,logs:log_threads};
@@ -1535,14 +1584,17 @@ impl Supervisor {
     }
     fn reap(&mut self)->Result<()> {
         let mut index=0;
+        let c = connect(&self.root)?;
         while index<self.children.len(){
             let (mut view,mut child,control,started,mut last_sample)=self.children.swap_remove(index);let elapsed=started.elapsed();
+            let _ = crate::broker::heartbeat_lease(&c, &format!("lease-{}-{}", view.spec.project_id, view.spec.job_id));
             if last_sample.elapsed()>=Duration::from_secs(1){if let Some(sample)=sample_process(&self.root,&view.spec.project_id,&view.spec.job_id,child.id())?{view.telemetry=Some(sample);}last_sample=Instant::now();}
-            let cancel:bool={let c=connect(&self.root)?;let (requested,state,intent,task):(bool,String,u64,String)=sql(c.query_row("SELECT j.cancel_requested,p.state,p.intent_revision,t.data FROM jobs j JOIN projects p ON p.id=j.project JOIN tasks t ON t.project=j.project AND t.id=j.task WHERE j.project=?1 AND j.id=?2",params![view.spec.project_id,view.spec.job_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))))?;let t:crate::core::Task=serde_json::from_str(&task).map_err(|e|e.to_string())?;requested||state=="cancelled"||t.generation!=view.spec.generation||t.intent_revision!=intent||t.status!="active"||t.expires_ms.is_none_or(|end|end<=now_ms())};
+            let cancel:bool={let (requested,state,intent,task):(bool,String,u64,String)=sql(c.query_row("SELECT j.cancel_requested,p.state,p.intent_revision,t.data FROM jobs j JOIN projects p ON p.id=j.project JOIN tasks t ON t.project=j.project AND t.id=j.task WHERE j.project=?1 AND j.id=?2",params![view.spec.project_id,view.spec.job_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))))?;let t:crate::core::Task=serde_json::from_str(&task).map_err(|e|e.to_string())?;requested||state=="cancelled"||t.generation!=view.spec.generation||t.intent_revision!=intent||t.status!="active"||t.expires_ms.is_none_or(|end|end<=now_ms())};
             let timed_out=elapsed>Duration::from_millis(view.spec.timeout_ms);
             if (cancel||timed_out)&&child.try_wait().map_err(|e|e.to_string())?.is_none(){terminate(&mut child)?;}
             if child.try_wait().map_err(|e|e.to_string())?.is_some(){
                 let status=child.wait().map_err(|e|e.to_string())?;control.close_logs();
+                let _ = crate::broker::transition_lease(&c, &format!("lease-{}-{}", view.spec.project_id, view.spec.job_id), crate::broker::LeaseStatus::Reaped, Some("process exited"));
                 let reason=if cancel{Some("cancelled".to_string())}else if timed_out||status.code()==Some(124){Some("deadline exceeded".to_string())}else if !status.success(){Some(format!("worker exited with {status}"))}else{None};
                 let (artifacts,final_reason)=if reason.is_none(){match self.publish(&view){Ok(a)=>(a,None),Err(e)=>{let stage=self.root.join("artifacts").join(&view.spec.project_id).join(format!(".{}.staging",view.spec.job_id));if stage.exists(){let _=safe_remove(&self.root,&stage);} (vec![],Some(format!("artifact validation: {e}")))}}}else{(vec![],reason)};
                 let ok=final_reason.is_none();if !ok{let stage=self.root.join("artifacts").join(&view.spec.project_id).join(format!(".{}.staging",view.spec.job_id));if stage.exists(){safe_remove(&self.root,&stage)?;}}
@@ -1653,6 +1705,7 @@ impl Supervisor {
         sql(tx.execute("UPDATE jobs SET status=?3,reason=?4,ended_ms=?5,pid=NULL,artifacts=?6 WHERE project=?1 AND id=?2",params![v.spec.project_id,v.spec.job_id,status,reason,now_ms(),serde_json::to_string(&artifacts).map_err(|e|e.to_string())?]))?;
         settle_job_action(&tx,&v.spec.project_id,&v.spec.job_id,elapsed_ms,status)?;
         sql(tx.execute("DELETE FROM environment_leases WHERE project=?1 AND job=?2",params![v.spec.project_id,v.spec.job_id]))?;
+        let _ = crate::broker::release_lease(&tx, &format!("lease-{}-{}", v.spec.project_id, v.spec.job_id), Some("job finished"));
         let cas = crate::cas::ContentAddressableStorage::new(&self.root);
         for a in &artifacts {
             let name = a["name"].as_str().unwrap_or("");
@@ -1878,20 +1931,8 @@ fn reconcile_final_tests(root:&Path,c:&Connection)->Result<()> {
 }
 
 fn admission(c:&Connection,s:&JobSpec,worker_ceiling:usize)->Result<()>{
-    let (device,project):(String,String)=sql(c.query_row("SELECT d.policy,p.policy FROM device d JOIN projects p ON p.id=?1 WHERE d.id=1",[&s.project_id],|r|Ok((r.get(0)?,r.get(1)?))))?;
-    let d:Policy=serde_json::from_str(&device).map_err(|e|e.to_string())?;let p:Policy=serde_json::from_str(&project).map_err(|e|e.to_string())?;
-    if d.capacity.keys().chain(p.capacity.keys()).any(|k|!matches!(k.as_str(),"workers"|"cpu_threads")){return Err("M1 cannot enforce a configured capacity dimension".into());}
-    let requested=BTreeMap::from([("workers".to_string(),1),("cpu_threads".to_string(),s.threads as i64)]);
-    for (policy,scope) in [(&d,None),(&p,Some(&s.project_id))] {
-        let mut used:BTreeMap<String,i64>=policy.capacity.keys().map(|k|(k.clone(),0)).collect();
-        let mut reservations=sql(c.prepare("SELECT capacity FROM reservations WHERE held=1 AND (?1 IS NULL OR project=?1)"))?;
-        for row in sql(reservations.query_map([scope],|r|r.get::<_,String>(0)))? {let a:BTreeMap<String,i64>=serde_json::from_str(&sql(row)?).map_err(|e|e.to_string())?;for(k,v)in a{if let Some(sum)=used.get_mut(&k){*sum=sum.checked_add(v).ok_or("capacity overflow")?;}}}
-        for (k,limit) in &policy.capacity {let request=requested.get(k).ok_or_else(||format!("M1 cannot enforce capacity dimension {k}"))?;if request>limit{return Err(format!("job exceeds {k} limit"));}if used.get(k).copied().unwrap_or(0).checked_add(*request).ok_or("capacity overflow")?>*limit{return Err(format!("capacity unavailable: {k}"));}}
-    }
-    let active:i64=sql(c.query_row("SELECT count(*) FROM jobs WHERE status IN('running','terminating','recovering')",[],|r|r.get(0)))?;
-    if active>=worker_ceiling as i64{return Err("worker slot unavailable".into());}
-    let device_existing:i64=sql(c.query_row("SELECT COALESCE(SUM(json_extract(capacity,'$.workers')),0) FROM reservations WHERE held=1",[],|r|r.get(0)))?;
-    if let Some(n)=d.capacity.get("workers"){if device_existing>=*n{return Err("device worker capacity unavailable".into());}}
+    let root = root_from_conn(c)?;
+    crate::broker::check_capacity_admission(&root, c, &s.project_id, s, worker_ceiling)?;
     let _=reservation(c,&s.project_id,s)?;
     Ok(())
 }
@@ -1902,8 +1943,9 @@ fn reservation(c:&Connection,p:&str,s:&JobSpec)->Result<(BTreeMap<String,i64>,BT
     if d.budget.keys().ne(pr.budget.keys()){return Err("M1 requires matching device/project budget dimensions".into());}
     if !d.budget.contains_key("wall_ms"){return Err("M1 execution policy must declare wall_ms budget".into());}
     let budget:BTreeMap<String,i64>=d.budget.keys().map(|k|(k.clone(),if k=="wall_ms"{s.timeout_ms as i64}else{0})).collect();
-    let capacity:BTreeMap<String,i64>=d.capacity.keys().map(|k|(k.clone(),match k.as_str(){"workers"=>1,"cpu_threads"=>s.threads as i64,_=>-1})).collect();
-    if capacity.values().any(|v|*v<0)||d.capacity.keys().ne(pr.capacity.keys()){return Err("M1 capacity dimensions must be workers and optional cpu_threads".into());}
+    let mut capacity:BTreeMap<String,i64>=d.capacity.keys().map(|k|(k.clone(),match k.as_str(){"workers"=>1,"cpu_threads"=>s.threads as i64,"memory_bytes"=>s.resources.memory_bytes as i64,_=>-1})).collect();
+    if capacity.values().any(|v|*v<0)||d.capacity.keys().ne(pr.capacity.keys()){return Err("M1 capacity dimensions must be workers and optional cpu_threads/memory_bytes".into());}
+    capacity.insert("memory_bytes".to_string(), s.resources.memory_bytes as i64);
     for(scope,policy) in [(None,&d),(Some(p),&pr)] {
         let mut held:BTreeMap<String,i64>=policy.budget.keys().map(|k|(k.clone(),0)).collect();let mut spent=held.clone();
         let mut reservations=sql(c.prepare("SELECT budget FROM reservations WHERE held=1 AND (?1 IS NULL OR project=?1)"))?;
@@ -2013,9 +2055,15 @@ fn container_scientific_worker(job_spec:&JobSpec,operation:&str,spec:Option<&Val
         .args(["--cap-drop","ALL","--security-opt","no-new-privileges:true","--memory"]).arg(job_spec.resources.memory_bytes.to_string()).arg("--memory-swap").arg(job_spec.resources.memory_bytes.to_string()).args(["--cpus"])
         .arg(threads.to_string()).args(["--pids-limit","64","--tmpfs","/tmp:rw,noexec,nosuid,size=64m","-v"])
         .arg(format!("{}:/workflow:rw",workflow.display())).arg("-v").arg(format!("{dataset}:/data.csv:ro"))
-        .arg("-v").arg(format!("{source}:/source:ro")).arg("-v").arg(format!("{}:/output:rw",output.display()))
-        .args(["--env","PYTHONPATH=/source","--env","PYTHONDONTWRITEBYTECODE=1","--env","OMP_NUM_THREADS=1","--env","OPENBLAS_NUM_THREADS=1","--env"])
-        .arg(format!("MLRESCURIX_SOURCE_SHA256={source_hash}"))
+        .args(["--env","PYTHONPATH=/source","--env","PYTHONDONTWRITEBYTECODE=1"])
+        .args(["--env", &format!("MLRESCURIX_NUM_THREADS={threads}")])
+        .args(["--env", &format!("OMP_NUM_THREADS={threads}")])
+        .args(["--env", &format!("OPENBLAS_NUM_THREADS={threads}")])
+        .args(["--env", &format!("MKL_NUM_THREADS={threads}")])
+        .args(["--env", &format!("VECLIB_MAXIMUM_THREADS={threads}")])
+        .args(["--env", &format!("NUMEXPR_NUM_THREADS={threads}")])
+        .args(["--env", &format!("POLARS_MAX_THREADS={threads}")])
+        .arg("--env").arg(format!("MLRESCURIX_SOURCE_SHA256={source_hash}"))
         .arg("--env").arg(format!("MLRESCURIX_ENVIRONMENT_IDENTITY={}",std::env::var("MLRESCURIX_ENVIRONMENT_IDENTITY").map_err(|e|e.to_string())?))
         .arg("-v").arg(format!("{}:/resource:rw",resource_dir.display()));
     for (key,value) in resources::labels(&root,job_spec)? {cmd.arg("--label").arg(format!("{key}={value}"));}

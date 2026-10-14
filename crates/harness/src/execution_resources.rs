@@ -203,6 +203,12 @@ fn discover(root:&Path,c:&Connection,api:&impl DockerApi,target:Option<&JobSpec>
     for id in ids.split_whitespace() {
         let container=inspect_id(api,id)?;
         if let Some(spec)=target { if container["Config"]["Labels"][format!("{PREFIX}project")]!=spec.project_id || container["Config"]["Labels"][format!("{PREFIX}job")]!=spec.job_id {continue;} }
+        // Match persisted container IDs/owner labels against active epochs;
+        // do not kill another supervisor's valid worker merely because its container has harness labels.
+        if let Err(e) = validate_container(root, c, &container) {
+            tracing::debug!("skipping container {} without matching active epoch: {}", id, e);
+            continue;
+        }
         reap_one(root,c,api,&container)?;
     }
     // A disappeared container is safe only after an authoritative daemon listing.
@@ -412,6 +418,17 @@ mod tests {
     fn completing_one_job_does_not_stop_other_live_workers() {
         let (_temp,root,spec)=fixture();let c=connect(&root).unwrap();let api=fake(&root,&spec);let mut foreign=api.containers.borrow()[0].clone();foreign["Id"]=json!("b".repeat(64));foreign["Config"]["Labels"][format!("{PREFIX}job")]=json!("other");api.containers.borrow_mut().push(foreign);
         discover(&root,&c,&api,Some(&spec)).unwrap();assert_eq!(api.containers.borrow().len(),1);assert_eq!(api.containers.borrow()[0]["State"]["Running"],true);
+    }
+    #[test]
+    fn foreign_supervisor_container_is_skipped_during_discovery() {
+        let (_temp,root,spec)=fixture();let c=connect(&root).unwrap();let api=fake(&root,&spec);
+        let mut foreign=api.containers.borrow()[0].clone();
+        foreign["Id"]=json!("f".repeat(64));
+        foreign["Config"]["Labels"][format!("{PREFIX}state-root")]=json!("foreign-state-root-id");
+        foreign["Config"]["Labels"][format!("{PREFIX}job")]=json!("foreign-job");
+        api.containers.borrow_mut().push(foreign);
+        discover(&root,&c,&api,None).unwrap();
+        assert!(api.containers.borrow().iter().any(|c| c["Id"] == json!("f".repeat(64))));
     }
     #[test]
     fn missing_measurement_and_state_ceiling_do_not_claim_certification() {
