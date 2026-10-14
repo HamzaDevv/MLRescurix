@@ -88,13 +88,45 @@ impl SandboxDetector {
 
 pub struct SandboxRunner;
 
+pub const SCIENTIFIC_IMAGE_REF: &str = include_str!("../../../../docker/scientific/image.ref");
+
 impl SandboxRunner {
+    pub fn resolve_image(sandbox_image: Option<&str>) -> String {
+        let env_image = std::env::var("MLRESCURIX_SANDBOX_IMAGE").ok();
+        sandbox_image
+            .map(|s| s.to_string())
+            .or(env_image)
+            .unwrap_or_else(|| SCIENTIFIC_IMAGE_REF.trim().to_string())
+    }
+
     /// Execute arbitrary agent Python code inside a hardened, isolated OCI container.
     /// Strictly rejects host Python fallback if the container runtime is offline.
     pub fn execute(
         workspace_dir: &Path,
         script_relative_path: &str,
         args: &[String],
+        limits: &SandboxLimits,
+        sandbox_image: Option<&str>,
+    ) -> Result<SandboxExecutionResult> {
+        // Validate workspace path to avoid path traversal
+        if fs::symlink_metadata(workspace_dir).map_err(|e| e.to_string())?.file_type().is_symlink() {
+            return Err("Workspace cannot be a symlink".into());
+        }
+
+        let script_path = workspace_dir.join(script_relative_path);
+        if !script_path.is_file() {
+            return Err(format!("Script {script_relative_path} does not exist in workspace"));
+        }
+
+        let mut argv = vec!["python3".to_string(), script_relative_path.to_string()];
+        argv.extend_from_slice(args);
+        Self::execute_argv(workspace_dir, &argv, limits, sandbox_image)
+    }
+
+    /// Execute structured argv command line inside a hardened, isolated OCI container with /workspace:ro.
+    pub fn execute_argv(
+        workspace_dir: &Path,
+        argv: &[String],
         limits: &SandboxLimits,
         sandbox_image: Option<&str>,
     ) -> Result<SandboxExecutionResult> {
@@ -108,19 +140,15 @@ impl SandboxRunner {
             SandboxStatus::Available { .. } => {}
         }
 
-        // Validate workspace path to avoid path traversal
         if fs::symlink_metadata(workspace_dir).map_err(|e| e.to_string())?.file_type().is_symlink() {
             return Err("Workspace cannot be a symlink".into());
         }
 
-        let script_path = workspace_dir.join(script_relative_path);
-        if !script_path.is_file() {
-            return Err(format!("Script {script_relative_path} does not exist in workspace"));
+        if argv.is_empty() {
+            return Err("argv cannot be empty".into());
         }
 
-        let env_image = std::env::var("MLRESCURIX_SANDBOX_IMAGE").ok();
-        let default_image = "python:3.13-slim";
-        let image = sandbox_image.or(env_image.as_deref()).unwrap_or(default_image);
+        let image = Self::resolve_image(sandbox_image);
         static BOX_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let seq = BOX_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let start = Instant::now();
@@ -143,6 +171,7 @@ impl SandboxRunner {
             "--cap-drop", "ALL",
             "--security-opt", "no-new-privileges:true",
             "--tmpfs", &format!("/scratch:rw,noexec,nosuid,size={}m,uid=1000,gid=1000", limits.max_scratch_mb),
+            "--tmpfs", "/outputs:rw,noexec,nosuid,size=64m,uid=1000,gid=1000",
             "--memory", &format!("{}m", limits.max_memory_mb),
             "--cpus", &limits.max_cpus.to_string(),
             "--pids-limit", &limits.pids_limit.to_string(),
@@ -151,6 +180,7 @@ impl SandboxRunner {
             "--env", "PYTHONDONTWRITEBYTECODE=1",
             "--env", "PYTHONUNBUFFERED=1",
             "--env", "TMPDIR=/scratch",
+            "--env", "MLRESCURIX_OUTPUTS=/outputs",
             "--env", &format!("MLRESCURIX_NUM_THREADS={}", (limits.max_cpus.ceil().max(1.0) as u32)),
             "--env", &format!("OMP_NUM_THREADS={}", (limits.max_cpus.ceil().max(1.0) as u32)),
             "--env", &format!("OPENBLAS_NUM_THREADS={}", (limits.max_cpus.ceil().max(1.0) as u32)),
@@ -158,12 +188,10 @@ impl SandboxRunner {
             "--env", &format!("VECLIB_MAXIMUM_THREADS={}", (limits.max_cpus.ceil().max(1.0) as u32)),
             "--env", &format!("NUMEXPR_NUM_THREADS={}", (limits.max_cpus.ceil().max(1.0) as u32)),
             "--env", &format!("POLARS_MAX_THREADS={}", (limits.max_cpus.ceil().max(1.0) as u32)),
-            image,
-            "python3",
-            script_relative_path,
+            &image,
         ]);
 
-        for arg in args {
+        for arg in argv {
             cmd.arg(arg);
         }
 

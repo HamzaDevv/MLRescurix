@@ -219,6 +219,16 @@ same trusted boundary; existing candidates still work; row/class/source substitu
 rejects; candidate process cannot access evaluation labels or mutate official scores.
 Every fold-local transform uses the permitted training split.
 
+**Status (2026-10-14): Complete. Phase P4 acceptance gate passed.**
+P4.1–P4.3 and Phase P4 acceptance gate are implemented and verified in `crates/harness/src/agents/`, `crates/harness/src/schema_p4_candidates.sql`, `crates/harness/src/execution.rs`, `python/src/mlrescurix_worker/scientific/candidate_runner.py`, and `python/src/mlrescurix_worker/scientific/cli.py`. The Phase P4 acceptance gate is closed:
+1. **Unregistered Algorithm Fit & Evaluation**: Agents author arbitrary candidate code (`candidate.py` and `manifest.json`) in isolated workspace branches and evaluate through `evaluate_submission` without modifying any built-in recipe registry.
+2. **Backward Compatibility**: Existing built-in candidates and recipes (`dummy`, `linear`, `tree`, `hist_boosting`) remain fully functional.
+3. **Tamper & Substitution Rejections**: Candidate source hash mismatches, row order mismatches, invalid probabilities, and row sum violations are deterministically rejected with descriptive errors.
+4. **Label Isolation**: Per-fold validation features strictly omit target labels; candidate processes cannot access holdout labels.
+5. **Trusted Scorecard Authority**: Agents cannot publish or forge `kind = "scorecard"` artifacts; official evaluation scorecards are registered exclusively by the trusted evaluator adapter with `producer_authority = "evaluator:trusted"`.
+6. **Adaptive Validation Budget & Slice Suppression**: Max 50 validation queries enforced per project; diagnostic slices below `max(20, 0.05 * N)` are automatically suppressed to protect holdout integrity.
+Verified across 9 integration tests in `crates/harness/tests/candidate_tools_p4.rs`, 5 unit tests in `python/tests/test_candidate_runner.py`, and 89 passed tests across full repository regression suites (106 total passed tests). Fresh logs captured in `docs/evidence/v2/p4/20261014-p4-gate-closure/`. Phase P4 is closed. M6 remains independently NOT READY.
+
 ## P5 — Orchestration, checkpoints and context
 
 **Depends on:** P4. **Outcome:** bounded collaborative research survives steering,

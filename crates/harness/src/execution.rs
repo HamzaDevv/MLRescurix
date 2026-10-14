@@ -89,6 +89,35 @@ pub fn connect(root:&Path)->Result<Connection>{
     // (including artifact tombstone journaling) reach already-v10 databases.
     sql(c.execute_batch(include_str!("schema_p2_events.sql")))?;
     sql(c.execute_batch(include_str!("schema_p3_leases.sql")))?;
+    sql(c.execute_batch(include_str!("schema_p4_candidates.sql")))?;
+    let has_old_recipe_check: bool = sql(c.query_row(
+        "SELECT (sql LIKE '%CHECK(recipe IN (''dummy'',''linear'',''tree'')%' OR sql LIKE '%CHECK(recipe IN (''dummy'',''linear'',''tree'',''hist_boosting'')%') AND sql NOT LIKE '%length(recipe)%' FROM sqlite_master WHERE type='table' AND name='experiment_dag'",
+        [],
+        |r| r.get(0),
+    )).unwrap_or(false);
+    if has_old_recipe_check {
+        sql(c.execute_batch("
+            PRAGMA foreign_keys=OFF;
+            CREATE TABLE experiment_dag_p4(
+              project TEXT NOT NULL REFERENCES projects(id),
+              session_id TEXT NOT NULL,
+              id TEXT NOT NULL,
+              recipe TEXT NOT NULL CHECK(recipe IN ('dummy','linear','tree','hist_boosting') OR length(recipe) <= 128),
+              parameters TEXT NOT NULL,
+              seed INTEGER NOT NULL,
+              fidelity REAL NOT NULL CHECK(fidelity > 0.0 AND fidelity <= 1.0),
+              node_type TEXT NOT NULL CHECK(node_type IN ('baseline','screening','full_fidelity','repeat','draft','debug','improve','ablate','candidate')),
+              parent_id TEXT,
+              created_ms INTEGER NOT NULL,
+              PRIMARY KEY(project,id),
+              FOREIGN KEY(project,session_id) REFERENCES search_sessions(project,id)
+            );
+            INSERT INTO experiment_dag_p4 SELECT * FROM experiment_dag;
+            DROP TABLE experiment_dag;
+            ALTER TABLE experiment_dag_p4 RENAME TO experiment_dag;
+            PRAGMA foreign_keys=ON;
+        "))?;
+    }
     sql(c.execute_batch("CREATE TABLE IF NOT EXISTS tombstones(
         project TEXT NOT NULL REFERENCES projects(id),
         entity_kind TEXT NOT NULL CHECK(entity_kind IN('job','artifact','action')),

@@ -5,6 +5,7 @@ use std::{
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
+use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -17,7 +18,7 @@ use crate::{
             ProviderGateway, TokenUsage, record_provider_accounting, resolve_model_pricing,
         },
         roles::get_role,
-        sandbox::{SandboxLimits, SandboxRunner},
+        sandbox::{SandboxDetector, SandboxLimits, SandboxRunner, SandboxStatus},
         tools::{ToolDescriptor, ToolRegistry},
         workspace::BranchWorkspaceManager,
     },
@@ -505,7 +506,7 @@ impl AgentOrchestrator {
             let approved:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM outbound_views WHERE project=?1 AND request_sha256=?2 AND approved=1 AND expires_ms>?3)",rusqlite::params![self.config.project_id,digest,now_ms()],|r|r.get(0)).map_err(|e|e.to_string())?;
             if !approved{return Err(format!("outbound provider request requires a content-bound policy-approved view ({digest}); pattern redaction is not upload authorization"));}
         }
-        let est_prompt = u32::try_from(request_bytes.len()).map_err(|_| "Provider request too large")?;
+        let est_prompt = u32::try_from(request_bytes.len().div_ceil(4)).map_err(|_| "Provider request too large")?;
         if est_prompt as u64 + 4096 > self.context.max_context_tokens as u64 {
             return Err("Serialized provider request exceeds context limit".into());
         }
@@ -711,12 +712,48 @@ impl AgentOrchestrator {
         }, allow_new, || self.dispatch_tool_call(&call.function.name, &call.function.arguments))
     }
 
+    fn compute_candidate_source_hash(dir: &Path) -> Result<String> {
+        if !dir.is_dir() {
+            return Err(format!("candidate directory '{}' does not exist or is not a directory", dir.display()));
+        }
+        let mut files = Vec::new();
+        fn visit_dir(base: &Path, current: &Path, files: &mut Vec<(String, Vec<u8>)>) -> Result<()> {
+            for entry in fs::read_dir(current).map_err(|e| e.to_string())? {
+                let entry = entry.map_err(|e| e.to_string())?;
+                let path = entry.path();
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with('.') || name == "__pycache__" {
+                    continue;
+                }
+                if path.is_dir() {
+                    visit_dir(base, &path, files)?;
+                } else if path.is_file() {
+                    if name.ends_with(".pyc") || name.ends_with(".staging") || name == "manifest.json" {
+                        continue;
+                    }
+                    let rel = path.strip_prefix(base).map_err(|e| e.to_string())?.to_string_lossy().to_string();
+                    let bytes = fs::read(&path).map_err(|e| e.to_string())?;
+                    files.push((rel, bytes));
+                }
+            }
+            Ok(())
+        }
+        visit_dir(dir, dir, &mut files)?;
+        files.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut hasher = Sha256::new();
+        for (rel_path, content) in files {
+            let file_sha = format!("{:x}", Sha256::digest(&content));
+            let line = format!("{}:{}:{}\n", rel_path, content.len(), file_sha);
+            hasher.update(line.as_bytes());
+        }
+        Ok(format!("{:x}", hasher.finalize()))
+    }
+
     pub fn dispatch_tool_call(&mut self, name: &str, arguments_json: &str) -> Result<String> {
         // Enforce role RBAC before executing any tool
         let role_spec = get_role(&self.config.role_id)
             .ok_or_else(|| format!("Unknown role: {}", self.config.role_id))?;
-        let is_authorized = role_spec.capabilities.iter().any(|c| c == name)
-;
+        let is_authorized = role_spec.capabilities.iter().any(|c| c == name);
         if !is_authorized {
             return Err(format!("Role '{}' is not authorized to invoke tool '{}'", self.config.role_id, name));
         }
@@ -724,6 +761,543 @@ impl AgentOrchestrator {
         let args: Value = serde_json::from_str(arguments_json).map_err(|e| format!("Invalid tool arguments: {e}"))?;
 
         match name {
+            "workspace_fs" => {
+                let action = args.get("action").and_then(Value::as_str).ok_or("action missing")?;
+                match action {
+                    "read" => {
+                        let path = args.get("path").and_then(Value::as_str).ok_or("path missing")?;
+                        let content = BranchWorkspaceManager::read_file(&self.root, &self.config.project_id, &self.config.branch_id, path)?;
+                        Ok(json!({
+                            "status": "read",
+                            "path": path,
+                            "content": content,
+                        }).to_string())
+                    }
+                    "write" => {
+                        let path = args.get("path").and_then(Value::as_str).ok_or("path missing")?;
+                        let content = args.get("content").and_then(Value::as_str).ok_or("content missing")?;
+                        let expected_hash = args.get("expected_hash").and_then(Value::as_str);
+                        let sha = BranchWorkspaceManager::write_file_with_expected_hash(
+                            &self.root,
+                            &self.config.project_id,
+                            &self.config.branch_id,
+                            path,
+                            content,
+                            expected_hash,
+                        )?;
+                        Ok(json!({
+                            "status": "written",
+                            "path": path,
+                            "sha256": sha,
+                        }).to_string())
+                    }
+                    "patch" => {
+                        let path = args.get("path").and_then(Value::as_str).ok_or("path missing")?;
+                        let target = args.get("target").and_then(Value::as_str).ok_or("target missing")?;
+                        let replacement = args.get("replacement").and_then(Value::as_str).ok_or("replacement missing")?;
+                        let expected_hash = args.get("expected_hash").and_then(Value::as_str);
+                        let sha = BranchWorkspaceManager::patch_file_with_expected_hash(
+                            &self.root,
+                            &self.config.project_id,
+                            &self.config.branch_id,
+                            path,
+                            target,
+                            replacement,
+                            expected_hash,
+                        )?;
+                        Ok(json!({
+                            "status": "patched",
+                            "path": path,
+                            "sha256": sha,
+                        }).to_string())
+                    }
+                    "list" => {
+                        let files = BranchWorkspaceManager::list_files(&self.root, &self.config.project_id, &self.config.branch_id)?;
+                        let items: Vec<Value> = files.into_iter().map(|(rel, len, sha)| {
+                            json!({"path": rel, "bytes": len, "sha256": sha})
+                        }).collect();
+                        Ok(json!({ "files": items }).to_string())
+                    }
+                    "glob" => {
+                        let pattern = args.get("pattern").and_then(Value::as_str).ok_or("pattern missing")?;
+                        let max_res = args.get("max_results").and_then(Value::as_u64).unwrap_or(50) as usize;
+                        let files = BranchWorkspaceManager::glob_files(&self.root, &self.config.project_id, &self.config.branch_id, pattern)?;
+                        let items: Vec<Value> = files.into_iter().take(max_res).map(|(rel, len, sha)| {
+                            json!({"path": rel, "bytes": len, "sha256": sha})
+                        }).collect();
+                        Ok(json!({ "pattern": pattern, "files": items }).to_string())
+                    }
+                    "search" => {
+                        let query = args.get("query").and_then(Value::as_str).ok_or("query missing")?;
+                        let max_res = args.get("max_results").and_then(Value::as_u64).unwrap_or(50) as usize;
+                        let results = BranchWorkspaceManager::search_files(&self.root, &self.config.project_id, &self.config.branch_id, query, max_res)?;
+                        Ok(json!({ "query": query, "matches": results }).to_string())
+                    }
+                    other => Err(format!("unsupported workspace_fs action: '{other}'")),
+                }
+            }
+            "sandbox_exec" => {
+                let branch_dir = BranchWorkspaceManager::get_branch_dir(&self.root, &self.config.project_id, &self.config.branch_id);
+                let mut limits = SandboxLimits::default();
+                if let Some(to) = args.get("timeout_ms").and_then(Value::as_u64) {
+                    limits.max_wall_ms = to.min(60_000);
+                }
+                if let Some(mem) = args.get("max_memory_mb").and_then(Value::as_u64) {
+                    limits.max_memory_mb = mem.min(2048);
+                }
+                if let Some(scratch) = args.get("max_scratch_mb").and_then(Value::as_u64) {
+                    limits.max_scratch_mb = scratch.min(256);
+                }
+                let sandbox_image = args.get("environment_id").and_then(Value::as_str);
+
+                let res = if let Some(argv_vals) = args.get("argv").and_then(Value::as_array) {
+                    let argv: Vec<String> = argv_vals.iter().filter_map(|v| v.as_str().map(str::to_string)).collect();
+                    if argv.is_empty() {
+                        return Err("argv array cannot be empty".into());
+                    }
+                    SandboxRunner::execute_argv(&branch_dir, &argv, &limits, sandbox_image)?
+                } else if let Some(script) = args.get("script").and_then(Value::as_str) {
+                    let script_args: Vec<String> = args.get("args")
+                        .and_then(Value::as_array)
+                        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+                        .unwrap_or_default();
+                    SandboxRunner::execute(&branch_dir, script, &script_args, &limits, sandbox_image)?
+                } else {
+                    return Err("sandbox_exec requires either 'argv' array or 'script' string".into());
+                };
+
+                Ok(serde_json::to_string(&json!({
+                    "status": if res.exit_code == 0 { "succeeded" } else { "failed" },
+                    "exit_code": res.exit_code,
+                    "stdout": res.stdout,
+                    "stderr": res.stderr,
+                    "elapsed_ms": res.elapsed_ms,
+                })).unwrap())
+            }
+            "discover_capabilities" => {
+                let status = SandboxDetector::detect();
+                let image = SandboxRunner::resolve_image(None);
+                let trusted_tools: Vec<Value> = ToolRegistry::get_trusted_tools().into_iter().map(|t| {
+                    json!({
+                        "name": t.function.name,
+                        "description": t.function.description,
+                    })
+                }).collect();
+
+                Ok(json!({
+                    "tools": trusted_tools,
+                    "sandbox": match status {
+                        SandboxStatus::Available { engine, version } => json!({
+                            "status": "available",
+                            "engine": engine,
+                            "version": version,
+                        }),
+                        SandboxStatus::Unavailable { reason } => json!({
+                            "status": "unavailable",
+                            "reason": reason,
+                        }),
+                    },
+                    "environment_profile": {
+                        "default_image": image,
+                        "mounts": ["/workspace:ro", "/scratch:rw", "/outputs:rw"],
+                        "thread_caps_enforced": true,
+                    },
+                    "resource_presets": {
+                        "MICRO": { "cpus": 1, "memory_mb": 512, "scratch_mb": 64 },
+                        "STANDARD": { "cpus": 2, "memory_mb": 2048, "scratch_mb": 128 },
+                        "HEAVY": { "cpus": 4, "memory_mb": 8192, "scratch_mb": 256 },
+                    },
+                    "validation_query_budget": {
+                        "max_queries": 50,
+                        "min_slice_support": "max(20, floor(0.05 * N_val))",
+                    },
+                    "state_limits": {
+                        "max_state_bytes": 134217728,
+                        "enforce_zero_silent_exemptions": true,
+                    },
+                    "split_policies": ["stratified", "kfold", "grouped", "chronological"],
+                }).to_string())
+            }
+            "dataset_query" => {
+                let ds_id = args.get("dataset_id").and_then(Value::as_str).ok_or("dataset_id missing")?;
+                let db = rusqlite::Connection::open(self.root.join("state.sqlite")).map_err(|e| e.to_string())?;
+                let (path_str, sha256, bytes): (String, String, i64) = db.query_row(
+                    "SELECT path, sha256, bytes FROM scientific_datasets WHERE project=?1 AND id=?2",
+                    params![self.config.project_id, ds_id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                ).map_err(|_| format!("dataset '{ds_id}' not found in scientific_datasets"))?;
+
+                let csv_path = PathBuf::from(&path_str);
+                if !csv_path.is_file() {
+                    return Err(format!("dataset file not found at path '{path_str}'"));
+                }
+
+                // Read header and count rows without exposing validation/test row values or label distributions
+                let (columns, row_count) = {
+                    let f = fs::File::open(&csv_path).map_err(|e| e.to_string())?;
+                    let mut reader = std::io::BufReader::new(f);
+                    let mut header = String::new();
+                    use std::io::BufRead;
+                    reader.read_line(&mut header).map_err(|e| e.to_string())?;
+                    let cols: Vec<String> = header.trim().split(',').map(|s| s.trim_matches('"').to_string()).collect();
+                    let mut rows = 0u64;
+                    let mut line_buf = String::new();
+                    while reader.read_line(&mut line_buf).map_err(|e| e.to_string())? > 0 {
+                        rows += 1;
+                        line_buf.clear();
+                    }
+                    (cols, rows)
+                };
+
+                Ok(json!({
+                    "dataset_id": ds_id,
+                    "sha256": sha256,
+                    "bytes": bytes,
+                    "columns": columns,
+                    "row_count": row_count,
+                    "status": "available",
+                }).to_string())
+            }
+            "experiment_tree" => {
+                let db = rusqlite::Connection::open(self.root.join("state.sqlite")).map_err(|e| e.to_string())?;
+                let mut stmt = db.prepare(
+                    "SELECT id, recipe, fidelity, node_type, parent_id, created_ms FROM experiment_dag WHERE project=?1 ORDER BY created_ms ASC"
+                ).map_err(|e| e.to_string())?;
+                let nodes: Vec<Value> = stmt.query_map([&self.config.project_id], |r| {
+                    Ok(json!({
+                        "id": r.get::<_, String>(0)?,
+                        "recipe": r.get::<_, String>(1)?,
+                        "fidelity": r.get::<_, f64>(2)?,
+                        "node_type": r.get::<_, String>(3)?,
+                        "parent_id": r.get::<_, Option<String>>(4)?,
+                        "created_ms": r.get::<_, i64>(5)?,
+                    }))
+                }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+                Ok(json!({ "experiments": nodes }).to_string())
+            }
+            "artifact_crud" => {
+                let action = args.get("action").and_then(Value::as_str).ok_or("action missing")?;
+                let reg = crate::artifacts::ArtifactRegistry::new(&self.root);
+                match action {
+                    "publish" => {
+                        let art_id = args.get("artifact_id").and_then(Value::as_str).ok_or("artifact_id missing")?;
+                        let kind = args.get("kind").and_then(Value::as_str).ok_or("kind missing")?;
+                        if kind == "scorecard" {
+                            return Err("scorecard publication is restricted to the trusted evaluator API".into());
+                        }
+                        let summary = args.get("summary").and_then(Value::as_str);
+                        let metadata = args.get("metadata");
+
+                        let blob_sha = if let Some(src) = args.get("source_path").and_then(Value::as_str) {
+                            let content = BranchWorkspaceManager::read_file(&self.root, &self.config.project_id, &self.config.branch_id, src)?;
+                            let receipt = reg.cas().store_blob(content.as_bytes(), "application/octet-stream", Some(&self.config.project_id))?;
+                            reg.register_blob(&receipt.sha256, receipt.bytes, &receipt.media_type)?;
+                            receipt.sha256
+                        } else if let Some(sha) = args.get("blob_sha256").and_then(Value::as_str) {
+                            sha.to_string()
+                        } else {
+                            return Err("publish requires either 'source_path' or 'blob_sha256'".into());
+                        };
+
+                        let index_digest = args.get("version").and_then(Value::as_str).unwrap_or("v1");
+                        let _ = reg.register_artifact(&self.config.project_id, art_id, kind, &format!("agent:{}", self.config.role_id), None);
+                        let ver_id = reg.publish_version(
+                            &self.config.project_id,
+                            art_id,
+                            &blob_sha,
+                            index_digest,
+                            summary,
+                            1,
+                            metadata,
+                            None,
+                        )?;
+                        Ok(json!({
+                            "status": "published",
+                            "artifact_id": art_id,
+                            "version_id": ver_id,
+                            "blob_sha256": blob_sha,
+                        }).to_string())
+                    }
+                    "get" => {
+                        let art_id = args.get("artifact_id").and_then(Value::as_str).ok_or("artifact_id missing")?;
+                        if let Some(ver) = args.get("version").or(args.get("version_id")).and_then(Value::as_str) {
+                            let v = reg.get_version(&self.config.project_id, ver)?;
+                            Ok(json!({ "version": v }).to_string())
+                        } else {
+                            let a = reg.get_artifact(&self.config.project_id, art_id)?;
+                            Ok(json!({ "artifact": a }).to_string())
+                        }
+                    }
+                    "list" => {
+                        let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
+                        let after = args.get("after_artifact_id").and_then(Value::as_str);
+                        let list = reg.list_artifacts(&self.config.project_id, after, limit)?;
+                        let items: Vec<Value> = list.into_iter().map(|(art, digest)| {
+                            json!({ "artifact": art, "current_digest": digest })
+                        }).collect();
+                        Ok(json!({ "artifacts": items }).to_string())
+                    }
+                    "lineage" => {
+                        let ver_id = args.get("version_id").or(args.get("version")).and_then(Value::as_str).ok_or("version_id missing")?;
+                        let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
+                        let edges = reg.query_lineage(&self.config.project_id, ver_id, limit)?;
+                        Ok(json!({ "version_id": ver_id, "lineage": edges }).to_string())
+                    }
+                    "pin" => {
+                        let art_id = args.get("artifact_id").and_then(Value::as_str).ok_or("artifact_id missing")?;
+                        reg.pin(&self.config.project_id, art_id)?;
+                        Ok(json!({ "status": "pinned", "artifact_id": art_id }).to_string())
+                    }
+                    "unpin" => {
+                        let art_id = args.get("artifact_id").and_then(Value::as_str).ok_or("artifact_id missing")?;
+                        reg.unpin(&self.config.project_id, art_id)?;
+                        Ok(json!({ "status": "unpinned", "artifact_id": art_id }).to_string())
+                    }
+                    "tombstone" => {
+                        let art_id = args.get("artifact_id").and_then(Value::as_str).ok_or("artifact_id missing")?;
+                        let exp_rev = args.get("expected_revision").and_then(Value::as_i64).ok_or("expected_revision missing")?;
+                        let cmd_id = format!("tombstone-{}-{}", art_id, now_ms());
+                        let receipt = reg.tombstone_artifact_command(&self.config.project_id, &cmd_id, exp_rev, art_id)?;
+                        Ok(serde_json::to_string(&receipt).unwrap())
+                    }
+                    other => Err(format!("unsupported artifact_crud action: '{other}'")),
+                }
+            }
+            "evaluate_submission" => {
+                if self.is_research_closed()? {
+                    return Err("research admission is closed".into());
+                }
+                AgentContextManager::enforce_exploratory_budget_reserve(
+                    &self.root,
+                    &self.config.project_id,
+                    &BTreeMap::from([("wall_ms".to_string(), 45_000)]),
+                )?;
+
+                let cand_id = args.get("candidate_id").and_then(Value::as_str).ok_or("candidate_id missing")?;
+                let ds_id = args.get("dataset_id").and_then(Value::as_str).ok_or("dataset_id missing")?;
+                let cand_rel = args.get("candidate_path").and_then(Value::as_str).unwrap_or("candidate");
+                let folds = args.get("folds").and_then(Value::as_i64).unwrap_or(3);
+                let seed = args.get("seed").and_then(Value::as_i64).unwrap_or(2026);
+                let diagnostic_slices = args.get("diagnostic_slices").cloned();
+
+                if folds < 2 || folds > 5 {
+                    return Err("folds must be between 2 and 5".into());
+                }
+
+                // Enforce validation query budget (max 50 queries per session/project)
+                crate::execution::migrate(&self.root)?;
+                let db = rusqlite::Connection::open(self.root.join("state.sqlite")).map_err(|e| e.to_string())?;
+                let session_id = "default";
+                let current_queries: i64 = db.query_row(
+                    "SELECT query_count FROM validation_query_counters WHERE project=?1 AND session_id=?2",
+                    params![self.config.project_id, session_id],
+                    |r| r.get(0),
+                ).unwrap_or(0);
+
+                let max_queries: i64 = db.query_row(
+                    "SELECT max_queries FROM validation_query_counters WHERE project=?1 AND session_id=?2",
+                    params![self.config.project_id, session_id],
+                    |r| r.get(0),
+                ).unwrap_or(50);
+
+                if current_queries >= max_queries {
+                    return Err(format!(
+                        "Validation query budget exhausted for project '{}' (query limit {} reached); adaptive validation limit exceeded to prevent holdout overfitting",
+                        self.config.project_id, max_queries
+                    ));
+                }
+
+                // Increment query counter
+                db.execute(
+                    "INSERT INTO validation_query_counters(project, session_id, query_count, max_queries)
+                     VALUES(?1, ?2, 1, ?3)
+                     ON CONFLICT(project, session_id) DO UPDATE SET query_count = query_count + 1",
+                    params![self.config.project_id, session_id, max_queries],
+                ).map_err(|e| e.to_string())?;
+
+                // Resolve candidate directory in branch workspace
+                let branch_dir = BranchWorkspaceManager::get_branch_dir(&self.root, &self.config.project_id, &self.config.branch_id);
+                let cand_dir = if branch_dir.join(cand_rel).is_dir() {
+                    branch_dir.join(cand_rel)
+                } else if branch_dir.join("candidates").join(cand_id).is_dir() {
+                    branch_dir.join("candidates").join(cand_id)
+                } else if branch_dir.join(cand_id).is_dir() {
+                    branch_dir.join(cand_id)
+                } else {
+                    branch_dir.clone()
+                };
+
+                let manifest_path = cand_dir.join("manifest.json");
+                if !manifest_path.is_file() {
+                    return Err(format!("candidate manifest not found at '{}'", manifest_path.display()));
+                }
+                let manifest_content = fs::read_to_string(&manifest_path).map_err(|e| e.to_string())?;
+                let manifest: Value = serde_json::from_str(&manifest_content).map_err(|e| format!("invalid manifest json: {e}"))?;
+
+                if manifest.get("candidate_id").and_then(Value::as_str) != Some(cand_id) {
+                    return Err(format!("manifest candidate_id '{:?}' does not match requested '{}'", manifest.get("candidate_id"), cand_id));
+                }
+
+                // Verify source hash
+                let computed_hash = Self::compute_candidate_source_hash(&cand_dir)?;
+                if let Some(declared) = manifest.get("source_hash").and_then(Value::as_str) {
+                    if declared != computed_hash {
+                        return Err(format!("candidate source_hash mismatch: manifest declares '{declared}', computed '{computed_hash}'"));
+                    }
+                }
+
+                // Resolve dataset path from scientific_datasets
+                let (ds_path_str, _ds_sha): (String, String) = db.query_row(
+                    "SELECT path, sha256 FROM scientific_datasets WHERE project=?1 AND id=?2",
+                    params![self.config.project_id, ds_id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                ).map_err(|_| format!("dataset '{ds_id}' not found in scientific_datasets"))?;
+
+                let ds_path = PathBuf::from(&ds_path_str);
+                if !ds_path.is_file() {
+                    return Err(format!("dataset file not found at path '{ds_path_str}'"));
+                }
+
+                // Prepare candidate-evaluate spec
+                let now = now_ms();
+                let eval_id = format!("eval-{cand_id}-{now}");
+                let scratch_dir = self.root.join("workflows").join(&self.config.project_id).join("eval_staging").join(&eval_id);
+                fs::create_dir_all(&scratch_dir).map_err(|e| e.to_string())?;
+
+                let spec_path = scratch_dir.join("eval_spec.json");
+                let output_path = scratch_dir.join("eval_output.json");
+                let spec_payload = json!({
+                    "dataset_path": ds_path.to_string_lossy(),
+                    "candidate_dir": cand_dir.to_string_lossy(),
+                    "manifest": manifest,
+                    "folds": folds,
+                    "seed": seed,
+                    "diagnostic_slices": diagnostic_slices,
+                });
+                fs::write(&spec_path, serde_json::to_string_pretty(&spec_payload).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+
+                // Invoke python CLI runner
+                let mut cmd = std::process::Command::new("python3");
+                cmd.args([
+                    "-m", "mlrescurix_worker.scientific.cli",
+                    "candidate-evaluate",
+                    "--spec", &spec_path.to_string_lossy(),
+                    "--output", &output_path.to_string_lossy(),
+                ]);
+                let embedded_py = crate::assets::ensure_python_root(&self.root)?;
+                let embedded_src = embedded_py.join("src");
+                let mut pypaths = vec![embedded_src.to_string_lossy().to_string()];
+                if let Ok(repo_src) = std::fs::canonicalize(Path::new("python/src")) {
+                    pypaths.push(repo_src.to_string_lossy().to_string());
+                }
+                if let Ok(cur_py) = std::env::var("PYTHONPATH") {
+                    if !cur_py.is_empty() { pypaths.push(cur_py); }
+                }
+                cmd.env("PYTHONPATH", pypaths.join(":"));
+                cmd.env("PYTHONDONTWRITEBYTECODE", "1");
+
+                let run_out = cmd.output().map_err(|e| format!("failed to spawn candidate-evaluate: {e}"))?;
+                if !run_out.status.success() {
+                    let err_msg = String::from_utf8_lossy(&run_out.stderr).to_string();
+                    let out_msg = String::from_utf8_lossy(&run_out.stdout).to_string();
+                    let _ = fs::remove_dir_all(&scratch_dir);
+                    return Err(format!("candidate-evaluate runner failed (code {:?}):\nstderr: {}\nstdout: {}", run_out.status.code(), err_msg, out_msg));
+                }
+
+                if !output_path.is_file() {
+                    let _ = fs::remove_dir_all(&scratch_dir);
+                    return Err("candidate-evaluate runner finished without creating output file".into());
+                }
+
+                let eval_result_str = fs::read_to_string(&output_path).map_err(|e| e.to_string())?;
+                let eval_result: Value = serde_json::from_str(&eval_result_str).map_err(|e| format!("malformed candidate-evaluate output: {e}"))?;
+                let _ = fs::remove_dir_all(&scratch_dir);
+
+                if eval_result.get("status").and_then(Value::as_str) != Some("evaluated") {
+                    let err_reason = eval_result.get("error").and_then(Value::as_str).unwrap_or("unknown error");
+                    return Err(format!("candidate evaluation failed: {err_reason}"));
+                }
+
+                let primary_metric = eval_result.get("primary_metric").and_then(Value::as_f64);
+                let metrics_json = serde_json::to_string(&eval_result["metrics"]).unwrap_or_else(|_| "{}".into());
+                let slices_json = serde_json::to_string(&eval_result.get("diagnostic_slices").unwrap_or(&json!({}))).unwrap_or_else(|_| "{}".into());
+
+                // Register official scorecard via evaluator authority
+                let reg = crate::artifacts::ArtifactRegistry::new(&self.root);
+                let scorecard_bytes = serde_json::to_vec_pretty(&eval_result).map_err(|e| e.to_string())?;
+                let receipt = reg.cas().store_blob(&scorecard_bytes, "application/json", Some(&self.config.project_id))?;
+                reg.register_blob(&receipt.sha256, receipt.bytes, &receipt.media_type)?;
+                let scorecard_sha = receipt.sha256;
+                let scorecard_art_id = format!("scorecard_{cand_id}");
+                let _ = reg.register_evaluator_scorecard(&self.config.project_id, &scorecard_art_id, None);
+                let scorecard_ver_id = reg.publish_evaluator_scorecard_version(
+                    &self.config.project_id,
+                    &scorecard_art_id,
+                    &scorecard_sha,
+                    "evaluator:official",
+                    Some(&format!("Official evaluation scorecard for candidate {cand_id}")),
+                    1,
+                    Some(&json!({
+                        "candidate_id": cand_id,
+                        "dataset_id": ds_id,
+                        "folds": folds,
+                        "seed": seed,
+                        "primary_metric": primary_metric,
+                        "source_hash": computed_hash,
+                    })),
+                    None,
+                )?;
+
+                // Store in candidate_evaluations table
+                db.execute(
+                    "INSERT INTO candidate_evaluations(project, evaluation_id, candidate_id, dataset_id, environment_id, source_hash, status, folds, seed, primary_metric, metrics_json, slices_json, scorecard_hash, created_ms)
+                     VALUES(?1, ?2, ?3, ?4, 'scientific', ?5, 'evaluated', ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                    params![
+                        self.config.project_id,
+                        eval_id,
+                        cand_id,
+                        ds_id,
+                        computed_hash,
+                        folds,
+                        seed,
+                        primary_metric,
+                        metrics_json,
+                        slices_json,
+                        scorecard_sha,
+                        now,
+                    ],
+                ).map_err(|e| e.to_string())?;
+
+                // Record achievement in agent context
+                self.context.record_achievement(
+                    &self.root,
+                    "candidate_evaluated",
+                    &format!("Candidate {cand_id} evaluated across {folds} folds; primary metric: {:?}", primary_metric),
+                    Some(scorecard_sha.clone()),
+                    json!({
+                        "candidate_id": cand_id,
+                        "evaluation_id": eval_id,
+                        "scorecard_version_id": scorecard_ver_id,
+                        "primary_metric": primary_metric,
+                        "metrics": eval_result["metrics"],
+                    }),
+                )?;
+
+                Ok(json!({
+                    "status": "evaluated",
+                    "evaluation_id": eval_id,
+                    "candidate_id": cand_id,
+                    "dataset_id": ds_id,
+                    "source_hash": computed_hash,
+                    "scorecard_version_id": scorecard_ver_id,
+                    "scorecard_sha256": scorecard_sha,
+                    "primary_metric": primary_metric,
+                    "metrics": eval_result["metrics"],
+                    "diagnostic_slices": eval_result["diagnostic_slices"],
+                    "query_count": current_queries + 1,
+                    "max_queries": max_queries,
+                }).to_string())
+            }
             "schedule_pipeline" => {
                 if self.is_research_closed()?{return Err("research admission is closed".into());}
                 AgentContextManager::enforce_exploratory_budget_reserve(

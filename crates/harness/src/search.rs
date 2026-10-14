@@ -266,7 +266,11 @@ pub fn normalize_parameters(recipe: &str, task: &str, raw: &Value) -> Result<Val
         normalized.insert("l2_regularization".to_string(), json!((l2 * 1_000_000.0).round() / 1_000_000.0));
         return Ok(json!(normalized));
     }
-    Err(format!("unsupported recipe: {recipe}"))
+    // Phase P4: Decouple recipe from hardcoded enum; normalize arbitrary candidate/recipe parameters
+    for (k, v) in obj {
+        normalized.insert(k.clone(), v.clone());
+    }
+    Ok(json!(normalized))
 }
 
 pub fn compute_experiment_id(

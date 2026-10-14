@@ -25,6 +25,7 @@ pub const EMBEDDED_PYTHON_FILES: &[(&str, &str)] = &[
     ("src/mlrescurix_worker/scientific/__init__.py", include_str!("../../../python/src/mlrescurix_worker/scientific/__init__.py")),
     ("src/mlrescurix_worker/scientific/bundle.py", include_str!("../../../python/src/mlrescurix_worker/scientific/bundle.py")),
     ("src/mlrescurix_worker/scientific/calibration.py", include_str!("../../../python/src/mlrescurix_worker/scientific/calibration.py")),
+    ("src/mlrescurix_worker/scientific/candidate_runner.py", include_str!("../../../python/src/mlrescurix_worker/scientific/candidate_runner.py")),
     ("src/mlrescurix_worker/scientific/cli.py", include_str!("../../../python/src/mlrescurix_worker/scientific/cli.py")),
     ("src/mlrescurix_worker/scientific/dashboard.py", include_str!("../../../python/src/mlrescurix_worker/scientific/dashboard.py")),
     ("src/mlrescurix_worker/scientific/ensemble.py", include_str!("../../../python/src/mlrescurix_worker/scientific/ensemble.py")),

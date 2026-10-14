@@ -16,12 +16,12 @@
     "experiment_id": { "type": "string", "minLength": 1, "maxLength": 128 },
     "session_id": { "type": "string", "minLength": 1, "maxLength": 128 },
     "project_id": { "type": "string", "minLength": 1, "maxLength": 128 },
-    "recipe": { "type": "string", "enum": ["dummy", "linear", "tree"] },
+    "recipe": { "type": "string", "minLength": 1, "maxLength": 128 },
     "parameters": { "type": "object" },
     "seed": { "type": "integer", "minimum": 0 },
     "fidelity": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
     "parent_experiment_id": { "type": ["string", "null"] },
-    "node_type": { "type": "string", "enum": ["baseline", "screening", "full_fidelity", "repeat"] }
+    "node_type": { "type": "string", "enum": ["baseline", "screening", "full_fidelity", "repeat", "draft", "debug", "improve", "ablate", "candidate"] }
   },
   "additionalProperties": false
 }

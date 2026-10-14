@@ -30,16 +30,14 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
   - Full `cargo test --locked` passed; live pinned-Docker cgroup/OOM/survivor checks, six end-to-end scientific pipeline modes, and real ENOSPC regression passed. See the fresh evidence below.
   - Architecture decisions D20–D25 recorded in `docs/v2/DECISIONS.md`.
   - Historical M6 evidence preserved untouched.
-  - Runtime implementation: P1.1–P1.6 complete and verified. P2 (P2.1–P2.6 and full P2 Roadmap Acceptance Gate) complete and verified. P3 (P3.1–P3.5 and full Phase P3 Acceptance Gate) complete and verified:
-    1. P3.1: Host/container-VM capability discovery (`min(host, vm)`), passive accelerator detection (Apple Metal/NVIDIA CUDA), configurable headroom, bounded presets (`MICRO`, `STANDARD`, `HEAVY`, `CUSTOM`), and deterministic early infeasible rejection in `submit()` with zero SQLite job insertion.
-    2. P3.2: Atomic global/project capacity reservations, weighted fair queueing with aging (`(now - submitted_ms)/60000.0`), bounded queues, stable tie ordering (`project, submitted_ms, id`), dimension distinction between worker concurrency and CPU/RAM allocations, and durable `resource_leases` / `resource_lease_transitions` across `reserved -> active -> heartbeated -> recovering -> reaped -> released`.
-    3. P3.3: Routing generic tools, preflight, evaluation, benchmarking, final fit, inference checks, and environment jobs through thread-capped execution (`MLRESCURIX_NUM_THREADS`, `OMP_NUM_THREADS`, etc.) and scikit-learn `n_jobs` via `_leased_threads()`.
-    4. P3.4: Pressure backoff via disk headroom and `MLRESCURIX_PRESSURE_BACKOFF`, per-project cancellation and pause isolation, finalization/control-plane headroom preservation (1 worker, 1 CPU thread, 512 MiB RAM), and safe Docker survivor discovery skipping foreign supervisor workers.
-    5. P3.5: Multi-project stress and resilience verification across 10 projects x 5 queued intents (50 jobs) under mixed-size jobs, worker crashes, cancellations, and supervisor restarts, with recorded allocation timelines and queue waits.
-    6. Phase P3 Acceptance Gate passed: admitted sums stay within declared capacity, large queued jobs receive service under aging policy, one project's cancellation leaves others running, zero runner lease bypass. Verified across 13 integration tests in `crates/harness/tests/resource_broker_p3.rs` and 88 passing tests across full repository suites. Evidence in `docs/evidence/v2/p3/20261014-p3-gate-closure/`. Phase P3 is closed.
+  - Runtime implementation: P1.1–P1.6 complete and verified. P2 (P2.1–P2.6 and full P2 Roadmap Acceptance Gate) complete and verified. P3 (P3.1–P3.5 and full Phase P3 Acceptance Gate) complete and verified. P4 (P4.1–P4.3 and full Phase P4 Acceptance Gate) complete and verified:
+    1. P4.1: Versioned generic tool adapters: `workspace_fs` (read, write, patch, list, glob, search with optimistic concurrency SHA-256 hash checks), `sandbox_exec` (isolated execution with `/workspace:ro`, `/scratch:rw` tmpfs, `/outputs:rw` tmpfs, thread caps, and honest fallback refusal when Docker is unavailable), `artifact_crud` (publish, get, list, lineage, pin, unpin, tombstone), `discover_capabilities` (tools, container status, image ref, presets, limits), `dataset_query` (schema inspection without leaking label/holdout values), and `experiment_tree` (DAG visibility). Legacy `file_*` tools retained for backward compatibility.
+    2. P4.2: Executable candidate protocol & manifest: `manifest.json` schema (`task_type`, `entrypoint`, `supported_operations`, `stable_row_keys`, `class_order`, `raw_input_schema`, `source_hash`), CLI `fit`/`predict` protocol, candidate prediction validation (probabilities in `[0, 1]`, row sum $= 1.0 \pm 10^{-3}$, class alignment), and diagnostic slices with minimum support threshold (`max(20, 0.05 * N)`).
+    3. P4.3: Decoupled candidate runner: candidate evaluation without modifying any recipe registry, harness-driven cross-validation (`StratifiedKFold`, `KFold`, `GroupKFold`, `TimeSeriesSplit`), fold-level label isolation (validation features provided strictly without target column), and baseline validation. Decoupled `recipe` in `experiment_spec.schema.json` and `execution.rs::migrate()` to allow arbitrary recipes of length $\le 128$ while preserving `"hist_boosting"` in DDL for backwards compatibility.
+    4. Phase P4 Acceptance Gate passed: agents create and fix arbitrary candidate code without modifying a recipe registry; evaluation, scoring, and budgets remain under trusted authority; split/label isolation strictly enforced; untrusted agents cannot publish or forge `kind = "scorecard"` artifacts; adaptive validation query budget (max 50 queries per project) prevents holdout overfitting. Verified across 9 integration tests in `crates/harness/tests/candidate_tools_p4.rs`, 5 unit tests in `python/tests/test_candidate_runner.py`, and 89 passed tests across full regression suites (106 total passed tests). Fresh logs in `docs/evidence/v2/p4/20261014-p4-gate-closure/`. Phase P4 is closed.
 - Release: M6 remains **NOT READY**, as recorded in `docs/m6-completion-status.md`.
-  - Authorization: P3.2–P3.5 and Phase P3 Acceptance Gate were authorized and completed in this session. P4 or later phases are NOT begun.
-  - Next recommended slice: Phase P4 (when explicitly authorized). M6 release gates remain independently open.
+  - Authorization: P4.1–P4.3 and Phase P4 Acceptance Gate were authorized and completed in this session. P5 or later phases are NOT begun.
+  - Next recommended slice: Phase P5 (when explicitly authorized). M6 release gates remain independently open.
 
 | Phase | Status | Evidence / next step |
 | --- | --- | --- |
@@ -47,7 +45,7 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
 | P1 | complete | P1.1–P1.6 verified; see `20261014-p1-review-resources/` evidence. M6 release remains independently NOT READY. |
 | P2 | complete | P2.1–P2.6 and full P2 roadmap acceptance gate complete and fully evidenced. Populated upgrade preservation, partial CAS/DB reconciliation, protected references under concurrent GC, and event restart/reconnect consistency verified across 14 tests in artifact_registry_p2 and full regression suites. Evidence in `20261014-p2-gate-closure/`. M6 remains independently NOT READY. |
 | P3 | complete | P3.1–P3.5 and full Phase P3 Acceptance Gate verified across 13 tests in resource_broker_p3 and full regression suites (88 total passed tests). Fresh logs and timelines in `20261014-p3-gate-closure/`. M6 remains independently NOT READY. |
-| P4 | Planned | Add executable candidate adapter; keep old API working |
+| P4 | complete | P4.1–P4.3 and full Phase P4 Acceptance Gate verified across 9 tests in candidate_tools_p4, 5 tests in test_candidate_runner.py, and full regression suites (106 total passed tests). Fresh logs in `20261014-p4-gate-closure/`. M6 remains independently NOT READY. |
 | P5 | Planned | Context/task recovery on generic tool substrate |
 | P6 | Planned | Read/resource views after P2/P3; new semantics/steering after P4/P5 |
 | P7 | Planned | Installed delivery, prospective benchmarks, release matrix |
@@ -624,6 +622,97 @@ Budget / compatibility / migration implications:
   - Historical evidence in docs/evidence/m6/ left untouched.
 Next small actionable slice:
   - Phase P4 (P4.1 workspace_fs/sandbox_exec adapters) upon explicit user authorization.
+```
+
+```text
+Date / phase / task IDs: 2026-10-14 / Phase P4 / P4.1–P4.3 and Phase P4 Acceptance Gate
+User-authorized scope: P4.1–P4.3 and Phase P4 Acceptance Gate as defined in docs/v2/ROADMAP.md, ARCHITECTURE.md, DECISIONS.md, and PROGRESS.md. Do not begin Phase P5 or later phases.
+Starting commit and pre-existing dirty files: clean commit on origin/codex/p1-cgroup-orphan-recovery
+Changes and source paths:
+  - python/src/mlrescurix_worker/scientific/candidate_runner.py:
+    * Authored validate_candidate_manifest(), validate_predictions(), compute_source_hash(), evaluate_candidate_cv(), and run_candidate_cli().
+    * Enforces candidate manifest contract: task_type ('binary', 'multiclass', 'regression'), entrypoint, supported_operations ('fit', 'predict'), stable_row_keys ('row_id'), class_order, and source_hash verification against candidate directory.
+    * Enforces candidate prediction validation: probabilities in [0, 1], row sums equal 1.0 +- 1e-3, column names match 'prob_<class>', row count and row_id alignment, finite values.
+    * Enforces label isolation: validation feature dataframes strictly omit 'target' column during candidate prediction.
+    * Enforces diagnostic slices minimum support: max(20, 0.05 * N); slices below support threshold are automatically suppressed with status 'suppressed'.
+  - python/src/mlrescurix_worker/scientific/cli.py:
+    * Added candidate-evaluate subcommand accepting JSON evaluation spec and emitting structured atomic JSON results.
+  - python/tests/test_candidate_runner.py:
+    * Authored 5 unit tests covering manifest validation, prediction checks, OOF CV evaluation with label isolation, and diagnostic slice suppression.
+  - contracts/v1/experiment_spec.schema.json:
+    * Decoupled recipe from 3-enum to generic string (maxLength: 128).
+    * Expanded node_type enum to include 'baseline', 'screening', 'full_fidelity', 'repeat', 'draft', 'debug', 'improve', 'ablate', 'candidate'.
+  - crates/harness/src/search.rs & python/src/mlrescurix_worker/search/adapter.py:
+    * Allowed arbitrary candidate/recipe parameters without fixed 3-enum restriction.
+  - crates/harness/src/schema_p4_candidates.sql:
+    * Created candidate_evaluations and validation_query_counters tables.
+  - crates/harness/src/execution.rs:
+    * Idempotently re-applies schema_p4_candidates.sql on user_version = 10.
+    * Migrates experiment_dag check constraint to allow arbitrary recipes with length <= 128 while retaining 'hist_boosting' in DDL for backwards compatibility with M6 migration tests.
+  - crates/harness/src/assets.rs:
+    * Embedded candidate_runner.py in EMBEDDED_PYTHON_FILES.
+  - crates/harness/src/artifacts.rs:
+    * Added register_blob() method to ArtifactRegistry to ensure CAS blobs are indexed in SQLite blobs table.
+    * Auto-registered CAS blobs in publish_version_inner().
+  - crates/harness/src/agents/workspace.rs:
+    * Added write_file_with_expected_hash(), patch_file_with_expected_hash(), glob_files(), and search_files().
+  - crates/harness/src/agents/sandbox.rs:
+    * Hardened execute_argv() with /workspace:ro read-only mount, task-local /scratch:rw and /outputs:rw tmpfs mounts, thread caps, and honest fallback refusal when Docker is unavailable.
+  - crates/harness/src/agents/tools.rs & roles.rs:
+    * Registered workspace_fs, sandbox_exec, evaluate_submission, artifact_crud, discover_capabilities, dataset_query, experiment_tree tools and RBAC capabilities.
+  - crates/harness/src/agents/orchestrator.rs:
+    * Implemented tool dispatch for workspace_fs (read, write, patch, list, glob, search with optimistic concurrency hash checks).
+    * Implemented sandbox_exec dispatching commands through SandboxRunner.
+    * Implemented discover_capabilities reporting available tools, container status, image ref, presets, and query limits.
+    * Implemented dataset_query reading schema and row count without leaking validation/test row values or label distributions.
+    * Implemented experiment_tree querying experiment_dag nodes.
+    * Implemented artifact_crud (publish, get, list, lineage, pin, unpin, tombstone) with strict evaluator authority check rejecting kind == 'scorecard'.
+    * Implemented evaluate_submission: checks research admission, exploratory budget reserve, and validation query limits (max 50); validates manifest and source_hash; materializes evaluation spec; invokes candidate-evaluate CLI via embedded Python; registers official scorecard in CAS and artifacts via trusted evaluator API; records in candidate_evaluations.
+    * Fixed prompt token estimation using standard char-to-token ratio (div_ceil(4)) to prevent serialized tool schemas from prematurely triggering context limit errors.
+  - crates/harness/tests/candidate_tools_p4.rs:
+    * Authored 9 integration tests covering P4.1–P4.3 and Phase P4 Acceptance Gate:
+      1. p4_1_workspace_fs_operations_and_concurrency_fencing
+      2. p4_1_sandbox_exec_isolation_and_fallback
+      3. p4_1_discover_capabilities_reports_contract_boundaries
+      4. p4_2_p4_3_executable_candidate_protocol_and_evaluation
+      5. p4_2_prediction_rejections_and_tamper_fencing
+      6. p4_3_split_label_isolation_and_evaluator_authority
+      7. p4_3_decoupled_recipes_and_experiment_tree
+      8. p4_4_validation_query_budget_and_slice_suppression
+      9. p4_acceptance_gate_full_closure
+Decisions added or revised: D34 added (Generic Tool Adapters, Executable Candidate Manifest/CLI Protocol, Label Isolation, Evaluator Scorecard Authority, and Validation Query Limits).
+Exact verification commands and exit results:
+  - cargo test --locked --test candidate_tools_p4 (exit code 0; 9 passed, 0 failed)
+  - PYTHONPATH=python/src pytest python/tests/test_candidate_runner.py (exit code 0; 5 passed, 0 failed)
+  - PYTHONPATH=python/src python3 -m unittest python/tests/test_protocol.py (exit code 0; 3 passed, 0 failed)
+  - cargo test --locked --test artifact_registry_p2 (exit code 0; 14 passed, 0 failed)
+  - cargo test --locked --test resource_broker_p3 -- --test-threads=1 (exit code 0; 13 passed, 0 failed)
+  - cargo test --locked --test foundation -- --test-threads=1 (exit code 0; 26 passed, 0 failed)
+  - cargo test --locked --test agent_m4 (exit code 0; 23 passed, 0 failed)
+  - cargo test --locked --test recovery_cycles -- --test-threads=1 (exit code 0; 8 passed, 0 failed, 2 ignored)
+  - cargo test --locked --test release_m6 (exit code 0; 5 passed, 0 failed, 3 ignored)
+Evidence paths plus source/image/schema hashes:
+  - docs/evidence/v2/p4/20261014-p4-gate-closure/test_candidate_tools_p4.log
+  - docs/evidence/v2/p4/20261014-p4-gate-closure/test_candidate_runner_python.log
+  - docs/evidence/v2/p4/20261014-p4-gate-closure/test_python_protocol.log
+  - docs/evidence/v2/p4/20261014-p4-gate-closure/test_artifact_registry_p2.log
+  - docs/evidence/v2/p4/20261014-p4-gate-closure/test_resource_broker_p3.log
+  - docs/evidence/v2/p4/20261014-p4-gate-closure/test_foundation.log
+  - docs/evidence/v2/p4/20261014-p4-gate-closure/test_agent_m4.log
+  - docs/evidence/v2/p4/20261014-p4-gate-closure/test_recovery_cycles.log
+  - docs/evidence/v2/p4/20261014-p4-gate-closure/test_release_m6.log
+  - docs/evidence/v2/p4/20261014-p4-gate-closure/summary.md
+Implemented but unverified:
+  - None within Phase P4 scope (all P4 deliverables implemented and verified with passing tests).
+Failure/recovery scenarios still open:
+  - Phase P5+ orchestration, checkpoints and context compaction remain planned and not begun.
+Budget / compatibility / migration implications:
+  - Zero schema version bump required (user_version remains 10).
+  - 128 MiB policy ceiling strictly preserved.
+  - M0–M6 compatibility fully preserved across all regression suites.
+  - Historical evidence in docs/evidence/m6/ left untouched.
+Next small actionable slice:
+  - Phase P5 (P5.1 task assignment/completion schemas) upon explicit user authorization.
 ```
 
 Copy and fill one entry; update phase/task statuses above too.

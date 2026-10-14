@@ -28,6 +28,9 @@ def main() -> int:
     pipeline = commands.add_parser("pipeline")
     pipeline.add_argument("--output", type=Path, required=True)
     pipeline.add_argument("--spec", type=Path, required=True)
+    cand_eval = commands.add_parser("candidate-evaluate")
+    cand_eval.add_argument("--output", type=Path, required=True)
+    cand_eval.add_argument("--spec", type=Path, required=True)
     for name in ("fit-trial", "predict-trial"):
         worker = commands.add_parser(name, help=argparse.SUPPRESS)
         worker.add_argument("--spec", type=Path, required=True)
@@ -45,6 +48,25 @@ def main() -> int:
         elif args.command == "pipeline":
             from .scheduled_pipeline import run_pipeline
             result = run_pipeline(args.output, json.loads(args.spec.read_text()))
+        elif args.command == "candidate-evaluate":
+            from .candidate_runner import evaluate_candidate_cv
+            spec_data = json.loads(args.spec.read_text())
+            dataset_path = Path(spec_data["dataset_path"])
+            candidate_dir = Path(spec_data["candidate_dir"])
+            manifest = spec_data["manifest"]
+            folds = spec_data.get("folds", 3)
+            seed = spec_data.get("seed", 2026)
+            slices = spec_data.get("diagnostic_slices")
+            result = evaluate_candidate_cv(
+                dataset_csv=dataset_path,
+                manifest=manifest,
+                candidate_dir=candidate_dir,
+                folds=folds,
+                seed=seed,
+                diagnostic_slices=slices,
+            )
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(json.dumps(result, indent=2, sort_keys=True))
         elif args.command == "fit-trial":
             result = fit_trial_worker(args.spec, args.output)
         else:

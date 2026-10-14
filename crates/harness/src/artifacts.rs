@@ -242,6 +242,17 @@ impl ArtifactRegistry {
         Ok(receipt)
     }
 
+    pub fn register_blob(&self, sha256: &str, bytes: u64, media_type: &str) -> Result<()> {
+        let mut c = self.conn()?;
+        let tx = c.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|e| e.to_string())?;
+        tx.execute(
+            "INSERT OR IGNORE INTO blobs(sha256, bytes, media_type, created_ms) VALUES(?1, ?2, ?3, ?4)",
+            params![sha256, bytes as i64, media_type, now_ms()],
+        ).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     pub fn register_artifact(
         &self, project: &str, artifact_id: &str, kind: &str,
         producer_authority: &str, visibility: Option<&str>,
@@ -367,6 +378,17 @@ impl ArtifactRegistry {
         let version_id = format!("{}_{}", artifact_id, tx.query_row("SELECT COALESCE(MAX(rowid),0)+1 FROM artifact_versions", [], |r| r.get::<_, i64>(0)).map_err(|e| e.to_string())?);
         let meta_str = metadata.map(|m| m.to_string()).unwrap_or_else(|| "{}".into());
         if meta_str.len() > 4096 { return Err("metadata exceeds 4096 UTF-8 bytes".into()); }
+
+        if self.cas.has_blob(blob_sha256) {
+            if let Ok(p) = self.cas.blob_path(blob_sha256) {
+                if let Ok(meta) = std::fs::metadata(&p) {
+                    let _ = tx.execute(
+                        "INSERT OR IGNORE INTO blobs(sha256, bytes, media_type, created_ms) VALUES(?1, ?2, ?3, ?4)",
+                        params![blob_sha256, meta.len() as i64, "application/octet-stream", now],
+                    );
+                }
+            }
+        }
 
         tx.execute(
             "INSERT INTO artifact_versions(project, version_id, artifact_id, blob_sha256, index_digest, summary_text, schema_version, metadata_json, source_job_id, created_ms)

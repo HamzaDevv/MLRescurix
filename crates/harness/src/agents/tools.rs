@@ -52,6 +52,119 @@ impl ToolRegistry {
     /// Return the list of Category A trusted harness tools available to agents.
     pub fn get_trusted_tools() -> Vec<ToolDefinition> {
         vec![
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "workspace_fs".into(),
+                    description: "Versioned workspace filesystem operations with boundary enforcement, expected hash checks for mutations, and bounded results.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "action": { "type": "string", "enum": ["read", "write", "patch", "list", "glob", "search"], "description": "Filesystem operation" },
+                            "path": { "type": "string", "description": "Relative file path within branch workspace" },
+                            "content": { "type": "string", "description": "File content for write action" },
+                            "target": { "type": "string", "description": "Target string to replace for patch action" },
+                            "replacement": { "type": "string", "description": "Replacement string for patch action" },
+                            "expected_hash": { "type": "string", "description": "Optional expected SHA-256 hash before mutation for optimistic concurrency" },
+                            "pattern": { "type": "string", "description": "Pattern for glob action, e.g. '*.py' or 'candidate/*'" },
+                            "query": { "type": "string", "description": "Substring query for search action" },
+                            "max_results": { "type": "integer", "description": "Maximum search results to return (default 50)" }
+                        },
+                        "required": ["action"]
+                    }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "sandbox_exec".into(),
+                    description: "Execute commands or scripts inside an isolated OCI container with /workspace:ro, bounded /scratch:rw, and thread caps.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "argv": { "type": "array", "items": { "type": "string" }, "description": "Structured command line arguments, e.g. ['python3', '-m', 'candidate.entrypoint', 'fit', ...]" },
+                            "script": { "type": "string", "description": "Alternative relative path to python script" },
+                            "args": { "type": "array", "items": { "type": "string" }, "description": "Arguments for script" },
+                            "environment_id": { "type": "string", "description": "Environment identifier (defaults to pinned scientific stack)" },
+                            "timeout_ms": { "type": "integer", "description": "Execution timeout in milliseconds (default 30000)" },
+                            "max_memory_mb": { "type": "integer", "description": "Memory ceiling in megabytes (default 512)" },
+                            "max_scratch_mb": { "type": "integer", "description": "Scratch tmpfs limit in megabytes (default 64)" }
+                        }
+                    }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "evaluate_submission".into(),
+                    description: "Trigger harness-managed fold-isolated cross validation on an executable candidate and generate trusted official scorecards.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "candidate_id": { "type": "string", "description": "Candidate identifier matching workspace candidate manifest" },
+                            "candidate_path": { "type": "string", "description": "Relative path to candidate directory in branch workspace (default 'candidate')" },
+                            "dataset_id": { "type": "string", "description": "Registered dataset ID" },
+                            "folds": { "type": "integer", "description": "Number of cross-validation folds (2 to 5, default 3)" },
+                            "seed": { "type": "integer", "description": "Evaluation random seed (default 2026)" },
+                            "diagnostic_slices": { "type": "array", "items": { "type": "string" }, "description": "Feature column names for diagnostic slice evaluation" }
+                        },
+                        "required": ["candidate_id", "dataset_id"]
+                    }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "artifact_crud".into(),
+                    description: "Project-scoped artifact registry operations (publish, get, list, lineage, pin, unpin, tombstone). Scorecards cannot be forged.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "action": { "type": "string", "enum": ["publish", "get", "list", "lineage", "pin", "unpin", "tombstone"], "description": "Registry action" },
+                            "artifact_id": { "type": "string", "description": "Artifact identifier" },
+                            "kind": { "type": "string", "description": "Artifact kind (model, code, dataset, checkpoint, report)" },
+                            "version": { "type": "string", "description": "Semantic or revision string" },
+                            "source_path": { "type": "string", "description": "Relative path in branch workspace to publish from" },
+                            "summary": { "type": "string", "description": "Human-readable summary text" },
+                            "metadata": { "type": "object", "description": "Arbitrary metadata object" },
+                            "expected_revision": { "type": "integer", "description": "Expected project revision for optimistic locking" },
+                            "edge_type": { "type": "string", "enum": ["derived_from", "evaluates", "packages", "supersedes"], "description": "Lineage relationship edge" },
+                            "target_artifact_id": { "type": "string", "description": "Target artifact ID for lineage edge" }
+                        },
+                        "required": ["action"]
+                    }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "discover_capabilities".into(),
+                    description: "Discover harness capabilities, supported tools, sandbox environment profile, resource presets, and validation query limits.".into(),
+                    parameters: json!({ "type": "object", "properties": {} }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "dataset_query".into(),
+                    description: "Bounded query of registered dataset schemas, summary statistics, and missingness without leaking validation/test labels.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "dataset_id": { "type": "string", "description": "Registered dataset identifier" }
+                        },
+                        "required": ["dataset_id"]
+                    }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "experiment_tree".into(),
+                    description: "Query experiment DAG nodes, candidates, trials, and parent relationships.".into(),
+                    parameters: json!({ "type": "object", "properties": {} }),
+                },
+            },
             ToolDefinition {tool_type:"function".into(),function:ToolFunction {
                 name:"schedule_pipeline".into(),
                 description:"Queue a bounded feature/calibration/ensemble protocol in a verified scientific Docker environment. The Rust supervisor evaluates development data and verifies generated OOF provenance; this does not finalize or certify delivery.".into(),

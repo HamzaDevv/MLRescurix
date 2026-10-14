@@ -70,6 +70,17 @@ impl BranchWorkspaceManager {
         relative_path: &str,
         content: &str,
     ) -> Result<String> {
+        Self::write_file_with_expected_hash(root, project_id, branch_id, relative_path, content, None)
+    }
+
+    pub fn write_file_with_expected_hash(
+        root: &Path,
+        project_id: &str,
+        branch_id: &str,
+        relative_path: &str,
+        content: &str,
+        expected_hash: Option<&str>,
+    ) -> Result<String> {
         for comp in Path::new(relative_path).components() {
             match comp {
                 std::path::Component::Normal(_) => {}
@@ -77,6 +88,21 @@ impl BranchWorkspaceManager {
             }
         }
         let target_path = Self::checked_path(root, project_id, branch_id, relative_path)?;
+        if let Some(exp) = expected_hash {
+            if target_path.exists() {
+                let bytes = fs::read(&target_path).map_err(|e| e.to_string())?;
+                let current_sha = hash_bytes(&bytes);
+                if current_sha != exp {
+                    return Err(format!(
+                        "Optimistic concurrency conflict: file '{relative_path}' expected hash '{exp}', found '{current_sha}'"
+                    ));
+                }
+            } else {
+                return Err(format!(
+                    "Optimistic concurrency conflict: file '{relative_path}' does not exist (expected hash '{exp}')"
+                ));
+            }
+        }
 
         crate::execution::with_state_write(root,content.len() as u64,crate::execution::StorageWriteKind::ManagedBlob,Some(project_id),|db|{
             if let Some(parent)=target_path.parent(){fs::create_dir_all(parent).map_err(|e|e.to_string())?;}
@@ -117,13 +143,92 @@ impl BranchWorkspaceManager {
         target_content: &str,
         replacement_content: &str,
     ) -> Result<()> {
+        Self::patch_file_with_expected_hash(root, project_id, branch_id, relative_path, target_content, replacement_content, None).map(|_| ())
+    }
+
+    pub fn patch_file_with_expected_hash(
+        root: &Path,
+        project_id: &str,
+        branch_id: &str,
+        relative_path: &str,
+        target_content: &str,
+        replacement_content: &str,
+        expected_hash: Option<&str>,
+    ) -> Result<String> {
         let current = Self::read_file(root, project_id, branch_id, relative_path)?;
+        if let Some(exp) = expected_hash {
+            let current_sha = hash_bytes(current.as_bytes());
+            if current_sha != exp {
+                return Err(format!(
+                    "Optimistic concurrency conflict: file '{relative_path}' expected SHA-256 '{exp}', found '{current_sha}'"
+                ));
+            }
+        }
         if !current.contains(target_content) {
             return Err(format!("Target content to replace not found in {relative_path}"));
         }
         let updated = current.replacen(target_content, replacement_content, 1);
-        Self::write_file(root, project_id, branch_id, relative_path, &updated)?;
-        Ok(())
+        Self::write_file(root, project_id, branch_id, relative_path, &updated)
+    }
+
+    pub fn glob_files(
+        root: &Path,
+        project_id: &str,
+        branch_id: &str,
+        pattern: &str,
+    ) -> Result<Vec<(String, u64, String)>> {
+        let all = Self::list_files(root, project_id, branch_id)?;
+        let trimmed_pat = pattern.trim_start_matches("./");
+        let results = all.into_iter().filter(|(rel, _, _)| {
+            if trimmed_pat.starts_with("*.") {
+                let ext = &trimmed_pat[1..];
+                rel.ends_with(ext)
+            } else if trimmed_pat.ends_with("/*") {
+                let prefix = &trimmed_pat[..trimmed_pat.len() - 1];
+                rel.starts_with(prefix)
+            } else if trimmed_pat.contains('*') {
+                let parts: Vec<&str> = trimmed_pat.split('*').collect();
+                if parts.len() == 2 {
+                    rel.starts_with(parts[0]) && rel.ends_with(parts[1])
+                } else {
+                    rel.contains(trimmed_pat.trim_matches('*'))
+                }
+            } else {
+                rel == trimmed_pat || rel.contains(trimmed_pat)
+            }
+        }).collect();
+        Ok(results)
+    }
+
+    pub fn search_files(
+        root: &Path,
+        project_id: &str,
+        branch_id: &str,
+        query: &str,
+        max_results: usize,
+    ) -> Result<Vec<serde_json::Value>> {
+        let all = Self::list_files(root, project_id, branch_id)?;
+        let mut results = Vec::new();
+        for (rel, bytes_len, _) in all {
+            if bytes_len > 512 * 1024 {
+                continue;
+            }
+            if let Ok(content) = Self::read_file(root, project_id, branch_id, &rel) {
+                for (line_idx, line) in content.lines().enumerate() {
+                    if line.to_lowercase().contains(&query.to_lowercase()) {
+                        results.push(serde_json::json!({
+                            "path": rel,
+                            "line": line_idx + 1,
+                            "text": line.trim(),
+                        }));
+                        if results.len() >= max_results {
+                            return Ok(results);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(results)
     }
 
     pub fn list_files(

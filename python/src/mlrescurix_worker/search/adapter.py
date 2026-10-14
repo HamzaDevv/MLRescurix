@@ -120,6 +120,8 @@ def normalize_parameters(recipe: str, task: str, raw_params: dict[str, Any]) -> 
             else:
                 raise ValueError(f"hist_boosting recipe missing required parameter: {k}")
         return dict(sorted(out_hb.items()))
+    if isinstance(raw_params, dict):
+        return dict(sorted(raw_params.items()))
     raise ValueError(f"unsupported recipe: {recipe}")
 
 
