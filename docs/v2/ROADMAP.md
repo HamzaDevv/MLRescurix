@@ -265,6 +265,18 @@ unfinished jobs; duplicate delegation/result delivery does not duplicate charges
 or work; parallel branches cannot overwrite one another. Compare token overhead
 against the current orchestrator. Paid-provider evidence is a separate approved run.
 
+**Status (2026-10-14): Complete. Phase P5 acceptance gate passed.**
+P5.1–P5.6 and Phase P5 acceptance gate are implemented and verified in `contracts/v2/`, `crates/harness/src/agents/`, `crates/harness/src/schema_p5_orchestration.sql`, `crates/harness/src/search.rs`, and `crates/harness/tests/collaboration_p5.rs`. The Phase P5 acceptance gate is closed:
+1. **Versioned Task Assignment & Completion**: Strict schemas (`task_assignment.schema.json`, `task_completion.schema.json`) and SQLite tables (`task_assignments`, `task_completions`) manage structured goals, limits, artifacts, verdicts, metric deltas, and bounded learnings.
+2. **Consolidated Default Roles & Backward Compatibility**: Consolidated 5 core roles (`lead`, `data_diagnostics`, `experiment_engineer`, `verifier`, `critic`) while preserving all 8 standard specialist roles and resolving slashed role aliases.
+3. **Branch Workspace Segregation & Single-Writer Locks**: Each concurrent mutation task runs in an isolated branch workspace; `BranchWorkspaceManager::acquire_lock` ensures single-writer ownership across branches.
+4. **DAG Node Operations & Comparative Search**: Lineage traversal (`get_experiment_dag_node`) queries parent metrics and hashes; `evaluate_comparative_strategies` fairly compares bounded multi-fidelity best-first search against uniform random and MCTS/UCB1 baselines under explicit reward, compute cost, and adaptive validation limits.
+5. **Provider Request Accounting & Context Bounds**: Economical ~16K token default with 64K hard upper ceiling; pre-dispatch checks reject requests when essential state exceeds window; tool call JSON arguments and responses are pair-validated; outbound data filtering suppresses sensitive raw record streams.
+6. **Milestone Compaction & Evidence Integrity**: Pruning under budget pressure retains hypotheses, steering directives, constraints, approvals, and verified achievement evidence SHAs; restore detects corrupted evidence files and aborts.
+7. **Turn-Boundary Steering & User Approval Gates**: Directives are queued and applied at turn boundaries without inner-loop abortion; deployment handoffs and final test access strictly require verified registered user approvals.
+Verified across 11 integration tests in `crates/harness/tests/collaboration_p5.rs`, 15 unit tests in `crates/harness/src/lib.rs`, 49 unit/integration tests in Python, and 98 tests across earlier phase test suites (173 total passed tests). Fresh logs captured in `docs/evidence/v2/p5/20261014-p5-gate-closure/`. Phase P5 is closed. M6 remains independently NOT READY.
+
+
 ## P6 — Transparent dashboard and human controls
 
 **Depends on:** P2–P3 for read/resource views (P6.1–P6.4), with existing M6 data or

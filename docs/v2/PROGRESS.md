@@ -30,14 +30,16 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
   - Full `cargo test --locked` passed; live pinned-Docker cgroup/OOM/survivor checks, six end-to-end scientific pipeline modes, and real ENOSPC regression passed. See the fresh evidence below.
   - Architecture decisions D20–D25 recorded in `docs/v2/DECISIONS.md`.
   - Historical M6 evidence preserved untouched.
-  - Runtime implementation: P1.1–P1.6 complete and verified. P2 (P2.1–P2.6 and full P2 Roadmap Acceptance Gate) complete and verified. P3 (P3.1–P3.5 and full Phase P3 Acceptance Gate) complete and verified. P4 (P4.1–P4.3 and full Phase P4 Acceptance Gate) complete and verified:
-    1. P4.1: Versioned generic tool adapters: `workspace_fs` (read, write, patch, list, glob, search with optimistic concurrency SHA-256 hash checks), `sandbox_exec` (isolated execution with `/workspace:ro`, `/scratch:rw` tmpfs, `/outputs:rw` tmpfs, thread caps, and honest fallback refusal when Docker is unavailable), `artifact_crud` (publish, get, list, lineage, pin, unpin, tombstone), `discover_capabilities` (tools, container status, image ref, presets, limits), `dataset_query` (schema inspection without leaking label/holdout values), and `experiment_tree` (DAG visibility). Legacy `file_*` tools retained for backward compatibility.
-    2. P4.2: Executable candidate protocol & manifest: `manifest.json` schema (`task_type`, `entrypoint`, `supported_operations`, `stable_row_keys`, `class_order`, `raw_input_schema`, `source_hash`), CLI `fit`/`predict` protocol, candidate prediction validation (probabilities in `[0, 1]`, row sum $= 1.0 \pm 10^{-3}$, class alignment), and diagnostic slices with minimum support threshold (`max(20, 0.05 * N)`).
-    3. P4.3: Decoupled candidate runner: candidate evaluation without modifying any recipe registry, harness-driven cross-validation (`StratifiedKFold`, `KFold`, `GroupKFold`, `TimeSeriesSplit`), fold-level label isolation (validation features provided strictly without target column), and baseline validation. Decoupled `recipe` in `experiment_spec.schema.json` and `execution.rs::migrate()` to allow arbitrary recipes of length $\le 128$ while preserving `"hist_boosting"` in DDL for backwards compatibility.
-    4. Phase P4 Acceptance Gate passed: agents create and fix arbitrary candidate code without modifying a recipe registry; evaluation, scoring, and budgets remain under trusted authority; split/label isolation strictly enforced; untrusted agents cannot publish or forge `kind = "scorecard"` artifacts; adaptive validation query budget (max 50 queries per project) prevents holdout overfitting. Verified across 9 integration tests in `crates/harness/tests/candidate_tools_p4.rs`, 5 unit tests in `python/tests/test_candidate_runner.py`, and 89 passed tests across full regression suites (106 total passed tests). Fresh logs in `docs/evidence/v2/p4/20261014-p4-gate-closure/`. Phase P4 is closed.
+  - Runtime implementation: P1.1–P1.6 complete and verified. P2 (P2.1–P2.6 and full P2 Roadmap Acceptance Gate) complete and verified. P3 (P3.1–P3.5 and full Phase P3 Acceptance Gate) complete and verified. P4 (P4.1–P4.3 and full Phase P4 Acceptance Gate) complete and verified. P5 (P5.1–P5.6 and full Phase P5 Acceptance Gate) complete and verified:
+    1. P5.1: Versioned task assignment (`contracts/v2/task_assignment.schema.json`) and task completion (`contracts/v2/task_completion.schema.json`) schemas. Consolidated default roles (`lead`, `data_diagnostics`, `experiment_engineer`, `verifier`, `critic`) while preserving all 8 specialist roles and role alias normalization (`data/diagnostics` -> `data_diagnostics`, `experiment/engineer` -> `experiment_engineer`). Concurrent mutation tasks assigned isolated branch workspaces (`BranchWorkspaceManager`) with durable branch lock ownership (`BranchLock`).
+    2. P5.2: Experiment DAG node traversal and parent evidence lineage (`get_experiment_dag_node` returning primary metrics, `model_sha256`, `predictions_sha256`, child node arrays). Comparative search strategy evaluation (`evaluate_comparative_strategies`) contrasting bounded multi-fidelity best-first against uniform random full fidelity and exploratory MCTS/UCB1, accounting for explicit validation rewards, compute wall costs, and adaptive validation query limits ($\le 50$).
+    3. P5.3: Provider-specific complete request accounting before every dispatch. Economical ~16K token default (`16,384`) with hard configurable upper ceiling $\le 64\text{K}$ (`65,536`). Bounds on essential state (system prompt, schemas, constraints, response reserve) with pre-dispatch refusal if essential state exceeds context window. Tool pairing validation (verifying valid JSON arguments and ensuring tool responses match active preceding tool calls). Pre-dispatch and outbound filtering through `OutboundFilter` redacting raw record tabular data streams.
+    4. P5.4: Milestone and budget-pressure compaction at task boundaries (`maybe_compact`). Compaction preserves active hypothesis, current steering directives, constraints, approvals, final-test identity, committed achievement IDs with durable evidence SHAs, and walk-back logic to prevent severing assistant tool calls from matching tool responses. Crash-proof recovery without replaying LLM requests whose responses are durable.
+    5. P5.5: Dynamic turn-boundary steering for human and critic inputs (`apply_steering`, `apply_critic_steering`) recorded durably in `steering_directives` ledger and incrementing `handoff_version`. Draining directives at turn boundaries without interrupting inner tool loops or mutating historical evidence. Strict enforcement of user approvals (`register_user_approval`, `check_user_approval`) for holdout access, candidate finalization (`"deployment_handoff"`), and test gates (`"final_test"`).
+    6. Phase P5 Acceptance Gate passed: full multi-turn exploration closure surviving process kill/restart without duplicate tool execution or lost scientific state; checkpoints faithfully reconstruct context; durable evidence integrity verification prevents tampering; branch workspaces remain strictly isolated; authoritative budget tracking accounts for effective remaining and finalization reserves. Verified across 11 integration tests in `crates/harness/tests/collaboration_p5.rs`, 15 unit tests in `crates/harness/src/lib.rs`, 49 unit/integration tests in Python, and 98 tests across earlier phase test suites (173 total passed tests). Fresh logs in `docs/evidence/v2/p5/20261014-p5-gate-closure/`. Phase P5 is closed.
 - Release: M6 remains **NOT READY**, as recorded in `docs/m6-completion-status.md`.
-  - Authorization: P4.1–P4.3 and Phase P4 Acceptance Gate were authorized and completed in this session. P5 or later phases are NOT begun.
-  - Next recommended slice: Phase P5 (when explicitly authorized). M6 release gates remain independently open.
+  - Authorization: P5.1–P5.6 and Phase P5 Acceptance Gate were authorized and completed in this session. P6 or later phases are NOT begun.
+  - Next recommended slice: Phase P6 (when explicitly authorized). M6 release gates remain independently open.
 
 | Phase | Status | Evidence / next step |
 | --- | --- | --- |
@@ -46,7 +48,7 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
 | P2 | complete | P2.1–P2.6 and full P2 roadmap acceptance gate complete and fully evidenced. Populated upgrade preservation, partial CAS/DB reconciliation, protected references under concurrent GC, and event restart/reconnect consistency verified across 14 tests in artifact_registry_p2 and full regression suites. Evidence in `20261014-p2-gate-closure/`. M6 remains independently NOT READY. |
 | P3 | complete | P3.1–P3.5 and full Phase P3 Acceptance Gate verified across 13 tests in resource_broker_p3 and full regression suites (88 total passed tests). Fresh logs and timelines in `20261014-p3-gate-closure/`. M6 remains independently NOT READY. |
 | P4 | complete | P4.1–P4.3 and full Phase P4 Acceptance Gate verified across 9 tests in candidate_tools_p4, 5 tests in test_candidate_runner.py, and full regression suites (106 total passed tests). Fresh logs in `20261014-p4-gate-closure/`. M6 remains independently NOT READY. |
-| P5 | Planned | Context/task recovery on generic tool substrate |
+| P5 | complete | P5.1–P5.6 and full Phase P5 Acceptance Gate verified across 11 tests in collaboration_p5, 15 tests in lib, 49 tests in python, and full regression suites (173 total passed tests). Fresh logs in `20261014-p5-gate-closure/`. M6 remains independently NOT READY. |
 | P6 | Planned | Read/resource views after P2/P3; new semantics/steering after P4/P5 |
 | P7 | Planned | Installed delivery, prospective benchmarks, release matrix |
 | P8 | Planned | Pilot-calibrated feasibility reports |
@@ -84,6 +86,8 @@ or a specialist's assertion alone does not meet it. P0 is documentation complete
 | 2026-10-14 | P2 Roadmap Gate Closure | Verified all remaining P2 acceptance checks: populated upgrade preservation (retaining `final_test_gates`, `search_sessions`, `trial_results`, `pipeline_receipts`), partial CAS/DB commit reconciliation (`cas/.staging` sweep in `collect_artifacts`, blob adoption on retry, SHA-256 corruption repair), protected references under concurrent GC (pinned artifacts, Apex selection, lineage survive GC), and event restart/reconnect consistency across process boundaries. 14 `artifact_registry_p2` tests passed; full locked suites passed (`foundation`, `recovery_cycles`, `release_m6`, `agent_m4`, `search_m3`, `lib`, python protocol). Evidence in `docs/evidence/v2/p2/20261014-p2-gate-closure/`. P2 complete; M6 remains NOT READY. |
 | 2026-10-14 | P3.1 capability discovery, presets, headroom, & infeasible-request rejection | Discovered effective host and container-VM CPU, memory, disk, and accelerator capabilities; clamped container jobs to container-VM limits (`min(host, vm)`); configured headroom (1 core, 512 MiB RAM, 64 MiB disk); added bounded presets (`MICRO`, `STANDARD`, `HEAVY`, `CUSTOM`); early infeasible rejection in submit() with zero SQLite jobs rows inserted. 5 tests passed in resource_broker_p3; full regression suites passed. Evidence in `docs/evidence/v2/p3/20261014-p31-capability-discovery/`. M6 remains NOT READY. |
 | 2026-10-14 | P3.2–P3.5 & Phase P3 Acceptance Gate Closure | Implemented atomic capacity reservations and dimension distinction (workers vs cpu_threads vs memory_bytes), durable resource leases and transitions (reserved -> active -> heartbeated -> recovering -> reaped -> released), weighted fair queueing with aging term and stable tie ordering, thread caps across execution backends and scikit-learn n_jobs via _leased_threads(), pressure backoff via disk headroom and MLRESCURIX_PRESSURE_BACKOFF, finalization/control-plane headroom preservation (1 worker, 1 CPU thread, 512 MiB RAM), per-project cancellation and pause isolation, and safe Docker survivor discovery. All 13 tests in resource_broker_p3 passed, including 50-job 10x5 stress test and acceptance gate; 88 passing tests across all full repository regression suites. Added D33. Fresh logs in docs/evidence/v2/p3/20261014-p3-gate-closure/. Phase P3 is closed; M6 remains NOT READY. |
+| 2026-10-14 | P4.1–P4.3 & Phase P4 Acceptance Gate Closure | Implemented versioned generic tool adapters (`workspace_fs`, `sandbox_exec`, `artifact_crud`, `discover_capabilities`, `dataset_query`, `experiment_tree`), executable candidate manifest protocol (`manifest.json`), prediction validation, diagnostic slice suppression under minimum support, decoupled candidate runner with label-isolated cross-validation, and validation query budgets (max 50 queries). Official scorecards restricted to trusted evaluator API (`evaluator:trusted`). All 9 tests in candidate_tools_p4, 5 tests in test_candidate_runner.py, and full regression suites passed (106 total passed tests). Added D34. Fresh logs in `docs/evidence/v2/p4/20261014-p4-gate-closure/`. Phase P4 is closed; M6 remains NOT READY. |
+| 2026-10-14 | P5.1–P5.6 & Phase P5 Acceptance Gate Closure | Implemented versioned task assignment and completion schemas (`task_assignment.schema.json`, `task_completion.schema.json`) and SQLite tables (`task_assignments`, `task_completions`), consolidated 5 core default roles while preserving all 8 specialist roles and role alias normalization, allocated isolated branch workspaces (`BranchWorkspaceManager`) with durable single-writer lock ownership (`BranchLock`), experiment DAG node traversal and comparative multi-fidelity search strategy evaluation, complete request token accounting (~16K default, 64K ceiling, essential state bounds), tool pairing validation and outbound filtering, milestone compaction preserving hypotheses, steering, constraints, approvals, and verified achievement evidence SHAs with crash-proof hash verification, and turn-boundary steering with explicit user approval enforcement for deployment handoffs and test gates. All 11 tests in collaboration_p5, 15 tests in lib, 49 tests in python, and full regression suites passed (173 total passed tests). Added D35. Fresh logs in `docs/evidence/v2/p5/20261014-p5-gate-closure/`. Phase P5 is closed; M6 remains NOT READY. |
 
 ## Update at the end of every implementation session
 
@@ -713,6 +717,62 @@ Budget / compatibility / migration implications:
   - Historical evidence in docs/evidence/m6/ left untouched.
 Next small actionable slice:
   - Phase P5 (P5.1 task assignment/completion schemas) upon explicit user authorization.
+```
+
+### Implementation Session 2026-10-14 (Phase P5 Gate Closure Slice)
+
+```text
+Date / phase / task IDs: 2026-10-14 / Phase P5 / P5.1–P5.6 and Phase P5 Acceptance Gate
+User-authorized scope: P5.1–P5.6 and Phase P5 Acceptance Gate as defined in docs/v2/ROADMAP.md, ARCHITECTURE.md, DECISIONS.md, and PROGRESS.md. Do not begin Phase P6 or later phases.
+Starting commit and pre-existing dirty files: codex/p1-cgroup-orphan-recovery; dirty: README.md, docs/v2/
+Changes and source paths:
+  - contracts/v2/task_assignment.schema.json: Strict Draft 2020-12 schema for task assignments with goals, hypotheses, immutable inputs, tools, branch ownership, resource limits, artifacts, acceptance criteria.
+  - contracts/v2/task_completion.schema.json: Strict Draft 2020-12 schema for task completions with verdicts, candidate IDs, metric deltas, protocols, failures, bounded learnings (1–4096 bytes), next actions.
+  - crates/harness/src/schema_p5_orchestration.sql: DDL creating tables task_assignments, task_completions, steering_directives, and user_approvals under PRAGMA user_version = 10.
+  - crates/harness/src/agents/task_contract.rs: Rust domain types (TaskAssignment, TaskLimits, TaskCompletionReceipt, SteeringDirectiveRecord) with validation, SQLite persistence/queries, and user approval verification.
+  - crates/harness/src/agents/roles.rs: Consolidated 5 core default roles (lead, data_diagnostics, experiment_engineer, verifier, critic), alias normalization (data/diagnostics, experiment/engineer), preserving 8 specialist roles.
+  - crates/harness/src/agents/workspace.rs & mod.rs: Exposed BranchWorkspaceManager::acquire_lock() wrapping BranchLock::acquire().
+  - crates/harness/src/agents/context.rs: Context accounting, ~16K default with 64K hard ceiling, essential state bounds checking, tool pairing JSON/response validation, milestone compaction (maybe_compact) preserving hypotheses, steering, constraints, approvals, evidence SHAs, and crash restore evidence integrity checks.
+  - crates/harness/src/agents/orchestrator.rs: Drain pending steering directives at turn boundaries, apply human/critic steering with version increments, enforce explicit user approvals for deployment handoffs and final test access.
+  - crates/harness/src/search.rs: DAG node lineage traversal (get_experiment_dag_node) and comparative multi-fidelity search evaluation (evaluate_comparative_strategies).
+  - crates/harness/src/execution.rs: Idempotent DDL migration executing schema_p5_orchestration.sql.
+  - crates/harness/tests/collaboration_p5.rs: 11 integration tests covering P5.1 through P5.6 and acceptance gate.
+Decisions added or revised:
+  - D35 recorded in docs/v2/DECISIONS.md (orchestration schemas, consolidated roles, branch isolation, search evaluation, request bounds, compaction, and turn-boundary steering).
+Exact verification commands and exit results:
+  - cargo test --locked --test collaboration_p5 (exit code 0; 11 passed)
+  - cargo test --locked --lib (exit code 0; 15 passed, 2 ignored)
+  - cargo test --locked --test candidate_tools_p4 (exit code 0; 9 passed)
+  - cargo test --locked --test artifact_registry_p2 (exit code 0; 14 passed)
+  - cargo test --locked --test resource_broker_p3 -- --test-threads=1 (exit code 0; 13 passed)
+  - cargo test --locked --test foundation -- --test-threads=1 (exit code 0; 26 passed)
+  - cargo test --locked --test agent_m4 (exit code 0; 23 passed)
+  - cargo test --locked --test recovery_cycles -- --test-threads=1 (exit code 0; 8 passed, 2 ignored)
+  - cargo test --locked --test release_m6 (exit code 0; 5 passed, 3 ignored)
+  - PYTHONPATH=python/src pytest python/tests/ -k "not test_real_container_tmpfs_enospc_never_publishes" (exit code 0; 49 passed, 1 deselected)
+Evidence paths plus source/image/schema hashes:
+  - docs/evidence/v2/p5/20261014-p5-gate-closure/test_collaboration_p5.log
+  - docs/evidence/v2/p5/20261014-p5-gate-closure/test_lib.log
+  - docs/evidence/v2/p5/20261014-p5-gate-closure/test_candidate_tools_p4.log
+  - docs/evidence/v2/p5/20261014-p5-gate-closure/test_artifact_registry_p2.log
+  - docs/evidence/v2/p5/20261014-p5-gate-closure/test_resource_broker_p3.log
+  - docs/evidence/v2/p5/20261014-p5-gate-closure/test_foundation.log
+  - docs/evidence/v2/p5/20261014-p5-gate-closure/test_agent_m4.log
+  - docs/evidence/v2/p5/20261014-p5-gate-closure/test_recovery_cycles.log
+  - docs/evidence/v2/p5/20261014-p5-gate-closure/test_release_m6.log
+  - docs/evidence/v2/p5/20261014-p5-gate-closure/test_python_host.log
+  - docs/evidence/v2/p5/20261014-p5-gate-closure/summary.md
+Implemented but unverified:
+  - None within Phase P5 scope (all P5 deliverables implemented and verified with passing tests).
+Failure/recovery scenarios still open:
+  - Phase P6+ UI/dashboard and transparent human controls remain planned and not begun.
+Budget / compatibility / migration implications:
+  - Zero schema version bump required (user_version remains 10).
+  - 128 MiB policy ceiling strictly preserved.
+  - M0–M6 compatibility fully preserved across all regression suites.
+  - Historical evidence in docs/evidence/m6/ left untouched.
+Next small actionable slice:
+  - Phase P6 (P6.1 authenticated snapshots/events/commands ported to Rust HTTP/SSE service) upon explicit user authorization.
 ```
 
 Copy and fill one entry; update phase/task statuses above too.

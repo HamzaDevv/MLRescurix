@@ -234,6 +234,72 @@ Only approve finalization if evidence is unambiguous and robust."#.into(),
     ]
 }
 
+pub fn get_consolidated_default_roles() -> Vec<AgentRoleSpec> {
+    let standard = get_standard_roles();
+    let lead = standard.iter().find(|r| r.role_id == "lead").unwrap().clone();
+    let verifier = standard.iter().find(|r| r.role_id == "verifier").unwrap().clone();
+    let critic = standard.iter().find(|r| r.role_id == "critic").unwrap().clone();
+
+    // Data/Diagnostics consolidates auditor + diagnostic_engineer
+    let auditor = standard.iter().find(|r| r.role_id == "auditor").unwrap();
+    let diagnostic_engineer = standard.iter().find(|r| r.role_id == "diagnostic_engineer").unwrap();
+    let mut data_diag_caps = auditor.capabilities.clone();
+    for cap in &diagnostic_engineer.capabilities {
+        if !data_diag_caps.contains(cap) {
+            data_diag_caps.push(cap.clone());
+        }
+    }
+    let data_diagnostics = AgentRoleSpec {
+        role_id: "data_diagnostics".into(),
+        version: "v2".into(),
+        description: "Data and diagnostics specialist inspecting dataset schemas, balance, missingness, and authoring/running diagnostics.".into(),
+        system_prompt: r#"You are the Data and Diagnostics Specialist (consolidated role).
+Your responsibility is to analyze the registered dataset, evaluate schemas, missingness patterns, target distributions, and author or execute diagnostic utilities on development outputs.
+Report factual summaries without speculative assumptions; never attempt to inspect sealed holdout test rows."#.into(),
+        capabilities: data_diag_caps,
+        max_tokens_per_turn: 4096,
+        model_hint: None,
+    };
+
+    // Experiment Engineer consolidates feature_engineer + model_specialist + search_engineer
+    let feature_engineer = standard.iter().find(|r| r.role_id == "feature_engineer").unwrap();
+    let model_specialist = standard.iter().find(|r| r.role_id == "model_specialist").unwrap();
+    let search_engineer = standard.iter().find(|r| r.role_id == "search_engineer").unwrap();
+    let mut exp_caps = feature_engineer.capabilities.clone();
+    for cap in model_specialist.capabilities.iter().chain(search_engineer.capabilities.iter()) {
+        if !exp_caps.contains(cap) {
+            exp_caps.push(cap.clone());
+        }
+    }
+    let experiment_engineer = AgentRoleSpec {
+        role_id: "experiment_engineer".into(),
+        version: "v2".into(),
+        description: "Experiment engineer designing preprocessing, candidate models/pipelines, and multi-fidelity parameter searches.".into(),
+        system_prompt: r#"You are the Experiment Engineer (consolidated role).
+Your responsibility is to formulate, implement, and search over candidate ML models, feature engineering pipelines, and hyperparameter configurations.
+Ensure all transformations strictly isolate train vs validation folds and adhere to executable candidate contracts."#.into(),
+        capabilities: exp_caps,
+        max_tokens_per_turn: 4096,
+        model_hint: None,
+    };
+
+    vec![
+        lead,
+        data_diagnostics,
+        experiment_engineer,
+        verifier,
+        critic,
+    ]
+}
+
 pub fn get_role(role_id: &str) -> Option<AgentRoleSpec> {
-    get_standard_roles().into_iter().find(|r| r.role_id == role_id)
+    let normalized = match role_id {
+        "data/diagnostics" | "data-diagnostics" => "data_diagnostics",
+        "experiment/engineer" | "experiment-engineer" => "experiment_engineer",
+        other => other,
+    };
+    get_standard_roles()
+        .into_iter()
+        .chain(get_consolidated_default_roles())
+        .find(|r| r.role_id == normalized)
 }

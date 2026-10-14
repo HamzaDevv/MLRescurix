@@ -78,6 +78,10 @@ pub struct AgentContextManager {
     pub active_jobs: Vec<ActiveJobReceipt>,
     pub findings: Vec<ScientificFinding>,
     pub current_hypothesis: Option<String>,
+    pub current_steering: Option<String>,
+    pub final_test_identity: Option<String>,
+    pub constraints: Option<String>,
+    pub approvals: Vec<String>,
     pub handoff_version: u32,
 }
 
@@ -99,6 +103,10 @@ impl AgentContextManager {
             active_jobs: Vec::new(),
             findings: Vec::new(),
             current_hypothesis: None,
+            current_steering: None,
+            final_test_identity: None,
+            constraints: None,
+            approvals: Vec::new(),
             handoff_version: 1,
         }
     }
@@ -234,6 +242,10 @@ impl AgentContextManager {
             "active_jobs": self.active_jobs,
             "role_id": self.role_id,
             "handoff_version": self.handoff_version,
+            "current_steering": self.current_steering,
+            "final_test_identity": self.final_test_identity,
+            "constraints": self.constraints,
+            "approvals": self.approvals,
             "achievements_count": self.achievements.len(),
             "findings_count": self.findings.len(),
             "messages_count": self.messages.len(),
@@ -248,7 +260,6 @@ impl AgentContextManager {
         connection.busy_timeout(std::time::Duration::from_secs(10)).map_err(|e|e.to_string())?;
         let db=connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e|e.to_string())?;
         crate::execution::enforce_state_write_admission(root, Some(&db), serialized_len, crate::execution::StorageWriteKind::Checkpoint, Some(&self.project_id))?;
-
 
         db.execute(
             "INSERT INTO agent_checkpoints(project, checkpoint_id, task_id, role_id, handoff_version, context_tokens, state_snapshot, active_jobs, created_ms)
@@ -278,28 +289,41 @@ impl AgentContextManager {
     }
 
     /// Structured compaction: preserves system prompt, active hypothesis, all achievements,
-    /// scientific findings, and recent conversation turns while collapsing older tool interactions.
+    /// scientific findings, current steering, constraints, approvals, and recent conversation turns
+    /// while collapsing older tool interactions and keeping tool-call pairings intact.
     pub fn maybe_compact(&mut self) -> bool {
         let current_tokens = self.estimate_tokens();
         let target_limit = self.max_context_tokens.saturating_sub(self.reserve_tokens);
 
-        if current_tokens <= target_limit || self.messages.len() <= 6 {
+        if current_tokens <= target_limit || self.messages.len() <= 4 {
             return false;
         }
 
         let system_msg = self.messages[0].clone();
-        let recent_slice = self.messages[self.messages.len().saturating_sub(4)..].to_vec();
 
-        // Build structured compaction context
+        // Build structured compaction context preserving steering, constraints, approvals, and final test identity
         let mut summary_lines = Vec::new();
         summary_lines.push("### Context Compaction & Authoritative State Summary".to_string());
         if let Some(hyp) = &self.current_hypothesis {
             summary_lines.push(format!("Active Hypothesis: {hyp}"));
         }
+        if let Some(steer) = &self.current_steering {
+            summary_lines.push(format!("Current Steering: {steer}"));
+        }
+        if let Some(c) = &self.constraints {
+            summary_lines.push(format!("Constraints: {c}"));
+        }
+        if let Some(fti) = &self.final_test_identity {
+            summary_lines.push(format!("Final Test Identity: {fti}"));
+        }
+        if !self.approvals.is_empty() {
+            summary_lines.push(format!("Registered Approvals: {}", self.approvals.join(", ")));
+        }
         if !self.achievements.is_empty() {
             summary_lines.push("Committed Achievements:".to_string());
             for ach in &self.achievements {
-                summary_lines.push(format!("- [{}] {}: {}", ach.kind, ach.achievement_id, ach.summary));
+                let sha_suffix = ach.evidence_sha256.as_deref().map(|s| format!(" (evidence_sha256: {s})")).unwrap_or_default();
+                summary_lines.push(format!("- [{}] {}: {}{sha_suffix}", ach.kind, ach.achievement_id, ach.summary));
             }
         }
         if !self.findings.is_empty() {
@@ -322,6 +346,13 @@ impl AgentContextManager {
         }
         let compaction_msg = ChatMessage::user(summary_lines.join("\n"));
 
+        // Determine safe recent slice without breaking tool pairs
+        let mut slice_start = self.messages.len().saturating_sub(4).max(1);
+        while slice_start > 1 && self.messages[slice_start].role == "tool" {
+            slice_start -= 1;
+        }
+
+        let recent_slice = self.messages[slice_start..].to_vec();
         let mut compacted = vec![system_msg, compaction_msg];
         compacted.extend(recent_slice);
         self.messages = compacted;
@@ -330,6 +361,10 @@ impl AgentContextManager {
 
     /// Invalidate active handoffs, inject steering directive, and update handoff version.
     pub fn apply_steering(&mut self, root: &Path, directive: &str) -> Result<()> {
+        self.apply_steering_with_actor(root, directive, "human:operator")
+    }
+
+    pub fn apply_steering_with_actor(&mut self, root: &Path, directive: &str, actor: &str) -> Result<()> {
         self.handoff_version += 1;
 
         // Invalidate prior pending handoffs in SQLite
@@ -340,9 +375,14 @@ impl AgentContextManager {
             rusqlite::params![self.project_id, self.task_id],
         ).map_err(|e| e.to_string())?;
 
+        // Durably record steering directive
+        let directive_id = format!("steer-{}", &hash_str(&format!("{}:{}:{}:{}", self.task_id, self.handoff_version, actor, directive))[..16]);
+        let _ = super::task_contract::record_steering_directive(root, &self.project_id, &directive_id, &self.task_id, actor, self.handoff_version as u64, directive);
+        self.current_steering = Some(directive.to_string());
+
         // Inject steering guidance at turn boundary
         self.messages.push(ChatMessage::user(format!(
-            "[STEERING DIRECTIVE - Turn Boundary (Epoch v{})]:\n{directive}\nPrevious uncommitted proposals superseded.",
+            "[STEERING DIRECTIVE - Turn Boundary (Epoch v{}) by {actor}]:\n{directive}\nPrevious uncommitted proposals superseded.",
             self.handoff_version
         )));
 
@@ -409,6 +449,12 @@ impl AgentContextManager {
                 }
             }
         }
+        let current_steering = snapshot.get("current_steering").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let final_test_identity = snapshot.get("final_test_identity").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let constraints = snapshot.get("constraints").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let approvals: Vec<String> = snapshot.get("approvals")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
 
         let mut mgr = Self {
             project_id: project_id.to_string(),
@@ -421,6 +467,10 @@ impl AgentContextManager {
             active_jobs,
             findings,
             current_hypothesis: hypothesis,
+            current_steering,
+            final_test_identity,
+            constraints,
+            approvals,
             handoff_version: handoff_version as u32,
         };
         mgr.ensure_context_within_bounds()?;
@@ -542,9 +592,76 @@ impl AgentContextManager {
         Ok(())
     }
 
+    /// Configure context window bounds, enforcing economical default (~16K) with configurable upper ceiling <= 64K (65,536).
+    pub fn set_context_window(&mut self, max_tokens: u32, reserve_tokens: u32) -> Result<()> {
+        if max_tokens > 65_536 {
+            return Err("Configured context window exceeds hard upper ceiling of 64K (65,536 tokens)".into());
+        }
+        if reserve_tokens >= max_tokens {
+            return Err("Reserve tokens must be strictly less than max context tokens".into());
+        }
+        self.max_context_tokens = max_tokens;
+        self.reserve_tokens = reserve_tokens;
+        Ok(())
+    }
+
+    /// Reject broken JSON arguments or broken tool pairings in messages.
+    pub fn validate_tool_pairings(&self) -> Result<()> {
+        let mut open_tool_calls: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+
+        for (idx, msg) in self.messages.iter().enumerate() {
+            if msg.role == "assistant" {
+                if let Some(ref calls) = msg.tool_calls {
+                    for call in calls {
+                        // Check arguments are valid JSON
+                        if let Err(e) = serde_json::from_str::<Value>(&call.function.arguments) {
+                            return Err(format!("Tool call '{}' at index {idx} contains invalid JSON arguments: {e}", call.id));
+                        }
+                        open_tool_calls.insert(call.id.clone());
+                    }
+                }
+            } else if msg.role == "tool" {
+                let call_id = msg.tool_call_id.as_deref().ok_or_else(|| {
+                    format!("Tool message at index {idx} is missing tool_call_id")
+                })?;
+                if !open_tool_calls.remove(call_id) {
+                    return Err(format!("Tool response for '{call_id}' at index {idx} does not match any preceding active tool call"));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Refuse dispatch when essential state (system prompt, schemas, constraints, approvals, reserves) cannot fit.
+    pub fn check_essential_state_fits(&self, tools: &[crate::agents::gateway::ToolDefinition]) -> Result<()> {
+        let tools_json = serde_json::to_string(tools).unwrap_or_default();
+        let tools_tokens = (tools_json.len().div_ceil(4)) as u32;
+
+        let system_tokens = self.messages.first()
+            .and_then(|m| m.content.as_ref())
+            .map(|s| s.len().div_ceil(4) as u32)
+            .unwrap_or(0);
+
+        let steering_tokens = self.current_steering.as_ref().map(|s| s.len().div_ceil(4) as u32).unwrap_or(0);
+        let constraints_tokens = self.constraints.as_ref().map(|s| s.len().div_ceil(4) as u32).unwrap_or(0);
+        let final_test_tokens = self.final_test_identity.as_ref().map(|s| s.len().div_ceil(4) as u32).unwrap_or(0);
+
+        let essential_tokens = system_tokens + tools_tokens + steering_tokens + constraints_tokens + final_test_tokens + self.reserve_tokens;
+
+        if essential_tokens > self.max_context_tokens {
+            return Err(format!(
+                "Essential state ({} tokens: system={}, tools={}, reserves={}, steering/constraints={}) cannot fit within configured context window ({} tokens); refusing oversized dispatch",
+                essential_tokens, system_tokens, tools_tokens, self.reserve_tokens, steering_tokens + constraints_tokens + final_test_tokens, self.max_context_tokens
+            ));
+        }
+        Ok(())
+    }
+
     /// Enforce hard token ceiling, spilling older evidence/findings to durable IDs,
     /// or refusing oversized dispatch without dropping essential constraints/approvals.
     pub fn ensure_context_within_bounds(&mut self) -> Result<()> {
+        self.validate_tool_pairings()?;
+
         let target_limit = self.max_context_tokens.saturating_sub(self.reserve_tokens);
         if self.estimate_tokens() <= target_limit {
             return Ok(());
@@ -563,6 +680,18 @@ impl AgentContextManager {
         if let Some(hyp) = &self.current_hypothesis {
             spilled_lines.push(format!("Active Hypothesis: {hyp}"));
         }
+        if let Some(steer) = &self.current_steering {
+            spilled_lines.push(format!("Current Steering: {steer}"));
+        }
+        if let Some(c) = &self.constraints {
+            spilled_lines.push(format!("Constraints: {c}"));
+        }
+        if let Some(fti) = &self.final_test_identity {
+            spilled_lines.push(format!("Final Test Identity: {fti}"));
+        }
+        if !self.approvals.is_empty() {
+            spilled_lines.push(format!("Registered Approvals: {}", self.approvals.join(", ")));
+        }
         if !self.achievements.is_empty() {
             spilled_lines.push("Committed Achievement References:".to_string());
             for ach in &self.achievements {
@@ -578,7 +707,13 @@ impl AgentContextManager {
 
         let compaction_msg = ChatMessage::user(spilled_lines.join("\n"));
         let system_msg = self.messages[0].clone();
-        let recent_slice = self.messages[self.messages.len().saturating_sub(2)..].to_vec();
+
+        let mut slice_start = self.messages.len().saturating_sub(2).max(1);
+        while slice_start > 1 && self.messages[slice_start].role == "tool" {
+            slice_start -= 1;
+        }
+
+        let recent_slice = self.messages[slice_start..].to_vec();
         self.messages = vec![system_msg, compaction_msg];
         self.messages.extend(recent_slice);
 

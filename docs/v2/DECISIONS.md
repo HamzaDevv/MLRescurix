@@ -202,3 +202,33 @@ D34 is implemented in `crates/harness/src/agents/`, `crates/harness/src/schema_p
 5. **Scorecard Authority & CAS Registration**: Official evaluation scorecards are registered exclusively by the trusted evaluator adapter with `producer_authority = "evaluator:trusted"`, stored in CAS, registered in the `blobs` table, and recorded in `candidate_evaluations`.
 6. **Recipe Decoupling & Backward Compatibility**: Decoupled `recipe` in `experiment_spec.schema.json` and `execution.rs::migrate()` to allow arbitrary candidate recipes of length $\le 128$ while preserving `"hist_boosting"` in DDL for M6 migration compatibility. Schema remains at `user_version = 10`.
 7. **Acceptance Gate Verification**: Verified across 9 integration tests in `crates/harness/tests/candidate_tools_p4.rs`, 5 unit tests in `python/tests/test_candidate_runner.py`, and 89 passed tests across full repository regression suites (106 total passed tests). Fresh logs captured in `docs/evidence/v2/p4/20261014-p4-gate-closure/`. Phase P4 is closed. M6 remains independently NOT READY.
+
+### P5.1–P5.6 & Gate Closure decisions (2026-10-14)
+
+D35 is implemented in `contracts/v2/task_assignment.schema.json`, `contracts/v2/task_completion.schema.json`, `crates/harness/src/schema_p5_orchestration.sql`, `crates/harness/src/agents/task_contract.rs`, `roles.rs`, `workspace.rs`, `context.rs`, `orchestrator.rs`, `crates/harness/src/search.rs`, and `crates/harness/src/execution.rs`.
+1. **Versioned Task Schemas & Durable Ledgers (P5.1)**:
+   - Authored strict Draft 2020-12 schemas for `task_assignment` (specifying goals, hypotheses, immutable inputs, allowed tools, branch ownership, resource limits, expected artifacts, acceptance criteria) and `task_completion` (recording verdicts, candidate IDs, metric deltas, protocols, failures, bounded learnings $\le 4096$ bytes, next actions).
+   - Created SQLite tables `task_assignments`, `task_completions`, `steering_directives`, and `user_approvals` via `schema_p5_orchestration.sql`, migrated idempotently under `PRAGMA user_version = 10`.
+2. **Consolidated Roles & Specialist Registry (P5.1)**:
+   - Added `get_consolidated_default_roles()` providing 5 core default roles: `lead`, `data_diagnostics`, `experiment_engineer`, `verifier`, and `critic`.
+   - Normalizes legacy/slashed role IDs (`data/diagnostics` -> `data_diagnostics`, `experiment/engineer` -> `experiment_engineer`) while retaining all 8 specialist roles in `get_standard_roles()` for backward compatibility.
+3. **Branch Workspace Isolation & Lock Ownership (P5.1)**:
+   - Exposed `BranchWorkspaceManager::acquire_lock()` wrapping durable `recovery::BranchLock::acquire()`.
+   - Each concurrent mutation task is allocated an isolated branch workspace where writes are completely segregated from peer branches, protected by durable single-writer lock ownership.
+4. **DAG Node Traversal & Comparative Multi-Fidelity Search (P5.2)**:
+   - Implemented `get_experiment_dag_node()` returning node properties, children, and parent evidence (`primary_metric`, `model_sha256`, `predictions_sha256`).
+   - Implemented `evaluate_comparative_strategies()` evaluating bounded multi-fidelity best-first search against uniform random baseline and exploratory MCTS/UCB1 strategies, incorporating explicit metric reward, wall-clock cost penalties, and adaptive validation query limits ($\le 50$).
+5. **Request Accounting, Token Bounds, & Tool Pair Validation (P5.3)**:
+   - Configured economical ~16K token default (`16,384`) with hard ceiling $\le 64\text{K}$ (`65,536`).
+   - Enforced pre-dispatch essential state accounting (system prompt, schemas, constraints, reserves) with immediate refusal if essential state does not fit.
+   - Enforced tool pairing validation: every tool call argument must parse as valid JSON, and every tool response must match an active preceding tool call.
+   - Outbound filter sanitization (`OutboundFilter`) redacts raw tabular data streams before provider dispatch.
+6. **Milestone Compaction & State Preservation (P5.4)**:
+   - `AgentContextManager::maybe_compact()` prunes historical messages under budget pressure while strictly preserving: active hypothesis, current steering directive, constraints, user approvals, final-test identity, committed achievement IDs with durable evidence SHAs, and paired assistant tool calls.
+   - Context restore verifies durable evidence SHA integrity in `.m2/evidence/`, rejecting tampered evidence with `"Durable evidence hash mismatch"`.
+7. **Turn-Boundary Steering & Explicit User Approvals (P5.5)**:
+   - Directives from human operators or agent critics (`apply_steering`, `apply_critic_steering`) are journaled into `steering_directives` and increment `handoff_version`.
+   - The orchestrator drains pending directives at turn boundaries prior to outbound request construction, without interrupting inner tool loops.
+   - Operations unlocking final test access or candidate deployment handoff require explicit registered user approvals (`user_approvals` ledger with action types `"deployment_handoff"` or `"final_test"`), rejecting unauthorized finalizations.
+8. **Phase P5 Acceptance Gate Closure (P5.6 & Gate)**:
+   - Verified across 11 integration tests in `crates/harness/tests/collaboration_p5.rs` and 162 tests across repository regression suites (173 total passed tests, 0 failures). Evidence captured in `docs/evidence/v2/p5/20261014-p5-gate-closure/`. Phase P5 is closed. M6 remains independently NOT READY.

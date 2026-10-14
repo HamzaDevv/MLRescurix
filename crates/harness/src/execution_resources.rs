@@ -205,8 +205,16 @@ fn discover(root:&Path,c:&Connection,api:&impl DockerApi,target:Option<&JobSpec>
         if let Some(spec)=target { if container["Config"]["Labels"][format!("{PREFIX}project")]!=spec.project_id || container["Config"]["Labels"][format!("{PREFIX}job")]!=spec.job_id {continue;} }
         // Match persisted container IDs/owner labels against active epochs;
         // do not kill another supervisor's valid worker merely because its container has harness labels.
-        if let Err(e) = validate_container(root, c, &container) {
-            tracing::debug!("skipping container {} without matching active epoch: {}", id, e);
+        let labels = &container["Config"]["Labels"];
+        let is_foreign_supervisor = labels[format!("{PREFIX}state-root")] != state_identity(root)?
+            || labels[format!("{PREFIX}owner")] != OWNER;
+        let project_str = labels[format!("{PREFIX}project")].as_str().unwrap_or("");
+        let job_str = labels[format!("{PREFIX}job")].as_str().unwrap_or("");
+        let matches_our_job = !project_str.is_empty()
+            && !job_str.is_empty()
+            && load_job(c, project_str, job_str).is_ok();
+        if is_foreign_supervisor && !matches_our_job {
+            tracing::debug!("skipping foreign supervisor container: {}", id);
             continue;
         }
         reap_one(root,c,api,&container)?;

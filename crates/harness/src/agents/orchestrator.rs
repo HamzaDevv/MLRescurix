@@ -116,8 +116,9 @@ impl AgentOrchestrator {
     pub fn build_sanitized_request(&mut self) -> Result<(ChatCompletionRequest, Vec<u8>, String)> {
         self.context.ensure_context_within_bounds()?;
         let role = get_role(&self.config.role_id).ok_or("Unknown role")?;
-        let tools = ToolRegistry::get_trusted_tools().into_iter()
+        let tools: Vec<_> = ToolRegistry::get_trusted_tools().into_iter()
             .filter(|tool| role.capabilities.contains(&tool.function.name)).collect();
+        self.context.check_essential_state_fits(&tools)?;
 
         let mut req = ChatCompletionRequest {
             model: self.config.model.clone(),
@@ -151,6 +152,28 @@ impl AgentOrchestrator {
             "approved": false,
             "view": req,
         }))
+    }
+
+    /// Apply steering directive at turn boundary, recording in steering_directives and updating context epoch.
+    pub fn apply_steering(&mut self, directive: &str, actor: &str) -> Result<()> {
+        let hash = format!("{:x}", Sha256::digest(format!("{}:{}:{}:{}", self.config.task_id, self.context.handoff_version + 1, actor, directive).as_bytes()));
+        let directive_id = format!("steer-{}", &hash[..16]);
+        super::task_contract::record_steering_directive(
+            &self.root,
+            &self.config.project_id,
+            &directive_id,
+            &self.config.task_id,
+            actor,
+            (self.context.handoff_version + 1) as u64,
+            directive,
+        )?;
+        self.context.apply_steering_with_actor(&self.root, directive, actor)
+    }
+
+    /// Apply independent critic steering with audit result payload.
+    pub fn apply_critic_steering(&mut self, directive: &str, audit_result: &Value) -> Result<()> {
+        let full_directive = format!("{directive}\nCritic Audit Evidence: {}", serde_json::to_string(audit_result).unwrap_or_default());
+        self.apply_steering(&full_directive, "critic:agent")
     }
 
     /// Reconcile any unresolved provider turns (`awaiting_response`, `outcome_unknown`, `response_received`, `executing_tools`)
@@ -498,6 +521,14 @@ impl AgentOrchestrator {
 
         if self.is_research_closed()? {
             return Ok(TurnExecutionResult { turn_index: self.current_turn + 1, tool_calls_executed: 0, assistant_content: None, stopped: true, stop_reason: Some("research_closed".into()) });
+        }
+
+        // Drain and apply any pending steering directives at turn boundary
+        if let Ok(pending) = super::task_contract::get_pending_steering_directives(&self.root, &self.config.project_id, &self.config.task_id) {
+            for dir in pending {
+                self.context.apply_steering_with_actor(&self.root, &dir.directive, &dir.actor)?;
+                let _ = super::task_contract::mark_steering_directive_applied(&self.root, &self.config.project_id, &dir.directive_id);
+            }
         }
 
         let (req, request_bytes, digest) = self.build_sanitized_request()?;
@@ -1579,14 +1610,17 @@ impl AgentOrchestrator {
                     return Err(format!("Finalization refused: candidate '{cand_id}' critic audit status is '{audit_status}', constraints_verified={constraints_verified}. An approved audit with constraints_verified=1 is required."));
                 }
 
-                // 2. Authenticated User Approval check: must have approval in approvals ledger
-                let is_user_approved: Option<i64> = db.query_row(
+                // 2. Authenticated User Approval check: must have approval in approvals ledger or user_approvals
+                let legacy_user_approved: Option<i64> = db.query_row(
                     "SELECT approved FROM approvals WHERE project=?1 AND candidate_id=?2 ORDER BY created_ms DESC LIMIT 1",
                     rusqlite::params![self.config.project_id, cand_id],
                     |r| r.get(0),
                 ).ok();
 
-                if is_user_approved != Some(1) {
+                let modern_user_approved = super::task_contract::check_user_approval(&self.root, &self.config.project_id, "deployment_handoff", cand_id).unwrap_or(false)
+                    || super::task_contract::check_user_approval(&self.root, &self.config.project_id, "final_test", cand_id).unwrap_or(false);
+
+                if legacy_user_approved != Some(1) && !modern_user_approved {
                     return Err(format!("Finalization refused: candidate '{cand_id}' lacks verified user approval in approvals ledger. An authenticated approval receipt is required."));
                 }
                 let approved=crate::execution::require_finalization_decisions(&self.root,&self.config.project_id,cand_id)?;
@@ -1655,6 +1689,13 @@ impl AgentOrchestrator {
 
                 let finalize_job_id=format!("finalize-{cand_id}");
                 let test_access_id=args.get("test_access_id").and_then(|v|v.as_str()).map(str::to_string).unwrap_or_else(||format!("final-test-{cand_id}"));
+                let test_unlocked = super::task_contract::check_user_approval(&self.root, &self.config.project_id, "final_test", &test_access_id).unwrap_or(false)
+                    || super::task_contract::check_user_approval(&self.root, &self.config.project_id, "holdout_access", &test_access_id).unwrap_or(false)
+                    || legacy_user_approved == Some(1)
+                    || modern_user_approved;
+                if !test_unlocked {
+                    return Err(format!("Holdout/test gate access for '{test_access_id}' refused without explicit authenticated user approval"));
+                }
                 let finalize_spec=crate::execution::JobSpec{ resources: Default::default(),
                     job_id:finalize_job_id.clone(),
                     project_id:self.config.project_id.clone(),

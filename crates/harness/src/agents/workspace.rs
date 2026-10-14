@@ -41,6 +41,10 @@ impl BranchWorkspaceManager {
         root.join("workflows").join(project_id).join("branches").join(branch_id)
     }
 
+    pub fn acquire_lock(root: &Path, project_id: &str, branch_id: &str) -> Result<super::recovery::BranchLock> {
+        super::recovery::BranchLock::acquire(root, project_id, branch_id)
+    }
+
     pub fn init_branch(
         root: &Path,
         project_id: &str,
