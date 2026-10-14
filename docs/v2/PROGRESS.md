@@ -30,17 +30,18 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
   - Full `cargo test --locked` passed; live pinned-Docker cgroup/OOM/survivor checks, six end-to-end scientific pipeline modes, and real ENOSPC regression passed. See the fresh evidence below.
   - Architecture decisions D20–D25 recorded in `docs/v2/DECISIONS.md`.
   - Historical M6 evidence preserved untouched.
-  - Runtime implementation: P1.1–P1.6 complete and verified for the covered regressions and supported Docker runtime. P2.1 design, P2.2 CAS/schema v10/dual-write, P2.3–P2.5 bounded artifact queries, durable event subscriptions and four shared query-only readers, and P2.6 revision-fenced successor/tombstone commands are implemented and verified for the recorded tests. P2 remains in progress for its wider acceptance gate and compatibility coverage.
+  - Runtime implementation: P1.1–P1.6 complete and verified. P2 (P2.1–P2.6 and full P2 Roadmap Acceptance Gate) is complete and fully verified: schema v10 CAS, artifact inspection queries, durable event replay, four shared query-only readers, revision-fenced successor/tombstone commands, populated upgrade preservation, partial CAS/filesystem/DB commit reconciliation, protected references under concurrent GC, and restart/reconnect event consistency. P2 phase gate is closed.
+  - P3.1 capability discovery, headroom, presets, and early infeasible-request rejection implemented and verified: effective host and container-VM CPU/RAM/disk/accelerator discovery (`min(host, vm)` for container execution), passive accelerator discovery (Apple Metal on macOS arm64, NVIDIA CUDA on Linux), configured headroom (1000 millicores, 512 MiB RAM, 64 MiB disk), bounded presets (`MICRO`, `STANDARD`, `HEAVY`, `CUSTOM`), and deterministic early rejection in `execution::submit` prior to SQLite queue admission (0 rows added to `jobs`). Verified across 5 tests in `crates/harness/tests/resource_broker_p3.rs` and full locked regression suites. Evidence in `docs/evidence/v2/p3/20261014-p31-capability-discovery/`.
 - Release: M6 remains **NOT READY**, as recorded in `docs/m6-completion-status.md`.
-  - Authorization: P2.2 runtime work was authorized earlier; P2.3–P2.5 were explicitly authorized in the prior session; the current session explicitly authorizes P2.6 bounded successor/tombstone commands and compatibility checks.
-  - Next recommended slice: Close the remaining P2 roadmap acceptance checks for populated upgrade preservation, partial CAS/DB reconciliation, protected references under concurrent GC, and restart/reconnect event consistency; then assess the P2 phase gate. M6 release gates remain independently open.
+  - Authorization: P2 gate closure and P3.1 were authorized and completed in this session. P3.2 or later phases are NOT begun.
+  - Next recommended slice: P3.2 atomic global/project capacity reservations, weighted fair queues with aging, bounded queues, and stable tie ordering. M6 release gates remain independently open.
 
 | Phase | Status | Evidence / next step |
 | --- | --- | --- |
 | P0 | Complete | This doc set, archived inputs, static audit and documentation validation |
 | P1 | complete | P1.1–P1.6 verified; see `20261014-p1-review-resources/` evidence. M6 release remains independently NOT READY. |
-| P2 | in_progress | P2.1–P2.6 implemented and verified for recorded tests. P2.6 adds shared-project-revision CAS, command-id request/receipt fencing, immutable successor versions with `supersedes` lineage, and logical tombstones that retain evidence and reject pins, any selection-history reference, and active producer jobs. P2 phase gate remains open for broader roadmap compatibility/recovery checks. Evidence in `20261014-p2-inspection-journal-readers/` and `20261014-p26-successor-tombstone/`. |
-| P3 | Planned | Extend existing reservations; no unconditional 50-job claim |
+| P2 | complete | P2.1–P2.6 and full P2 roadmap acceptance gate complete and fully evidenced. Populated upgrade preservation, partial CAS/DB reconciliation, protected references under concurrent GC, and event restart/reconnect consistency verified across 14 tests in artifact_registry_p2 and full regression suites. Evidence in `20261014-p2-gate-closure/`. M6 remains independently NOT READY. |
+| P3 | in_progress | P3.1 verified in `20261014-p31-capability-discovery/`; P3.2–P3.5 planned; no unconditional 50-job claim |
 | P4 | Planned | Add executable candidate adapter; keep old API working |
 | P5 | Planned | Context/task recovery on generic tool substrate |
 | P6 | Planned | Read/resource views after P2/P3; new semantics/steering after P4/P5 |
@@ -77,6 +78,8 @@ or a specialist's assertion alone does not meet it. P0 is documentation complete
 | 2026-10-14 | P2.2 runtime CAS, schema v10 migration & artifact registry | Implemented CAS module (`crates/harness/src/cas.rs`) with pre-admission reservation checks, SHA-256 validation, read-only permissions (`0o444`), directory manifests; additive schema migration to `user_version = 10` (`schema_m7_artifacts.sql`) with backfill from `managed_artifacts` and `scientific_datasets`; relational registry (`crates/harness/src/artifacts.rs`) with two-tier summary bounds (`index_digest` <= 512 B, `summary_text` <= 4096 B), evaluator-only scorecard authority, lineage, annotations, and Apex selection; dual-write backward compatibility in `Supervisor::finish` and `pin_artifact`. Decoupled ephemeral `jobs` GC from persistent versions. All 5 tests in `artifact_registry_p2` passed; 6 regression suites passed (90 tests passed, 0 failed). Captured evidence in `docs/evidence/v2/p2/20261014-p2-artifact-registry/`. |
 | 2026-10-14 | P2.3–P2.5 artifact queries, durable event journal, and read pool | Added bounded inspection and lineage queries, pin/unpin, evaluator-only scorecard capability, trigger-backed atomic durable event journal with cursor snapshot/replay/reset behavior, and four shared query-only reader connections with non-blocking acquisition. Eight artifact tests plus recovery/foundation/release regressions passed in the prior session; evidence in `docs/evidence/v2/p2/20261014-p2-inspection-journal-readers/`. |
 | 2026-10-14 | P2.6 revisioned successor/tombstone commands | Added `publish_successor_command` and `tombstone_artifact_command` using the shared project revision and existing durable `(project, command_id)` request/receipt fences. Successors atomically publish an immutable version, advance current pointer, add `supersedes` lineage and increment revision; tombstones retain version/lineage/bytes and refuse pinned, selection-history-referenced, or actively produced artifacts. Tombstone event trigger is installed idempotently on already-v10 states. `artifact_registry_p2` (10 passed), `recovery_cycles` (8 passed, 2 ignored), `foundation` (26 passed), and `release_m6` (5 passed, 3 ignored) passed serial rerun; one initial foundation timing failure under concurrent Cargo runs passed in isolated and serial reruns. Evidence in `docs/evidence/v2/p2/20261014-p26-successor-tombstone/`. P2 remains in progress; M6 remains NOT READY. |
+| 2026-10-14 | P2 Roadmap Gate Closure | Verified all remaining P2 acceptance checks: populated upgrade preservation (retaining `final_test_gates`, `search_sessions`, `trial_results`, `pipeline_receipts`), partial CAS/DB commit reconciliation (`cas/.staging` sweep in `collect_artifacts`, blob adoption on retry, SHA-256 corruption repair), protected references under concurrent GC (pinned artifacts, Apex selection, lineage survive GC), and event restart/reconnect consistency across process boundaries. 14 `artifact_registry_p2` tests passed; full locked suites passed (`foundation`, `recovery_cycles`, `release_m6`, `agent_m4`, `search_m3`, `lib`, python protocol). Evidence in `docs/evidence/v2/p2/20261014-p2-gate-closure/`. P2 complete; M6 remains NOT READY. |
+| 2026-10-14 | P3.1 capability discovery, presets, headroom, & infeasible-request rejection | Discovered effective host and container-VM CPU, memory, disk, and accelerator capabilities; clamped container jobs to container-VM limits (`min(host, vm)`); configured headroom (1 core, 512 MiB RAM, 64 MiB disk); added bounded presets (`MICRO`, `STANDARD`, `HEAVY`, `CUSTOM`); early infeasible rejection in submit() with zero SQLite jobs rows inserted. 5 tests passed in resource_broker_p3; full regression suites passed. Evidence in `docs/evidence/v2/p3/20261014-p31-capability-discovery/`. M6 remains NOT READY. |
 
 ## Update at the end of every implementation session
 
@@ -428,6 +431,119 @@ Budget / compatibility / migration implications:
   - Dual-write adapters in `Supervisor::finish` and `pin_artifact` ensure existing readers continue functioning without disruption.
 Next small actionable slice:
   - P2.3–P2.5 artifact inspection queries, durable event journal subscription APIs, and SSE non-blocking reader connection pool.
+```
+
+### Implementation Session 2026-10-14 (P2 Roadmap Gate Closure Acceptance Slice)
+
+```text
+Date / phase / task IDs: 2026-10-14 / P2 / P2 Roadmap Gate Closure (populated-state upgrade preservation, partial CAS/DB reconciliation, protected references under concurrent GC, event restart/reconnect consistency)
+User-authorized scope: Audit and close remaining P2 acceptance checks listed in ROADMAP.md and PROGRESS.md; verify populated-state upgrade preservation, partial CAS/DB commit reconciliation, protected references under concurrent GC, and event restart/reconnect consistency.
+Starting commit and pre-existing dirty files: 9cb2e3e; dirty: crates/harness/src/execution.rs, crates/harness/tests/artifact_registry_p2.rs, docs/v2/DECISIONS.md, docs/v2/PROGRESS.md, docs/v2/README.md, docs/v2/ROADMAP.md.
+Changes and source paths:
+  - crates/harness/src/execution.rs: Integrated CAS staging sweep (`cas.sweep_staging(Duration::from_secs(0))`) into routine artifact collection (`collect_artifacts`), reclaiming orphaned temporary staging files from interrupted or partial write attempts.
+  - crates/harness/tests/artifact_registry_p2.rs: Authored 4 comprehensive acceptance regressions closing all open P2 roadmap checks (suite now 14 tests, all passing):
+      * p2_test_populated_state_upgrade_preserves_selection_and_final_test_records: Verifies migration from v9 to v10 on populated database preserves all historical `final_test_gates` (both reserved and consumed), `search_sessions` (apex pointers and JSON selection records), `trial_results`, `pipeline_receipts`, `tombstones`, and `action_fences` with 0 foreign-key violations and repeated migration idempotency.
+      * p2_test_partial_cas_and_db_commit_reconciliation: Verifies leaked temporary staging files in `cas/.staging/` are swept by `collect_artifacts`, pre-existing CAS files on disk before DB commit crashes are safely adopted/deduplicated on retry without double byte allocation, corrupted files on disk are detected via SHA-256 validation and repaired atomically, and pre-admission byte reservations remain accurate.
+      * p2_test_protected_references_survive_concurrent_gc: Verifies pinned artifacts (`artifacts.pinned = 1`), Apex candidate and scorecard versions (`project_selections`), and lineage edges (`artifact_lineage`) survive concurrent `collect_artifacts` execution while unpinned terminal jobs are safely pruned and active environment leases are protected.
+      * p2_test_event_restart_and_reconnect_consistency: Verifies subscribing to events, simulating process restart across `Runtime::open` / `ArtifactRegistry::new`, mutating state while disconnected (`publish_successor_command`, `annotate`, `tombstone_artifact_command`, `set_apex_selection`), and reconnecting with saved cursor delivers all committed events in monotonic cursor order without duplicate delivery, and expired cursors (>10,000 window) trigger `reset_required = true` with clean snapshot resynchronization.
+  - docs/v2/DECISIONS.md: Recorded D31 and updated P2 resolution status to Phase P2 Complete.
+  - docs/v2/README.md & docs/v2/ROADMAP.md: Updated P2 phase status to Complete with evidence cross-references.
+Decisions added or revised: D31 added (CAS Staging Sweeps in GC and Multi-Commit Reconciliation).
+Exact verification commands and exit results:
+  - cargo test --locked --test artifact_registry_p2 (exit code 0; 14 passed)
+  - cargo test --locked --lib (exit code 0; 14 passed, 2 ignored)
+  - cargo test --locked --test foundation -- --test-threads=1 (exit code 0; 26 passed)
+  - cargo test --locked --test recovery_cycles -- --test-threads=1 (exit code 0; 8 passed, 2 ignored)
+  - cargo test --locked --test release_m6 (exit code 0; 5 passed, 3 ignored)
+  - cargo test --locked --test agent_m4 (exit code 0; 23 passed)
+  - cargo test --locked --test search_m3 (exit code 0; 9 passed, 1 ignored)
+  - PYTHONPATH=python/src python3 -m unittest python/tests/test_protocol.py (exit code 0; 3 passed)
+  - git diff --check (exit code 0; clean)
+Evidence paths plus source/image/schema hashes:
+  - docs/evidence/v2/p2/20261014-p2-gate-closure/artifact_registry_p2.log
+  - docs/evidence/v2/p2/20261014-p2-gate-closure/lib.log
+  - docs/evidence/v2/p2/20261014-p2-gate-closure/foundation.log
+  - docs/evidence/v2/p2/20261014-p2-gate-closure/recovery_cycles.log
+  - docs/evidence/v2/p2/20261014-p2-gate-closure/release_m6.log
+  - docs/evidence/v2/p2/20261014-p2-gate-closure/agent_m4.log
+  - docs/evidence/v2/p2/20261014-p2-gate-closure/search_m3.log
+  - docs/evidence/v2/p2/20261014-p2-gate-closure/python_protocol.log
+  - docs/evidence/v2/p2/20261014-p2-gate-closure/source-sha256.txt
+  - docs/evidence/v2/p2/20261014-p2-gate-closure/README.md
+  - PRAGMA user_version is 10.
+  - Historical M6 evidence in docs/evidence/m6/ preserved untouched.
+Implemented but unverified:
+  - None; all 4 acceptance checks and full test suites are verified.
+Failure/recovery scenarios still open:
+  - Global multi-project resource lease brokering and fair queueing under heavy concurrent workloads (P3).
+Budget / compatibility / migration implications:
+  - Zero database migration version bump required (user_version remains 10).
+  - 128 MiB policy ceiling strictly preserved with CAS pre-admission reservation checks.
+  - Dual-write adapters in Supervisor::finish and pin_artifact continue functioning without disruption.
+Next small actionable slice:
+  - P3.1 effective host and container-VM CPU, memory, disk, and accelerator capability discovery, resource request presets, and infeasible-request rejection before admission.
+```
+
+### Implementation Session 2026-10-14 (P3.1 Capability Discovery, Headroom, Presets, & Early Infeasible Rejection)
+
+```text
+Date / phase / task IDs: 2026-10-14 / P3 / P3.1 (effective CPU, memory, disk, and accelerator capability discovery, resource request presets, headroom accounting, and infeasible-request rejection)
+User-authorized scope: User explicitly authorized: "If the P2 gate is fully evidenced, implement P3.1 effective CPU, memory, disk and accelerator capability discovery, resource request presets, and infeasible-request rejection. Do not begin P3.2 or later phases."
+Starting commit and pre-existing dirty files: 9cb2e3e; dirty: crates/harness/src/execution.rs, crates/harness/tests/artifact_registry_p2.rs, docs/v2/DECISIONS.md, docs/v2/PROGRESS.md, docs/v2/README.md, docs/v2/ROADMAP.md.
+Changes and source paths:
+  - crates/harness/src/broker.rs: Implemented resource lease broker capability discovery and admission feasibility module:
+      * Host capability discovery: logical CPU cores (`available_parallelism`), total host RAM (`sysctl hw.memsize` on macOS, `sysconf` on Linux), and filesystem storage via `libc::statvfs`.
+      * Container-VM capability discovery: container-VM limits via `docker info` (`NCPU`, `MemTotal`, `CgroupVersion`, and cgroup v2 feature flags).
+      * Effective capability synthesis: clamps container execution to container-VM limits (`min(host, vm)`), preventing overestimating available resources when running inside bounded container VMs (such as macOS Docker Desktop).
+      * Passive accelerator discovery: detects Apple Silicon Metal GPU on macOS arm64 (`hw.optional.arm64` and `machdep.cpu.brand_string`) and NVIDIA CUDA on Linux via `nvidia-smi` without executing untrusted code on the host.
+      * Configured headroom: default 1000 millicores CPU, 512 MiB RAM, 64 MiB disk reserved for host OS and harness control plane. Available capacity = `Effective - Headroom`. Supports `<root>/resource_headroom.json` and `MLRESCURIX_HEADROOM_*` environment overrides.
+      * Resource presets: `MICRO` (1 thread, 512 MiB RAM, 1 MiB output), `STANDARD` (2 threads, 2 GiB RAM, 2 MiB output), `HEAVY` (4 threads, 8 GiB RAM, 4 MiB output), and `CUSTOM`. Enforces bounds (1..=256 threads, 64 MiB..=64 GiB RAM, output within 4 MiB M1 ceiling). Resolves onto `JobSpec` and supports `<root>/resource_presets.json` overrides.
+      * Early infeasible-request rejection: rejects excessive threads, excessive memory, excessive output storage, unavailable accelerators, and unsupported memory certification before queue admission in `execution::submit()` with zero SQLite job insertion. Rechecked in `Supervisor::admit()`.
+  - crates/harness/src/execution_resources.rs: Extended `ResourceRequirements` with `preset: Option<ResourcePreset>` and `accelerator: Option<AcceleratorType>` with serde defaults; derived `Eq, PartialEq` on `ResourceFeatures`; exposed `docker_info() -> Result<Value>`.
+  - crates/harness/src/execution.rs: Exported `OUTPUT_CAP: u64 = 4_194_304` as public; integrated `resolve_job_spec_preset` and `check_request_feasibility` into `submit()` before database queue insertion; integrated feasibility check into `Supervisor::admit()`.
+  - crates/harness/src/lib.rs: Exported `pub mod broker;`.
+  - crates/harness/tests/resource_broker_p3.rs: Comprehensive 5-test suite covering live and synthetic host/container capability discovery, headroom accounting, preset bounds and resolution, early infeasible-request rejection (with 0-row SQLite job assertion), and container-VM memory cap enforcement.
+  - docs/v2/DECISIONS.md: Recorded D32 and updated P3 resolution status for P3.1.
+  - docs/v2/README.md & docs/v2/ROADMAP.md: Recorded P3.1 verified status; P3 phase gate remains open for P3.2–P3.5.
+Decisions added or revised: D32 added (Effective Host/Container-VM Resource Capability Discovery, Presets, Headroom, and Early Infeasible Rejection).
+Exact verification commands and exit results:
+  - cargo test --locked --test resource_broker_p3 (exit code 0; 5 passed)
+  - cargo test --locked --lib (exit code 0; 14 passed, 2 ignored)
+  - cargo test --locked --test artifact_registry_p2 (exit code 0; 14 passed)
+  - cargo test --locked --test foundation -- --test-threads=1 (exit code 0; 26 passed)
+  - cargo test --locked --test recovery_cycles -- --test-threads=1 (exit code 0; 8 passed, 2 ignored)
+  - cargo test --locked --test release_m6 (exit code 0; 5 passed, 3 ignored)
+  - cargo test --locked --test agent_m4 (exit code 0; 23 passed)
+  - cargo test --locked --test search_m3 (exit code 0; 9 passed, 1 ignored)
+  - PYTHONPATH=python/src python3 -m unittest python/tests/test_protocol.py (exit code 0; 3 passed)
+  - git diff --check (exit code 0; clean)
+Evidence paths plus source/image/schema hashes:
+  - docs/evidence/v2/p3/20261014-p31-capability-discovery/resource_broker_p3.log
+  - docs/evidence/v2/p3/20261014-p31-capability-discovery/lib.log
+  - docs/evidence/v2/p3/20261014-p31-capability-discovery/artifact_registry_p2.log
+  - docs/evidence/v2/p3/20261014-p31-capability-discovery/foundation.log
+  - docs/evidence/v2/p3/20261014-p31-capability-discovery/recovery_cycles.log
+  - docs/evidence/v2/p3/20261014-p31-capability-discovery/release_m6.log
+  - docs/evidence/v2/p3/20261014-p31-capability-discovery/agent_m4.log
+  - docs/evidence/v2/p3/20261014-p31-capability-discovery/search_m3.log
+  - docs/evidence/v2/p3/20261014-p31-capability-discovery/python_protocol.log
+  - docs/evidence/v2/p3/20261014-p31-capability-discovery/source-sha256.txt
+  - docs/evidence/v2/p3/20261014-p31-capability-discovery/README.md
+  - PRAGMA user_version is 10.
+  - Historical M6 evidence in docs/evidence/m6/ preserved untouched.
+Implemented but unverified:
+  - None; all capability discovery, headroom, preset, and rejection paths verified by resource_broker_p3 and full regression suites.
+Failure/recovery scenarios still open:
+  - P3.2 global/project capacity reservations, weighted fair queues with aging, bounded queues, and stable tie ordering.
+  - P3.3 broker routing for generic tools, preflight, evaluation, benchmarking, final fit, and thread caps.
+  - P3.4 pressure backoff, per-project pause/stop isolation, and resource release on reap.
+Budget / compatibility / migration implications:
+  - Zero database migration version bump required (user_version remains 10).
+  - 128 MiB policy ceiling strictly preserved.
+  - Output cap strictly bounded by 4 MiB M1 ceiling across presets.
+  - Backward compatibility preserved with existing JobSpec JSON serialization via serde defaults and skip_serializing_if.
+Next small actionable slice:
+  - P3.2 atomic global/project capacity reservations, weighted fair queues with aging, bounded queues, and stable tie ordering upon explicit user authorization.
 ```
 
 Copy and fill one entry; update phase/task statuses above too.

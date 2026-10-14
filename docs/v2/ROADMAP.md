@@ -122,8 +122,8 @@ existing managed artifacts and scientific registration adapters.
 CAS/DB commits reconcile; protected references survive concurrent GC; stale updates
 and forged scores reject; restart/reconnect delivers committed events consistently.
 
-**Status (2026-10-14): P2.1–P2.6 implemented and verified for recorded tests; the P2 phase gate remains open for broader compatibility and recovery checks.**
-P2.1 design and P2.2 schema-v10/CAS/dual-write evidence remain in `docs/v2/P2_1_ARTIFACT_DESIGN.md` and `docs/evidence/v2/p2/20261014-p2-artifact-registry/`. P2.3 inspection queries and pin/unpin enforce bounded outputs and summary byte limits; public callers cannot self-assert official evaluator authority, and Apex selection checks the scorecard source. P2.4 SQLite triggers atomically journal registry writes; subscriptions capture a snapshot cursor and replay retained events with explicit reset after expiry. P2.5 shares four query-only connections per state root and refuses excess readers without waiting. P2.6 adds project-revision and durable command-id fences to successor/tombstone commands, preserves immutable history, protects selection/pin/active-job references, and journals tombstones atomically. Test logs are in `docs/evidence/v2/p2/20261014-p2-inspection-journal-readers/` and `docs/evidence/v2/p2/20261014-p26-successor-tombstone/`. M6 remains independently NOT READY.
+**Status (2026-10-14): Phase P2 Complete.**
+P2.1 design and P2.2 schema-v10/CAS/dual-write evidence remain in `docs/v2/P2_1_ARTIFACT_DESIGN.md` and `docs/evidence/v2/p2/20261014-p2-artifact-registry/`. P2.3 inspection queries and pin/unpin enforce bounded outputs and summary byte limits; public callers cannot self-assert official evaluator authority, and Apex selection checks the scorecard source. P2.4 SQLite triggers atomically journal registry writes; subscriptions capture a snapshot cursor and replay retained events with explicit reset after expiry. P2.5 shares four query-only connections per state root and refuses excess readers without waiting. P2.6 adds project-revision and durable command-id fences to successor/tombstone commands, preserves immutable history, protects selection/pin/active-job references, and journals tombstones atomically. Test logs are in `docs/evidence/v2/p2/20261014-p2-inspection-journal-readers/` and `docs/evidence/v2/p2/20261014-p26-successor-tombstone/`. Full P2 roadmap acceptance gate closed: populated upgrade preservation, partial CAS/DB reconciliation with `cas/.staging` sweep in `collect_artifacts`, protected references under concurrent GC, and restart/reconnect event consistency across process boundaries verified in `crates/harness/tests/artifact_registry_p2.rs` (14 passed) and full regression suites; evidence captured in `docs/evidence/v2/p2/20261014-p2-gate-closure/`. M6 remains independently NOT READY.
 
 ## P3 — Resource leases across projects
 
@@ -152,6 +152,9 @@ and capability probes; resource contracts and isolated runner tests.
 service under the documented policy; one project's cancellation leaves others
 running; no runner bypasses leases. Report actual active count and queue waits.
 Use synthetic/small jobs; do not intentionally exhaust the user's host RAM.
+
+**Status (2026-10-14): P3.1 implemented and verified; P3 phase gate remains open for P3.2–P3.5 broker leases, fair queueing, and multi-project tests.**
+P3.1 is implemented in `crates/harness/src/broker.rs`, `execution.rs`, and `execution_resources.rs`. It discovers host and container-VM capabilities (`min(host, vm)`), passively probes accelerators (Apple Metal on macOS arm64, NVIDIA CUDA on Linux), configures headroom (default 1 core, 512 MiB RAM, 64 MiB disk), bounds request presets (`MICRO`, `STANDARD`, `HEAVY`, `CUSTOM`), and deterministically rejects infeasible requests before admission in `execution::submit` (0 rows added to SQLite `jobs`). Verified across 5 tests in `crates/harness/tests/resource_broker_p3.rs` and full locked regression suites. Evidence in `docs/evidence/v2/p3/20261014-p31-capability-discovery/`. M6 remains independently NOT READY.
 
 ## P4 — Agent-first tools and executable candidates
 

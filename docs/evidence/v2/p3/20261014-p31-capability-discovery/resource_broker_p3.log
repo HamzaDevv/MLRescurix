@@ -1,0 +1,12 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests/resource_broker_p3.rs (target/debug/deps/resource_broker_p3-69c6f382959e6160)
+
+running 5 tests
+test p3_test_container_vm_memory_cap_prevents_host_overestimate ... ok
+test p3_test_resource_presets_bounds_and_resolution ... ok
+test p3_test_resource_headroom_accounting ... ok
+test p3_test_host_and_container_vm_capability_discovery ... ok
+test p3_test_infeasible_request_early_rejection_before_admission ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+

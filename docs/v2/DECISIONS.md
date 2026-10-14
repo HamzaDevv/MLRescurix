@@ -35,6 +35,8 @@ implementation or irrevocable user approvals. Record reversals with evidence.
 | D28 | Four Shared Query-Only Readers with Non-Blocking Acquisition | Share one pool per canonical state root with four dedicated read-only connections (`query_only=ON`); return busy/exhausted immediately for the streaming caller to retry on a later tick. Every query is bounded, each transaction ends before returning, and SSE callers retain only a cursor between polls. |
 | D29 | Evaluator Authority Is an In-Crate Capability, Not a Caller Label | The public artifact API cannot register or publish an official scorecard by passing `evaluator:trusted`. Only crate-internal evaluator methods can create trusted scorecard artifacts/versions, and Apex selection verifies the referenced version is an evaluator-authorized scorecard. General callers may register claimed scorecards, but cannot publish them as official. |
 | D30 | Revisioned Artifact Commands Reuse Durable Command Receipts | Successor and tombstone mutations compare the shared project revision and persist the exact request and receipt in the existing `(project, command_id)` fence in the same transaction. Exact retries return the original receipt; payload reuse is rejected. Tombstones preserve immutable versions and lineage and refuse pins, selection history, and active producer jobs; physical CAS deletion stays with reference-aware GC. |
+| D31 | CAS Staging Sweeps in GC and Multi-Commit Reconciliation | `collect_artifacts` sweeps orphaned temporary files from `cas/.staging/`; CAS deduplication adopts valid pre-existing blobs across partial DB commit crashes without double accounting; hash validation rejects and repairs corrupted blobs. |
+| D32 | Effective Host/Container-VM Resource Capability Discovery, Presets, Headroom, and Early Infeasible Rejection | Discover host CPU/RAM/disk and container-VM limits via `docker info`; clamp container workloads to container-VM limits (`min(host, vm)`); detect hardware accelerators passively (Apple Metal on macOS arm64, NVIDIA CUDA via nvidia-smi); enforce configurable headroom (default 1 core, 512 MiB RAM, 64 MiB disk); provide bounded presets (`MICRO`, `STANDARD`, `HEAVY`, `CUSTOM`); deterministically reject infeasible requests before queue admission in `execution::submit` with 0 rows added to SQLite `jobs`. |
 
 ## Resolve in the owning phase
 
@@ -127,8 +129,20 @@ implementation or irrevocable user approvals. Record reversals with evidence.
      provenance strings and indexes. Dual-write adapters in `Supervisor::finish` and
      `pin_artifact` guarantee full backward compatibility. Verified in `artifact_registry_p2`
      and harness regression suites.
+   8. Complete P2 Roadmap Gate Closure (2026-10-14, Phase P2 Complete): verified populated-state
+      upgrade preservation (retaining `final_test_gates`, `search_sessions`, `trial_results`, and
+      `pipeline_receipts`), partial CAS/DB reconciliation with `cas/.staging/` sweep in
+      `collect_artifacts`, protected references under concurrent GC (pinned artifacts, Apex selections,
+      and lineage edges survive), and event restart/reconnect consistency across process boundaries.
+      Verified in 14 tests in `artifact_registry_p2` and full harness regression suites; captured in
+      `docs/evidence/v2/p2/20261014-p2-gate-closure/`.
 - P3: effective Docker VM capacity probing, initial fair-queue weights, admission
   request presets, supported cgroup/kernel/platform matrix.
+  *Resolved in P3.1 (2026-10-14, Slice Complete)*:
+  1. Discovery of effective capabilities across host and container-VM: host CPU (`available_parallelism`), host total RAM (`sysctl hw.memsize` / `sysconf`), disk (`statvfs`), and passive accelerator discovery (Apple Metal on macOS arm64, NVIDIA CUDA on Linux via `nvidia-smi`). Docker container-VM limits probed via `docker info` (`NCPU`, `MemTotal`, `CgroupVersion`, cgroup v2 features). Container effective capacity clamped to `min(host, vm)` to prevent host RAM overestimation.
+  2. Configured headroom: default 1000 millicores CPU, 512 MiB RAM, 64 MiB disk reserved for host OS and harness control plane. Available capacity = `Effective - Headroom`. Configurable via `<root>/resource_headroom.json` and `MLRESCURIX_HEADROOM_*` environment variables.
+  3. Bounded presets: `MICRO` (1 thread, 512 MiB RAM, 1 MiB output), `STANDARD` (2 threads, 2 GiB RAM, 2 MiB output), `HEAVY` (4 threads, 8 GiB RAM, 4 MiB output), and `CUSTOM`. Validates 64 MiB..=64 GiB floor/ceiling and 4 MiB M1 output cap. Resolves onto `JobSpec` and supports `<root>/resource_presets.json` overrides.
+  4. Early infeasible-request rejection: rejects excessive threads, memory, output disk, unavailable accelerators, or uncertified memory requirements before queue admission in `execution::submit()` with zero SQLite job insertion. Rechecked in `Supervisor::admit()`. Verified in `tests/resource_broker_p3.rs` and documented in `docs/evidence/v2/p3/20261014-p31-capability-discovery/`.
 - P4: prediction wire format, argv vs shell surface, environment provisioning tool,
   dataset query restrictions and API names. Read-only SQL alone is not file isolation:
   deny external file readers/extensions/network using the sandbox capability boundary.
@@ -151,3 +165,11 @@ or remove branch ownership locks based only on a blueprint's throughput claims.
 ### P2.3–P2.5 implementation decisions (2026-10-14)
 
 D27–D29 are implemented in `crates/harness/src/schema_p2_events.sql`, `artifacts.rs`, and `read_pool.rs`. Evaluator authority is restricted to crate-internal scorecard methods; public callers cannot forge it with a string. Event payloads and metadata have UTF-8 byte limits; event pages and artifact query results cap at 64 KiB and 128 rows. Snapshot/replay API state is independent of HTTP transport; the snapshot reports when its 128-artifact page is truncated, and `list_artifacts` provides keyset pagination. The dashboard SSE route remains a later P6 surface. Reader contention returns a retryable error without waiting on an occupied slot. The four regression logs are under `docs/evidence/v2/p2/20261014-p2-inspection-journal-readers/`. These changes do not close any M6 release gate.
+
+### P2 Gate Closure decisions (2026-10-14)
+
+D31 is implemented in `crates/harness/src/execution.rs` and verified in `crates/harness/tests/artifact_registry_p2.rs`. Orphaned CAS staging files are swept during routine artifact collection (`collect_artifacts`). Populated states upgrade to v10 preserving all historical selection and final test records with zero FK violations. Protected artifact references survive concurrent GC runs without data loss. Reconnecting after restart delivers all committed events in monotonic cursor order with clean snapshot reset on expired cursors. These results close all remaining P2 roadmap acceptance checks. Evidence captured in `docs/evidence/v2/p2/20261014-p2-gate-closure/`. M6 remains independently NOT READY.
+
+### P3.1 implementation decisions (2026-10-14)
+
+D32 is implemented in `crates/harness/src/broker.rs`, `execution.rs`, and `execution_resources.rs`. Capability discovery reports host and container-VM limits, clamping container execution to `min(host, vm)` to ensure macOS Docker Desktop VM limits (e.g. 8 GiB) prevent admitting 10+ GiB container jobs. Hardware accelerators are probed passively without executing untrusted code on host. Resource presets (`MICRO`, `STANDARD`, `HEAVY`, `CUSTOM`) and configured headroom are bounded and validated. Infeasible requests are deterministically rejected in `submit()` before database insertion, leaving SQLite `jobs` untouched. Verified across 5 tests in `crates/harness/tests/resource_broker_p3.rs` and full locked regression suites. Evidence captured in `docs/evidence/v2/p3/20261014-p31-capability-discovery/`. M6 remains independently NOT READY.

@@ -9,7 +9,7 @@ use std::{collections::BTreeMap, fs, io::{Read,Write}, os::fd::AsRawFd, os::unix
 const MAX_FRAME: usize = 65_536;
 const POLL_MS: u64 = 100;
 const LOG_CAP: u64 = 1_048_576;
-const OUTPUT_CAP: u64 = 4_194_304;
+pub const OUTPUT_CAP: u64 = 4_194_304;
 const DISK_HEADROOM: u64 = 64 * 1024 * 1024;
 const OWNER_MARKER: &str = "mlrescurix-owned-v1\n";
 static STOP: AtomicBool = AtomicBool::new(false);
@@ -232,11 +232,13 @@ pub fn register_dataset(root:&Path,project:&str,id:&str,source:&Path)->Result<Va
     conn.commit().map_err(|e|e.to_string())?;Ok(json!({"project_id":project,"dataset_id":id,"sha256":sha,"bytes":bytes,"reused":false}))
 }
 
-pub fn submit(root:&Path,s:JobSpec)->Result<JobView>{
+pub fn submit(root:&Path,mut s:JobSpec)->Result<JobView>{
+    crate::broker::resolve_job_spec_preset(root, &mut s)?;
     validate_spec(&s)?;
     if let Probe::Scientific{operation,candidate_id:Some(_),..}=&s.probe {
         if operation=="finalize"{validate_finalization_job(root,&s)?;}
     }
+    crate::broker::check_request_feasibility(root, &s)?;
     let mut c=connect(root)?;
     // Serialize admission with other submitters so the state byte check and
     // output reservation cannot race each other.
@@ -1065,6 +1067,12 @@ pub fn collect_artifacts(root:&Path)->Result<u64>{
         }
     }
 
+    // 4. Sweep cas/.staging directory for orphaned temporary staging files
+    let cas = crate::cas::ContentAddressableStorage::new(root);
+    if let Ok(n) = cas.sweep_staging(std::time::Duration::from_secs(0)) {
+        reclaimed = reclaimed.saturating_add(n);
+    }
+
     let tx = sql(c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate))?;
 
     // Record tombstones for collected artifacts before deleting from managed_artifacts
@@ -1443,7 +1451,7 @@ impl Supervisor {
             let row=match row {Some(x)=>Some(x),None=>sql(tx.query_row(&format!("SELECT j.id,j.project,j.spec FROM jobs j JOIN projects p ON p.id=j.project WHERE {eligible} ORDER BY {rank},j.project,j.submitted_ms,j.id LIMIT 1"),rusqlite::params![cursor.as_deref().unwrap_or(""),now],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional())?};
             let Some((id,p,spec))=row else {tx.commit().map_err(|e|e.to_string())?;break};
             let s:JobSpec=serde_json::from_str(&spec).map_err(|e|e.to_string())?;
-            if let Err(reason)=validate_finalization_job(&self.root,&s).and_then(|_|resources::check_certification_request(&s)).and_then(|_|admission(&tx,&s,self.max_workers)) {
+            if let Err(reason)=validate_finalization_job(&self.root,&s).and_then(|_|resources::check_certification_request(&s)).and_then(|_|crate::broker::check_request_feasibility(&self.root,&s)).and_then(|_|admission(&tx,&s,self.max_workers)) {
                 if reason.starts_with("capacity unavailable:") || reason=="project worker capacity unavailable" || reason=="device worker capacity unavailable" || reason=="worker slot unavailable" {tx.execute("INSERT INTO scheduler(key,value) VALUES('last_project',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[&p]).map_err(|e|e.to_string())?;tx.commit().map_err(|e|e.to_string())?;break;}
                 sql(tx.execute("UPDATE jobs SET status='rejected',reason=?3,ended_ms=?4 WHERE project=?1 AND id=?2",params![p,id,reason,now_ms()]))?;
                 tx.commit().map_err(|e|e.to_string())?;continue;

@@ -4,24 +4,45 @@ const PREFIX: &str = "io.mlrescurix.";
 const OWNER: &str = "mlrescurix.scientific.v1";
 const RECEIPT_RESERVE: u64 = 64 * 1024;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct ResourceRequirements {
     pub memory_bytes: u64,
     pub require_memory_certification: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<crate::broker::ResourcePreset>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accelerator: Option<crate::broker::AcceleratorType>,
 }
 impl Default for ResourceRequirements {
-    fn default() -> Self { Self { memory_bytes: 1024 * 1024 * 1024, require_memory_certification: false } }
+    fn default() -> Self {
+        Self {
+            memory_bytes: 1024 * 1024 * 1024,
+            require_memory_certification: false,
+            preset: None,
+            accelerator: None,
+        }
+    }
 }
 impl ResourceRequirements {
-    pub fn is_default(&self) -> bool { self == &Self::default() }
+    pub fn is_default(&self) -> bool {
+        self.memory_bytes == 1024 * 1024 * 1024
+            && !self.require_memory_certification
+            && self.preset.is_none()
+            && self.accelerator.is_none()
+    }
     pub fn validate(&self) -> Result<()> {
-        if !(64 * 1024 * 1024..=64 * 1024 * 1024 * 1024).contains(&self.memory_bytes) { return Err("memory limit must be 64 MiB..=64 GiB".into()); }
+        if !(64 * 1024 * 1024..=64 * 1024 * 1024 * 1024).contains(&self.memory_bytes) {
+            return Err("memory limit must be 64 MiB..=64 GiB".into());
+        }
+        if let Some(preset) = self.preset {
+            crate::broker::validate_preset(preset)?;
+        }
         Ok(())
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ResourceFeatures {
     pub available: bool,
     pub cgroup_v2: bool,
@@ -32,7 +53,7 @@ pub struct ResourceFeatures {
     pub reason: Option<String>,
 }
 impl ResourceFeatures {
-    fn from_info(info: &Value) -> Self {
+    pub(crate) fn from_info(info: &Value) -> Self {
         Self { available: true, cgroup_v2: info["CgroupVersion"] == "2", memory_limit: info["MemoryLimit"] == true,
             swap_limit: info["SwapLimit"] == true, cpu_quota: info["CpuCfsQuota"] == true, pids_limit: info["PidsLimit"] == true, reason: None }
     }
@@ -57,9 +78,12 @@ impl DockerApi for Docker {
     }
 }
 fn call(api: &impl DockerApi, args: &[&str]) -> Result<String> { api.call(&args.iter().map(|s|s.to_string()).collect::<Vec<_>>()) }
+pub fn docker_info() -> Result<Value> {
+    call(&Docker, &["info", "--format", "{{json .}}"])
+        .and_then(|s|serde_json::from_str::<Value>(&s).map_err(|e|e.to_string()))
+}
 pub fn detect() -> ResourceFeatures {
-    match call(&Docker, &["info", "--format", "{{json .}}"])
-        .and_then(|s|serde_json::from_str::<Value>(&s).map_err(|e|e.to_string())) {
+    match docker_info() {
         Ok(v) => ResourceFeatures::from_info(&v),
         Err(e) => ResourceFeatures { available:false,cgroup_v2:false,memory_limit:false,swap_limit:false,cpu_quota:false,pids_limit:false,reason:Some(e) },
     }
