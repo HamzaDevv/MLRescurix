@@ -30,16 +30,16 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
   - Full `cargo test --locked` passed; live pinned-Docker cgroup/OOM/survivor checks, six end-to-end scientific pipeline modes, and real ENOSPC regression passed. See the fresh evidence below.
   - Architecture decisions D20–D25 recorded in `docs/v2/DECISIONS.md`.
   - Historical M6 evidence preserved untouched.
-- Runtime implementation: P1.1–P1.6 complete and verified for the covered regressions and supported Docker runtime.
+- Runtime implementation: P1.1–P1.6 complete and verified for the covered regressions and supported Docker runtime. P2.1 read-only inventory & design proposal completed in `docs/v2/P2_1_ARTIFACT_DESIGN.md`. P2.2 runtime CAS module, additive schema migration to `user_version = 10`, artifact registry contracts, and dual-write backward compatibility implemented and verified across 90 passed tests.
 - Release: M6 remains **NOT READY**, as recorded in `docs/m6-completion-status.md`.
-- Authorization: user authorized completion of P1.5 and P1.6, including final commit and push.
-- Next recommended slice: P2.1 artifact registry/version contract design and read-only inventory; obtain/confirm authorization before P2 runtime changes.
+- Authorization: user authorized proceeding with P2.2 runtime implementation ("ok proceed").
+- Next recommended slice: P2.3–P2.5 query commands, durable event journal subscriptions, and SSE non-blocking reader connection pool.
 
 | Phase | Status | Evidence / next step |
 | --- | --- | --- |
 | P0 | Complete | This doc set, archived inputs, static audit and documentation validation |
 | P1 | complete | P1.1–P1.6 verified; see `20261014-p1-review-resources/` evidence. M6 release remains independently NOT READY. |
-| P2 | Planned | Artifact contracts after P1 safety prerequisites |
+| P2 | in_progress | P2.1 design complete; P2.2 runtime CAS & schema v10 verified (90 tests passed); evidence in `20261014-p2-artifact-registry/`; P2.3–P2.5 next |
 | P3 | Planned | Extend existing reservations; no unconditional 50-job claim |
 | P4 | Planned | Add executable candidate adapter; keep old API working |
 | P5 | Planned | Context/task recovery on generic tool substrate |
@@ -73,6 +73,8 @@ or a specialist's assertion alone does not meet it. P0 is documentation complete
 | 2026-10-14 | P1.3 disk allocation budgets, reservation accounting, & ENOSPC recovery | Implemented unified reservation accounting (StorageWriteKind) under 128 MiB policy with zero silent exemptions, 4 MiB emergency headroom, 2 MiB WAL reserve, configurable category budgets via storage_budgets.json, scheduler POSIX ENOSPC (code 28) staging purge and reservation release, saturation cancellation without DB deadlocks (TransactionBehavior::Immediate), and 5 restart/cleanup cycles; added D22; full locked suite passed; captured evidence in docs/evidence/v2/p1/20261014-p1-storage-accounting/ |
 | 2026-10-14 | P1.4 lease-aware archival/tombstones, compact retry fences, & publication recovery | Implemented bounded archival & SHA-256 tombstones, active lease & pinned artifact protections, command body compaction to SHA-256 hash beyond 24 commands, settled action in-place compaction beyond 64 actions with durable action_fences, interrupted publication adoption for valid final directories, leaked bundle staging sweep, and delivery publication rollback of unreserved finalizing state; added D23; full locked suite passed (78 passed, 0 failed, 7 ignored); captured evidence in docs/evidence/v2/p1/20261014-p1-archival-fencing/ |
 | 2026-10-14 | P1.5–P1.6 cgroup resource receipts, Docker survivor recovery, and actual ENOSPC fault cycle | Added per-job cgroup v2 limits and host feature detection; refused required certification on unsupported hosts; collected/validated memory peak and events before teardown; atomically persisted exact Docker IDs and owner/state-root/project/lease/generation/intent labels; discovered survivors after restart and retained leases until confirmed exit; added mismatch, stop/remove failure, still-running, malformed-receipt, unsupported-host and race regressions; verified real ENOSPC recovery on disposable volume. Full locked suite, live pinned-image cgroup/OOM/survivor tests, six-mode pinned pipeline and ENOSPC test passed. Added D24–D25; user_version remains 9; M6 evidence untouched. Evidence: `docs/evidence/v2/p1/20261014-p1-review-resources/`. |
+| 2026-10-14 | P2.1 artifact registry & versioned contract design | Authored read-only inventory of M0–M6 artifact tables, filesystem paths, and APIs; designed CAS write protocol (`<state>/cas/<hash[0..2]>/<hash>`), target schema (`user_version = 10` DDL: `blobs`, `artifacts`, `artifact_versions`, `artifact_lineage`, `artifact_annotations`, `project_selections`, `durable_events`), two-tier summary bounds (<=512 B `index_digest`, <=4096 B `summary_text`), non-destructive migration strategy with dual-write compatibility, and lease-aware GC; user_version remains 9; no runtime edits; added D26; captured design in `docs/v2/P2_1_ARTIFACT_DESIGN.md`. |
+| 2026-10-14 | P2.2 runtime CAS, schema v10 migration & artifact registry | Implemented CAS module (`crates/harness/src/cas.rs`) with pre-admission reservation checks, SHA-256 validation, read-only permissions (`0o444`), directory manifests; additive schema migration to `user_version = 10` (`schema_m7_artifacts.sql`) with backfill from `managed_artifacts` and `scientific_datasets`; relational registry (`crates/harness/src/artifacts.rs`) with two-tier summary bounds (`index_digest` <= 512 B, `summary_text` <= 4096 B), evaluator-only scorecard authority, lineage, annotations, and Apex selection; dual-write backward compatibility in `Supervisor::finish` and `pin_artifact`. Decoupled ephemeral `jobs` GC from persistent versions. All 5 tests in `artifact_registry_p2` passed; 6 regression suites passed (90 tests passed, 0 failed). Captured evidence in `docs/evidence/v2/p2/20261014-p2-artifact-registry/`. |
 
 ## Update at the end of every implementation session
 
@@ -341,8 +343,90 @@ file. This closeout supersedes earlier “next slice” recommendations.
 - Release: P1 complete does not close M6. Gate 3 installed delivery and gate 4
   prospective matched benchmarks remain open; gate 5 requires broader supported
   platform/installed-delivery qualification.
-- Next: P2.1 artifact registry/version contract design and read-only inventory;
-  runtime changes need the corresponding user authorization.
+- Next: P2.1 artifact registry/version contract design and read-only inventory complete; obtain/confirm authorization before P2.2 runtime changes.
+
+### Implementation Session 2026-10-14 (P2.1 Artifact Registry & Version Contract Design)
+
+```text
+Date / phase / task IDs: 2026-10-14 / P2 / P2.1 (artifact registry and versioned artifact contract design)
+User-authorized scope: P2.1 artifact registry and versioned contract design, beginning with a read-only inventory and a concrete proposal; no runtime edits.
+Starting commit and pre-existing dirty files: ed5812f275e5264b3ef808e01bfbb90847b2c019; clean working tree.
+Changes and source paths:
+  - docs/v2/P2_1_ARTIFACT_DESIGN.md: Comprehensive reviewable architecture proposal covering inventory of all M0–M6 artifact tables, filesystem paths, and APIs; gap and compatibility risk analysis; target schema (user_version = 10 DDL: blobs, artifacts, artifact_versions, artifact_lineage, artifact_annotations, project_selections, durable_events); CAS directory layout (<state>/cas/<hash[0..2]>/<hash>) and pre-reservation atomic write protocol; multi-file directory manifest contract; two-tier summary bounds for Context Firewall (index_digest <= 512 B, summary_text <= 4096 B); non-destructive additive migration and dual-write compatibility strategy; lease-aware GC; test matrix; open decisions and authorization checklist.
+  - docs/v2/DECISIONS.md: Recorded D26 and P2.1 resolution details.
+  - docs/v2/PROGRESS.md: Updated current state, phase map, session ledger, and session entry.
+Decisions added or revised: D26 added (Unified Artifact Registry, Content-Addressable Storage (CAS), Two-Tier Summary Bounds, and Versioned Contracts).
+Exact verification commands and exit results:
+  - Documentation link and integrity validation (exit code 0; all links valid, zero broken references).
+  - git status (clean tracked modifications in docs/v2/ only; zero runtime code or schema edits).
+Evidence paths plus source/image/schema hashes:
+  - docs/v2/P2_1_ARTIFACT_DESIGN.md
+  - PRAGMA user_version remains strictly at 9.
+  - Historical M6 evidence in docs/evidence/m6/ preserved untouched.
+Implemented but unverified: None (documentation and architecture design only; zero runtime code edits in this slice).
+Failure/recovery scenarios still open:
+  - Runtime implementation of CAS module and storage reservation hooks (P2.2).
+  - Runtime additive schema migration to user_version = 10 and backfill (P2.2).
+  - Evaluator-only scorecard authority and two-tier summary bounds enforcement (P2.3).
+  - Durable event journaling and SSE non-blocking reader pool (P2.4–P2.5).
+Budget / compatibility / migration implications:
+  - Zero database migration version bump performed in this slice (user_version remains 9).
+  - 128 MiB policy ceiling preserved; CAS writes will strictly require pre-admission byte reservations.
+  - Existing M0–M6 tables and APIs completely preserved with dual-write compatibility planned for P2.2.
+Next small actionable slice:
+  - P2.2 runtime CAS module (`crates/harness/src/cas.rs`) and additive schema migration to `user_version = 10` (`crates/harness/src/schema_m7_artifacts.sql`) upon explicit user authorization.
+```
+
+### Implementation Session 2026-10-14 (P2.2 Runtime CAS & Schema Migration Slice)
+
+```text
+Date / phase / task IDs: 2026-10-14 / P2 / P2.2 (runtime CAS, schema migration to user_version = 10, artifact registry, and dual-write)
+User-authorized scope: User explicitly authorized proceeding with P2.2 runtime implementation ("ok proceed").
+Starting commit and pre-existing dirty files: ed5812f275e5264b3ef808e01bfbb90847b2c019; dirty: docs/v2/{ARGON_REVIEW_PACKET.txt, DECISIONS.md, PROGRESS.md, README.md, ROADMAP.md, P2_1_ARTIFACT_DESIGN.md}.
+Changes and source paths:
+  - crates/harness/src/schema_m7_artifacts.sql: Additive DDL migration from user_version 9 to 10 creating `blobs`, `artifacts`, `artifact_versions`, `artifact_lineage`, `artifact_annotations`, `project_selections`, `durable_events` with non-destructive backfill from legacy `managed_artifacts` and `scientific_datasets`. Idempotent `IF NOT EXISTS` DDL. Decoupled `source_job_id` from strict foreign key blocking to ensure compatibility with sliding-window terminal job retention GC while preserving provenance strings and index.
+  - crates/harness/src/cas.rs: ContentAddressableStorage implementing `<state>/cas/<hash[0..2]>/<hash>` storage layout, pre-admission reservation checks under 128 MiB policy ceiling, temporary staging in `cas/.staging/<nonce>.tmp`, fsync and read-only (`0o444`) permissions before atomic rename, deduplication, and canonical directory manifest hashing.
+  - crates/harness/src/artifacts.rs: ArtifactRegistry implementing logical entity registration, immutable version registration, two-tier summary bounds checks (`index_digest` <= 512 B, `summary_text` <= 4096 B), evaluator-only scorecard authority check (`producer_authority == "evaluator:trusted"`), lineage edges, annotations, Apex selection, and durable event journal querying.
+  - crates/harness/src/lib.rs: Exposed `cas` and `artifacts` modules.
+  - crates/harness/src/storage.rs: Expanded supported migration range from 1..=9 to 1..=10.
+  - crates/harness/src/execution.rs: Updated migration loop to apply `schema_m7_artifacts.sql` for case 9, updated `connect()` visibility to `pub(crate)`, integrated dual-writing in `Supervisor::finish` and `pin_artifact`.
+  - crates/harness/src/execution_resources.rs: Updated `user_version` assertion from 9 to 10.
+  - crates/harness/tests/release_m6.rs: Updated `user_version` assertions from 9 to 10.
+  - crates/harness/tests/recovery_cycles.rs: Updated `user_version` assertions from 9 to 10.
+  - crates/harness/tests/artifact_registry_p2.rs: Comprehensive 5-test suite covering v9 -> v10 migration with populated legacy state, CAS blob deduplication and permissions, canonical directory manifests and symlink rejection, two-tier summary bounds and scorecard authority enforcement, and lineage, annotations, and Apex selection.
+Decisions added or revised: D26 updated with P2.2 runtime implementation and verification details.
+Exact verification commands and exit results:
+  - cargo test --locked --test artifact_registry_p2 (exit code 0; 5 passed)
+  - cargo test --locked --lib (exit code 0; 14 passed, 2 ignored)
+  - cargo test --locked --test foundation -- --test-threads=4 (exit code 0; 26 passed)
+  - cargo test --locked --test release_m6 (exit code 0; 5 passed, 3 ignored)
+  - cargo test --locked --test recovery_cycles -- --test-threads=1 (exit code 0; 8 passed, 2 ignored)
+  - cargo test --locked --test agent_m4 (exit code 0; 23 passed)
+  - cargo test --locked --test search_m3 (exit code 0; 9 passed, 1 ignored)
+  - Total passed tests across all 7 suites: 90 passed, 0 failed, 8 ignored.
+Evidence paths plus source/image/schema hashes:
+  - docs/evidence/v2/p2/20261014-p2-artifact-registry/artifact-registry-suite.log
+  - docs/evidence/v2/p2/20261014-p2-artifact-registry/lib-suite.log
+  - docs/evidence/v2/p2/20261014-p2-artifact-registry/foundation-suite.log
+  - docs/evidence/v2/p2/20261014-p2-artifact-registry/release-m6-suite.log
+  - docs/evidence/v2/p2/20261014-p2-artifact-registry/recovery-cycles-suite.log
+  - docs/evidence/v2/p2/20261014-p2-artifact-registry/agent-m4-suite.log
+  - docs/evidence/v2/p2/20261014-p2-artifact-registry/search-m3-suite.log
+  - PRAGMA user_version is now at 10.
+  - Historical M6 evidence in docs/evidence/m6/ preserved untouched.
+Implemented but unverified:
+  - None; all runtime code in P2.2 verified through automated test suites.
+Failure/recovery scenarios still open:
+  - Bounded read connection pool sizing for SSE streaming without writer starvation (P2.5).
+  - Outbound data sanitization / approved view policy for artifact summaries entering agent context (P2.4).
+Budget / compatibility / migration implications:
+  - `PRAGMA user_version = 10` active and supported.
+  - Non-destructive additive DDL preserves all legacy M0–M6 tables.
+  - 128 MiB policy ceiling strictly preserved via CAS pre-admission reservation checks.
+  - Dual-write adapters in `Supervisor::finish` and `pin_artifact` ensure existing readers continue functioning without disruption.
+Next small actionable slice:
+  - P2.3–P2.5 artifact inspection queries, durable event journal subscription APIs, and SSE non-blocking reader connection pool.
+```
 
 Copy and fill one entry; update phase/task statuses above too.
 

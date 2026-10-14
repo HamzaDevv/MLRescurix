@@ -1,0 +1,12 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests/artifact_registry_p2.rs (target/debug/deps/artifact_registry_p2-d4851db49aa13a29)
+
+running 5 tests
+test p2_test_cas_blob_storage_deduplication_and_permissions ... ok
+test p2_test_directory_manifest_canonicalization_and_symlink_rejection ... ok
+test p2_test_migration_v9_to_v10_with_populated_state ... ok
+test p2_test_two_tier_summary_bounds_and_authority ... ok
+test p2_test_lineage_annotations_and_apex_selection ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+

@@ -51,7 +51,7 @@ fn now_ms() -> i64 { SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_defa
 fn sql<T>(x:rusqlite::Result<T>)->Result<T>{x.map_err(|e|e.to_string())}
 fn hash(data:&[u8])->String{format!("{:x}",Sha256::digest(data))}
 fn valid_id(s:&str)->Result<()>{if s.is_empty()||s.len()>128||!s.bytes().all(|b|b.is_ascii_alphanumeric()||b"_.:-".contains(&b)){Err("invalid job identity".into())}else{Ok(())}}
-fn connect(root:&Path)->Result<Connection>{
+pub(crate) fn connect(root:&Path)->Result<Connection>{
     if fs::symlink_metadata(root).map_err(|e|e.to_string())?.file_type().is_symlink(){return Err("state root cannot be a symlink".into());}
     if fs::read_to_string(root.join("OWNED")).map_err(|e|e.to_string())?!=OWNER_MARKER{return Err("unowned state".into());}
     for name in ["state.sqlite","state.sqlite-wal","state.sqlite-shm","OWNED"] {if fs::symlink_metadata(root.join(name)).is_ok_and(|m|m.file_type().is_symlink()){return Err("state file symlink rejected".into());}}
@@ -63,7 +63,7 @@ fn connect(root:&Path)->Result<Connection>{
     sql(c.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;"))?;
     loop {
         let version:i64=sql(c.query_row("PRAGMA user_version",[],|r|r.get(0)))?;
-        if version==9 { break; }
+        if version==10 { break; }
         if version==6 { sql(c.execute_batch("PRAGMA foreign_keys=OFF;"))?; }
         let tx=sql(c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate))?;
         let confirmed:i64=sql(tx.query_row("PRAGMA user_version",[],|r|r.get(0)))?;
@@ -77,6 +77,7 @@ fn connect(root:&Path)->Result<Connection>{
             6=>sql(tx.execute_batch(include_str!("schema_m6.sql")))?,
             7=>sql(tx.execute_batch(include_str!("schema_m6_completion.sql")))?,
             8=>sql(tx.execute_batch(include_str!("schema_m6_recovery.sql")))?,
+            9=>sql(tx.execute_batch(include_str!("schema_m7_artifacts.sql")))?,
             _=>return Err(format!("unsupported database migration version {version}")),
         }
         let violation: bool = sql(tx.query_row("SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)", [], |r| r.get(0)))?;
@@ -405,7 +406,12 @@ pub fn remove_environment(root:&Path,id:&str)->Result<()> {
 
 pub fn pin_artifact(root:&Path,p:&str,job:&str,pinned:bool)->Result<()> {
     let c=connect(root)?;let changed=sql(c.execute("UPDATE managed_artifacts SET pinned=?3 WHERE project=?1 AND job=?2",params![p,job,pinned as i64]))?;
-    if changed==0{return Err("job has no managed artifact to pin".into());}Ok(())
+    if changed==0{return Err("job has no managed artifact to pin".into());}
+    let _ = c.execute(
+        "UPDATE artifacts SET pinned=?3, updated_ms=?4 WHERE project=?1 AND artifact_id IN (SELECT artifact_id FROM artifact_versions WHERE project=?1 AND source_job_id=?2)",
+        params![p, job, pinned as i64, now_ms()],
+    );
+    Ok(())
 }
 
 pub const MAX_RETAINED_EVENTS_PER_PROJECT: i64 = 64;
@@ -1590,7 +1596,33 @@ impl Supervisor {
                 let bundle_manifest_path=workflow.join("bundle/manifest.json");
                 if bundle_manifest_path.is_file() {
                     let bm_bytes=fs::read(&bundle_manifest_path).map_err(|e|e.to_string())?;
-                    sql(tx.execute("INSERT OR REPLACE INTO managed_artifacts(project,job,name,bytes,sha256,pinned) VALUES(?1,?2,'bundle/manifest.json',?3,?4,1)",params![v.spec.project_id,v.spec.job_id,bm_bytes.len() as u64,hash(&bm_bytes)]))?;
+                    let bm_hash = hash(&bm_bytes);
+                    sql(tx.execute("INSERT OR REPLACE INTO managed_artifacts(project,job,name,bytes,sha256,pinned) VALUES(?1,?2,'bundle/manifest.json',?3,?4,1)",params![v.spec.project_id,v.spec.job_id,bm_bytes.len() as u64,&bm_hash]))?;
+                    let cas = crate::cas::ContentAddressableStorage::new(&self.root);
+                    let _ = cas.store_blob(&bm_bytes, "application/json", Some(&v.spec.project_id));
+                    if bm_hash.len() == 64 {
+                        let now = now_ms();
+                        let _ = tx.execute(
+                            "INSERT OR IGNORE INTO blobs(sha256, bytes, media_type, created_ms) VALUES(?1, ?2, 'application/json', ?3)",
+                            params![bm_hash, bm_bytes.len() as u64, now],
+                        );
+                        let _ = tx.execute(
+                            "INSERT OR IGNORE INTO artifacts(project, artifact_id, kind, producer_authority, current_version_id, pinned, visibility, created_ms, updated_ms)
+                             VALUES(?1, 'bundle/manifest.json', 'apex_bundle', 'evaluator:finalizer', NULL, 1, 'project', ?2, ?2)",
+                            params![v.spec.project_id, now],
+                        );
+                        let version_id = format!("{}_bundle_manifest", v.spec.job_id);
+                        let index_digest = format!("[bundle/manifest.json] final delivery manifest ({} B, sha:{})", bm_bytes.len(), &bm_hash[..8.min(bm_hash.len())]);
+                        let _ = tx.execute(
+                            "INSERT OR REPLACE INTO artifact_versions(project, version_id, artifact_id, blob_sha256, index_digest, summary_text, schema_version, metadata_json, source_job_id, created_ms)
+                             VALUES(?1, ?2, 'bundle/manifest.json', ?3, ?4, NULL, 1, '{}', ?5, ?6)",
+                            params![v.spec.project_id, version_id, bm_hash, index_digest, v.spec.job_id, now],
+                        );
+                        let _ = tx.execute(
+                            "UPDATE artifacts SET current_version_id=?2, pinned=1, updated_ms=?3 WHERE project=?1 AND artifact_id='bundle/manifest.json'",
+                            params![v.spec.project_id, version_id, now],
+                        );
+                    }
                 }
                 let test_hash=gate["dataset_sha256"].as_str().ok_or("test gate lacks dataset hash")?;
                 sql(tx.execute("UPDATE final_test_gates SET frozen_model_sha256=?4,status='consumed',result_sha256=?5 WHERE project=?1 AND access_id=?2 AND dataset_sha256=?3 AND status='reserved'",params![v.spec.project_id,access,test_hash,gate["frozen_model_sha256"].as_str().unwrap_or(""),hash(&fs::read(&result_path).map_err(|e|e.to_string())?)]))?;
@@ -1605,7 +1637,42 @@ impl Supervisor {
         sql(tx.execute("UPDATE jobs SET status=?3,reason=?4,ended_ms=?5,pid=NULL,artifacts=?6 WHERE project=?1 AND id=?2",params![v.spec.project_id,v.spec.job_id,status,reason,now_ms(),serde_json::to_string(&artifacts).map_err(|e|e.to_string())?]))?;
         settle_job_action(&tx,&v.spec.project_id,&v.spec.job_id,elapsed_ms,status)?;
         sql(tx.execute("DELETE FROM environment_leases WHERE project=?1 AND job=?2",params![v.spec.project_id,v.spec.job_id]))?;
-        for a in &artifacts {sql(tx.execute("INSERT INTO managed_artifacts(project,job,name,bytes,sha256) VALUES(?1,?2,?3,?4,?5)",params![v.spec.project_id,v.spec.job_id,a["name"].as_str().unwrap_or(""),a["bytes"].as_u64().unwrap_or(0),a["sha256"].as_str().unwrap_or("")]))?;}
+        let cas = crate::cas::ContentAddressableStorage::new(&self.root);
+        for a in &artifacts {
+            let name = a["name"].as_str().unwrap_or("");
+            let bytes = a["bytes"].as_u64().unwrap_or(0);
+            let sha = a["sha256"].as_str().unwrap_or("");
+            sql(tx.execute("INSERT INTO managed_artifacts(project,job,name,bytes,sha256) VALUES(?1,?2,?3,?4,?5)",params![v.spec.project_id,v.spec.job_id,name,bytes,sha]))?;
+
+            let file_path = self.root.join("artifacts").join(&v.spec.project_id).join(&v.spec.job_id).join(name);
+            if file_path.is_file() {
+                let _ = cas.store_file(&file_path, "application/octet-stream", Some(&v.spec.project_id));
+            }
+
+            if sha.len() == 64 {
+                let now = now_ms();
+                let _ = tx.execute(
+                    "INSERT OR IGNORE INTO blobs(sha256, bytes, media_type, created_ms) VALUES(?1, ?2, 'application/octet-stream', ?3)",
+                    params![sha, bytes, now],
+                );
+                let _ = tx.execute(
+                    "INSERT OR IGNORE INTO artifacts(project, artifact_id, kind, producer_authority, current_version_id, pinned, visibility, created_ms, updated_ms)
+                     VALUES(?1, ?2, 'code', 'agent:worker', NULL, 0, 'project', ?3, ?3)",
+                    params![v.spec.project_id, name, now],
+                );
+                let version_id = format!("{}_{}", v.spec.job_id, name.replace('/', "_").replace('.', "_"));
+                let index_digest = format!("[{name}] output of job {} ({} B, sha:{})", v.spec.job_id, bytes, &sha[..8.min(sha.len())]);
+                let _ = tx.execute(
+                    "INSERT OR REPLACE INTO artifact_versions(project, version_id, artifact_id, blob_sha256, index_digest, summary_text, schema_version, metadata_json, source_job_id, created_ms)
+                     VALUES(?1, ?2, ?3, ?4, ?5, NULL, 1, '{}', ?6, ?7)",
+                    params![v.spec.project_id, version_id, name, sha, index_digest, v.spec.job_id, now],
+                );
+                let _ = tx.execute(
+                    "UPDATE artifacts SET current_version_id=?2, updated_ms=?3 WHERE project=?1 AND artifact_id=?4",
+                    params![v.spec.project_id, version_id, now, name],
+                );
+            }
+        }
         if let Some(log)=sql(tx.query_row("SELECT log_path FROM jobs WHERE project=?1 AND id=?2",params![v.spec.project_id,v.spec.job_id],|r|r.get::<_,Option<String>>(0)))? {if let Ok(m)=fs::metadata(&log){if m.len()>LOG_CAP {let f=fs::OpenOptions::new().write(true).open(log).map_err(|e|e.to_string())?;f.set_len(LOG_CAP).map_err(|e|e.to_string())?;}}}
         sql(tx.execute("INSERT INTO events(project,kind,payload) VALUES(?1,'job.terminal',?2)",params![v.spec.project_id,json!({"job_id":v.spec.job_id,"status":status,"reason":reason,"artifacts":artifacts}).to_string()]))?;
         tx.commit().map_err(|e|e.to_string())?;Ok(())

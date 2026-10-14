@@ -30,6 +30,7 @@ implementation or irrevocable user approvals. Record reversals with evidence.
 | D23 | Lease-aware archival, tombstones, compact retry fences, and interrupted publication reconciliation | Finite-state bounding must not delete idempotency retry fences or break historical action invariants; command bodies hashed in-place beyond active window; completed actions compacted in-place with dual action_fences; SHA-256 tombstones track reclaimed bytes; active leases/pinned artifacts protected; publication staging crashes adopt valid final directories or reset unreserved finalizing states. |
 | D24 | Per-job memory certification requires measured cgroup v2 evidence | Apply Docker memory/swap/CPU/PID limits to every scientific job; probe daemon/kernel support before admission; required certification is refused deterministically if any required cgroup feature is absent. A trusted in-container monitor captures before/after counters and peak/events, fsyncs a receipt before exit, and the supervisor validates and persists that receipt before reporting certified success. |
 | D25 | Docker survivor recovery uses exact IDs and fenced ownership metadata | Persist the exact created container ID and owner nonce, state-root digest, project/job, lease epoch, generation, intent revision and spec identity before start. On restart, discover by harness labels, compare against durable job/lease state, and only stop/remove a verified owned survivor by exact ID. Keep leases reserved until inspect confirms exit; ambiguous or mismatched ownership is retained for explicit reconciliation. |
+| D26 | Unified Artifact Registry, Content-Addressable Storage (CAS), Two-Tier Summary Bounds, and Versioned Contracts | Unify fragmented M0–M6 artifact stores behind hash-addressed CAS (`<state>/cas/<hash[0..2]>/<hash>`) and a relational registry (`blobs`, `artifacts`, `artifact_versions`, `artifact_lineage`, `artifact_annotations`, `project_selections`, `durable_events`); enforce strict SQLite CHECK bounds for `index_digest` (<=512 B) and `summary_text` (<=4 KiB); restrict scorecard authority to `evaluator:trusted`; migrate `user_version` from 9 to 10 additively with dual-write compatibility. |
 
 ## Resolve in the owning phase
 
@@ -97,6 +98,31 @@ implementation or irrevocable user approvals. Record reversals with evidence.
      - Delivery publication crash boundary: `reconcile_delivery_publication()` checks final test gate reservation status; unreserved 'finalizing' state is safely rolled back to 'created' with `effect_outcome: "uncertain"`.
 - P2: kind schema extension/visibility policy, event retention, reader pool sizing
   and migration compatibility lifetime.
+  *Resolved in P2.1 Design (2026-10-14, Proposal Complete)*:
+  1. Kind schema extension & visibility: defined 10 canonical artifact kinds (`data_profile`,
+     `research_note`, `code`, `run_log`, `diagnostic_spec`, `prediction`, `scorecard`,
+     `apex_bundle`, `checkpoint`, `model_weights`) with extensible namespaced `schema_version`;
+     visibility controlled via `'public'|'project'|'internal'`; official scorecard authority
+     strictly restricted to `evaluator:trusted` (agent claims remain explicitly unofficial).
+  2. Two-tier summary bounds for Context Firewall: `index_digest` <= 512 UTF-8 bytes for
+     low-overhead discovery/DAG listing/context injection; `summary_text` <= 4096 UTF-8 bytes
+     for on-demand inspection, enforced via SQLite `CHECK` constraints.
+  3. CAS layout and atomic write protocol: `<state>/cas/<hash[0..2]>/<hash>` with pre-admission
+     byte reservations under 128 MiB policy ceiling, temporary staging in `cas/.staging/<nonce>.tmp`,
+     fsync and read-only (`0o444`) permissions before atomic rename.
+  4. Directed lineage graph: `artifact_lineage` tracking `'derived_from'`, `'evaluates'`,
+     `'packages'`, `'supersedes'` edges across immutable version IDs.
+  5. Event journal & retention: `durable_events` with monotonic autoincrement cursor; sliding
+     retention window (default 10,000 per project) with cursor snapshot checkpoints.
+  6. Read connection pool sizing: 4 dedicated read-only connections (`PRAGMA query_only = ON`)
+     to prevent writer starvation during SSE streaming.
+  7. Migration compatibility & implementation: `PRAGMA user_version = 10` implemented
+     in `schema_m7_artifacts.sql` with non-destructive additive DDL and backfill from
+     `managed_artifacts` and `scientific_datasets`. Ephemeral job GC compatibility ensured
+     by decoupling `source_job_id` from strict foreign key blocking while preserving
+     provenance strings and indexes. Dual-write adapters in `Supervisor::finish` and
+     `pin_artifact` guarantee full backward compatibility. Verified in `artifact_registry_p2`
+     and harness regression suites.
 - P3: effective Docker VM capacity probing, initial fair-queue weights, admission
   request presets, supported cgroup/kernel/platform matrix.
 - P4: prediction wire format, argv vs shell surface, environment provisioning tool,

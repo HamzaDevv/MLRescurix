@@ -1,11 +1,11 @@
 # Paste-ready continuation prompt
 
 Use this in a fresh local coding session. Replace `[PHASE_OR_TASK]` with the work
-you authorize; P1 is now complete. The recommended next slice is a P2.1 artifact registry/version contract design and read-only inventory.
+you authorize; P1 and P2.1–P2.2 are now complete. The recommended next slice is P2.3–P2.5 artifact inspection queries, durable event journal subscription APIs, and SSE non-blocking reader connection pool.
 
 ```text
 Continue MLRescurix in /Users/hamza/Developer/Imp_Projects/MLRescurix.
-Authorized scope for this session: [PHASE_OR_TASK, e.g., P2.1 artifact registry/version contract design].
+Authorized scope for this session: [PHASE_OR_TASK, e.g., P2.3–P2.5 artifact inspection queries, durable event journal subscriptions, and SSE non-blocking reader connection pool].
 
 Read docs/v2/README.md, PROGRESS.md, AUDIT.md, ROADMAP.md, ARCHITECTURE.md
 and DECISIONS.md. Then read docs/m6-completion-status.md and the relevant

@@ -986,7 +986,7 @@ fn p1_real_enospc_on_disposable_volume_preserves_fences_across_restarts() {
         assert_eq!(db.query_row("SELECT count(*) FROM reservations WHERE held=1",[],|r|r.get::<_,i64>(0)).unwrap(),0);
         assert_eq!(db.query_row("SELECT count(*) FROM charges WHERE action=?1",[format!("job.{id}")],|r|r.get::<_,i64>(0)).unwrap(),1);
         assert_eq!(db.query_row("PRAGMA integrity_check",[],|r|r.get::<_,String>(0)).unwrap(),"ok");
-        assert_eq!(db.query_row("PRAGMA user_version",[],|r|r.get::<_,i64>(0)).unwrap(),9);
+        assert_eq!(db.query_row("PRAGMA user_version",[],|r|r.get::<_,i64>(0)).unwrap(),10);
         execution::collect_artifacts(&root).unwrap();
     }
     let retry=rt.command(mlrescurix_harness::core::Request{command_id:"project-cycles".into(),project_id:"cycles".into(),expected_revision:None,operation:mlrescurix_harness::core::Operation::CreateProject{intent:"Docker pipeline integration fixture".into(),finalization_id:"f-cycles".into(),policy:fixtures::policy()}}).unwrap();assert_eq!(retry.status,"applied");

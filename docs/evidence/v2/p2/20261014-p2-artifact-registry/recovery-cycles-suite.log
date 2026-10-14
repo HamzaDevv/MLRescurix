@@ -1,0 +1,17 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests/recovery_cycles.rs (target/debug/deps/recovery_cycles-0b28c321f449fe02)
+
+running 10 tests
+test fixtures::scheduled_features_calibration_ensemble_and_verified_oof ... ignored, explicit pinned scientific Docker image required; no host fallback
+test leased_artifacts_survive_concurrent_gc_and_cancellation ... ok
+test oversized_output_refusal_and_write_recovery ... ok
+test p1_archival_tombstone_fencing_and_publication_recovery_fault_regressions ... ok
+test p1_concurrent_workspace_writers_cannot_share_the_same_remaining_room ... ok
+test p1_real_enospc_on_disposable_volume_preserves_fences_across_restarts ... ignored, explicit disposable mounted bounded volume via MLRESCURIX_ENOSPC_VOLUME required
+test p1_storage_exhaustion_enospc_and_reservation_fault_regressions ... ok
+test p1_supervisor_drains_worker_output_without_exceeding_shared_log_cap ... ok
+test total_state_limit_refuses_new_admission_and_keeps_retry_identity ... ok
+test twenty_five_fault_cleanup_restart_cycles_bound_payload_and_measure_durable_metadata ... ok
+
+test result: ok. 8 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 9.08s
+

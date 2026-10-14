@@ -1,0 +1,17 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests/search_m3.rs (target/debug/deps/search_m3-5b7b320110943fbf)
+
+running 10 tests
+test m3_end_to_end_search_and_finalization ... ignored, historical host scientific fixture; replaced by explicit digest-pinned Docker pipeline tests; does not satisfy content-bound finalization
+test m3_minimize_direction_selects_lowest_metric ... ok
+test m3_infeasible_candidate_cannot_qualify_for_apex ... ok
+test m3_tie_tolerance_prefers_lower_latency_then_smaller_size ... ok
+test m3_parameter_bounds_and_identity_hashing ... ok
+test m3_research_closure_rejects_search_after_gate_reservation ... ok
+test m3_baseline_derivation_and_constraint_checking ... ok
+test m3_search_init_is_idempotent_and_ingests_baselines ... ok
+test m3_capabilities_reports_phase_m3_and_scientific_flags ... ok
+test m3_budget_guard_triggers_provisional_outcome ... ok
+
+test result: ok. 9 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.24s
+

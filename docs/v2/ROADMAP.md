@@ -122,6 +122,10 @@ existing managed artifacts and scientific registration adapters.
 CAS/DB commits reconcile; protected references survive concurrent GC; stale updates
 and forged scores reject; restart/reconnect delivers committed events consistently.
 
+**Status (2026-10-14): P2.1 design and P2.2 runtime implementation complete.**
+Read-only inventory, CAS write protocol, target schema (`user_version = 10`), two-tier summary bounds, and migration strategy recorded in `docs/v2/P2_1_ARTIFACT_DESIGN.md`.
+Runtime CAS module (`crates/harness/src/cas.rs`), additive schema migration (`crates/harness/src/schema_m7_artifacts.sql`), relational registry (`crates/harness/src/artifacts.rs`), and dual-write backward compatibility adapters implemented and verified across 5 tests in `crates/harness/tests/artifact_registry_p2.rs` and 6 regression test suites (90 passed tests total, 0 failed). Evidence under `docs/evidence/v2/p2/20261014-p2-artifact-registry/`.
+
 ## P3 — Resource leases across projects
 
 **Depends on:** P1, P2 telemetry. **Outcome:** ten projects/five intents per project

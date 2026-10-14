@@ -20,8 +20,11 @@ tabular ML; expand through evaluated task/backend adapters and compute negotiati
 9. [Argon review packet](ARGON_REVIEW_PACKET.txt): one paste-ready file containing this doc set, both original blueprints, and the review prompt. Regenerate with `python3 scripts/build_argon_review_packet.py` after edits.
 10. [Review disposition](REVIEW_RESPONSE.md): accepted additions and corrections to Argon's replacement documents.
 11. [Argon planning review](ARGON_PLAN_REVIEW.txt): verbatim returned feedback and proposed replacements.
+12. [P1 mutation and effect matrix](P1_MUTATION_MATRIX.md): inventory of all 48 SQLite tables and filesystem mutations.
+13. [P2.1 artifact registry design](P2_1_ARTIFACT_DESIGN.md): authoritative inventory, CAS write protocol, and target versioned contracts.
 
 P1 (P1.1–P1.6) is complete for the acceptance scope recorded in `PROGRESS.md`.
+P2.1 design proposal and P2.2 runtime CAS & schema migration (user_version = 10) are complete and verified across 90 tests.
 M6 remains **NOT READY** until its independent delivery and benchmark gates close.
 The progress ledger records runtime work and evidence; this document remains the
 roadmap. Existing project handoffs remain the authority on M6 release evidence. This roadmap supersedes the
