@@ -85,6 +85,9 @@ pub(crate) fn connect(root:&Path)->Result<Connection>{
         sql(tx.commit())?;
         sql(c.execute_batch("PRAGMA foreign_keys=ON;"))?;
     }
+    // The schema fragment is idempotent. Reapply it so additive trigger fixes
+    // (including artifact tombstone journaling) reach already-v10 databases.
+    sql(c.execute_batch(include_str!("schema_p2_events.sql")))?;
     sql(c.execute_batch("CREATE TABLE IF NOT EXISTS tombstones(
         project TEXT NOT NULL REFERENCES projects(id),
         entity_kind TEXT NOT NULL CHECK(entity_kind IN('job','artifact','action')),
@@ -405,12 +408,17 @@ pub fn remove_environment(root:&Path,id:&str)->Result<()> {
 }
 
 pub fn pin_artifact(root:&Path,p:&str,job:&str,pinned:bool)->Result<()> {
-    let c=connect(root)?;let changed=sql(c.execute("UPDATE managed_artifacts SET pinned=?3 WHERE project=?1 AND job=?2",params![p,job,pinned as i64]))?;
+    valid_id(p)?; valid_id(job)?;
+    let c=connect(root)?;
+    let tx=sql(rusqlite::Transaction::new_unchecked(&c,rusqlite::TransactionBehavior::Immediate))?;
+    enforce_state_write_admission(root,Some(&tx),16*1024,StorageWriteKind::Checkpoint,Some(p))?;
+    let changed=sql(tx.execute("UPDATE managed_artifacts SET pinned=?3 WHERE project=?1 AND job=?2",params![p,job,pinned as i64]))?;
     if changed==0{return Err("job has no managed artifact to pin".into());}
-    let _ = c.execute(
+    sql(tx.execute(
         "UPDATE artifacts SET pinned=?3, updated_ms=?4 WHERE project=?1 AND artifact_id IN (SELECT artifact_id FROM artifact_versions WHERE project=?1 AND source_job_id=?2)",
-        params![p, job, pinned as i64, now_ms()],
-    );
+        params![p,job,pinned as i64,now_ms()],
+    ))?;
+    tx.commit().map_err(|e|e.to_string())?;
     Ok(())
 }
 

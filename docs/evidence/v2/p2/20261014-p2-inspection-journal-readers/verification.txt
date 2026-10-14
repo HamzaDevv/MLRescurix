@@ -1,0 +1,5 @@
+Branch: codex/p1-cgroup-orphan-recovery
+Starting HEAD: ed5812f
+PRAGMA user_version: 10 (migration regression)
+Commands, counts, and results: adjacent *.log files.
+M6 evidence directory was not modified.

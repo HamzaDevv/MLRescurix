@@ -200,14 +200,11 @@ fn p2_test_two_tier_summary_bounds_and_authority() {
     let err_auth = registry.publish_version(
         "p-bounds", "sc_fraud", &dummy_sha, "fraud score", None, 1, None, None,
     ).unwrap_err();
-    assert!(err_auth.contains("unauthorized attempt to publish scorecard artifact: requires evaluator:trusted"));
+    assert!(err_auth.contains("scorecard publication is restricted to the trusted evaluator API"));
 
-    // 6. Trusted evaluator can publish scorecard
-    registry.register_artifact("p-bounds", "sc_legit", "scorecard", "evaluator:trusted", None).unwrap();
-    let legit_ver = registry.publish_version(
-        "p-bounds", "sc_legit", &dummy_sha, "legit score 0.85", None, 1, None, None,
-    ).unwrap();
-    assert!(!legit_ver.is_empty());
+    // A caller cannot self-assert evaluator authority through the general API.
+    let forged = registry.register_artifact("p-bounds", "sc_legit", "scorecard", "evaluator:trusted", None).unwrap_err();
+    assert!(forged.contains("reserved for the trusted evaluator API"));
 }
 
 #[test]
@@ -231,8 +228,14 @@ fn p2_test_lineage_annotations_and_apex_selection() {
     registry.register_artifact("p-lin", "c1", "code", "agent:engineer", None).unwrap();
     let v_c1 = registry.publish_version("p-lin", "c1", &dummy_sha, "candidate c1", None, 1, None, None).unwrap();
 
-    registry.register_artifact("p-lin", "s1", "scorecard", "evaluator:trusted", None).unwrap();
-    let v_s1 = registry.publish_version("p-lin", "s1", &dummy_sha, "scorecard s1", None, 1, None, None).unwrap();
+    registry.register_artifact("p-lin", "s1", "scorecard", "agent:critic", None).unwrap();
+    assert!(registry.publish_version("p-lin", "s1", &dummy_sha, "claimed scorecard", None, 1, None, None).unwrap_err().contains("trusted evaluator API"));
+    // Fixture a scorecard row as if committed by the private evaluator adapter.
+    let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+    db.execute("INSERT INTO artifacts(project,artifact_id,kind,producer_authority,created_ms,updated_ms) VALUES('p-lin','trusted_score','scorecard','evaluator:trusted',1,1)", []).unwrap();
+    db.execute("INSERT INTO artifact_versions(project,version_id,artifact_id,blob_sha256,index_digest,created_ms) VALUES('p-lin','v_score','trusted_score',?1,'trusted evaluator receipt',1)", [&dummy_sha]).unwrap();
+    db.execute("UPDATE artifacts SET current_version_id='v_score' WHERE project='p-lin' AND artifact_id='trusted_score'", []).unwrap();
+    let v_s1 = "v_score".to_string();
 
     // Lineage recording
     registry.record_lineage("p-lin", &v_c1, &v_ds, "derived_from", None).unwrap();
@@ -300,4 +303,167 @@ fn p2_test_directory_manifest_canonicalization_and_symlink_rejection() {
         let err = cas.create_directory_manifest(&sym_dir, 10000, Some("p-dir")).unwrap_err();
         assert!(err.contains("symlink rejected in directory artifact"));
     }
+}
+
+#[test]
+fn p23_queries_use_bounded_read_only_pool_and_pin_events() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("state");
+    Runtime::init(&root, policy()).unwrap();
+    setup_project(&root, "p-query");
+    execution::migrate(&root).unwrap();
+    let registry = ArtifactRegistry::new(&root);
+    registry.register_artifact("p-query", "a1", "code", "agent:worker", None).unwrap();
+    let digest = "e".repeat(64);
+    let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+    db.execute("INSERT OR IGNORE INTO blobs VALUES(?1, 1, 'text/plain', 1)", [&digest]).unwrap();
+    drop(db);
+    let version = registry.publish_version("p-query", "a1", &digest, "bounded index", Some("bounded summary"), 1, None, None).unwrap();
+    assert_eq!(registry.get_artifact("p-query", "a1").unwrap().unwrap().current_version_id.as_deref(), Some(version.as_str()));
+    assert_eq!(registry.get_version("p-query", &version).unwrap().unwrap().summary_text.as_deref(), Some("bounded summary"));
+    assert_eq!(registry.list_artifacts("p-query", None, 1).unwrap().len(), 1);
+    assert_eq!(registry.list_versions("p-query", "a1").unwrap().len(), 1);
+    assert!(registry.pin("p-query", "a1").is_ok());
+    assert!(registry.unpin("p-query", "a1").is_ok());
+
+    let subscription = registry.subscribe_events("p-query").unwrap();
+    assert_eq!(subscription.artifacts.len(), 1);
+    assert!(!subscription.snapshot_truncated);
+    let replay = registry.replay_events("p-query", 0, 128).unwrap();
+    assert!(!replay.reset_required);
+    assert_eq!(replay.head_cursor, subscription.snapshot_cursor);
+    assert!(replay.events.iter().any(|e| e.event_type == "artifact.version_published"));
+    assert_eq!(registry.replay_events("p-query", 0, 0).unwrap_err(), "invalid replay cursor/page bound");
+
+    let pool = registry.read_pool().unwrap();
+    let other_registry = ArtifactRegistry::new(&root);
+    assert!(std::ptr::eq(pool, other_registry.read_pool().unwrap()));
+    let leases: Vec<_> = (0..mlrescurix_harness::read_pool::READ_CONNECTIONS).map(|_| pool.try_read().unwrap()).collect();
+    assert!(pool.try_read().err().unwrap().contains("pool"));
+    let query_only: i64 = leases[0].query_row("PRAGMA query_only", [], |r| r.get(0)).unwrap();
+    assert_eq!(query_only, 1);
+    assert!(leases[0].execute("INSERT INTO durable_events(project,event_type,payload_json,committed_ms) VALUES('p-query','test','{}',1)", []).is_err());
+    let writer = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+    assert_eq!(writer.execute("UPDATE projects SET revision=revision+1 WHERE id='p-query'", []).unwrap(), 1);
+}
+
+#[test]
+fn p24_artifact_event_rolls_back_with_registry_mutation() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("state");
+    Runtime::init(&root, policy()).unwrap();
+    setup_project(&root, "p-atomic");
+    execution::migrate(&root).unwrap();
+    let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+    db.execute_batch("BEGIN IMMEDIATE").unwrap();
+    db.execute("INSERT INTO artifacts(project,artifact_id,kind,producer_authority,created_ms,updated_ms) VALUES('p-atomic','rollback_artifact','code','agent:test',1,1)", []).unwrap();
+    let in_tx: i64 = db.query_row("SELECT count(*) FROM durable_events WHERE project='p-atomic' AND event_type='artifact.created'", [], |r| r.get(0)).unwrap();
+    assert_eq!(in_tx, 1);
+    db.execute_batch("ROLLBACK").unwrap();
+    let after: i64 = db.query_row("SELECT count(*) FROM durable_events WHERE project='p-atomic' AND event_type='artifact.created'", [], |r| r.get(0)).unwrap();
+    assert_eq!(after, 0);
+}
+
+#[test]
+fn p24_event_retention_tracks_expired_cursor_per_project() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("state");
+    Runtime::init(&root, policy()).unwrap();
+    setup_project(&root, "p-other");
+    setup_project(&root, "p-retain");
+    execution::migrate(&root).unwrap();
+    let registry=ArtifactRegistry::new(&root);
+    registry.register_artifact("p-other","other","code","agent:test",None).unwrap();
+    registry.register_artifact("p-retain","many","code","agent:test",None).unwrap();
+    let db=rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+    let sha="f".repeat(64);
+    db.execute("INSERT OR IGNORE INTO blobs VALUES(?1,1,'text/plain',1)",[&sha]).unwrap();
+    let tx=db.unchecked_transaction().unwrap();
+    for n in 0..10_005 {
+        tx.execute("INSERT INTO artifact_versions(project,version_id,artifact_id,blob_sha256,index_digest,created_ms) VALUES('p-retain',?1,'many',?2,'bounded',?3)",rusqlite::params![format!("v{n}"),sha,n]).unwrap();
+    }
+    tx.commit().unwrap();
+    let initial=registry.replay_events("p-retain",0,10).unwrap();
+    assert!(initial.reset_required);
+    assert!(initial.events.is_empty());
+    assert!(initial.head_cursor>0);
+    let other=registry.replay_events("p-other",0,10).unwrap();
+    assert!(!other.reset_required, "other project's global cursor gaps are not expiry");
+    let db=rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+    let retained:i64=db.query_row("SELECT count(*) FROM durable_events WHERE project='p-retain'",[],|r|r.get(0)).unwrap();
+    assert_eq!(retained,10_000);
+}
+
+#[test]
+fn p26_successor_and_tombstone_commands_are_revisioned_and_idempotent() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("state");
+    Runtime::init(&root, policy()).unwrap();
+    execution::migrate(&root).unwrap();
+    setup_project(&root, "p-p26");
+    // Model an already-v10 database that predates the additive tombstone event trigger.
+    rusqlite::Connection::open(root.join("state.sqlite")).unwrap()
+        .execute_batch("DROP TRIGGER IF EXISTS p2_event_artifact_tombstone").unwrap();
+    execution::migrate(&root).unwrap();
+    let registry = ArtifactRegistry::new(&root);
+    let digest = "e".repeat(64);
+    let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+    db.execute("INSERT INTO blobs VALUES(?1,1,'text/plain',1)", [&digest]).unwrap();
+    drop(db);
+
+    registry.register_artifact("p-p26", "candidate", "code", "agent:worker", None).unwrap();
+    let first = registry.publish_version("p-p26", "candidate", &digest, "first", None, 1, None, None).unwrap();
+    let created = registry.publish_successor_command("p-p26", "succ-1", 1, "candidate", &digest, "second", Some("summary"), 1, None).unwrap();
+    assert_eq!(created.status, "applied");
+    assert_eq!(created.revision, 2);
+    let second = created.result["version_id"].as_str().unwrap().to_string();
+    assert_eq!(created.result["supersedes"], first);
+    let replay = registry.publish_successor_command("p-p26", "succ-1", 1, "candidate", &digest, "second", Some("summary"), 1, None).unwrap();
+    assert_eq!(replay, created);
+    assert!(registry.publish_successor_command("p-p26", "succ-1", 1, "candidate", &digest, "different", None, 1, None).unwrap_err().contains("reused with different payload"));
+    let stale = registry.publish_successor_command("p-p26", "succ-stale", 1, "candidate", &digest, "third", None, 1, None).unwrap();
+    assert_eq!(stale.status, "rejected");
+    assert_eq!(stale.result["reason"], "revision conflict");
+    assert_eq!(registry.get_artifact("p-p26", "candidate").unwrap().unwrap().current_version_id.as_deref(), Some(second.as_str()));
+    let lineage = registry.query_lineage("p-p26", &second, 8).unwrap();
+    assert!(lineage.iter().any(|edge| edge.source_version_id == second && edge.target_version_id == first && edge.relation == "supersedes"));
+
+    registry.register_artifact("p-p26", "retire-me", "run_log", "agent:worker", None).unwrap();
+    let tombstone = registry.tombstone_artifact_command("p-p26", "tomb-1", 2, "retire-me").unwrap();
+    assert_eq!(tombstone.status, "applied");
+    assert_eq!(tombstone.revision, 3);
+    assert_eq!(registry.tombstone_artifact_command("p-p26", "tomb-1", 2, "retire-me").unwrap(), tombstone);
+    assert!(registry.list_artifacts("p-p26", None, 128).unwrap().iter().all(|(a,_)| a.artifact_id != "retire-me"));
+    assert!(registry.get_artifact("p-p26", "retire-me").unwrap().is_some(), "tombstone preserves audit metadata");
+    let events = registry.get_events("p-p26", 0, 128).unwrap();
+    assert!(events.iter().any(|event| event.event_type == "artifact.tombstoned"));
+    assert!(events.iter().any(|event| event.event_type == "artifact.version_published"));
+}
+
+#[test]
+fn p26_tombstone_respects_pins_and_selection_history() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("state");
+    Runtime::init(&root, policy()).unwrap();
+    execution::migrate(&root).unwrap();
+    setup_project(&root, "p-p26-refs");
+    let registry = ArtifactRegistry::new(&root);
+    let digest = "f".repeat(64);
+    let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+    db.execute("INSERT INTO blobs VALUES(?1,1,'text/plain',1)", [&digest]).unwrap();
+    db.execute("INSERT INTO artifacts(project,artifact_id,kind,producer_authority,created_ms,updated_ms) VALUES('p-p26-refs','score','scorecard','evaluator:trusted',1,1)", []).unwrap();
+    db.execute("INSERT INTO artifact_versions(project,version_id,artifact_id,blob_sha256,index_digest,created_ms) VALUES('p-p26-refs','score-v1','score',?1,'trusted',1)", [&digest]).unwrap();
+    db.execute("UPDATE artifacts SET current_version_id='score-v1' WHERE project='p-p26-refs' AND artifact_id='score'", []).unwrap();
+    drop(db);
+    registry.register_artifact("p-p26-refs", "candidate", "code", "agent:worker", None).unwrap();
+    let candidate = registry.publish_version("p-p26-refs", "candidate", &digest, "candidate", None, 1, None, None).unwrap();
+    registry.set_apex_selection("p-p26-refs", &candidate, "score-v1", "protocol", "selected").unwrap();
+    registry.register_artifact("p-p26-refs", "pinned", "run_log", "agent:worker", None).unwrap();
+    registry.pin("p-p26-refs", "pinned").unwrap();
+    let pinned = registry.tombstone_artifact_command("p-p26-refs", "tomb-pinned", 1, "pinned").unwrap();
+    assert_eq!(pinned.status, "rejected");
+    assert!(pinned.result["reason"].as_str().unwrap().contains("pinned"));
+    let selected = registry.tombstone_artifact_command("p-p26-refs", "tomb-selected", 1, "candidate").unwrap();
+    assert_eq!(selected.status, "rejected");
+    assert!(selected.result["reason"].as_str().unwrap().contains("selection history"));
 }

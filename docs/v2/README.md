@@ -24,7 +24,7 @@ tabular ML; expand through evaluated task/backend adapters and compute negotiati
 13. [P2.1 artifact registry design](P2_1_ARTIFACT_DESIGN.md): authoritative inventory, CAS write protocol, and target versioned contracts.
 
 P1 (P1.1–P1.6) is complete for the acceptance scope recorded in `PROGRESS.md`.
-P2.1 design proposal and P2.2 runtime CAS & schema migration (user_version = 10) are complete and verified across 90 tests.
+P2.1–P2.6 are implemented and verified for recorded tests: schema v10 CAS, artifact inspection queries, durable event replay, four pooled query-only readers, and revision-fenced successor/tombstone commands. The wider P2 compatibility and recovery gate remains open.
 M6 remains **NOT READY** until its independent delivery and benchmark gates close.
 The progress ledger records runtime work and evidence; this document remains the
 roadmap. Existing project handoffs remain the authority on M6 release evidence. This roadmap supersedes the

@@ -1,0 +1,8 @@
+7e162a3 feat(p2): implement artifact registry, CAS, and schema v10 migration
+ed5812f feat(p1): enforce resources and recover Docker survivors
+abf1f23 feat(m6): add scientific delivery and recovery controls
+3ccc585 feat(m5): implement adaptive scientific pipeline, live Docker verification, and DeepSeek provider integration
+c47ac90 fix(m4): endpoint normalization, task lease owner, live sandbox image fallback, and runner classes extraction
+a80be9d feat(m4): repair agent harness admission, sandbox isolation, evaluator contracts, and acceptance tests
+fa13d9e feat: add M4 agent-led coding harness
+14acf5b feat: add M3 constrained resumable search

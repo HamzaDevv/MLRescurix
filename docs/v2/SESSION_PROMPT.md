@@ -1,59 +1,52 @@
 # Paste-ready continuation prompt
 
-Use this in a fresh local coding session. Replace `[PHASE_OR_TASK]` with the work
-you authorize; P1 and P2.1–P2.2 are now complete. The recommended next slice is P2.3–P2.5 artifact inspection queries, durable event journal subscription APIs, and SSE non-blocking reader connection pool.
+Use this in a fresh local coding session for the next resource phase. P2 is
+implemented through P2.6, but its broader acceptance gate remains open. Verify
+that prerequisite before starting P3 runtime work.
 
 ```text
 Continue MLRescurix in /Users/hamza/Developer/Imp_Projects/MLRescurix.
-Authorized scope for this session: [PHASE_OR_TASK, e.g., P2.3–P2.5 artifact inspection queries, durable event journal subscriptions, and SSE non-blocking reader connection pool].
+Authorized scope: audit and close only the remaining P2 acceptance checks listed
+in docs/v2/ROADMAP.md and docs/v2/PROGRESS.md. If the P2 gate is fully evidenced,
+implement P3.1 effective CPU, memory, disk and accelerator capability discovery,
+resource request presets, and infeasible-request rejection. Do not begin P3.2 or
+later phases.
 
-Read docs/v2/README.md, PROGRESS.md, AUDIT.md, ROADMAP.md, ARCHITECTURE.md
-and DECISIONS.md. Then read docs/m6-completion-status.md and the relevant
-source/tests. The Argon files in docs/v2 are archived suggestions; the corrected
-roadmap governs implementation. Inspect git status and preserve prior user work.
-Check applicable repository instructions before edits.
+Start by reading docs/v2/README.md, PROGRESS.md, ROADMAP.md, DECISIONS.md,
+ARCHITECTURE.md, P2_1_ARTIFACT_DESIGN.md, and docs/m6-completion-status.md.
+Inspect git status and recent history before changing anything. Preserve all
+existing work and historical evidence. Check repository instructions. Current
+expected schema is user_version 10; verify the checkout and current P2 evidence.
 
-Implement the authorized slice directly after a concise scope/acceptance recap.
-Do not ask again for routine reversible fixes within that scope. Do not implement
-every later phase. When scope is missing, establish the next concrete slice from
-PROGRESS.md and obtain phase authorization before runtime edits.
+P2 acceptance checks still requiring explicit evidence include populated-state
+upgrade preservation, partial CAS/filesystem/DB commit reconciliation, protected
+references under concurrent GC, and event restart/reconnect consistency. First
+determine which are already proven by existing evidence. Work on P3.1 only if
+the complete P2 gate passes. Otherwise address only the smallest remaining P2
+acceptance gap in this authorized scope, leave P3 unchanged, and report any gate
+that needs additional authorization or external setup.
 
-Preserve authoritative scoring, split/label isolation, final-test single use,
-state-bound finalization, epoch/intent fencing, durable retry fences, offline
-training, approved digest-pinned scientific environments and prohibition on
-candidate execution on the host. Generic coding tools still require resource
-leases. Unknown effects must reconcile; never reset-and-replay arbitrary commands.
+For P3.1, derive concrete acceptance checks from the roadmap and current runtime.
+Measure effective host and container-VM limits rather than assuming host totals;
+preserve required memory-certification refusal on unsupported environments.
+Bound and validate resource presets, account for configured headroom, and reject
+requests that cannot fit declared capacity before admission. Do not consume large
+host resources or intentionally exhaust RAM. Do not run candidate/scientific code
+on the host; approved digest-pinned Docker environments remain mandatory.
 
-Read docs/v2/REVIEW_RESPONSE.md for the latest Argon review disposition. Default
-sandbox execution uses /workspace:ro with task-specific bounded scratch/outputs;
-source edits use workspace_fs or a validated staging diff. Read-only source alone
-does not make an interrupted job replayable. Verify exact Docker container identity,
-state-root ownership and lease epochs before survivor adoption/cleanup and release.
-For executable candidates, isolate per-fold inputs/fit state, record prior label
-exposure, and enforce rescue provenance and diagnostic/query budgets. Preserve
-OutboundFilter, typed outbound projection and approved-view controls; validate,
-hash and count the actual provider payload after sanitization.
+Preserve trusted evaluator authority, split/label isolation, final-test single
+use, generation/intent fencing, durable retry fences, resource leases, outbound
+filtering and approved-view controls. Keep managed state within the 128 MiB
+ceiling with zero silent write exemptions. Maintain M0–M6 compatibility through
+the existing adapters. Do not claim M6 readiness.
 
-Use additive migrations from the actual current schema version, update every
-version guard/asset and test populated-state upgrade. Keep compatibility adapters
-until replacement vertical slices pass. No live provider/cloud spending, data
-transfer, commits, pushes or deployment without applicable authorization.
-
-Synchronize authoritative schemas, generation/checking and both Rust/Python
-validators in the owning slice. The current scripts/generate_contracts.py handles
-v1 worker frames/fixtures; extend it or add versioned tooling as needed. Do not
-overwrite contracts/v1 semantics with incompatible v2 contracts or assume all new
-artifact/candidate contracts require a worker-frame change.
-
-Run meaningful tests appropriate to this slice. Scientific Python fitting,
-inference and parity tests run only inside the approved pinned Docker image.
-Existing Python tests use unittest. Preserve historical evidence and use fresh
-docs/evidence/v2/<phase>/<session>/ logs; do not overwrite M6 evidence accidentally.
-Report unsupported required constraints as refusal, not success.
-
-Before ending, update PROGRESS.md with task statuses, exact changes/tests/results,
-evidence identities, limitations and next slice; update DECISIONS.md when design
-changes. Report implemented/verified/unverified separately. Do not claim phase
-completion until ROADMAP.md's acceptance gate passes. Leave a self-contained
-handoff that a fresh coding agent can resume without this conversation.
+Run locked tests for the chosen work and relevant compatibility suites. Capture
+fresh logs under `docs/evidence/v2/p2/<session>/` or
+`docs/evidence/v2/p3/<session>/`, as applicable; leave `docs/evidence/m6/`
+untouched. Update PROGRESS.md with exact results, evidence, limitations and next
+slice; update DECISIONS.md when design changes. Regenerate
+`docs/v2/ARGON_REVIEW_PACKET.txt` with
+`python3 scripts/build_argon_review_packet.py` after source-document changes.
+Do not mark a phase complete until its roadmap gate passes. Report implemented,
+verified and unverified items separately.
 ```

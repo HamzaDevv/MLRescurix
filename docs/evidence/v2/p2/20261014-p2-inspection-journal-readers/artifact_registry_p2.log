@@ -1,0 +1,16 @@
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.21s
+     Running tests/artifact_registry_p2.rs (target/debug/deps/artifact_registry_p2-d4851db49aa13a29)
+
+running 8 tests
+test p24_artifact_event_rolls_back_with_registry_mutation ... ok
+test p2_test_cas_blob_storage_deduplication_and_permissions ... ok
+test p2_test_directory_manifest_canonicalization_and_symlink_rejection ... ok
+test p2_test_two_tier_summary_bounds_and_authority ... ok
+test p2_test_migration_v9_to_v10_with_populated_state ... ok
+test p23_queries_use_bounded_read_only_pool_and_pin_events ... ok
+test p2_test_lineage_annotations_and_apex_selection ... ok
+test p24_event_retention_tracks_expired_cursor_per_project ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.55s
+

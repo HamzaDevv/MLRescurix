@@ -44,6 +44,7 @@ pub struct DirectoryManifest {
     pub files: Vec<ManifestFileEntry>,
 }
 
+#[derive(Clone)]
 pub struct ContentAddressableStorage {
     root: PathBuf,
 }

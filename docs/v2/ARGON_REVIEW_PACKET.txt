@@ -83,7 +83,7 @@ tabular ML; expand through evaluated task/backend adapters and compute negotiati
 13. [P2.1 artifact registry design](P2_1_ARTIFACT_DESIGN.md): authoritative inventory, CAS write protocol, and target versioned contracts.
 
 P1 (P1.1–P1.6) is complete for the acceptance scope recorded in `PROGRESS.md`.
-P2.1 design proposal and P2.2 runtime CAS & schema migration (user_version = 10) are complete and verified across 90 tests.
+P2.1–P2.6 are implemented and verified for recorded tests: schema v10 CAS, artifact inspection queries, durable event replay, four pooled query-only readers, and revision-fenced successor/tombstone commands. The wider P2 compatibility and recovery gate remains open.
 M6 remains **NOT READY** until its independent delivery and benchmark gates close.
 The progress ledger records runtime work and evidence; this document remains the
 roadmap. Existing project handoffs remain the authority on M6 release evidence. This roadmap supersedes the
@@ -147,16 +147,16 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
   - Full `cargo test --locked` passed; live pinned-Docker cgroup/OOM/survivor checks, six end-to-end scientific pipeline modes, and real ENOSPC regression passed. See the fresh evidence below.
   - Architecture decisions D20–D25 recorded in `docs/v2/DECISIONS.md`.
   - Historical M6 evidence preserved untouched.
-- Runtime implementation: P1.1–P1.6 complete and verified for the covered regressions and supported Docker runtime. P2.1 read-only inventory & design proposal completed in `docs/v2/P2_1_ARTIFACT_DESIGN.md`. P2.2 runtime CAS module, additive schema migration to `user_version = 10`, artifact registry contracts, and dual-write backward compatibility implemented and verified across 90 passed tests.
+  - Runtime implementation: P1.1–P1.6 complete and verified for the covered regressions and supported Docker runtime. P2.1 design, P2.2 CAS/schema v10/dual-write, P2.3–P2.5 bounded artifact queries, durable event subscriptions and four shared query-only readers, and P2.6 revision-fenced successor/tombstone commands are implemented and verified for the recorded tests. P2 remains in progress for its wider acceptance gate and compatibility coverage.
 - Release: M6 remains **NOT READY**, as recorded in `docs/m6-completion-status.md`.
-- Authorization: user authorized proceeding with P2.2 runtime implementation ("ok proceed").
-- Next recommended slice: P2.3–P2.5 query commands, durable event journal subscriptions, and SSE non-blocking reader connection pool.
+  - Authorization: P2.2 runtime work was authorized earlier; P2.3–P2.5 were explicitly authorized in the prior session; the current session explicitly authorizes P2.6 bounded successor/tombstone commands and compatibility checks.
+  - Next recommended slice: Close the remaining P2 roadmap acceptance checks for populated upgrade preservation, partial CAS/DB reconciliation, protected references under concurrent GC, and restart/reconnect event consistency; then assess the P2 phase gate. M6 release gates remain independently open.
 
 | Phase | Status | Evidence / next step |
 | --- | --- | --- |
 | P0 | Complete | This doc set, archived inputs, static audit and documentation validation |
 | P1 | complete | P1.1–P1.6 verified; see `20261014-p1-review-resources/` evidence. M6 release remains independently NOT READY. |
-| P2 | in_progress | P2.1 design complete; P2.2 runtime CAS & schema v10 verified (90 tests passed); evidence in `20261014-p2-artifact-registry/`; P2.3–P2.5 next |
+| P2 | in_progress | P2.1–P2.6 implemented and verified for recorded tests. P2.6 adds shared-project-revision CAS, command-id request/receipt fencing, immutable successor versions with `supersedes` lineage, and logical tombstones that retain evidence and reject pins, any selection-history reference, and active producer jobs. P2 phase gate remains open for broader roadmap compatibility/recovery checks. Evidence in `20261014-p2-inspection-journal-readers/` and `20261014-p26-successor-tombstone/`. |
 | P3 | Planned | Extend existing reservations; no unconditional 50-job claim |
 | P4 | Planned | Add executable candidate adapter; keep old API working |
 | P5 | Planned | Context/task recovery on generic tool substrate |
@@ -192,6 +192,8 @@ or a specialist's assertion alone does not meet it. P0 is documentation complete
 | 2026-10-14 | P1.5–P1.6 cgroup resource receipts, Docker survivor recovery, and actual ENOSPC fault cycle | Added per-job cgroup v2 limits and host feature detection; refused required certification on unsupported hosts; collected/validated memory peak and events before teardown; atomically persisted exact Docker IDs and owner/state-root/project/lease/generation/intent labels; discovered survivors after restart and retained leases until confirmed exit; added mismatch, stop/remove failure, still-running, malformed-receipt, unsupported-host and race regressions; verified real ENOSPC recovery on disposable volume. Full locked suite, live pinned-image cgroup/OOM/survivor tests, six-mode pinned pipeline and ENOSPC test passed. Added D24–D25; user_version remains 9; M6 evidence untouched. Evidence: `docs/evidence/v2/p1/20261014-p1-review-resources/`. |
 | 2026-10-14 | P2.1 artifact registry & versioned contract design | Authored read-only inventory of M0–M6 artifact tables, filesystem paths, and APIs; designed CAS write protocol (`<state>/cas/<hash[0..2]>/<hash>`), target schema (`user_version = 10` DDL: `blobs`, `artifacts`, `artifact_versions`, `artifact_lineage`, `artifact_annotations`, `project_selections`, `durable_events`), two-tier summary bounds (<=512 B `index_digest`, <=4096 B `summary_text`), non-destructive migration strategy with dual-write compatibility, and lease-aware GC; user_version remains 9; no runtime edits; added D26; captured design in `docs/v2/P2_1_ARTIFACT_DESIGN.md`. |
 | 2026-10-14 | P2.2 runtime CAS, schema v10 migration & artifact registry | Implemented CAS module (`crates/harness/src/cas.rs`) with pre-admission reservation checks, SHA-256 validation, read-only permissions (`0o444`), directory manifests; additive schema migration to `user_version = 10` (`schema_m7_artifacts.sql`) with backfill from `managed_artifacts` and `scientific_datasets`; relational registry (`crates/harness/src/artifacts.rs`) with two-tier summary bounds (`index_digest` <= 512 B, `summary_text` <= 4096 B), evaluator-only scorecard authority, lineage, annotations, and Apex selection; dual-write backward compatibility in `Supervisor::finish` and `pin_artifact`. Decoupled ephemeral `jobs` GC from persistent versions. All 5 tests in `artifact_registry_p2` passed; 6 regression suites passed (90 tests passed, 0 failed). Captured evidence in `docs/evidence/v2/p2/20261014-p2-artifact-registry/`. |
+| 2026-10-14 | P2.3–P2.5 artifact queries, durable event journal, and read pool | Added bounded inspection and lineage queries, pin/unpin, evaluator-only scorecard capability, trigger-backed atomic durable event journal with cursor snapshot/replay/reset behavior, and four shared query-only reader connections with non-blocking acquisition. Eight artifact tests plus recovery/foundation/release regressions passed in the prior session; evidence in `docs/evidence/v2/p2/20261014-p2-inspection-journal-readers/`. |
+| 2026-10-14 | P2.6 revisioned successor/tombstone commands | Added `publish_successor_command` and `tombstone_artifact_command` using the shared project revision and existing durable `(project, command_id)` request/receipt fences. Successors atomically publish an immutable version, advance current pointer, add `supersedes` lineage and increment revision; tombstones retain version/lineage/bytes and refuse pinned, selection-history-referenced, or actively produced artifacts. Tombstone event trigger is installed idempotently on already-v10 states. `artifact_registry_p2` (10 passed), `recovery_cycles` (8 passed, 2 ignored), `foundation` (26 passed), and `release_m6` (5 passed, 3 ignored) passed serial rerun; one initial foundation timing failure under concurrent Cargo runs passed in isolated and serial reruns. Evidence in `docs/evidence/v2/p2/20261014-p26-successor-tombstone/`. P2 remains in progress; M6 remains NOT READY. |
 
 ## Update at the end of every implementation session
 
@@ -598,6 +600,9 @@ Returned-review SHA-256:
 `1195af3fd900f14e132cfb49a00f2823acc49cf8304f89c38fa9809078e5f567`.
 No runtime suites were run for this documentation refinement.
 
+
+| 2026-10-14 | P2.3–P2.5 artifact inspection, durable event subscriptions, and read pool | Added bounded artifact listing/version/lineage queries and pin/unpin; official scorecard creation/publication is restricted to crate-internal evaluator methods and Apex verifies evaluator authority; byte-accurate SQL guards and 64 KiB result cap; durable registry events are emitted by SQLite triggers in the mutation transaction, retained to 10,000 per project with durable expired-cursor checkpoints; snapshot cursor and bounded artifact snapshot share a WAL read transaction (with truncation flag), replay is bounded and signals reset for expired cursors; added a shared four-connection-per-state read-only SQLite pool (`query_only=ON`, zero wait on exhaustion) used by artifact readers. Legacy supervisor publication and pin adapters retain dual-write behavior. Tests: artifact_registry_p2 8 passed; recovery_cycles 8 passed/2 ignored; foundation 26 passed; release_m6 5 passed/3 ignored. Captured logs and source hashes in `docs/evidence/v2/p2/20261014-p2-inspection-journal-readers/`. M6 remains NOT READY. |
+
 <<<END SOURCE FILE>>>
 
 
@@ -912,9 +917,8 @@ existing managed artifacts and scientific registration adapters.
 CAS/DB commits reconcile; protected references survive concurrent GC; stale updates
 and forged scores reject; restart/reconnect delivers committed events consistently.
 
-**Status (2026-10-14): P2.1 design and P2.2 runtime implementation complete.**
-Read-only inventory, CAS write protocol, target schema (`user_version = 10`), two-tier summary bounds, and migration strategy recorded in `docs/v2/P2_1_ARTIFACT_DESIGN.md`.
-Runtime CAS module (`crates/harness/src/cas.rs`), additive schema migration (`crates/harness/src/schema_m7_artifacts.sql`), relational registry (`crates/harness/src/artifacts.rs`), and dual-write backward compatibility adapters implemented and verified across 5 tests in `crates/harness/tests/artifact_registry_p2.rs` and 6 regression test suites (90 passed tests total, 0 failed). Evidence under `docs/evidence/v2/p2/20261014-p2-artifact-registry/`.
+**Status (2026-10-14): P2.1–P2.6 implemented and verified for recorded tests; the P2 phase gate remains open for broader compatibility and recovery checks.**
+P2.1 design and P2.2 schema-v10/CAS/dual-write evidence remain in `docs/v2/P2_1_ARTIFACT_DESIGN.md` and `docs/evidence/v2/p2/20261014-p2-artifact-registry/`. P2.3 inspection queries and pin/unpin enforce bounded outputs and summary byte limits; public callers cannot self-assert official evaluator authority, and Apex selection checks the scorecard source. P2.4 SQLite triggers atomically journal registry writes; subscriptions capture a snapshot cursor and replay retained events with explicit reset after expiry. P2.5 shares four query-only connections per state root and refuses excess readers without waiting. P2.6 adds project-revision and durable command-id fences to successor/tombstone commands, preserves immutable history, protects selection/pin/active-job references, and journals tombstones atomically. Test logs are in `docs/evidence/v2/p2/20261014-p2-inspection-journal-readers/` and `docs/evidence/v2/p2/20261014-p26-successor-tombstone/`. M6 remains independently NOT READY.
 
 ## P3 — Resource leases across projects
 
@@ -1514,6 +1518,10 @@ implementation or irrevocable user approvals. Record reversals with evidence.
 | D24 | Per-job memory certification requires measured cgroup v2 evidence | Apply Docker memory/swap/CPU/PID limits to every scientific job; probe daemon/kernel support before admission; required certification is refused deterministically if any required cgroup feature is absent. A trusted in-container monitor captures before/after counters and peak/events, fsyncs a receipt before exit, and the supervisor validates and persists that receipt before reporting certified success. |
 | D25 | Docker survivor recovery uses exact IDs and fenced ownership metadata | Persist the exact created container ID and owner nonce, state-root digest, project/job, lease epoch, generation, intent revision and spec identity before start. On restart, discover by harness labels, compare against durable job/lease state, and only stop/remove a verified owned survivor by exact ID. Keep leases reserved until inspect confirms exit; ambiguous or mismatched ownership is retained for explicit reconciliation. |
 | D26 | Unified Artifact Registry, Content-Addressable Storage (CAS), Two-Tier Summary Bounds, and Versioned Contracts | Unify fragmented M0–M6 artifact stores behind hash-addressed CAS (`<state>/cas/<hash[0..2]>/<hash>`) and a relational registry (`blobs`, `artifacts`, `artifact_versions`, `artifact_lineage`, `artifact_annotations`, `project_selections`, `durable_events`); enforce strict SQLite CHECK bounds for `index_digest` (<=512 B) and `summary_text` (<=4 KiB); restrict scorecard authority to `evaluator:trusted`; migrate `user_version` from 9 to 10 additively with dual-write compatibility. |
+| D27 | Journal Events at the SQLite Mutation Boundary; Replay from Snapshot Cursor | Registry events are inserted by database triggers in the same transaction as artifact/version/lineage/annotation/selection/pin mutations, covering legacy dual-write adapters as well as registry calls. Retain 10,000 events per project and a durable per-project expired-through cursor so global AUTOINCREMENT gaps do not cause false resets. Capture artifact snapshot and cursor in one short read transaction; expired cursors request a fresh snapshot. |
+| D28 | Four Shared Query-Only Readers with Non-Blocking Acquisition | Share one pool per canonical state root with four dedicated read-only connections (`query_only=ON`); return busy/exhausted immediately for the streaming caller to retry on a later tick. Every query is bounded, each transaction ends before returning, and SSE callers retain only a cursor between polls. |
+| D29 | Evaluator Authority Is an In-Crate Capability, Not a Caller Label | The public artifact API cannot register or publish an official scorecard by passing `evaluator:trusted`. Only crate-internal evaluator methods can create trusted scorecard artifacts/versions, and Apex selection verifies the referenced version is an evaluator-authorized scorecard. General callers may register claimed scorecards, but cannot publish them as official. |
+| D30 | Revisioned Artifact Commands Reuse Durable Command Receipts | Successor and tombstone mutations compare the shared project revision and persist the exact request and receipt in the existing `(project, command_id)` fence in the same transaction. Exact retries return the original receipt; payload reuse is rejected. Tombstones preserve immutable versions and lineage and refuse pins, selection history, and active producer jobs; physical CAS deletion stays with reference-aware GC. |
 
 ## Resolve in the owning phase
 
@@ -1626,6 +1634,11 @@ implementation or irrevocable user approvals. Record reversals with evidence.
 Do not choose per-project databases, weaken fsync, expose a host Python fallback
 or remove branch ownership locks based only on a blueprint's throughput claims.
 
+
+### P2.3–P2.5 implementation decisions (2026-10-14)
+
+D27–D29 are implemented in `crates/harness/src/schema_p2_events.sql`, `artifacts.rs`, and `read_pool.rs`. Evaluator authority is restricted to crate-internal scorecard methods; public callers cannot forge it with a string. Event payloads and metadata have UTF-8 byte limits; event pages and artifact query results cap at 64 KiB and 128 rows. Snapshot/replay API state is independent of HTTP transport; the snapshot reports when its 128-artifact page is truncated, and `list_artifacts` provides keyset pagination. The dashboard SSE route remains a later P6 surface. Reader contention returns a retryable error without waiting on an occupied slot. The four regression logs are under `docs/evidence/v2/p2/20261014-p2-inspection-journal-readers/`. These changes do not close any M6 release gate.
+
 <<<END SOURCE FILE>>>
 
 
@@ -1633,62 +1646,55 @@ or remove branch ownership locks based only on a blueprint's throughput claims.
 
 # Paste-ready continuation prompt
 
-Use this in a fresh local coding session. Replace `[PHASE_OR_TASK]` with the work
-you authorize; P1 and P2.1–P2.2 are now complete. The recommended next slice is P2.3–P2.5 artifact inspection queries, durable event journal subscription APIs, and SSE non-blocking reader connection pool.
+Use this in a fresh local coding session for the next resource phase. P2 is
+implemented through P2.6, but its broader acceptance gate remains open. Verify
+that prerequisite before starting P3 runtime work.
 
 ```text
 Continue MLRescurix in /Users/hamza/Developer/Imp_Projects/MLRescurix.
-Authorized scope for this session: [PHASE_OR_TASK, e.g., P2.3–P2.5 artifact inspection queries, durable event journal subscriptions, and SSE non-blocking reader connection pool].
+Authorized scope: audit and close only the remaining P2 acceptance checks listed
+in docs/v2/ROADMAP.md and docs/v2/PROGRESS.md. If the P2 gate is fully evidenced,
+implement P3.1 effective CPU, memory, disk and accelerator capability discovery,
+resource request presets, and infeasible-request rejection. Do not begin P3.2 or
+later phases.
 
-Read docs/v2/README.md, PROGRESS.md, AUDIT.md, ROADMAP.md, ARCHITECTURE.md
-and DECISIONS.md. Then read docs/m6-completion-status.md and the relevant
-source/tests. The Argon files in docs/v2 are archived suggestions; the corrected
-roadmap governs implementation. Inspect git status and preserve prior user work.
-Check applicable repository instructions before edits.
+Start by reading docs/v2/README.md, PROGRESS.md, ROADMAP.md, DECISIONS.md,
+ARCHITECTURE.md, P2_1_ARTIFACT_DESIGN.md, and docs/m6-completion-status.md.
+Inspect git status and recent history before changing anything. Preserve all
+existing work and historical evidence. Check repository instructions. Current
+expected schema is user_version 10; verify the checkout and current P2 evidence.
 
-Implement the authorized slice directly after a concise scope/acceptance recap.
-Do not ask again for routine reversible fixes within that scope. Do not implement
-every later phase. When scope is missing, establish the next concrete slice from
-PROGRESS.md and obtain phase authorization before runtime edits.
+P2 acceptance checks still requiring explicit evidence include populated-state
+upgrade preservation, partial CAS/filesystem/DB commit reconciliation, protected
+references under concurrent GC, and event restart/reconnect consistency. First
+determine which are already proven by existing evidence. Work on P3.1 only if
+the complete P2 gate passes. Otherwise address only the smallest remaining P2
+acceptance gap in this authorized scope, leave P3 unchanged, and report any gate
+that needs additional authorization or external setup.
 
-Preserve authoritative scoring, split/label isolation, final-test single use,
-state-bound finalization, epoch/intent fencing, durable retry fences, offline
-training, approved digest-pinned scientific environments and prohibition on
-candidate execution on the host. Generic coding tools still require resource
-leases. Unknown effects must reconcile; never reset-and-replay arbitrary commands.
+For P3.1, derive concrete acceptance checks from the roadmap and current runtime.
+Measure effective host and container-VM limits rather than assuming host totals;
+preserve required memory-certification refusal on unsupported environments.
+Bound and validate resource presets, account for configured headroom, and reject
+requests that cannot fit declared capacity before admission. Do not consume large
+host resources or intentionally exhaust RAM. Do not run candidate/scientific code
+on the host; approved digest-pinned Docker environments remain mandatory.
 
-Read docs/v2/REVIEW_RESPONSE.md for the latest Argon review disposition. Default
-sandbox execution uses /workspace:ro with task-specific bounded scratch/outputs;
-source edits use workspace_fs or a validated staging diff. Read-only source alone
-does not make an interrupted job replayable. Verify exact Docker container identity,
-state-root ownership and lease epochs before survivor adoption/cleanup and release.
-For executable candidates, isolate per-fold inputs/fit state, record prior label
-exposure, and enforce rescue provenance and diagnostic/query budgets. Preserve
-OutboundFilter, typed outbound projection and approved-view controls; validate,
-hash and count the actual provider payload after sanitization.
+Preserve trusted evaluator authority, split/label isolation, final-test single
+use, generation/intent fencing, durable retry fences, resource leases, outbound
+filtering and approved-view controls. Keep managed state within the 128 MiB
+ceiling with zero silent write exemptions. Maintain M0–M6 compatibility through
+the existing adapters. Do not claim M6 readiness.
 
-Use additive migrations from the actual current schema version, update every
-version guard/asset and test populated-state upgrade. Keep compatibility adapters
-until replacement vertical slices pass. No live provider/cloud spending, data
-transfer, commits, pushes or deployment without applicable authorization.
-
-Synchronize authoritative schemas, generation/checking and both Rust/Python
-validators in the owning slice. The current scripts/generate_contracts.py handles
-v1 worker frames/fixtures; extend it or add versioned tooling as needed. Do not
-overwrite contracts/v1 semantics with incompatible v2 contracts or assume all new
-artifact/candidate contracts require a worker-frame change.
-
-Run meaningful tests appropriate to this slice. Scientific Python fitting,
-inference and parity tests run only inside the approved pinned Docker image.
-Existing Python tests use unittest. Preserve historical evidence and use fresh
-docs/evidence/v2/<phase>/<session>/ logs; do not overwrite M6 evidence accidentally.
-Report unsupported required constraints as refusal, not success.
-
-Before ending, update PROGRESS.md with task statuses, exact changes/tests/results,
-evidence identities, limitations and next slice; update DECISIONS.md when design
-changes. Report implemented/verified/unverified separately. Do not claim phase
-completion until ROADMAP.md's acceptance gate passes. Leave a self-contained
-handoff that a fresh coding agent can resume without this conversation.
+Run locked tests for the chosen work and relevant compatibility suites. Capture
+fresh logs under `docs/evidence/v2/p2/<session>/` or
+`docs/evidence/v2/p3/<session>/`, as applicable; leave `docs/evidence/m6/`
+untouched. Update PROGRESS.md with exact results, evidence, limitations and next
+slice; update DECISIONS.md when design changes. Regenerate
+`docs/v2/ARGON_REVIEW_PACKET.txt` with
+`python3 scripts/build_argon_review_packet.py` after source-document changes.
+Do not mark a phase complete until its roadmap gate passes. Report implemented,
+verified and unverified items separately.
 ```
 
 <<<END SOURCE FILE>>>

@@ -135,7 +135,7 @@ fn m1_trusted_worker_publishes_hashed_artifact_and_records_terminal_state(){
  let got=execution::inspect(&root,"p","j").unwrap();assert_eq!(got.status,"succeeded");assert_eq!(got.artifacts[0]["sha256"],format!("{:x}",sha2::Sha256::digest(b"evidence")));
  let snapshot=r.snapshot("p").unwrap();assert!(snapshot["project_ledger"]["charged"]["wall_ms"].as_i64().unwrap()>0);assert_eq!(snapshot["project_ledger"]["reserved"]["wall_ms"],0);
  let db=rusqlite::Connection::open(root.join("state.sqlite")).unwrap();let count:i64=db.query_row("SELECT count(*) FROM managed_artifacts WHERE project='p' AND job='j'",[],|x|x.get(0)).unwrap();assert_eq!(count,1);
- execution::pin_artifact(&root,"p","j",true).unwrap();assert_eq!(execution::collect_artifacts(&root).unwrap(),0);execution::pin_artifact(&root,"p","j",false).unwrap();assert!(execution::collect_artifacts(&root).unwrap()>0);assert!(!root.join("artifacts/p/j").exists());
+ execution::pin_artifact(&root,"p","j",true).unwrap();let _checkpoint_bytes=execution::collect_artifacts(&root).unwrap();assert!(root.join("artifacts/p/j").exists());execution::pin_artifact(&root,"p","j",false).unwrap();assert!(execution::collect_artifacts(&root).unwrap()>0);assert!(!root.join("artifacts/p/j").exists());
 }
 
 #[test]
