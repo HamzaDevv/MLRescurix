@@ -1006,6 +1006,99 @@ impl AgentOrchestrator {
                 }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
                 Ok(json!({ "experiments": nodes }).to_string())
             }
+            "estimate_feasibility" => {
+                let ds_id = args.get("dataset_id").and_then(Value::as_str).ok_or("dataset_id missing")?;
+                let model_family_str = args.get("model_family").and_then(Value::as_str).ok_or("model_family missing")?;
+                let cv_folds = args.get("cv_folds").and_then(Value::as_u64).unwrap_or(5) as u32;
+                let include_final_refit = args.get("include_final_refit").and_then(Value::as_bool).unwrap_or(true);
+                let concurrent_worker_leases = args.get("concurrent_worker_leases").and_then(Value::as_u64).unwrap_or(1) as u32;
+                let time_budget_ms = args.get("time_budget_ms").and_then(Value::as_u64).unwrap_or(3600_000);
+                let max_memory_mb = args.get("max_memory_mb").and_then(Value::as_u64);
+                let max_memory_bytes = max_memory_mb.map(|m| m * 1024 * 1024);
+                let run_pilot = args.get("run_pilot").and_then(Value::as_bool).unwrap_or(true);
+
+                let hw = crate::feasibility::HardwareProfile::from_broker(&self.root)?;
+
+                // Query dataset metadata from database or synthetic
+                let db = rusqlite::Connection::open(self.root.join("state.sqlite")).map_err(|e| e.to_string())?;
+                let (path_str, _raw_bytes): (String, i64) = db.query_row(
+                    "SELECT path, bytes FROM scientific_datasets WHERE project=?1 AND id=?2",
+                    params![self.config.project_id, ds_id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                ).unwrap_or_else(|_| ("".into(), 100_000));
+
+                let (rows, cols) = if !path_str.is_empty() && Path::new(&path_str).is_file() {
+                    let f = fs::File::open(&path_str).map_err(|e| e.to_string())?;
+                    let mut reader = std::io::BufReader::new(f);
+                    let mut header = String::new();
+                    use std::io::BufRead;
+                    reader.read_line(&mut header).map_err(|e| e.to_string())?;
+                    let c = header.trim().split(',').count() as u64;
+                    let mut r = 0u64;
+                    let mut line_buf = String::new();
+                    while reader.read_line(&mut line_buf).map_err(|e| e.to_string())? > 0 {
+                        r += 1;
+                        line_buf.clear();
+                    }
+                    (r.max(1), c.max(1))
+                } else {
+                    (1000, 10)
+                };
+
+                let meta = crate::feasibility::DatasetMetadata::synthetic(ds_id, rows, cols, 0, 0);
+                let family = crate::feasibility::ModelFamily::from_str_name(model_family_str);
+
+                let pilot_run = if run_pilot {
+                    let pilot = crate::feasibility::execute_micro_pilot(
+                        &self.config.project_id,
+                        ds_id,
+                        family,
+                        100,
+                        3000,
+                        256 * 1024 * 1024,
+                    );
+                    crate::feasibility::record_micro_pilot_run(&self.root, &pilot)?;
+                    Some(pilot)
+                } else {
+                    None
+                };
+
+                let report = crate::feasibility::assess_feasibility(
+                    &self.config.project_id,
+                    &hw,
+                    &meta,
+                    family,
+                    cv_folds,
+                    include_final_refit,
+                    concurrent_worker_leases,
+                    time_budget_ms,
+                    max_memory_bytes,
+                    pilot_run.as_ref(),
+                );
+                crate::feasibility::record_feasibility_report(&self.root, &report)?;
+
+                Ok(serde_json::to_string(&report).unwrap())
+            }
+            "negotiate_execution_plan" => {
+                let report_id = args.get("report_id").and_then(Value::as_str).ok_or("report_id missing")?;
+                let accepted_adaptations: Vec<String> = args.get("accepted_adaptations")
+                    .and_then(Value::as_array)
+                    .map(|arr| arr.iter().filter_map(Value::as_str).map(String::from).collect())
+                    .unwrap_or_default();
+                let custom_constraints = args.get("custom_constraints").cloned();
+                let target_preset = args.get("target_preset").and_then(Value::as_str);
+
+                let report = crate::feasibility::get_feasibility_report(&self.root, &self.config.project_id, report_id)?;
+                let plan = crate::feasibility::negotiate_plan(
+                    &report,
+                    &accepted_adaptations,
+                    custom_constraints,
+                    target_preset,
+                );
+                crate::feasibility::record_execution_plan(&self.root, &plan)?;
+
+                Ok(serde_json::to_string(&plan).unwrap())
+            }
             "artifact_crud" => {
                 let action = args.get("action").and_then(Value::as_str).ok_or("action missing")?;
                 let reg = crate::artifacts::ArtifactRegistry::new(&self.root);
@@ -1176,6 +1269,24 @@ impl AgentOrchestrator {
                         return Err(format!("candidate source_hash mismatch: manifest declares '{declared}', computed '{computed_hash}'"));
                     }
                 }
+
+                // Enforce feasibility verification gate prior to heavy training dispatch
+                let model_family = manifest.get("model")
+                    .and_then(|m| m.get("format").or_else(|| m.get("family")))
+                    .and_then(Value::as_str)
+                    .unwrap_or("linear");
+                let requested_ram = manifest.get("resources")
+                    .and_then(|r| r.get("memory_bytes"))
+                    .and_then(Value::as_u64)
+                    .unwrap_or(2 * 1024 * 1024 * 1024);
+
+                let _feasibility_verdict = crate::feasibility::enforce_heavy_dispatch_feasibility(
+                    &self.root,
+                    &self.config.project_id,
+                    ds_id,
+                    model_family,
+                    requested_ram,
+                )?;
 
                 // Resolve dataset path from scientific_datasets
                 let (ds_path_str, _ds_sha): (String, String) = db.query_row(

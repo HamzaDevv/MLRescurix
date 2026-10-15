@@ -39,6 +39,25 @@ enum Command {
     ApproveOutboundView { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] request_sha256:String, #[arg(long,default_value="local-human")] actor:String, #[arg(long,default_value_t=true)] approved:bool, #[arg(long,default_value_t=3600000)] ttl_ms:i64 },
     AgentRun { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] role:String, #[arg(long)] task:String, #[arg(long)] branch:String, #[arg(long,default_value="default-model")] model:String, #[arg(long,default_value_t=10)] max_turns:u32, #[arg(long)] endpoint:Option<String>, #[arg(long)] api_key:Option<String>, #[arg(long)] mock:Option<PathBuf> },
     VerifyBundle { #[arg(long)] bundle:PathBuf, #[arg(long,default_value_t=true)] sandbox:bool, #[arg(long)] state:Option<PathBuf> },
+    EstimateFeasibility {
+        #[arg(long)] state: PathBuf,
+        #[arg(long)] project: String,
+        #[arg(long)] dataset: String,
+        #[arg(long)] family: String,
+        #[arg(long, default_value_t = 5)] folds: u32,
+        #[arg(long, default_value_t = true)] refit: bool,
+        #[arg(long, default_value_t = 1)] workers: u32,
+        #[arg(long, default_value_t = 3600000)] budget_ms: u64,
+        #[arg(long)] max_memory_mb: Option<u64>,
+        #[arg(long, default_value_t = true)] pilot: bool,
+    },
+    NegotiatePlan {
+        #[arg(long)] state: PathBuf,
+        #[arg(long)] project: String,
+        #[arg(long)] report: String,
+        #[arg(long)] adaptations: Vec<String>,
+        #[arg(long)] preset: Option<String>,
+    },
     #[command(name="__worker",hide=true)] Worker { spec:PathBuf, output:PathBuf },
     Capabilities,
 }
@@ -200,6 +219,29 @@ async fn run()->Result<(),String>{
             let report = mlrescurix_harness::bundle::verify_bundle_with_state(&bundle, sandbox, state.as_deref())?;
             print(report)
         },
+        Command::EstimateFeasibility { state, project, dataset, family, folds, refit, workers, budget_ms, max_memory_mb, pilot } => {
+            let hw = mlrescurix_harness::feasibility::HardwareProfile::from_broker(&state)?;
+            let meta = mlrescurix_harness::feasibility::DatasetMetadata::synthetic(&dataset, 1000, 10, 0, 0);
+            let fam = mlrescurix_harness::feasibility::ModelFamily::from_str_name(&family);
+            let pilot_run = if pilot {
+                let p = mlrescurix_harness::feasibility::execute_micro_pilot(&project, &dataset, fam, 100, 3000, 256 * 1024 * 1024);
+                mlrescurix_harness::feasibility::record_micro_pilot_run(&state, &p)?;
+                Some(p)
+            } else {
+                None
+            };
+            let rep = mlrescurix_harness::feasibility::assess_feasibility(
+                &project, &hw, &meta, fam, folds, refit, workers, budget_ms, max_memory_mb.map(|m| m * 1024 * 1024), pilot_run.as_ref()
+            );
+            mlrescurix_harness::feasibility::record_feasibility_report(&state, &rep)?;
+            print(rep)
+        },
+        Command::NegotiatePlan { state, project, report, adaptations, preset } => {
+            let rep = mlrescurix_harness::feasibility::get_feasibility_report(&state, &project, &report)?;
+            let plan = mlrescurix_harness::feasibility::negotiate_plan(&rep, &adaptations, None, preset.as_deref());
+            mlrescurix_harness::feasibility::record_execution_plan(&state, &plan)?;
+            print(plan)
+        },
         Command::Worker{spec,output}=>{let result=execution::worker(&spec,&output)?;if result==0 {Ok(())} else {std::process::exit(result)}}
         Command::Capabilities=>print(serde_json::json!({
             "phase":"P7",
@@ -241,7 +283,18 @@ async fn run()->Result<(),String>{
                 "p4_candidate_tools":"passed",
                 "p5_collaboration":"passed",
                 "p6_dashboard":"passed",
-                "p7_apex_delivery":"passed"
+                "p7_apex_delivery":"passed",
+                "p8_feasibility":"passed"
+            },
+            "feasibility_capabilities":{
+                "hardware_profile":true,
+                "dataset_metadata":true,
+                "analytical_estimators":true,
+                "capped_micro_pilots":true,
+                "transparent_verdicts":true,
+                "evidence_backed_alternatives":true,
+                "safe_downscaling_negotiation":true,
+                "locked_eval_split_preservation":true
             },
             "delivery_capabilities":{
                 "bundle_v2_manifest":true,

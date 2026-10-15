@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:execution-plan:2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "plan_id",
+    "project_id",
+    "report_id",
+    "verdict",
+    "model_family",
+    "selected_preset",
+    "allocated_threads",
+    "allocated_memory_bytes",
+    "allocated_scratch_bytes",
+    "cv_strategy",
+    "downscaling_applied",
+    "negotiated_constraints",
+    "locked_split_protocol_preserved"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "v2" },
+    "plan_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "project_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "report_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "verdict": {
+      "type": "string",
+      "enum": ["locally_feasible", "feasible_with_adaptation", "requires_external_compute", "unknown"]
+    },
+    "model_family": {
+      "type": "string",
+      "enum": ["linear", "boosting", "tree", "neural", "custom"]
+    },
+    "selected_preset": {
+      "type": "string",
+      "enum": ["MICRO", "STANDARD", "HEAVY", "CUSTOM"]
+    },
+    "allocated_threads": { "type": "integer", "minimum": 1 },
+    "allocated_memory_bytes": { "type": "integer", "minimum": 67108864 },
+    "allocated_scratch_bytes": { "type": "integer", "minimum": 1048576 },
+    "cv_strategy": {
+      "type": "object",
+      "required": ["folds", "parallel_folds"],
+      "properties": {
+        "folds": { "type": "integer", "minimum": 1 },
+        "parallel_folds": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "downscaling_applied": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["technique", "parameters", "rationale"],
+        "properties": {
+          "technique": { "type": "string" },
+          "parameters": { "type": "object" },
+          "rationale": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "negotiated_constraints": { "type": "object" },
+    "locked_split_protocol_preserved": { "type": "boolean", "const": true }
+  },
+  "additionalProperties": false
+}

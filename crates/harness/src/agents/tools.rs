@@ -165,6 +165,44 @@ impl ToolRegistry {
                     parameters: json!({ "type": "object", "properties": {} }),
                 },
             },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "estimate_feasibility".into(),
+                    description: "Estimate analytical compute complexity, run capped micro-pilots (N <= 100), and report transparent multi-tier feasibility verdict before heavy training dispatch.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "dataset_id": { "type": "string", "description": "Registered dataset identifier" },
+                            "model_family": { "type": "string", "enum": ["linear", "boosting", "tree", "neural", "custom"], "description": "Model algorithm family" },
+                            "cv_folds": { "type": "integer", "description": "Number of cross-validation folds (default 5)" },
+                            "include_final_refit": { "type": "boolean", "description": "Whether to include final refit on full training set (default true)" },
+                            "concurrent_worker_leases": { "type": "integer", "description": "Number of concurrent worker slots (default 1)" },
+                            "time_budget_ms": { "type": "integer", "description": "Time budget in milliseconds (default 3600000)" },
+                            "max_memory_mb": { "type": "integer", "description": "Optional custom memory ceiling in megabytes" },
+                            "run_pilot": { "type": "boolean", "description": "Whether to run a capped micro-pilot probe (default true)" }
+                        },
+                        "required": ["dataset_id", "model_family"]
+                    }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "negotiate_execution_plan".into(),
+                    description: "Negotiate an execution plan under resource constraints, applying safe deterministic downscaling without quiet semantic degradation or mutating locked splits.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "report_id": { "type": "string", "description": "Feasibility report identifier" },
+                            "accepted_adaptations": { "type": "array", "items": { "type": "string" }, "description": "List of accepted adaptation techniques (e.g. streaming, sparse_linear, progressive_fidelity, downsampled_screening, smaller_architecture, quantization)" },
+                            "custom_constraints": { "type": "object", "description": "Negotiated constraint values (e.g. latency targets, subsample rows)" },
+                            "target_preset": { "type": "string", "enum": ["MICRO", "STANDARD", "HEAVY", "CUSTOM"], "description": "Target resource preset" }
+                        },
+                        "required": ["report_id"]
+                    }),
+                },
+            },
             ToolDefinition {tool_type:"function".into(),function:ToolFunction {
                 name:"schedule_pipeline".into(),
                 description:"Queue a bounded feature/calibration/ensemble protocol in a verified scientific Docker environment. The Rust supervisor evaluates development data and verifies generated OOF provenance; this does not finalize or certify delivery.".into(),

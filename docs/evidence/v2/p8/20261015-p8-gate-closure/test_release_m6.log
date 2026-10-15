@@ -1,0 +1,16 @@
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.11s
+     Running tests/release_m6.rs (target/debug/deps/release_m6-eef1519a4d8f14cb)
+
+running 8 tests
+test m6_bundle_verification_valid_bundle_and_tampering_detection ... ignored, historical host scientific fixture; replaced by explicit digest-pinned Docker pipeline tests; does not satisfy content-bound finalization
+test m6_end_to_end_autonomous_task_no_manual_edits ... ignored, historical host scientific fixture; no longer valid autonomous delivery evidence; composite finalization remains pending
+test m6_exported_bundle_integrity_without_executing_candidate ... ignored, historical delivery fixture lacks content-bound approval; real bundle integrity/parity now covered in bundle_scientific_docker
+test m6_project_cancellation_isolation ... ok
+test m6_scientific_lineage_registration_and_fencing ... ok
+test m6_existing_version_six_database_receives_boosting_migration ... ok
+test m6_standalone_executable_runs_without_source_checkout ... ok
+test m6_lease_safe_storage_gc_and_protected_artifact_retention ... ok
+
+test result: ok. 5 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 1.63s
+

@@ -148,18 +148,16 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
   - Full `cargo test --locked` passed; live pinned-Docker cgroup/OOM/survivor checks, six end-to-end scientific pipeline modes, and real ENOSPC regression passed. See the fresh evidence below.
   - Architecture decisions D20–D25 recorded in `docs/v2/DECISIONS.md`.
   - Historical M6 evidence preserved untouched.
-  - Runtime implementation: P1.1–P1.6 complete and verified. P2 (P2.1–P2.6 and full P2 Roadmap Acceptance Gate) complete and verified. P3 (P3.1–P3.5 and full Phase P3 Acceptance Gate) complete and verified. P4 (P4.1–P4.3 and full Phase P4 Acceptance Gate) complete and verified. P5 (P5.1–P5.6 and full Phase P5 Acceptance Gate) complete and verified. P6 (P6.1–P6.6 and full Phase P6 Acceptance Gate) complete and verified. P7 (P7.1–P7.7 and full Phase P7 Acceptance Gate) complete and verified:
-    1. P7.1: Versioned candidate bundle manifest (`mlrescurix.bundle.v2`) under strict Draft 2020-12 schema (`contracts/v2/candidate_bundle.schema.json`). Clean separation between `training.lock` and standalone `inference.lock` strictly rejecting build tools and dev test frameworks (`pytest`, `harness`). Packages frozen weights, feature pipeline, schemas, scorecard, lineage, and resource measurements.
-    2. P7.2: Native joblib and SafeTensors model exports (`export_model`, `SafeTensorsPredictor`, `verify_export_parity`) with modality-specific documented numerical tolerances (`DEFAULT_TOLERANCES`) avoiding hardcoded 1e-6 across disparate modalities, and sandbox path traversal boundary protection.
-    3. P7.3: Target verification, cold/warm start latency, peak memory, and package size. Single-use sealed holdout evaluation strictly enforced via authoritative state gate (`final_test_gates` status `consumed`) and verified user approval token (`user_approvals`). Strict zero-leakage verification deterministically rejecting bundles with private evaluation rows from `dataset_manifest.json` `splits.test`.
-    4. P7.4: Minimal standalone HTTP serving recipe (`serve.py`) with `/health` and `/predict` endpoints using Python standard library `http.server` with zero external server dependencies and locked inference-only dependencies (`inference.lock`), rejecting invalid schemas (`400/422`).
-    5. P7.5: Installed standalone workflow lifecycle outside source checkout: fresh project initialization, dataset registration, simulated crash/resume, candidate finalization, and standalone CLI prediction (`inference.py`). State database migration (`execution::migrate()`) upgrades populated historical states without schema version bump (`PRAGMA user_version = 10`).
-    6. P7.6: Predeclared matched prospective benchmarks comparing random, search, and agent baselines across fixed seeds (`[2026, 42, 101]`) under matched compute budgets, transparently recording suboptimal and failing trials alongside winners.
-    7. P7.7 & Gate: Authoritative capability matrix published via `mlrescurix-harness capabilities` bound to immutable source digest and pinned container image hash (`d094b6be...`). Formally audited all 5 historical M6 release gates (preserved as `not_ready`) and all 7 v2 release gates (P1–P7 recorded as `passed`). Standalone frozen candidate bundles execute outside checkout without manual intervention or source leakage.
-    Verified across 8 integration tests in `crates/harness/tests/release_p7.rs`, 4 unit tests in `python/tests/test_p7_scientific_delivery.py`, and 175 tests across repository regression suites (187 total passed tests, 0 failures). Fresh logs in `docs/evidence/v2/p7/20261015-p7-gate-closure/`. Phase P7 is closed.
+  - Runtime implementation: P1.1–P1.6 complete and verified. P2 (P2.1–P2.6 and full P2 Roadmap Acceptance Gate) complete and verified. P3 (P3.1–P3.5 and full Phase P3 Acceptance Gate) complete and verified. P4 (P4.1–P4.3 and full Phase P4 Acceptance Gate) complete and verified. P5 (P5.1–P5.6 and full Phase P5 Acceptance Gate) complete and verified. P6 (P6.1–P6.6 and full Phase P6 Acceptance Gate) complete and verified. P7 (P7.1–P7.7 and full Phase P7 Acceptance Gate) complete and verified. P8 (P8.1–P8.5 and full Phase P8 Acceptance Gate) complete and verified:
+    1. P8.1: Strict typed JSON schemas for `HardwareProfile`, `DatasetMetadata`, `FeasibilityReport`, and `ExecutionPlan` (`contracts/v2/*.schema.json`). Rust and Python domain models integrated with P3 resource broker discovery (`broker.rs`), capturing effective CPU, RAM, disk headroom, Docker VM/accelerator limits, and memory certification capability. Computes transformation expansion factor (one-hot cardinality expansion) and dense memory footprint.
+    2. P8.2: Analytical complexity estimators for Linear, Boosting, Tree, Neural, and Custom architectures factoring in CV fold counts, final refit multiplier, expanded dimensionality, and concurrent worker lease allocations. Capped micro-pilots ($N \le 100$ rows, low-epoch probes) respecting strict timeout and peak RSS memory guards, clamping requested rows to $\le 100$ rows.
+    3. P8.3: Transparent multi-tier feasibility verdicts emitted prior to heavy dispatch: `locally_feasible`, `feasible_with_adaptation`, `requires_external_compute`, `unknown`. Reports include full documented assumptions, confidence bounds (`high`, `medium`, `low`), predicted runtime/RAM ranges, and measured pilot trial IDs.
+    4. P8.4: Concrete evidence-backed local alternatives: quantization (float64 to float32 downcasting), sparse linear baselines (scipy CSR matrices), progressive fidelity screening (20% subsampling for candidate exploration), downsampled screening, smaller tree/boosting architectures, and chunked streaming ingestion without quiet semantic degradation.
+    5. P8.5 & Gate: Deterministic constraint negotiation generating immutable `ExecutionPlan` artifacts. Enforces safe local downscaling without purchasing external compute, strictly preserving locked evaluation split protocols (`locked_split_protocol_preserved = true`), and refusing heavy training dispatch on infeasible tasks (`enforce_heavy_dispatch_feasibility`).
+    Verified across 11 integration tests in `crates/harness/tests/feasibility_p8.rs`, 6 unit tests in `python/tests/test_p8_feasibility.py`, and 185 tests across repository regression suites (202 total passed tests, 0 failures). Fresh logs in `docs/evidence/v2/p8/20261015-p8-gate-closure/`. Phase P8 is closed.
 - Release: M6 remains **NOT READY**, as recorded in `docs/m6-completion-status.md`.
-  - Authorization: P7.1–P7.7 and Phase P7 Acceptance Gate were authorized and completed in this session. P8 or later phases are NOT begun.
-  - Next recommended slice: Phase P8 (when explicitly authorized). M6 release gates remain independently open.
+  - Authorization: P8.1–P8.5 and Phase P8 Acceptance Gate were authorized and completed in this session. P9 or later phases are NOT begun.
+  - Next recommended slice: Phase P9 (when explicitly authorized). M6 release gates remain independently open.
 
 | Phase | Status | Evidence / next step |
 | --- | --- | --- |
@@ -171,7 +169,7 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
 | P5 | complete | P5.1–P5.6 and full Phase P5 Acceptance Gate verified across 11 tests in collaboration_p5, 15 tests in lib, 49 tests in python, and full regression suites (173 total passed tests). Fresh logs in `20261014-p5-gate-closure/`. M6 remains independently NOT READY. |
 | P6 | complete | P6.1–P6.6 and full Phase P6 Acceptance Gate verified across 9 tests in dashboard_p6, 8 tests in test_search.py, and full regression suites (182 total passed tests). Fresh logs in `20261015-p6-gate-closure/`. M6 remains independently NOT READY. |
 | P7 | complete | P7.1–P7.7 and full Phase P7 Acceptance Gate verified across 8 tests in release_p7, 4 tests in test_p7_scientific_delivery.py, 53 tests in python_host, and full regression suites (187 total passed tests, 0 failures). Fresh logs in `docs/evidence/v2/p7/20261015-p7-gate-closure/`. M6 remains independently NOT READY. |
-| P8 | Planned | Pilot-calibrated feasibility reports |
+| P8 | complete | P8.1–P8.5 and full Phase P8 Acceptance Gate verified across 11 tests in feasibility_p8, 6 tests in test_p8_feasibility.py, and full regression suites (202 total passed tests, 0 failures). Fresh logs in `docs/evidence/v2/p8/20261015-p8-gate-closure/`. M6 remains independently NOT READY. |
 | P9 | Optional/planned | Approve and certify each adapter/backend separately |
 
 Allowed implementation statuses: planned, in_progress, blocked, implemented_unverified,
@@ -210,6 +208,7 @@ or a specialist's assertion alone does not meet it. P0 is documentation complete
 | 2026-10-14 | P5.1–P5.6 & Phase P5 Acceptance Gate Closure | Implemented versioned task assignment and completion schemas (`task_assignment.schema.json`, `task_completion.schema.json`) and SQLite tables (`task_assignments`, `task_completions`), consolidated 5 core default roles while preserving all 8 specialist roles and role alias normalization, allocated isolated branch workspaces (`BranchWorkspaceManager`) with durable single-writer lock ownership (`BranchLock`), experiment DAG node traversal and comparative multi-fidelity search strategy evaluation, complete request token accounting (~16K default, 64K ceiling, essential state bounds), tool pairing validation and outbound filtering, milestone compaction preserving hypotheses, steering, constraints, approvals, and verified achievement evidence SHAs with crash-proof hash verification, and turn-boundary steering with explicit user approval enforcement for deployment handoffs and test gates. All 11 tests in collaboration_p5, 15 tests in lib, 49 tests in python, and full regression suites passed (173 total passed tests). Added D35. Fresh logs in `docs/evidence/v2/p5/20261014-p5-gate-closure/`. Phase P5 is closed; M6 remains NOT READY. |
 | 2026-10-15 | P6.1–P6.6 & Phase P6 Acceptance Gate Closure | Implemented native Rust HTTP/1.1 and persistent SSE service (`crates/harness/src/server.rs`) with loopback binding (`127.0.0.1`), session token authentication (`Bearer`/Cookie `SameSite=Strict`), strict Host/Origin/CSRF validation, 64 KiB request body ceiling, read-only queries against P2 4-connection pool, monotonic durable event stream (`GET /v1/projects/:id/events`), revision-fenced mutation command ingress (`POST /v1/projects/:id/commands`), and CAS blob streaming with traversal checks. Created aesthetic, animated, reactive single-page dashboard application (`crates/harness/src/assets/dashboard.html`) embedded directly in the harness binary, featuring zero-XSS DOM sanitization, interactive multi-fidelity experiment DAG canvas with zoom/pan and lineage ancestry highlighting, real-time Pareto scatter plot and dynamic leaderboard separating official scorecards from unverified agent claims, sliding resource and contention telemetry drawer with CPU/RAM gauges and pressure backoff alerts, diagnostic slice visualizer with suppressed micro-slice status badges, and human-in-the-loop turn-boundary steering/control center with note revisioning. Verified reconnect/replay resilience, expired cursor reset frames, 120-node DAG responsiveness, and reduced-motion accessibility preference. All 9 tests in dashboard_p6, 8 tests in test_search.py, and full regression suites passed (182 total passed tests, 0 failures). Added D36. Fresh logs in `docs/evidence/v2/p6/20261015-p6-gate-closure/`. Phase P6 is closed; M6 remains NOT READY. |
 | 2026-10-15 | P7.1–P7.7 & Phase P7 Acceptance Gate Closure | Implemented executable candidate bundle manifest (`mlrescurix.bundle.v2`) under strict Draft 2020-12 schema (`contracts/v2/candidate_bundle.schema.json`) with clean separation between `training.lock` and standalone `inference.lock` rejecting build/test tools (`pytest`, `harness`). Implemented native joblib and zero-pickle SafeTensors model export adapters (`export_model`, `SafeTensorsPredictor`, `verify_export_parity`) in `export.py` with modality-specific documented tolerances and sandbox boundary checks. Enforced sealed holdout evaluation gate (`final_test_gates` status `consumed`) with verified user approvals (`user_approvals`), and strict zero evaluation row leakage rejection against `splits.test` in `dataset_manifest.json`. Implemented minimal standalone HTTP serving recipe (`serve.py`) with `/health` and `/predict` endpoints using standard library `http.server`. Proved installed standalone workflow outside checkout with crash/resume and populated state migration without schema version bump (`PRAGMA user_version = 10`). Implemented matched prospective benchmarks (`benchmarks.py`) across seeds `[2026, 42, 101]` transparently recording suboptimal/failing trials. Published capability matrix and audited all 5 M6 gates (preserved as `not_ready`) and all 7 v2 gates (P1–P7 passed). All 8 tests in release_p7, 4 tests in test_p7_scientific_delivery.py, 53 tests in python_host, and full regression suites passed (187 total passed tests, 0 failures). Added D37. Fresh logs in `docs/evidence/v2/p7/20261015-p7-gate-closure/`. Phase P7 is closed; M6 remains NOT READY. |
+| 2026-10-15 | P8.1–P8.5 & Phase P8 Acceptance Gate Closure | Defined typed schemas for HardwareProfile, DatasetMetadata, FeasibilityReport, ExecutionPlan (`contracts/v2/*.schema.json`). Implemented Rust and Python models integrating P3 broker discovery (`broker.rs`), capturing effective CPU, RAM, disk headroom, Docker VM/accelerator limits, and memory certification capability. Added model family analytical complexity estimators (Linear, Boosting, Tree, Neural, Custom) and capped micro-pilots ($N \le 100$, low-epoch probes, tight timeout/RAM guards). Implemented transparent multi-tier feasibility verdicts (`locally_feasible`, `feasible_with_adaptation`, `requires_external_compute`, `unknown`) with documented assumptions, confidence bounds, predicted runtime/RAM ranges, and pilot trial IDs. Evaluated evidence-backed local alternatives (quantization, sparse linear, progressive fidelity, downsampled screening, smaller architectures, streaming) without quiet semantic degradation. Implemented safe constraint negotiation generating immutable `ExecutionPlan` artifacts while strictly preserving locked evaluation splits (`locked_split_protocol_preserved = true`) and gating heavy training dispatch (`enforce_heavy_dispatch_feasibility`). All 11 tests in feasibility_p8, 6 tests in test_p8_feasibility.py, and full regression suites passed (202 total passed tests, 0 failures). Added D38. Fresh logs in `docs/evidence/v2/p8/20261015-p8-gate-closure/`. Phase P8 is closed; M6 remains NOT READY. |
 
 ## Update at the end of every implementation session
 
@@ -1015,6 +1014,78 @@ Next small actionable slice:
   - Phase P8 (P8.1 HardwareProfile, DatasetMetadata, FeasibilityReport, ExecutionPlan) upon explicit user authorization.
 ```
 
+### Implementation Session 2026-10-15 (P8.1–P8.5 & Phase P8 Acceptance Gate Closure)
+
+```text
+Date / phase / task IDs: 2026-10-15 / P8 / P8.1–P8.5 & Phase P8 Acceptance Gate Closure
+User-authorized scope: Phase P8 (P8.1 through P8.5) and Phase P8 Acceptance Gate. Retain user_version = 10; keep docs/evidence/m6/ untouched; do not begin Phase P9 or later.
+Starting commit and pre-existing dirty files: abf1f235030a79f9a606b429e34608431e37603d; dirty: crates/, docs/v2/, python/, contracts/
+Changes and source paths:
+  - contracts/v2/hardware_profile.schema.json: Strict Draft 2020-12 schema for discovered hardware profiles capturing effective CPU, memory, disk, accelerators, and memory certification.
+  - contracts/v2/dataset_metadata.schema.json: Strict Draft 2020-12 schema for dataset metadata characterizing row counts, features, categorical cardinalities, expansion factor, and dense footprint.
+  - contracts/v2/feasibility_report.schema.json: Strict Draft 2020-12 schema for multi-tier feasibility reports with confidence, assumptions, predicted runtime/RAM bounds, pilot IDs, and adaptation proposals.
+  - contracts/v2/execution_plan.schema.json: Strict Draft 2020-12 schema for negotiated execution plans enforcing safe downscaling and locked split preservation.
+  - python/src/mlrescurix_worker/scientific/feasibility.py: Python domain models, metadata extraction, analytical complexity estimators, capped micro-pilot runner (N <= 100, strict timeout/RAM limits), local alternatives generator, feasibility reporter, and constraint negotiation.
+  - crates/harness/src/feasibility.rs: Rust domain models, broker capability integration, analytical estimators, micro-pilot execution, transparent multi-tier verdicts, local alternatives, constraint negotiation, database persistence, and heavy dispatch gating.
+  - crates/harness/src/schema_p8_feasibility.sql: Additive idempotent DDL creating feasibility_reports, execution_plans, and micro_pilot_runs tables under user_version = 10.
+  - crates/harness/src/execution.rs: Embedded schema_p8_feasibility.sql in connection migration.
+  - crates/harness/src/lib.rs: Exported pub mod feasibility.
+  - crates/harness/src/assets.rs: Added feasibility.py to EMBEDDED_PYTHON_FILES.
+  - crates/harness/src/agents/tools.rs: Added estimate_feasibility and negotiate_execution_plan tools to ToolRegistry.
+  - crates/harness/src/agents/roles.rs: Added feasibility tools to specialist and core role capabilities.
+  - crates/harness/src/agents/orchestrator.rs: Dispatched feasibility tool calls in AgentOrchestrator and enforced feasibility check in evaluate_submission.
+  - crates/harness/src/main.rs: Added EstimateFeasibility and NegotiatePlan subcommands; exposed p8_feasibility release gate and feasibility_capabilities in Capabilities command.
+  - crates/harness/tests/feasibility_p8.rs: 11 integration tests covering P8.1 through P8.5, orchestrator tools, CLI commands, and full acceptance gate closure.
+  - python/tests/test_p8_feasibility.py: 6 unit tests validating schemas, analytical estimators, capped micro-pilots, multi-tier verdicts, local alternatives, and split preservation.
+  - docs/v2/DECISIONS.md: Recorded Decision D38.
+  - docs/v2/ROADMAP.md: Updated Phase P8 status to Complete.
+  - docs/v2/PROGRESS.md: Updated progress, session ledger, and acceptance gate closure.
+  - docs/evidence/v2/p8/20261015-p8-gate-closure/: Captured test execution logs and summary.md.
+Decisions added or revised: D38 added (Compute Feasibility & Local Alternatives, typed schemas, analytical estimators, capped micro-pilots, multi-tier verdicts, local alternatives, safe downscaling negotiation, locked split preservation).
+Exact verification commands and exit results:
+  - cargo test --locked --test feasibility_p8 (exit code 0; 11 passed)
+  - PYTHONPATH=python/src pytest python/tests/test_p8_feasibility.py (exit code 0; 6 passed)
+  - cargo test --locked --test release_p7 (exit code 0; 8 passed)
+  - cargo test --locked --test dashboard_p6 (exit code 0; 9 passed)
+  - cargo test --locked --test collaboration_p5 (exit code 0; 11 passed)
+  - cargo test --locked --lib (exit code 0; 16 passed, 2 ignored)
+  - cargo test --locked --test candidate_tools_p4 (exit code 0; 9 passed)
+  - cargo test --locked --test artifact_registry_p2 (exit code 0; 14 passed)
+  - cargo test --locked --test resource_broker_p3 -- --test-threads=1 (exit code 0; 13 passed)
+  - cargo test --locked --test foundation -- --test-threads=1 (exit code 0; 26 passed)
+  - cargo test --locked --test agent_m4 (exit code 0; 23 passed)
+  - cargo test --locked --test recovery_cycles -- --test-threads=1 (exit code 0; 8 passed, 2 ignored)
+  - cargo test --locked --test release_m6 (exit code 0; 5 passed, 3 ignored)
+  - PYTHONPATH=python/src pytest python/tests/ -k "not test_real_container_tmpfs_enospc_never_publishes" (exit code 0; 59 passed, 1 deselected)
+Evidence paths plus source/image/schema hashes:
+  - docs/evidence/v2/p8/20261015-p8-gate-closure/test_feasibility_p8.log
+  - docs/evidence/v2/p8/20261015-p8-gate-closure/test_p8_feasibility.log
+  - docs/evidence/v2/p8/20261015-p8-gate-closure/test_release_p7.log
+  - docs/evidence/v2/p8/20261015-p8-gate-closure/test_dashboard_p6.log
+  - docs/evidence/v2/p8/20261015-p8-gate-closure/test_collaboration_p5.log
+  - docs/evidence/v2/p8/20261015-p8-gate-closure/test_lib.log
+  - docs/evidence/v2/p8/20261015-p8-gate-closure/test_candidate_tools_p4.log
+  - docs/evidence/v2/p8/20261015-p8-gate-closure/test_artifact_registry_p2.log
+  - docs/evidence/v2/p8/20261015-p8-gate-closure/test_resource_broker_p3.log
+  - docs/evidence/v2/p8/20261015-p8-gate-closure/test_foundation.log
+  - docs/evidence/v2/p8/20261015-p8-gate-closure/test_agent_m4.log
+  - docs/evidence/v2/p8/20261015-p8-gate-closure/test_recovery_cycles.log
+  - docs/evidence/v2/p8/20261015-p8-gate-closure/test_release_m6.log
+  - docs/evidence/v2/p8/20261015-p8-gate-closure/test_python_host.log
+  - docs/evidence/v2/p8/20261015-p8-gate-closure/summary.md
+Implemented but unverified:
+  - None within Phase P8 scope (all P8 deliverables implemented and verified with passing tests).
+Failure/recovery scenarios still open:
+  - Phase P9+ separately gated expansions and optimizations remain planned and not begun.
+Budget / compatibility / migration implications:
+  - Zero schema version bump required (user_version remains 10).
+  - 128 MiB policy ceiling strictly preserved.
+  - M0–M6 compatibility fully preserved across all regression suites.
+  - Historical evidence in docs/evidence/m6/ left completely untouched.
+Next small actionable slice:
+  - Phase P9 (separately gated expansion and optimizations) upon explicit user authorization.
+```
+
 Copy and fill one entry; update phase/task statuses above too.
 
 ```text
@@ -1646,6 +1717,16 @@ budget, explain limits and choose evidence-backed local alternatives.
 **Gate:** estimates are calibrated against bounded real runs; misleading guarantees
 are absent; remote/cloud calls never occur simply because the agent recommends them;
 unsupported backends return useful alternatives rather than crash.
+
+**Status (2026-10-15): Complete. Phase P8 acceptance gate passed.**
+P8.1–P8.5 and Phase P8 acceptance gate are implemented and verified across `contracts/v2/hardware_profile.schema.json`, `dataset_metadata.schema.json`, `feasibility_report.schema.json`, `execution_plan.schema.json`, `python/src/mlrescurix_worker/scientific/feasibility.py`, `crates/harness/src/feasibility.rs`, `crates/harness/src/schema_p8_feasibility.sql`, `crates/harness/src/assets.rs`, `crates/harness/src/agents/tools.rs`, `crates/harness/src/agents/roles.rs`, `crates/harness/src/agents/orchestrator.rs`, `crates/harness/src/main.rs`, `crates/harness/tests/feasibility_p8.rs`, and `python/tests/test_p8_feasibility.py`. The Phase P8 acceptance gate is closed:
+1. **Feasibility & Execution Plan Artifacts**: Strict typed JSON schemas validated under Draft 2020-12. Domain models implemented in Rust and Python. Integrates with P3 resource broker discovery (`broker.rs`), capturing effective CPU cores, effective RAM, disk headroom, Docker VM/accelerator limits, and memory certification capability. Computes dataset transformation expansion factors (e.g. one-hot cardinality expansion) and dense memory footprints.
+2. **Analytical Estimators & Capped Micro-Pilots**: Model family-specific analytical complexity bounds for Linear, Boosting, Tree, Neural, and Custom architectures, accounting for CV fold counts, final refit multiplier, feature expansion factor, and concurrent worker lease allocations. Capped micro-pilots ($N \le 100$ rows, low-epoch probes) strictly respect timeout (default 3000ms) and peak RSS memory guards, clamping requested rows to $\le 100$ and detecting memory cap violations.
+3. **Transparent Multi-Tier Feasibility Reporting**: Deterministic four-tier feasibility verdicts emitted prior to heavy dispatch (`locally_feasible`, `feasible_with_adaptation`, `requires_external_compute`, `unknown`) with documented assumptions, confidence bounds, predicted runtime/RAM ranges, and measured pilot trial IDs.
+4. **Evidence-Backed Local Alternatives**: Evaluates and suggests concrete local adaptations: quantization (float64 to float32 downcasting), sparse linear baselines (scipy CSR matrices), progressive fidelity screening (20% subsampling for candidate exploration), downsampled screening, smaller tree/boosting architectures, and chunked streaming ingestion without quiet semantic degradation.
+5. **Constraint Negotiation & Safe Downscaling**: Deterministic constraint negotiation protocols generating immutable `ExecutionPlan` artifacts. Enforces safe local downscaling without purchasing external compute, strictly preserving locked evaluation split protocols (`locked_split_protocol_preserved = true`), and refusing heavy training dispatch on infeasible tasks (`enforce_heavy_dispatch_feasibility`).
+Verified across 11 integration tests in `crates/harness/tests/feasibility_p8.rs`, 6 unit tests in `python/tests/test_p8_feasibility.py`, and 185 tests across repository regression suites (202 total passed tests, 0 failures). Fresh logs captured in `docs/evidence/v2/p8/20261015-p8-gate-closure/`. Phase P8 is closed. M6 remains independently NOT READY.
+
 
 ## P9 — Separately gated expansion and optimizations
 
@@ -2309,6 +2390,30 @@ D37 is implemented in `contracts/v2/candidate_bundle.schema.json`, `python/src/m
    - Published authoritative capability matrix in `mlrescurix-harness capabilities` bound to immutable source hash (`source_sha256`) and container image hash (`mlrescurix-scientific@sha256:d094b6becbbd1a1d86b944fd39370bfe26bb96f6290b429c0a51c512faf5f1bd`).
    - Formally audited all 5 historical M6 release gates (preserved as `not_ready`) and all 7 v2 release gates (P1–P7 recorded as `passed`).
    - Verified across 8 integration tests in `crates/harness/tests/release_p7.rs`, 4 unit tests in `python/tests/test_p7_scientific_delivery.py`, and 175 tests across repository regression suites (187 total passed tests, 0 failures). Evidence captured in `docs/evidence/v2/p7/20261015-p7-gate-closure/`. Phase P7 is closed. M6 remains independently NOT READY.
+
+### P8.1–P8.5 & Gate Closure decisions (2026-10-15)
+
+D38 is implemented in `contracts/v2/hardware_profile.schema.json`, `contracts/v2/dataset_metadata.schema.json`, `contracts/v2/feasibility_report.schema.json`, `contracts/v2/execution_plan.schema.json`, `python/src/mlrescurix_worker/scientific/feasibility.py`, `crates/harness/src/feasibility.rs`, `crates/harness/src/schema_p8_feasibility.sql`, `crates/harness/src/assets.rs`, `crates/harness/src/agents/tools.rs`, `crates/harness/src/agents/roles.rs`, `crates/harness/src/agents/orchestrator.rs`, `crates/harness/src/main.rs`, `crates/harness/tests/feasibility_p8.rs`, and `python/tests/test_p8_feasibility.py`.
+1. **Feasibility & Execution Plan Artifacts (P8.1)**:
+   - Defined strict Draft 2020-12 typed schemas for `HardwareProfile`, `DatasetMetadata`, `FeasibilityReport`, and `ExecutionPlan`.
+   - Reused P3 resource broker discovery (`broker.rs`), capturing effective CPU, RAM, disk headroom, Docker VM/accelerator limits, and memory certification support.
+   - Accurately accounts for dataset cardinality expansion (e.g. one-hot encoding), calculating transformed expansion factors and dense memory footprints.
+2. **Analytical Estimators & Capped Micro-Pilots (P8.2)**:
+   - Model family-specific analytical complexity bounds for Linear, Boosting, Tree, Neural, and Custom architectures.
+   - Accurately accounts for CV fold counts, final refit multiplier, feature expansion factor, and concurrent worker lease allocations.
+   - Implemented capped micro-pilots ($N \le 100$ rows, low-epoch probes) with strict timeout (default 3000ms) and peak RSS memory guards. Clamps requested rows to $\le 100$ rows and detects memory cap violations (`status='memory_exceeded'`).
+3. **Transparent Multi-Tier Feasibility Reporting (P8.3)**:
+   - Deterministic four-tier feasibility verdicts emitted prior to heavy dispatch: `locally_feasible`, `feasible_with_adaptation`, `requires_external_compute`, `unknown`.
+   - Reports include full documented assumptions, confidence bounds (`high`, `medium`, `low`), predicted runtime range, predicted peak RAM range, and measured pilot trial IDs. Calibrates predictions using micro-pilot results (raising confidence to `high` when pilot succeeds).
+4. **Evidence-Backed Local Alternatives (P8.4)**:
+   - Evaluates and suggests concrete local adaptations: quantization (float64 to float32 downcasting), sparse linear baselines (scipy CSR matrices), progressive fidelity screening (20% subsampling for candidate exploration), downsampled screening, smaller tree/boosting architectures, and chunked streaming ingestion.
+   - Strictly prohibits quiet semantic degradation by documenting quality impacts and requiring explicit negotiation.
+5. **Constraint Negotiation & Safe Downscaling (P8.5)**:
+   - Deterministic constraint negotiation protocols generating immutable `ExecutionPlan` artifacts.
+   - Enforces safe local downscaling without purchasing external compute. Strictly preserves locked evaluation split protocols (`locked_split_protocol_preserved = true`), disallowing modifications to evaluation partitions.
+   - Heavy training dispatch feasibility gating (`enforce_heavy_dispatch_feasibility`) strictly refuses tasks with `requires_external_compute` before queue admission.
+6. **Phase P8 Acceptance Gate Closure (Gate)**:
+   - Verified across 11 integration tests in `crates/harness/tests/feasibility_p8.rs`, 6 unit tests in `python/tests/test_p8_feasibility.py`, and 185 tests across repository regression suites (202 total passed tests, 0 failures). Evidence captured in `docs/evidence/v2/p8/20261015-p8-gate-closure/`. Phase P8 is closed. M6 remains independently NOT READY.
 
 <<<END SOURCE FILE>>>
 

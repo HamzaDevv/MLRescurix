@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:dataset-metadata:2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "dataset_id",
+    "row_count",
+    "feature_count",
+    "raw_bytes",
+    "task_type",
+    "categorical_columns",
+    "numeric_columns",
+    "estimated_cardinality",
+    "estimated_expanded_feature_count",
+    "memory_dense_bytes",
+    "transformed_expansion_factor",
+    "cv_folds"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "v2" },
+    "dataset_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "row_count": { "type": "integer", "minimum": 1 },
+    "feature_count": { "type": "integer", "minimum": 1 },
+    "raw_bytes": { "type": "integer", "minimum": 1 },
+    "task_type": { "type": "string", "enum": ["binary", "multiclass", "regression"] },
+    "categorical_columns": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "numeric_columns": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "estimated_cardinality": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "estimated_expanded_feature_count": { "type": "integer", "minimum": 1 },
+    "memory_dense_bytes": { "type": "integer", "minimum": 1 },
+    "transformed_expansion_factor": { "type": "number", "minimum": 1.0 },
+    "cv_folds": { "type": "integer", "minimum": 2 }
+  },
+  "additionalProperties": false
+}

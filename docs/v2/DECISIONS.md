@@ -300,3 +300,27 @@ D37 is implemented in `contracts/v2/candidate_bundle.schema.json`, `python/src/m
    - Formally audited all 5 historical M6 release gates (preserved as `not_ready`) and all 7 v2 release gates (P1–P7 recorded as `passed`).
    - Verified across 8 integration tests in `crates/harness/tests/release_p7.rs`, 4 unit tests in `python/tests/test_p7_scientific_delivery.py`, and 175 tests across repository regression suites (187 total passed tests, 0 failures). Evidence captured in `docs/evidence/v2/p7/20261015-p7-gate-closure/`. Phase P7 is closed. M6 remains independently NOT READY.
 
+### P8.1–P8.5 & Gate Closure decisions (2026-10-15)
+
+D38 is implemented in `contracts/v2/hardware_profile.schema.json`, `contracts/v2/dataset_metadata.schema.json`, `contracts/v2/feasibility_report.schema.json`, `contracts/v2/execution_plan.schema.json`, `python/src/mlrescurix_worker/scientific/feasibility.py`, `crates/harness/src/feasibility.rs`, `crates/harness/src/schema_p8_feasibility.sql`, `crates/harness/src/assets.rs`, `crates/harness/src/agents/tools.rs`, `crates/harness/src/agents/roles.rs`, `crates/harness/src/agents/orchestrator.rs`, `crates/harness/src/main.rs`, `crates/harness/tests/feasibility_p8.rs`, and `python/tests/test_p8_feasibility.py`.
+1. **Feasibility & Execution Plan Artifacts (P8.1)**:
+   - Defined strict Draft 2020-12 typed schemas for `HardwareProfile`, `DatasetMetadata`, `FeasibilityReport`, and `ExecutionPlan`.
+   - Reused P3 resource broker discovery (`broker.rs`), capturing effective CPU, RAM, disk headroom, Docker VM/accelerator limits, and memory certification support.
+   - Accurately accounts for dataset cardinality expansion (e.g. one-hot encoding), calculating transformed expansion factors and dense memory footprints.
+2. **Analytical Estimators & Capped Micro-Pilots (P8.2)**:
+   - Model family-specific analytical complexity bounds for Linear, Boosting, Tree, Neural, and Custom architectures.
+   - Accurately accounts for CV fold counts, final refit multiplier, feature expansion factor, and concurrent worker lease allocations.
+   - Implemented capped micro-pilots ($N \le 100$ rows, low-epoch probes) with strict timeout (default 3000ms) and peak RSS memory guards. Clamps requested rows to $\le 100$ rows and detects memory cap violations (`status='memory_exceeded'`).
+3. **Transparent Multi-Tier Feasibility Reporting (P8.3)**:
+   - Deterministic four-tier feasibility verdicts emitted prior to heavy dispatch: `locally_feasible`, `feasible_with_adaptation`, `requires_external_compute`, `unknown`.
+   - Reports include full documented assumptions, confidence bounds (`high`, `medium`, `low`), predicted runtime range, predicted peak RAM range, and measured pilot trial IDs. Calibrates predictions using micro-pilot results (raising confidence to `high` when pilot succeeds).
+4. **Evidence-Backed Local Alternatives (P8.4)**:
+   - Evaluates and suggests concrete local adaptations: quantization (float64 to float32 downcasting), sparse linear baselines (scipy CSR matrices), progressive fidelity screening (20% subsampling for candidate exploration), downsampled screening, smaller tree/boosting architectures, and chunked streaming ingestion.
+   - Strictly prohibits quiet semantic degradation by documenting quality impacts and requiring explicit negotiation.
+5. **Constraint Negotiation & Safe Downscaling (P8.5)**:
+   - Deterministic constraint negotiation protocols generating immutable `ExecutionPlan` artifacts.
+   - Enforces safe local downscaling without purchasing external compute. Strictly preserves locked evaluation split protocols (`locked_split_protocol_preserved = true`), disallowing modifications to evaluation partitions.
+   - Heavy training dispatch feasibility gating (`enforce_heavy_dispatch_feasibility`) strictly refuses tasks with `requires_external_compute` before queue admission.
+6. **Phase P8 Acceptance Gate Closure (Gate)**:
+   - Verified across 11 integration tests in `crates/harness/tests/feasibility_p8.rs`, 6 unit tests in `python/tests/test_p8_feasibility.py`, and 185 tests across repository regression suites (202 total passed tests, 0 failures). Evidence captured in `docs/evidence/v2/p8/20261015-p8-gate-closure/`. Phase P8 is closed. M6 remains independently NOT READY.
+
