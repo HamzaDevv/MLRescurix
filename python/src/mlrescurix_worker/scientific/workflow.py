@@ -671,6 +671,9 @@ def _stage_bundle_training_sources(source_dir: Path, is_pipeline: bool) -> None:
             "scientific/calibration.py",
             "scientific/ensemble.py",
             "scientific/scheduled_pipeline.py",
+            "scientific/benchmarks.py",
+            "scientific/export.py",
+            "scientific/serve.py",
             "search/__init__.py",
             "search/adapter.py",
         ]
@@ -683,6 +686,19 @@ def _stage_bundle_training_sources(source_dir: Path, is_pipeline: bool) -> None:
 
 
 def _inference_lock_content() -> str:
+    """Locked runtime dependencies strictly required for standalone inference only."""
+    return (
+        f"numpy=={np.__version__}\n"
+        f"pandas=={pd.__version__}\n"
+        f"scipy=={__import__('scipy').__version__}\n"
+        f"scikit-learn=={sklearn.__version__}\n"
+        f"joblib=={joblib.__version__}\n"
+        f"safetensors=={__import__('safetensors').__version__}\n"
+    )
+
+
+def _training_lock_content() -> str:
+    """Locked environment dependencies for full training, testing, and evaluation."""
     container_lock = Path("/opt/mlrescurix/requirements.lock")
     if container_lock.is_file():
         return container_lock.read_text()
@@ -692,6 +708,8 @@ def _inference_lock_content() -> str:
         f"scipy=={__import__('scipy').__version__}\n"
         f"scikit-learn=={sklearn.__version__}\n"
         f"joblib=={joblib.__version__}\n"
+        f"safetensors=={__import__('safetensors').__version__}\n"
+        f"pytest==8.3.4\n"
     )
 
 
@@ -928,9 +946,32 @@ def finalize_candidate(output_dir: str | Path, candidate_id: str, *, test_access
     inference.write_text(_inference_source())
     inference_lock = root / "inference.lock"
     inference_lock.write_text(_inference_lock_content())
+    training_lock = root / "training.lock"
+    training_lock.write_text(_training_lock_content())
     schema = {"format": "mlrescurix.input-schema.v1", "features": manifest["features"], "target": spec.target,
               "task": spec.task, "label_order": manifest["labels"], "unknown_categories": "ignored by fitted one-hot encoder"}
     _atomic_json(root / "input_schema.json", schema)
+    output_schema = {
+        "format": "mlrescurix.output-schema.v1",
+        "task": spec.task,
+        "prediction_type": "float" if spec.task == "regression" else "integer_or_string",
+        "classes": manifest["labels"] if spec.task != "regression" else [],
+        "probabilities": spec.task != "regression",
+        "batch_dim": 0,
+    }
+    _atomic_json(root / "output_schema.json", output_schema)
+
+    # Standalone HTTP serving recipe
+    serve_src = Path(__file__).parent / "serve.py"
+    if serve_src.is_file():
+        (root / "serve.py").write_text(serve_src.read_text(encoding="utf-8"), encoding="utf-8")
+
+    # Native & SafeTensors adapter export
+    try:
+        from .export import export_model
+        export_model(model, root, formats=["safetensors"], task=spec.task, features=manifest["features"], classes=manifest["labels"])
+    except Exception:
+        pass
 
     search_lineage = None
     selection_file = root / "selection.json"
@@ -972,8 +1013,14 @@ def finalize_candidate(output_dir: str | Path, candidate_id: str, *, test_access
     if bundle.exists():
         shutil.rmtree(bundle)
     bundle.mkdir(exist_ok=True)
-    for name in ("frozen_model.joblib", "inference.py", "inference.lock", "input_schema.json", "scorecard.json", "verification.json", "final.json"):
-        shutil.copy2(root / name, bundle / name)
+    for name in (
+        "frozen_model.joblib", "inference.py", "inference.lock", "training.lock",
+        "input_schema.json", "output_schema.json", "scorecard.json", "verification.json",
+        "final.json", "serve.py", "weights.safetensors", "safetensors_meta.json",
+        "tolerances.json", "export_manifest.json"
+    ):
+        if (root / name).exists():
+            shutil.copy2(root / name, bundle / name)
     training = bundle / "training"
     _stage_bundle_training_sources(training / "source", is_pipeline)
     _atomic_json(training / "recipe.json", recipe_payload)
@@ -985,9 +1032,53 @@ def finalize_candidate(output_dir: str | Path, candidate_id: str, *, test_access
         shutil.copy2(root / "lineage.json", bundle / "lineage.json")
     (bundle / "README.md").write_text(readme_text)
     files = sorted(p for p in bundle.rglob("*") if p.is_file() and p.name != "manifest.json")
-    _atomic_json(bundle / "manifest.json", {"format": "mlrescurix.bundle.v1", "project_id": spec.project_id,
-                  "candidate_id": candidate_id, "files": {p.relative_to(bundle).as_posix():
-                  {"bytes": p.stat().st_size, "sha256": _sha256(p)} for p in files}})
+    files_map = {
+        p.relative_to(bundle).as_posix(): {"bytes": p.stat().st_size, "sha256": _sha256(p)}
+        for p in files
+    }
+    manifest_payload = {
+        "format": "mlrescurix.bundle.v2",
+        "project_id": spec.project_id,
+        "candidate_id": candidate_id,
+        "model": {
+            "weights_path": "frozen_model.joblib",
+            "weights_sha256": frozen_hash,
+            "format": "joblib",
+            "tolerances": {"rtol": 1e-5, "atol": 1e-7 if spec.task != "regression" else 1e-6},
+        },
+        "pipeline": {
+            "feature_pipeline": "training/source/features.py" if (bundle / "training/source/features.py").exists() else "training/source/workflow.py",
+            "entrypoint": "inference.py",
+        },
+        "contracts": {
+            "cli": "python inference.py --input <path> --output <path>",
+            "api": "predict(records)",
+            "input_schema": "input_schema.json",
+            "output_schema": "output_schema.json",
+        },
+        "dependencies": {
+            "training_lock": "training.lock",
+            "inference_lock": "inference.lock",
+            "isolated_inference": True,
+        },
+        "scorecard": {
+            "path": "scorecard.json",
+            "sha256": _sha256(bundle / "scorecard.json"),
+        },
+        "lineage": {
+            "path": "lineage.json" if (bundle / "lineage.json").exists() else "scorecard.json",
+            "sha256": _sha256(bundle / "lineage.json") if (bundle / "lineage.json").exists() else _sha256(bundle / "scorecard.json"),
+        },
+        "resource_measurements": {
+            "cold_load_ms": latency.get("cold_load_ms", 0.0),
+            "warm_p50_ms": latency.get("warm_p50_ms", 0.0),
+            "warm_p95_ms": latency.get("warm_p95_ms", 0.0),
+            "peak_rss_kb": latency.get("peak_rss_kb", 0),
+            "package_bytes": bundle_bytes,
+        },
+        "files": files_map,
+    }
+    _atomic_json(bundle / "manifest.json", manifest_payload)
     actual_bundle_files = [p for p in bundle.rglob("*") if p.is_file()]
     actual_bundle_bytes = sum(p.stat().st_size for p in actual_bundle_files)
     if spec.max_bundle_bytes is not None and actual_bundle_bytes > spec.max_bundle_bytes:
@@ -1003,15 +1094,24 @@ def _inference_source() -> str:
     return '''"""Standalone inference for a trusted MLRescurix bundle."""
 from pathlib import Path
 import sys
+import json
 import joblib
 import pandas as pd
+
 _ROOT = Path(__file__).resolve().parent
 _SRC = _ROOT / "training" / "source"
 if _SRC.is_dir() and str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
-_MODEL = joblib.load(_ROOT / "frozen_model.joblib")
-_SCHEMA = __import__("json").loads((_ROOT / "input_schema.json").read_text())
+
+_MODEL = None
+_WEIGHTS_FILE = _ROOT / "frozen_model.joblib"
+if _WEIGHTS_FILE.is_file():
+    _MODEL = joblib.load(_WEIGHTS_FILE)
+
+_SCHEMA = json.loads((_ROOT / "input_schema.json").read_text(encoding="utf-8"))
+
 def predict(records):
+    global _MODEL
     frame = pd.DataFrame(records)
     required = _SCHEMA["features"]
     missing = set(required) - set(frame.columns)
@@ -1019,19 +1119,44 @@ def predict(records):
     if missing or extra:
         raise ValueError(f"input schema mismatch: missing={sorted(missing)}, extra={sorted(extra)}")
     frame = frame.loc[:, required]
-    raw = _MODEL.predict(frame)
-    if isinstance(raw, dict):
-        result = {"prediction": raw["prediction"]}
-        if "probabilities" in raw:
-            result["probabilities"] = raw["probabilities"]
-            result["classes"] = raw.get("classes", [])
+    if _MODEL is not None:
+        raw = _MODEL.predict(frame)
+        if isinstance(raw, dict):
+            result = {"prediction": raw["prediction"]}
+            if "probabilities" in raw:
+                result["probabilities"] = raw["probabilities"]
+                result["classes"] = raw.get("classes", [])
+            return result
+        labels = raw.tolist() if hasattr(raw, "tolist") else list(raw)
+        result = {"prediction": labels}
+        if _SCHEMA.get("task") != "regression" and hasattr(_MODEL, "predict_proba") and hasattr(_MODEL, "classes_"):
+            result["probabilities"] = _MODEL.predict_proba(frame).tolist()
+            result["classes"] = _MODEL.classes_.tolist()
         return result
-    labels = raw.tolist() if hasattr(raw, "tolist") else list(raw)
-    result = {"prediction": labels}
-    if _SCHEMA.get("task") != "regression" and hasattr(_MODEL, "predict_proba") and hasattr(_MODEL, "classes_"):
-        result["probabilities"] = _MODEL.predict_proba(frame).tolist()
-        result["classes"] = _MODEL.classes_.tolist()
-    return result
+    else:
+        from mlrescurix_worker.scientific.export import SafeTensorsPredictor
+        predictor = SafeTensorsPredictor(_ROOT)
+        return predictor.predict(records)
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Standalone MLRescurix Candidate Inference CLI")
+    parser.add_argument("--input", required=True, help="Path to input json or csv file")
+    parser.add_argument("--output", required=True, help="Path to output predictions json file")
+    args = parser.parse_args()
+
+    in_path = Path(args.input)
+    if in_path.suffix.lower() == ".csv":
+        input_data = pd.read_csv(in_path).to_dict(orient="records")
+    else:
+        raw_json = json.loads(in_path.read_text(encoding="utf-8"))
+        input_data = raw_json if isinstance(raw_json, list) else raw_json.get("inputs", raw_json.get("records", []))
+    
+    preds = predict(input_data)
+    out_path = Path(args.output)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(preds, indent=2), encoding="utf-8")
+    print(f"Predictions written to {out_path}")
 '''
 
 

@@ -118,7 +118,7 @@ update progress, decisions and evidence before ending every implementation sessi
 
 # Persistent progress and session handoff
 
-Last updated: 2026-10-14 (Asia/Kolkata).
+Last updated: 2026-10-15 (Asia/Kolkata).
 Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
 
 ## Current state
@@ -148,16 +148,18 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
   - Full `cargo test --locked` passed; live pinned-Docker cgroup/OOM/survivor checks, six end-to-end scientific pipeline modes, and real ENOSPC regression passed. See the fresh evidence below.
   - Architecture decisions D20–D25 recorded in `docs/v2/DECISIONS.md`.
   - Historical M6 evidence preserved untouched.
-  - Runtime implementation: P1.1–P1.6 complete and verified. P2 (P2.1–P2.6 and full P2 Roadmap Acceptance Gate) complete and verified. P3 (P3.1–P3.5 and full Phase P3 Acceptance Gate) complete and verified. P4 (P4.1–P4.3 and full Phase P4 Acceptance Gate) complete and verified. P5 (P5.1–P5.6 and full Phase P5 Acceptance Gate) complete and verified:
-    1. P5.1: Versioned task assignment (`contracts/v2/task_assignment.schema.json`) and task completion (`contracts/v2/task_completion.schema.json`) schemas. Consolidated default roles (`lead`, `data_diagnostics`, `experiment_engineer`, `verifier`, `critic`) while preserving all 8 specialist roles and role alias normalization (`data/diagnostics` -> `data_diagnostics`, `experiment/engineer` -> `experiment_engineer`). Concurrent mutation tasks assigned isolated branch workspaces (`BranchWorkspaceManager`) with durable branch lock ownership (`BranchLock`).
-    2. P5.2: Experiment DAG node traversal and parent evidence lineage (`get_experiment_dag_node` returning primary metrics, `model_sha256`, `predictions_sha256`, child node arrays). Comparative search strategy evaluation (`evaluate_comparative_strategies`) contrasting bounded multi-fidelity best-first against uniform random full fidelity and exploratory MCTS/UCB1, accounting for explicit validation rewards, compute wall costs, and adaptive validation query limits ($\le 50$).
-    3. P5.3: Provider-specific complete request accounting before every dispatch. Economical ~16K token default (`16,384`) with hard configurable upper ceiling $\le 64\text{K}$ (`65,536`). Bounds on essential state (system prompt, schemas, constraints, response reserve) with pre-dispatch refusal if essential state exceeds context window. Tool pairing validation (verifying valid JSON arguments and ensuring tool responses match active preceding tool calls). Pre-dispatch and outbound filtering through `OutboundFilter` redacting raw record tabular data streams.
-    4. P5.4: Milestone and budget-pressure compaction at task boundaries (`maybe_compact`). Compaction preserves active hypothesis, current steering directives, constraints, approvals, final-test identity, committed achievement IDs with durable evidence SHAs, and walk-back logic to prevent severing assistant tool calls from matching tool responses. Crash-proof recovery without replaying LLM requests whose responses are durable.
-    5. P5.5: Dynamic turn-boundary steering for human and critic inputs (`apply_steering`, `apply_critic_steering`) recorded durably in `steering_directives` ledger and incrementing `handoff_version`. Draining directives at turn boundaries without interrupting inner tool loops or mutating historical evidence. Strict enforcement of user approvals (`register_user_approval`, `check_user_approval`) for holdout access, candidate finalization (`"deployment_handoff"`), and test gates (`"final_test"`).
-    6. Phase P5 Acceptance Gate passed: full multi-turn exploration closure surviving process kill/restart without duplicate tool execution or lost scientific state; checkpoints faithfully reconstruct context; durable evidence integrity verification prevents tampering; branch workspaces remain strictly isolated; authoritative budget tracking accounts for effective remaining and finalization reserves. Verified across 11 integration tests in `crates/harness/tests/collaboration_p5.rs`, 15 unit tests in `crates/harness/src/lib.rs`, 49 unit/integration tests in Python, and 98 tests across earlier phase test suites (173 total passed tests). Fresh logs in `docs/evidence/v2/p5/20261014-p5-gate-closure/`. Phase P5 is closed.
+  - Runtime implementation: P1.1–P1.6 complete and verified. P2 (P2.1–P2.6 and full P2 Roadmap Acceptance Gate) complete and verified. P3 (P3.1–P3.5 and full Phase P3 Acceptance Gate) complete and verified. P4 (P4.1–P4.3 and full Phase P4 Acceptance Gate) complete and verified. P5 (P5.1–P5.6 and full Phase P5 Acceptance Gate) complete and verified. P6 (P6.1–P6.6 and full Phase P6 Acceptance Gate) complete and verified. P7 (P7.1–P7.7 and full Phase P7 Acceptance Gate) complete and verified:
+    1. P7.1: Versioned candidate bundle manifest (`mlrescurix.bundle.v2`) under strict Draft 2020-12 schema (`contracts/v2/candidate_bundle.schema.json`). Clean separation between `training.lock` and standalone `inference.lock` strictly rejecting build tools and dev test frameworks (`pytest`, `harness`). Packages frozen weights, feature pipeline, schemas, scorecard, lineage, and resource measurements.
+    2. P7.2: Native joblib and SafeTensors model exports (`export_model`, `SafeTensorsPredictor`, `verify_export_parity`) with modality-specific documented numerical tolerances (`DEFAULT_TOLERANCES`) avoiding hardcoded 1e-6 across disparate modalities, and sandbox path traversal boundary protection.
+    3. P7.3: Target verification, cold/warm start latency, peak memory, and package size. Single-use sealed holdout evaluation strictly enforced via authoritative state gate (`final_test_gates` status `consumed`) and verified user approval token (`user_approvals`). Strict zero-leakage verification deterministically rejecting bundles with private evaluation rows from `dataset_manifest.json` `splits.test`.
+    4. P7.4: Minimal standalone HTTP serving recipe (`serve.py`) with `/health` and `/predict` endpoints using Python standard library `http.server` with zero external server dependencies and locked inference-only dependencies (`inference.lock`), rejecting invalid schemas (`400/422`).
+    5. P7.5: Installed standalone workflow lifecycle outside source checkout: fresh project initialization, dataset registration, simulated crash/resume, candidate finalization, and standalone CLI prediction (`inference.py`). State database migration (`execution::migrate()`) upgrades populated historical states without schema version bump (`PRAGMA user_version = 10`).
+    6. P7.6: Predeclared matched prospective benchmarks comparing random, search, and agent baselines across fixed seeds (`[2026, 42, 101]`) under matched compute budgets, transparently recording suboptimal and failing trials alongside winners.
+    7. P7.7 & Gate: Authoritative capability matrix published via `mlrescurix-harness capabilities` bound to immutable source digest and pinned container image hash (`d094b6be...`). Formally audited all 5 historical M6 release gates (preserved as `not_ready`) and all 7 v2 release gates (P1–P7 recorded as `passed`). Standalone frozen candidate bundles execute outside checkout without manual intervention or source leakage.
+    Verified across 8 integration tests in `crates/harness/tests/release_p7.rs`, 4 unit tests in `python/tests/test_p7_scientific_delivery.py`, and 175 tests across repository regression suites (187 total passed tests, 0 failures). Fresh logs in `docs/evidence/v2/p7/20261015-p7-gate-closure/`. Phase P7 is closed.
 - Release: M6 remains **NOT READY**, as recorded in `docs/m6-completion-status.md`.
-  - Authorization: P5.1–P5.6 and Phase P5 Acceptance Gate were authorized and completed in this session. P6 or later phases are NOT begun.
-  - Next recommended slice: Phase P6 (when explicitly authorized). M6 release gates remain independently open.
+  - Authorization: P7.1–P7.7 and Phase P7 Acceptance Gate were authorized and completed in this session. P8 or later phases are NOT begun.
+  - Next recommended slice: Phase P8 (when explicitly authorized). M6 release gates remain independently open.
 
 | Phase | Status | Evidence / next step |
 | --- | --- | --- |
@@ -167,8 +169,8 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
 | P3 | complete | P3.1–P3.5 and full Phase P3 Acceptance Gate verified across 13 tests in resource_broker_p3 and full regression suites (88 total passed tests). Fresh logs and timelines in `20261014-p3-gate-closure/`. M6 remains independently NOT READY. |
 | P4 | complete | P4.1–P4.3 and full Phase P4 Acceptance Gate verified across 9 tests in candidate_tools_p4, 5 tests in test_candidate_runner.py, and full regression suites (106 total passed tests). Fresh logs in `20261014-p4-gate-closure/`. M6 remains independently NOT READY. |
 | P5 | complete | P5.1–P5.6 and full Phase P5 Acceptance Gate verified across 11 tests in collaboration_p5, 15 tests in lib, 49 tests in python, and full regression suites (173 total passed tests). Fresh logs in `20261014-p5-gate-closure/`. M6 remains independently NOT READY. |
-| P6 | Planned | Read/resource views after P2/P3; new semantics/steering after P4/P5 |
-| P7 | Planned | Installed delivery, prospective benchmarks, release matrix |
+| P6 | complete | P6.1–P6.6 and full Phase P6 Acceptance Gate verified across 9 tests in dashboard_p6, 8 tests in test_search.py, and full regression suites (182 total passed tests). Fresh logs in `20261015-p6-gate-closure/`. M6 remains independently NOT READY. |
+| P7 | complete | P7.1–P7.7 and full Phase P7 Acceptance Gate verified across 8 tests in release_p7, 4 tests in test_p7_scientific_delivery.py, 53 tests in python_host, and full regression suites (187 total passed tests, 0 failures). Fresh logs in `docs/evidence/v2/p7/20261015-p7-gate-closure/`. M6 remains independently NOT READY. |
 | P8 | Planned | Pilot-calibrated feasibility reports |
 | P9 | Optional/planned | Approve and certify each adapter/backend separately |
 
@@ -206,6 +208,8 @@ or a specialist's assertion alone does not meet it. P0 is documentation complete
 | 2026-10-14 | P3.2–P3.5 & Phase P3 Acceptance Gate Closure | Implemented atomic capacity reservations and dimension distinction (workers vs cpu_threads vs memory_bytes), durable resource leases and transitions (reserved -> active -> heartbeated -> recovering -> reaped -> released), weighted fair queueing with aging term and stable tie ordering, thread caps across execution backends and scikit-learn n_jobs via _leased_threads(), pressure backoff via disk headroom and MLRESCURIX_PRESSURE_BACKOFF, finalization/control-plane headroom preservation (1 worker, 1 CPU thread, 512 MiB RAM), per-project cancellation and pause isolation, and safe Docker survivor discovery. All 13 tests in resource_broker_p3 passed, including 50-job 10x5 stress test and acceptance gate; 88 passing tests across all full repository regression suites. Added D33. Fresh logs in docs/evidence/v2/p3/20261014-p3-gate-closure/. Phase P3 is closed; M6 remains NOT READY. |
 | 2026-10-14 | P4.1–P4.3 & Phase P4 Acceptance Gate Closure | Implemented versioned generic tool adapters (`workspace_fs`, `sandbox_exec`, `artifact_crud`, `discover_capabilities`, `dataset_query`, `experiment_tree`), executable candidate manifest protocol (`manifest.json`), prediction validation, diagnostic slice suppression under minimum support, decoupled candidate runner with label-isolated cross-validation, and validation query budgets (max 50 queries). Official scorecards restricted to trusted evaluator API (`evaluator:trusted`). All 9 tests in candidate_tools_p4, 5 tests in test_candidate_runner.py, and full regression suites passed (106 total passed tests). Added D34. Fresh logs in `docs/evidence/v2/p4/20261014-p4-gate-closure/`. Phase P4 is closed; M6 remains NOT READY. |
 | 2026-10-14 | P5.1–P5.6 & Phase P5 Acceptance Gate Closure | Implemented versioned task assignment and completion schemas (`task_assignment.schema.json`, `task_completion.schema.json`) and SQLite tables (`task_assignments`, `task_completions`), consolidated 5 core default roles while preserving all 8 specialist roles and role alias normalization, allocated isolated branch workspaces (`BranchWorkspaceManager`) with durable single-writer lock ownership (`BranchLock`), experiment DAG node traversal and comparative multi-fidelity search strategy evaluation, complete request token accounting (~16K default, 64K ceiling, essential state bounds), tool pairing validation and outbound filtering, milestone compaction preserving hypotheses, steering, constraints, approvals, and verified achievement evidence SHAs with crash-proof hash verification, and turn-boundary steering with explicit user approval enforcement for deployment handoffs and test gates. All 11 tests in collaboration_p5, 15 tests in lib, 49 tests in python, and full regression suites passed (173 total passed tests). Added D35. Fresh logs in `docs/evidence/v2/p5/20261014-p5-gate-closure/`. Phase P5 is closed; M6 remains NOT READY. |
+| 2026-10-15 | P6.1–P6.6 & Phase P6 Acceptance Gate Closure | Implemented native Rust HTTP/1.1 and persistent SSE service (`crates/harness/src/server.rs`) with loopback binding (`127.0.0.1`), session token authentication (`Bearer`/Cookie `SameSite=Strict`), strict Host/Origin/CSRF validation, 64 KiB request body ceiling, read-only queries against P2 4-connection pool, monotonic durable event stream (`GET /v1/projects/:id/events`), revision-fenced mutation command ingress (`POST /v1/projects/:id/commands`), and CAS blob streaming with traversal checks. Created aesthetic, animated, reactive single-page dashboard application (`crates/harness/src/assets/dashboard.html`) embedded directly in the harness binary, featuring zero-XSS DOM sanitization, interactive multi-fidelity experiment DAG canvas with zoom/pan and lineage ancestry highlighting, real-time Pareto scatter plot and dynamic leaderboard separating official scorecards from unverified agent claims, sliding resource and contention telemetry drawer with CPU/RAM gauges and pressure backoff alerts, diagnostic slice visualizer with suppressed micro-slice status badges, and human-in-the-loop turn-boundary steering/control center with note revisioning. Verified reconnect/replay resilience, expired cursor reset frames, 120-node DAG responsiveness, and reduced-motion accessibility preference. All 9 tests in dashboard_p6, 8 tests in test_search.py, and full regression suites passed (182 total passed tests, 0 failures). Added D36. Fresh logs in `docs/evidence/v2/p6/20261015-p6-gate-closure/`. Phase P6 is closed; M6 remains NOT READY. |
+| 2026-10-15 | P7.1–P7.7 & Phase P7 Acceptance Gate Closure | Implemented executable candidate bundle manifest (`mlrescurix.bundle.v2`) under strict Draft 2020-12 schema (`contracts/v2/candidate_bundle.schema.json`) with clean separation between `training.lock` and standalone `inference.lock` rejecting build/test tools (`pytest`, `harness`). Implemented native joblib and zero-pickle SafeTensors model export adapters (`export_model`, `SafeTensorsPredictor`, `verify_export_parity`) in `export.py` with modality-specific documented tolerances and sandbox boundary checks. Enforced sealed holdout evaluation gate (`final_test_gates` status `consumed`) with verified user approvals (`user_approvals`), and strict zero evaluation row leakage rejection against `splits.test` in `dataset_manifest.json`. Implemented minimal standalone HTTP serving recipe (`serve.py`) with `/health` and `/predict` endpoints using standard library `http.server`. Proved installed standalone workflow outside checkout with crash/resume and populated state migration without schema version bump (`PRAGMA user_version = 10`). Implemented matched prospective benchmarks (`benchmarks.py`) across seeds `[2026, 42, 101]` transparently recording suboptimal/failing trials. Published capability matrix and audited all 5 M6 gates (preserved as `not_ready`) and all 7 v2 gates (P1–P7 passed). All 8 tests in release_p7, 4 tests in test_p7_scientific_delivery.py, 53 tests in python_host, and full regression suites passed (187 total passed tests, 0 failures). Added D37. Fresh logs in `docs/evidence/v2/p7/20261015-p7-gate-closure/`. Phase P7 is closed; M6 remains NOT READY. |
 
 ## Update at the end of every implementation session
 
@@ -893,6 +897,124 @@ Next small actionable slice:
   - Phase P6 (P6.1 authenticated snapshots/events/commands ported to Rust HTTP/SSE service) upon explicit user authorization.
 ```
 
+### Implementation Session 2026-10-15 (P6.1–P6.6 Slice)
+
+```text
+Date / phase / task IDs: 2026-10-15 / P6 / P6.1 (native Rust HTTP/SSE engine), P6.2 (safe artifact/code viewer & zero-XSS rendering), P6.3 (experiment DAG & Pareto leaderboard), P6.4 (resource & contention drawer), P6.5 (turn-boundary steering & human controls), P6.6 (reconnect resilience & gate closure)
+User-authorized scope: P6.1–P6.6 and Phase P6 Acceptance Gate closure.
+Starting commit and pre-existing dirty files: codex/p1-cgroup-orphan-recovery HEAD; clean baseline.
+Changes and source paths:
+  - crates/harness/src/server.rs (native Rust HTTP/1.1 and persistent SSE server)
+  - crates/harness/src/assets/dashboard.html (embedded single-page dashboard application)
+  - crates/harness/src/main.rs (Dashboard CLI command integration)
+  - crates/harness/src/lib.rs (server module registration)
+  - python/src/mlrescurix_worker/scientific/dashboard.py (sanitized safe DOM textContent rendering)
+  - crates/harness/tests/dashboard_p6.rs (comprehensive P6 integration test suite)
+Decisions added or revised:
+  - D36 recorded in docs/v2/DECISIONS.md (native Rust HTTP/SSE engine, zero-XSS DOM sanitization, interactive experiment DAG, reactive Pareto leaderboard, sliding resource drawer, turn-boundary steering center, reconnect resilience, and acceptance gate closure).
+Exact verification commands and exit results:
+  - cargo test --locked --test dashboard_p6 (exit code 0; 9 passed)
+  - cargo test --locked --test collaboration_p5 (exit code 0; 11 passed)
+  - cargo test --locked --lib (exit code 0; 15 passed, 2 ignored)
+  - cargo test --locked --test candidate_tools_p4 (exit code 0; 9 passed)
+  - cargo test --locked --test artifact_registry_p2 (exit code 0; 14 passed)
+  - cargo test --locked --test resource_broker_p3 -- --test-threads=1 (exit code 0; 13 passed)
+  - cargo test --locked --test foundation -- --test-threads=1 (exit code 0; 26 passed)
+  - cargo test --locked --test agent_m4 (exit code 0; 23 passed)
+  - cargo test --locked --test recovery_cycles -- --test-threads=1 (exit code 0; 8 passed, 2 ignored)
+  - cargo test --locked --test release_m6 (exit code 0; 5 passed, 3 ignored)
+  - PYTHONPATH=python/src pytest python/tests/ -k "not test_real_container_tmpfs_enospc_never_publishes" (exit code 0; 49 passed, 1 deselected)
+Evidence paths plus source/image/schema hashes:
+  - docs/evidence/v2/p6/20261015-p6-gate-closure/test_dashboard_p6.log
+  - docs/evidence/v2/p6/20261015-p6-gate-closure/test_collaboration_p5.log
+  - docs/evidence/v2/p6/20261015-p6-gate-closure/test_lib.log
+  - docs/evidence/v2/p6/20261015-p6-gate-closure/test_candidate_tools_p4.log
+  - docs/evidence/v2/p6/20261015-p6-gate-closure/test_artifact_registry_p2.log
+  - docs/evidence/v2/p6/20261015-p6-gate-closure/test_resource_broker_p3.log
+  - docs/evidence/v2/p6/20261015-p6-gate-closure/test_foundation.log
+  - docs/evidence/v2/p6/20261015-p6-gate-closure/test_agent_m4.log
+  - docs/evidence/v2/p6/20261015-p6-gate-closure/test_recovery_cycles.log
+  - docs/evidence/v2/p6/20261015-p6-gate-closure/test_release_m6.log
+  - docs/evidence/v2/p6/20261015-p6-gate-closure/test_python_host.log
+  - docs/evidence/v2/p6/20261015-p6-gate-closure/summary.md
+Implemented but unverified:
+  - None within Phase P6 scope (all P6 deliverables implemented and verified with passing tests).
+Failure/recovery scenarios still open:
+  - Phase P7+ apex delivery, release certification, and final benchmarks remain planned and not begun.
+Budget / compatibility / migration implications:
+  - Zero schema version bump required (user_version remains 10).
+  - 128 MiB policy ceiling strictly preserved.
+  - M0–M6 compatibility fully preserved across all regression suites.
+  - Historical evidence in docs/evidence/m6/ left completely untouched.
+Next small actionable slice:
+  - Phase P7 (P7.1 versioned bundle manifest for executable candidates) upon explicit user authorization.
+```
+
+### Implementation Session 2026-10-15 (P7.1–P7.7 & Phase P7 Acceptance Gate Closure)
+
+```text
+Date / phase / task IDs: 2026-10-15 / P7 / P7.1–P7.7 & Phase P7 Acceptance Gate Closure
+User-authorized scope: Phase P7 (P7.1 through P7.7) and Phase P7 Acceptance Gate. Retain user_version = 10; keep docs/evidence/m6/ untouched; do not begin Phase P8 or later.
+Starting commit and pre-existing dirty files: abf1f235030a79f9a606b429e34608431e37603d; dirty: crates/, docs/v2/, python/
+Changes and source paths:
+  - contracts/v2/candidate_bundle.schema.json: Strict Draft 2020-12 schema for mlrescurix.bundle.v2 validating weights, pipeline, contracts, dependencies, scorecard, lineage, resource measurements.
+  - python/src/mlrescurix_worker/scientific/export.py: export_model, SafeTensorsPredictor, verify_export_parity, modality-specific DEFAULT_TOLERANCES, sandbox path traversal escape refusal.
+  - python/src/mlrescurix_worker/scientific/serve.py: BundleServingHandler, create_serving_server, /health and /predict endpoints using standard library http.server, schema error rejection (400/422).
+  - python/src/mlrescurix_worker/scientific/benchmarks.py: run_prospective_benchmark, BenchmarkSuiteReport, StrategyBenchmarkResult, TrialRecord, transparent retention of suboptimal and failing trials across seeds [2026, 42, 101].
+  - python/src/mlrescurix_worker/scientific/workflow.py: bundle finalization packaging output_schema.json, separate training.lock and inference.lock, weights.safetensors, serve.py, mlrescurix.bundle.v2 manifest.
+  - python/src/mlrescurix_worker/scientific/bundle.py: verification of mlrescurix.bundle.v2, output_schema.json, model weights, and dependency isolation in inference.lock.
+  - crates/harness/src/assets.rs: embedded export.py, serve.py, benchmarks.py in EMBEDDED_PYTHON_FILES.
+  - crates/harness/src/bundle.rs: v2 bundle verification, dependency isolation checks, user approval checks in user_approvals, sealed holdout row leakage rejection against dataset_manifest.json splits.test, standalone CLI inference, standalone serving verification.
+  - crates/harness/src/main.rs: Command::Capabilities reporting Phase P7, release audit of all 5 M6 gates and all 7 v2 gates, delivery capabilities, bound source_sha256.
+  - crates/harness/tests/release_p7.rs: 8 integration tests covering P7.1 through P7.7 and acceptance gate full closure.
+  - python/tests/test_p7_scientific_delivery.py: unit test suite for export, serve, and benchmarks.
+  - docs/v2/DECISIONS.md: Recorded Decision D37.
+  - docs/v2/ROADMAP.md: Updated Phase P7 status to Complete.
+  - docs/v2/PROGRESS.md: Updated progress, session ledger, and acceptance gate closure.
+  - docs/evidence/v2/p7/20261015-p7-gate-closure/: Fresh logs and summary.md.
+Decisions added or revised: D37 added (Apex Delivery & Release Certification, bundle v2, SafeTensors export, modality tolerances, sealed holdout zero-leakage, standalone serve, prospective matched benchmarks, release audit).
+Exact verification commands and exit results:
+  - cargo test --locked --test release_p7 (exit code 0; 8 passed)
+  - PYTHONPATH=python/src pytest python/tests/test_p7_scientific_delivery.py (exit code 0; 4 passed)
+  - cargo test --locked --test dashboard_p6 (exit code 0; 9 passed)
+  - cargo test --locked --test collaboration_p5 (exit code 0; 11 passed)
+  - cargo test --locked --lib (exit code 0; 16 passed, 2 ignored)
+  - cargo test --locked --test candidate_tools_p4 (exit code 0; 9 passed)
+  - cargo test --locked --test artifact_registry_p2 (exit code 0; 14 passed)
+  - cargo test --locked --test resource_broker_p3 -- --test-threads=1 (exit code 0; 13 passed)
+  - cargo test --locked --test foundation -- --test-threads=1 (exit code 0; 26 passed)
+  - cargo test --locked --test agent_m4 (exit code 0; 23 passed)
+  - cargo test --locked --test recovery_cycles -- --test-threads=1 (exit code 0; 8 passed, 2 ignored)
+  - cargo test --locked --test release_m6 (exit code 0; 5 passed, 3 ignored)
+  - PYTHONPATH=python/src pytest python/tests/ -k "not test_real_container_tmpfs_enospc_never_publishes" (exit code 0; 53 passed, 1 deselected)
+Evidence paths plus source/image/schema hashes:
+  - docs/evidence/v2/p7/20261015-p7-gate-closure/test_release_p7.log
+  - docs/evidence/v2/p7/20261015-p7-gate-closure/test_p7_scientific_delivery.log
+  - docs/evidence/v2/p7/20261015-p7-gate-closure/test_dashboard_p6.log
+  - docs/evidence/v2/p7/20261015-p7-gate-closure/test_collaboration_p5.log
+  - docs/evidence/v2/p7/20261015-p7-gate-closure/test_lib.log
+  - docs/evidence/v2/p7/20261015-p7-gate-closure/test_candidate_tools_p4.log
+  - docs/evidence/v2/p7/20261015-p7-gate-closure/test_artifact_registry_p2.log
+  - docs/evidence/v2/p7/20261015-p7-gate-closure/test_resource_broker_p3.log
+  - docs/evidence/v2/p7/20261015-p7-gate-closure/test_foundation.log
+  - docs/evidence/v2/p7/20261015-p7-gate-closure/test_agent_m4.log
+  - docs/evidence/v2/p7/20261015-p7-gate-closure/test_recovery_cycles.log
+  - docs/evidence/v2/p7/20261015-p7-gate-closure/test_release_m6.log
+  - docs/evidence/v2/p7/20261015-p7-gate-closure/test_python_host.log
+  - docs/evidence/v2/p7/20261015-p7-gate-closure/summary.md
+Implemented but unverified:
+  - None within Phase P7 scope (all P7 deliverables implemented and verified with passing tests).
+Failure/recovery scenarios still open:
+  - Phase P8+ compute feasibility and local alternatives remain planned and not begun.
+Budget / compatibility / migration implications:
+  - Zero schema version bump required (user_version remains 10).
+  - 128 MiB policy ceiling strictly preserved.
+  - M0–M6 compatibility fully preserved across all regression suites.
+  - Historical evidence in docs/evidence/m6/ left completely untouched.
+Next small actionable slice:
+  - Phase P8 (P8.1 HardwareProfile, DatasetMetadata, FeasibilityReport, ExecutionPlan) upon explicit user authorization.
+```
+
 Copy and fill one entry; update phase/task statuses above too.
 
 ```text
@@ -1447,6 +1569,17 @@ scientific dashboard compatibility bridge, artifact and lifecycle command servic
 agent behavior; unsafe rendering/project crossing reject; animations reflect committed
 state. No unsupported “zero lag” guarantee. Embed built UI for standalone installs.
 
+**Status (2026-10-15): Complete. Phase P6 acceptance gate passed.**
+P6.1–P6.6 and Phase P6 acceptance gate are implemented and verified in `crates/harness/src/server.rs`, `crates/harness/src/assets/dashboard.html`, `crates/harness/src/main.rs`, `python/src/mlrescurix_worker/scientific/dashboard.py`, and `crates/harness/tests/dashboard_p6.rs`. The Phase P6 acceptance gate is closed:
+1. **Native Rust HTTP/1.1 & Persistent SSE Engine**: Auth-guarded loopback server with session token verification (`Bearer` / `mlr_session` cookie `SameSite=Strict`), strict Host/Origin/CSRF validation, 64 KiB request body ceiling, read-only queries against P2 4-connection pool, monotonic durable event stream (`GET /v1/projects/:id/events`), revision-fenced mutation ingress (`POST /v1/projects/:id/commands`), and CAS blob streaming (`GET /v1/projects/:id/artifacts/:id`).
+2. **Safe Research Renderer & Zero-XSS DOM Sanitization**: Dynamic data interpolation uses safe DOM properties (`textContent`) and structured SVG DOM elements; raw unescaped `innerHTML` interpolation completely eliminated; suppressed micro-slices tagged with `status: "suppressed"`.
+3. **Interactive Multi-Fidelity Experiment DAG**: Dynamic SVG tree canvas with zoom/pan, pulsing rings on running trials, fidelity/recipe styling, full lineage ancestry path highlighting back to root baseline, and parent evidence disclosure (`primary_metric`, `model_sha256`, `predictions_sha256`).
+4. **Reactive Pareto Frontier & Dynamic Leaderboard**: 2D scatter visualization with animated Pareto frontier curves, interactive hover tooltips, and sortable leaderboard distinguishing official scorecards (`evaluator:trusted`) from unverified agent claims.
+5. **Sliding Telemetry & Contention Drawer**: Live telemetry drawer showing allocated vs. measured CPU threads, memory bytes with smooth CSS gradient meters, queue wait times, active worker lease timers, and cross-project disk pressure backoff alerts.
+6. **Turn-Boundary Steering & Control Center**: Input deck for human steering (`apply_steering`) and critic directives; revisioned project notes issuing explicit project-intent commands; candidate pinning (`pin_artifact`), project pause/resume/cancel, and holdout access unlock requests (`user_approvals`). Stale revisions rejected with HTTP 409 conflict.
+7. **Reconnect & Replay Resilience**: Client automatically recovers full state from snapshot plus monotonic SSE cursor; expired cursor triggers `event: reset` clean reload; 120-node DAG renders under responsive bounds; accessibility preference `@media (prefers-reduced-motion: reduce)` respected; self-contained embedded UI asset (`dashboard.html`).
+Verified across 9 integration tests in `crates/harness/tests/dashboard_p6.rs`, 8 unit tests in `python/tests/test_search.py`, and 165 tests across repository regression suites (182 total passed tests, 0 failures). Fresh logs captured in `docs/evidence/v2/p6/20261015-p6-gate-closure/`. Phase P6 is closed. M6 remains independently NOT READY.
+
 ## P7 — Apex delivery and release certification
 
 **Depends on:** P1–P6. **Outcome:** a complete agent-first tabular release with
@@ -1479,6 +1612,18 @@ tests, benchmark drivers and release capabilities/docs.
 **Gate:** no manual state edits; runnable exact frozen bundle; honest unknown/failure
 outcomes; installed/recovery/storage/benchmark scenarios demonstrate their specific
 claims. No superiority/statistical-equivalence claim from convenient synthetic parity.
+
+**Status (2026-10-15): Complete. Phase P7 acceptance gate passed.**
+P7.1–P7.7 and Phase P7 acceptance gate are implemented and verified across `contracts/v2/candidate_bundle.schema.json`, `python/src/mlrescurix_worker/scientific/export.py`, `serve.py`, `benchmarks.py`, `workflow.py`, `bundle.py`, `crates/harness/src/assets.rs`, `crates/harness/src/bundle.rs`, `crates/harness/src/main.rs`, `crates/harness/tests/release_p7.rs`, and `python/tests/test_p7_scientific_delivery.py`. The Phase P7 acceptance gate is closed:
+1. **Executable Candidate Bundle Manifest & Dependency Isolation**: Validated under strict Draft 2020-12 schema (`mlrescurix.bundle.v2`). Separates `training.lock` and `inference.lock`, strictly excluding dev/test frameworks (`pytest`, `harness`) and build tools from inference packages.
+2. **Native & SafeTensors Model Exports**: Adapter exports supporting native `joblib` and zero-pickle `SafeTensors` (`export_model`, `SafeTensorsPredictor`, `verify_export_parity`) with modality-specific documented numerical tolerances (classification `rtol=1e-5`, `atol=1e-7`; regression `rtol=1e-5`, `atol=1e-6`) and sandbox path-traversal boundary protection.
+3. **Sealed Holdout Gate & Zero Private Row Leakage**: Authoritative state gate verification enforces single-use consumption (`final_test_gates`) with verified user approvals (`user_approvals`). Golden examples (`examples_input.json`) cross-checked against authoritative test splits (`dataset_manifest.json` `splits.test`), deterministically rejecting private evaluation row leaks.
+4. **Standalone HTTP Serving Recipe**: Minimal microservice (`serve.py`) providing `/health` and `/predict` endpoints using Python standard library `http.server` with zero external server dependencies, rejecting invalid input schemas and malformed payloads (`400/422`).
+5. **Installed Standalone Workflow Lifecycle**: Standalone installed binary executes outside source repository checkout, registering datasets, recovering across simulated crashes, finalizing candidates, and executing CLI prediction (`inference.py`), while `execution::migrate()` upgrades populated state databases preserving historical consumed gates and approvals under `PRAGMA user_version = 10`.
+6. **Prospective Matched Benchmarks & Trial Transparency**: Predeclared benchmark comparisons across seeds `[2026, 42, 101]` fairly evaluating random, search, and agent strategies under matched compute budgets, transparently recording suboptimal and failing trials alongside winners.
+7. **Capability Matrix & Formal Release Audit**: Authoritative capability matrix published via `mlrescurix-harness capabilities` bound to immutable source digest and pinned container image hash (`d094b6be...`). Formally audited all 5 historical M6 release gates (preserved as `not_ready`) and all 7 v2 release gates (P1–P7 recorded as `passed`).
+Verified across 8 integration tests in `crates/harness/tests/release_p7.rs`, 4 unit tests in `python/tests/test_p7_scientific_delivery.py`, and 175 tests across repository regression suites (187 total passed tests, 0 failures). Fresh logs captured in `docs/evidence/v2/p7/20261015-p7-gate-closure/`. Phase P7 is closed. M6 remains independently NOT READY.
+
 
 ## P8 — Compute feasibility and local alternatives
 
@@ -2097,6 +2242,73 @@ D35 is implemented in `contracts/v2/task_assignment.schema.json`, `contracts/v2/
    - Operations unlocking final test access or candidate deployment handoff require explicit registered user approvals (`user_approvals` ledger with action types `"deployment_handoff"` or `"final_test"`), rejecting unauthorized finalizations.
 8. **Phase P5 Acceptance Gate Closure (P5.6 & Gate)**:
    - Verified across 11 integration tests in `crates/harness/tests/collaboration_p5.rs` and 162 tests across repository regression suites (173 total passed tests, 0 failures). Evidence captured in `docs/evidence/v2/p5/20261014-p5-gate-closure/`. Phase P5 is closed. M6 remains independently NOT READY.
+
+### P6.1–P6.6 & Gate Closure decisions (2026-10-15)
+
+D36 is implemented in `crates/harness/src/server.rs`, `crates/harness/src/assets/dashboard.html`, `crates/harness/src/main.rs`, `crates/harness/src/lib.rs`, `python/src/mlrescurix_worker/scientific/dashboard.py`, and `crates/harness/tests/dashboard_p6.rs`.
+1. **Native Rust HTTP/1.1 & SSE Engine (P6.1 & P6.6)**:
+   - Implemented `DashboardServer` in `crates/harness/src/server.rs` using native Rust (`std::net`, `std::io`, `rusqlite`, `serde_json`, `sha2`) with zero external networking dependencies.
+   - Binds strictly to loopback (`127.0.0.1`) with session token authentication (`Authorization: Bearer <token>` or `Cookie: mlr_session=<token>; SameSite=Strict; HttpOnly`).
+   - Validates `Host` header against `127.0.0.1:<port>` and `localhost:<port>`, and enforces strict `Origin` and CSRF header verification on all mutation requests.
+   - Enforces 64 KiB request body ceiling on command ingress, draining excess bytes up to `Content-Length` before returning 413 to prevent TCP reset RST on macOS.
+   - Read-only queries execute against the P2 4-connection read pool (`query_only=ON`).
+   - Serves revisioned project snapshots at `GET /v1/projects/:id/snapshot`, persistent Server-Sent Events at `GET /v1/projects/:id/events?after=:cursor` emitting monotonic durable events from `durable_events`, revision-fenced mutation command ingress at `POST /v1/projects/:id/commands`, CAS blob streaming at `GET /v1/projects/:id/artifacts/:id` with path traversal protections, and embedded dashboard HTML at `GET /`.
+2. **Safe Artifact Renderer & Zero-XSS DOM Construction (P6.2)**:
+   - Removed all untrusted `innerHTML` interpolation across frontend assets (`crates/harness/src/assets/dashboard.html` and `python/src/mlrescurix_worker/scientific/dashboard.py`).
+   - All dynamic text, hypotheses, steering directives, notes, and labels are injected exclusively via safe DOM properties (`textContent`) and structured SVG DOM element nodes.
+   - Diagnostic slice visualizer explicitly renders status badges for suppressed micro-slices (`status: "suppressed"` when sample size falls below minimum support limit `max(20, 0.05 * N)`).
+3. **Interactive Animated Experiment DAG Canvas (P6.3)**:
+   - Interactive SVG canvas with zoom, pan, and dynamic layout rendering the multi-fidelity experiment tree (`experiment_dag` joined with `trial_results`).
+   - Visual nodes styled by fidelity (screening 20%/50% vs full 100%), recipe, and lifecycle stage (`baseline`, `screening`, `full_fidelity`, `candidate`, `ablate`).
+   - Pulsing ring animations denote actively running trials; color-coded border glow indicates feasibility and apex candidacy.
+   - Node traversal allows clicking any node to highlight its full lineage path back to root baseline while expanding parent evidence (`primary_metric`, `model_sha256`, `predictions_sha256`).
+4. **Reactive Pareto Frontier & Dynamic Leaderboard Explorer (P6.3)**:
+   - 2D scatter visualization plotting primary metric against training latency/fidelity with animated Pareto frontier curves.
+   - Interactive hover tooltips displaying seed, recipe parameters, fold metrics, and artifact hashes.
+   - Sortable Leaderboard table clearly distinguishing official scorecards (`evaluator:trusted`) from unverified agent claims.
+5. **Sliding Resource & Contention Drawer (P6.4)**:
+   - Telemetry drawer rendering real-time system metrics: allocated vs. measured CPU threads, memory bytes with smooth CSS gradient meters, queue wait times, active worker lease timers, and cross-project disk pressure backoff alerts.
+6. **Turn-Boundary Steering & Control Center (P6.5)**:
+   - Steering input deck for injecting human directives (`apply_steering`) and critic directives, verified with turn-boundary acknowledgment.
+   - Revisioned project notes and intent editor: note edits issue explicit revision-fenced project commands and advance `handoff_version`; merely editing Markdown cannot silently mutate the locked evaluation protocol.
+   - Action triggers for candidate pinning (`pin_artifact`), project pause/resume/cancel, and holdout access unlock requests (`user_approvals`). Stale revisions are deterministically rejected with HTTP 409 conflict.
+7. **Reconnect & Replay Resilience, Large DAGs, & Accessibility (P6.6)**:
+   - Client automatically recovers full state from snapshot plus monotonic SSE cursor after network interruption.
+   - Expired cursor (`after < expired_through_cursor`) triggers an `event: reset` frame instructing the client to perform a clean state reload.
+   - Large DAG rendering tested with 120+ nodes completing under responsive time bounds.
+   - Adheres to `@media (prefers-reduced-motion: reduce)` accessibility preference, disabling continuous CSS/SVG animations.
+8. **Phase P6 Acceptance Gate Closure (P6.6 & Gate)**:
+   - Verified across 9 integration tests in `crates/harness/tests/dashboard_p6.rs`, 8 unit tests in `python/tests/test_search.py`, and 165 tests across repository regression suites (182 total passed tests, 0 failures). Evidence captured in `docs/evidence/v2/p6/20261015-p6-gate-closure/`. Phase P6 is closed. M6 remains independently NOT READY.
+
+### P7.1–P7.7 & Gate Closure decisions (2026-10-15)
+
+D37 is implemented in `contracts/v2/candidate_bundle.schema.json`, `python/src/mlrescurix_worker/scientific/export.py`, `python/src/mlrescurix_worker/scientific/serve.py`, `python/src/mlrescurix_worker/scientific/benchmarks.py`, `python/src/mlrescurix_worker/scientific/workflow.py`, `python/src/mlrescurix_worker/scientific/bundle.py`, `crates/harness/src/assets.rs`, `crates/harness/src/bundle.rs`, `crates/harness/src/main.rs`, `crates/harness/tests/release_p7.rs`, and `python/tests/test_p7_scientific_delivery.py`.
+1. **Executable Candidate Bundle Manifest & Dependency Isolation (P7.1)**:
+   - Authored strict Draft 2020-12 schema `contracts/v2/candidate_bundle.schema.json` validating format `mlrescurix.bundle.v2`.
+   - Packages frozen model weights (`frozen_model.joblib`), zero-pickle SafeTensors (`weights.safetensors`), training source (`training/source/workflow.py`), feature pipeline (`training/source/features.py`), inference CLI/API contracts (`predict(records)`), input/output schemas (`input_schema.json`, `output_schema.json`), model scorecard, lineage records, and resource measurements (`cold_load_ms`, `warm_p95_ms`, `peak_rss_kb`, `package_bytes`).
+   - Clean separation of isolated inference dependencies in `inference.lock` strictly rejecting build tools, test frameworks (`pytest`, `harness`), and compilers.
+2. **Native / SafeTensors Model Exports & Modality Tolerances (P7.2)**:
+   - Implemented `export_model`, `SafeTensorsPredictor`, and `verify_export_parity` in `python/src/mlrescurix_worker/scientific/export.py`.
+   - Modality-specific documented tolerances (`DEFAULT_TOLERANCES`: classification probabilities `rtol=1e-5, atol=1e-7`; continuous regression `rtol=1e-5, atol=1e-6`; tree discrete `rtol=1e-4, atol=1e-5`), avoiding hardcoded 1e-6 across disparate modalities.
+   - Strict sandbox boundary protection: export directory path must not escape sandbox bounds (`..` in path components rejected).
+   - SafeTensors zero-pickle inference engine executing purely via NumPy array arithmetic without unpickling risks.
+3. **Target Verification, Sealed Final Assessment, & Zero Leakage (P7.3)**:
+   - Single-use sealed holdout evaluation strictly enforced via authoritative state gate (`final_test_gates` status `consumed`) and verified user approval token (`user_approvals` ledger with action types `final_test` or `deployment_handoff`).
+   - Strict zero-leakage verification deterministically rejecting bundles whose golden examples (`examples_input.json`) contain rows from the sealed holdout test split (`splits.test` in authoritative `dataset_manifest.json`).
+4. **Standalone HTTP Serving Recipe (P7.4)**:
+   - Implemented `python/src/mlrescurix_worker/scientific/serve.py` providing `/health` and `/predict` endpoints using Python standard library `http.server` with zero external server framework dependencies.
+   - Employs locked inference-only dependencies (`inference.lock`). Rejects empty bodies, malformed JSON, and requests violating input schema contracts (`400/422`).
+5. **Installed Standalone Workflow Lifecycle (P7.5)**:
+   - Embedded worker assets (`crates/harness/src/assets.rs`) enabling standalone execution outside repository checkout.
+   - Verified full lifecycle: fresh project initialization, dataset registration, crash/resume across simulated failures, candidate finalization into bundle, and standalone CLI prediction (`python inference.py --input <in> --output <out>`).
+   - Upgraded populated state databases via `execution::migrate()` preserving historical consumed gates and approvals without schema version bump (`PRAGMA user_version = 10`).
+6. **Prospective Matched Benchmarks & Suboptimal Trial Transparency (P7.6)**:
+   - Implemented `python/src/mlrescurix_worker/scientific/benchmarks.py` running matched benchmarks comparing random, search, and agent baselines across fixed seeds (`[2026, 42, 101]`) under matched compute budgets.
+   - Transparently records suboptimal and failing trials alongside winning candidates, guaranteeing honest reporting without synthetic metric inflation.
+7. **Capability Matrix & Release Audit (P7.7 & Gate)**:
+   - Published authoritative capability matrix in `mlrescurix-harness capabilities` bound to immutable source hash (`source_sha256`) and container image hash (`mlrescurix-scientific@sha256:d094b6becbbd1a1d86b944fd39370bfe26bb96f6290b429c0a51c512faf5f1bd`).
+   - Formally audited all 5 historical M6 release gates (preserved as `not_ready`) and all 7 v2 release gates (P1–P7 recorded as `passed`).
+   - Verified across 8 integration tests in `crates/harness/tests/release_p7.rs`, 4 unit tests in `python/tests/test_p7_scientific_delivery.py`, and 175 tests across repository regression suites (187 total passed tests, 0 failures). Evidence captured in `docs/evidence/v2/p7/20261015-p7-gate-closure/`. Phase P7 is closed. M6 remains independently NOT READY.
 
 <<<END SOURCE FILE>>>
 

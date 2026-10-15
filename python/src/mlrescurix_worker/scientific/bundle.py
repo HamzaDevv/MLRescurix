@@ -46,8 +46,9 @@ def verify_bundle(bundle_dir: str | Path, run_sandbox: bool = True) -> dict[str,
     except Exception as e:
         raise ValueError(f"Failed to parse manifest.json: {e}")
 
-    if manifest.get("format") != "mlrescurix.bundle.v1":
-        raise ValueError(f"Unsupported bundle format: '{manifest.get('format')}'; expected 'mlrescurix.bundle.v1'")
+    fmt = manifest.get("format")
+    if fmt not in ("mlrescurix.bundle.v1", "mlrescurix.bundle.v2"):
+        raise ValueError(f"Unsupported bundle format: '{fmt}'; expected 'mlrescurix.bundle.v1' or 'mlrescurix.bundle.v2'")
 
     candidate_id = manifest.get("candidate_id")
     project_id = manifest.get("project_id")
@@ -59,18 +60,46 @@ def verify_bundle(bundle_dir: str | Path, run_sandbox: bool = True) -> dict[str,
         raise ValueError("manifest.json has no declared files")
 
     # Required contract files
-    required_contracts = [
-        "input_schema.json",
-        "scorecard.json",
-        "verification.json",
-        "final.json",
-        "frozen_model.joblib",
-        "inference.py",
-        "inference.lock",
-        "examples_input.json",
-        "examples_expected.json",
-        "README.md",
-    ]
+    if fmt == "mlrescurix.bundle.v2":
+        required_contracts = [
+            "input_schema.json",
+            "output_schema.json",
+            "scorecard.json",
+            "verification.json",
+            "final.json",
+            "inference.py",
+            "inference.lock",
+            "training.lock",
+            "serve.py",
+            "examples_input.json",
+            "examples_expected.json",
+            "README.md",
+        ]
+        # Weights must be either frozen_model.joblib or weights.safetensors
+        if "frozen_model.joblib" not in files_decl and "weights.safetensors" not in files_decl:
+            raise ValueError("Bundle manifest missing model weights (frozen_model.joblib or weights.safetensors)")
+
+        # Verify dependency isolation: inference.lock must not contain dev/build tools
+        inf_lock_path = root / "inference.lock"
+        if inf_lock_path.is_file():
+            lock_text = inf_lock_path.read_text(encoding="utf-8").lower()
+            for forbidden in ("pytest", "mlrescurix_harness", "cargo", "docker"):
+                if forbidden in lock_text:
+                    raise ValueError(f"Dependency isolation violated: inference.lock contains prohibited tool '{forbidden}'")
+    else:
+        required_contracts = [
+            "input_schema.json",
+            "scorecard.json",
+            "verification.json",
+            "final.json",
+            "frozen_model.joblib",
+            "inference.py",
+            "inference.lock",
+            "examples_input.json",
+            "examples_expected.json",
+            "README.md",
+        ]
+
     for req in required_contracts:
         if req not in files_decl:
             raise ValueError(f"Bundle manifest missing required contract file: '{req}'")
@@ -117,11 +146,19 @@ def verify_bundle(bundle_dir: str | Path, run_sandbox: bool = True) -> dict[str,
 
     # Contract consistency
     verif = json.loads((root / "verification.json").read_text())
-    frozen_model_sha = _sha256(root / "frozen_model.joblib")
-    if verif.get("frozen_model_sha256") != frozen_model_sha:
-        raise ValueError(
-            f"Tampered bundle: verification.json frozen_model_sha256 mismatch (declared {verif.get('frozen_model_sha256')}, actual {frozen_model_sha})"
-        )
+    if (root / "frozen_model.joblib").is_file():
+        frozen_model_sha = _sha256(root / "frozen_model.joblib")
+        if verif.get("frozen_model_sha256") != frozen_model_sha:
+            raise ValueError(
+                f"Tampered bundle: verification.json frozen_model_sha256 mismatch (declared {verif.get('frozen_model_sha256')}, actual {frozen_model_sha})"
+            )
+    elif (root / "weights.safetensors").is_file():
+        st_sha = _sha256(root / "weights.safetensors")
+        decl_st_sha = verif.get("weights_safetensors_sha256") or verif.get("frozen_model_sha256")
+        if decl_st_sha and decl_st_sha != st_sha:
+            raise ValueError(
+                f"Tampered bundle: verification.json weights sha256 mismatch (declared {decl_st_sha}, actual {st_sha})"
+            )
 
     scorecard = json.loads((root / "scorecard.json").read_text())
     if scorecard.get("candidate_id") != candidate_id:
@@ -152,7 +189,7 @@ def verify_bundle(bundle_dir: str | Path, run_sandbox: bool = True) -> dict[str,
 
     return {
         "status": "integrity_verified",
-        "format": "mlrescurix.bundle.v1",
+        "format": fmt,
         "project_id": project_id,
         "candidate_id": candidate_id,
         "total_bytes": total_bytes,

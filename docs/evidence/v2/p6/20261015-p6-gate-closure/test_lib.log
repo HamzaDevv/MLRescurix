@@ -1,0 +1,25 @@
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.72s
+     Running unittests src/lib.rs (target/debug/deps/mlrescurix_harness-c9b0a6a2da25d54f)
+
+running 17 tests
+test agents::tools::tests::unavailable_sandbox_refuses_tool_before_any_state_or_workspace_write ... ok
+test cas::tests::test_cas_blob_store_and_read ... ok
+test bundle::tests::integrity_does_not_certify_execution_or_unknown_constraints ... ok
+test execution::resources::tests::live_cgroup_oom_is_enforced_and_event_is_received_before_teardown ... ignored, requires explicit locally installed digest-pinned Docker image
+test execution::resources::tests::live_cgroup_receipt_and_daemon_survivor_restart ... ignored, requires explicit locally installed digest-pinned Docker image
+test cas::tests::test_cas_directory_manifest ... ok
+test assets::tests::runtime_assets_reject_directory_and_file_symlink_escape ... ok
+test execution::resources::tests::completing_one_job_does_not_stop_other_live_workers ... ok
+test execution::resources::tests::foreign_supervisor_container_is_skipped_during_discovery ... ok
+test execution::tests::low_disk_admission_boundary ... ok
+test execution::resources::tests::stop_acknowledgement_without_exit_cannot_release_or_remove ... ok
+test execution::resources::tests::claimed_complete_measurement_without_effective_limits_is_not_certified ... ok
+test execution::resources::tests::missing_measurement_and_state_ceiling_do_not_claim_certification ... ok
+test execution::resources::tests::survivor_discovery_adopts_missing_identity_then_reaps_exact_id ... ok
+test execution::resources::tests::feature_detection_and_required_certification_refuse_without_dispatch ... ok
+test execution::resources::tests::failed_stop_or_remove_keeps_receipts_and_reservations_for_restart ... ok
+test execution::resources::tests::survivor_ownership_epoch_and_identity_conflicts_are_never_reaped ... ok
+
+test result: ok. 15 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 3.46s
+

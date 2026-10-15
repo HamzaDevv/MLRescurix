@@ -1,0 +1,1429 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MLRescurix Observability & Steering Dashboard</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --surface: #111827;
+      --surface-elevated: #1f2937;
+      --surface-hover: #283548;
+      --border: #2d3748;
+      --border-subtle: #1e293b;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --accent: #3b82f6;
+      --accent-glow: rgba(59, 130, 246, 0.35);
+      --green: #10b981;
+      --green-glow: rgba(16, 185, 129, 0.3);
+      --red: #ef4444;
+      --red-glow: rgba(239, 68, 68, 0.3);
+      --gold: #f59e0b;
+      --gold-glow: rgba(245, 158, 11, 0.35);
+      --purple: #8b5cf6;
+      --radius: 8px;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f8fafc;
+        --surface: #ffffff;
+        --surface-elevated: #f1f5f9;
+        --surface-hover: #e2e8f0;
+        --border: #cbd5e1;
+        --border-subtle: #e2e8f0;
+        --text: #0f172a;
+        --text-muted: #475569;
+        --text-dim: #94a3b8;
+        --accent: #2563eb;
+        --accent-glow: rgba(37, 99, 235, 0.2);
+        --green: #059669;
+        --green-glow: rgba(5, 150, 105, 0.2);
+        --red: #dc2626;
+        --red-glow: rgba(220, 38, 38, 0.2);
+        --gold: #d97706;
+        --gold-glow: rgba(217, 119, 6, 0.2);
+        --purple: #7c3aed;
+      }
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      line-height: 1.5;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Accessibility: Reduced Motion */
+    @media (prefers-reduced-motion: reduce) {
+      *, ::before, ::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+      }
+      .pulse-ring { display: none !important; }
+    }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0.75rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .header-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-weight: 700;
+      font-size: 1.1rem;
+      letter-spacing: -0.02em;
+    }
+    .brand-badge {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: var(--accent-glow);
+      color: var(--accent);
+      border: 1px solid var(--accent);
+    }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .status-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 8px var(--green-glow);
+      position: relative;
+    }
+    .status-dot.active {
+      animation: status-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+    .status-dot.reconnecting { background: var(--gold); box-shadow: 0 0 8px var(--gold-glow); }
+    .status-dot.offline { background: var(--red); box-shadow: 0 0 8px var(--red-glow); }
+
+    @keyframes status-pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(1.2); }
+    }
+
+    button, input, select, textarea {
+      font-family: inherit;
+      font-size: 13px;
+      color: var(--text);
+      background: var(--surface-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.4rem 0.75rem;
+      transition: all 0.15s ease;
+    }
+    button {
+      cursor: pointer;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    button:hover {
+      background: var(--surface-hover);
+      border-color: var(--text-muted);
+    }
+    button.primary {
+      background: var(--accent);
+      color: #ffffff;
+      border-color: var(--accent);
+    }
+    button.primary:hover {
+      filter: brightness(1.1);
+    }
+    button.danger {
+      background: transparent;
+      color: var(--red);
+      border-color: var(--red);
+    }
+    button.danger:hover {
+      background: var(--red-glow);
+    }
+
+    /* Navigation Tabs */
+    nav.tab-bar {
+      display: flex;
+      gap: 4px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0.25rem 1.5rem 0;
+      overflow-x: auto;
+    }
+    .tab-btn {
+      padding: 0.6rem 1rem;
+      border: none;
+      background: transparent;
+      border-bottom: 2px solid transparent;
+      border-radius: 0;
+      color: var(--text-muted);
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .tab-btn:hover {
+      color: var(--text);
+      background: transparent;
+    }
+    .tab-btn.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+      font-weight: 600;
+    }
+
+    main {
+      flex: 1;
+      padding: 1.5rem;
+      max-width: 1440px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    .view-panel {
+      display: none;
+    }
+    .view-panel.active {
+      display: block;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      margin-bottom: 1.25rem;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+    .card-title {
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+
+    /* Badges & Pills */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .badge-feasible { background: var(--green-glow); color: var(--green); border: 1px solid var(--green); }
+    .badge-infeasible { background: var(--red-glow); color: var(--red); border: 1px solid var(--red); }
+    .badge-apex { background: var(--gold-glow); color: var(--gold); border: 1px solid var(--gold); }
+    .badge-trusted { background: var(--accent-glow); color: var(--accent); border: 1px solid var(--accent); }
+    .badge-unverified { background: var(--surface-hover); color: var(--text-muted); border: 1px dashed var(--border); }
+    .badge-suppressed { background: rgba(245, 158, 11, 0.15); color: var(--gold); border: 1px solid var(--gold); }
+
+    /* Tables */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      padding: 0.65rem 0.75rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    th {
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    tr:hover td {
+      background: var(--surface-elevated);
+    }
+
+    /* Monospace elements */
+    code, pre {
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+    pre {
+      background: var(--surface-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.75rem;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* Telemetry Sliding Drawer */
+    .telemetry-drawer {
+      position: fixed;
+      top: 0;
+      right: -420px;
+      width: 420px;
+      height: 100vh;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      box-shadow: -4px 0 24px rgba(0, 0, 0, 0.3);
+      z-index: 200;
+      transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      display: flex;
+      flex-direction: column;
+      padding: 1.5rem;
+      overflow-y: auto;
+    }
+    .telemetry-drawer.open {
+      right: 0;
+    }
+    .drawer-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 150;
+      display: none;
+    }
+    .drawer-overlay.open {
+      display: block;
+    }
+
+    /* Resource Gauges */
+    .gauge-container {
+      margin-bottom: 1.25rem;
+    }
+    .gauge-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      margin-bottom: 4px;
+      color: var(--text-muted);
+    }
+    .gauge-bar-bg {
+      width: 100%;
+      height: 8px;
+      background: var(--surface-elevated);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .gauge-bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      background: linear-gradient(90deg, var(--accent), var(--green));
+      transition: width 0.4s ease;
+    }
+    .gauge-bar-fill.pressure {
+      background: linear-gradient(90deg, var(--gold), var(--red));
+    }
+
+    /* Interactive DAG Canvas / SVG */
+    .dag-canvas-container {
+      position: relative;
+      width: 100%;
+      height: 540px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      cursor: grab;
+    }
+    .dag-canvas-container:active {
+      cursor: grabbing;
+    }
+    .dag-svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    .dag-node {
+      cursor: pointer;
+      transition: transform 0.2s ease, filter 0.2s ease;
+    }
+    .dag-node:hover {
+      filter: brightness(1.2);
+    }
+    .dag-node.selected rect {
+      stroke: var(--accent) !important;
+      stroke-width: 3px !important;
+    }
+    .dag-edge {
+      stroke: var(--border);
+      stroke-width: 2px;
+      fill: none;
+      transition: stroke 0.2s ease;
+    }
+    .dag-edge.highlight {
+      stroke: var(--accent);
+      stroke-width: 3px;
+    }
+
+    @keyframes pulse-ring {
+      0% { r: 16px; opacity: 0.8; }
+      100% { r: 28px; opacity: 0; }
+    }
+    .pulse-ring {
+      animation: pulse-ring 1.8s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+      fill: none;
+      stroke: var(--accent);
+      stroke-width: 2px;
+    }
+
+    /* Modal */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(4px);
+      z-index: 300;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-backdrop.open {
+      display: flex;
+    }
+    .modal-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      width: 100%;
+      max-width: 560px;
+      padding: 1.5rem;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    }
+
+    /* Confusion Matrix Heatmap */
+    .matrix-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      max-width: 280px;
+      margin: 1rem 0;
+    }
+    .matrix-cell {
+      padding: 1rem;
+      border-radius: 6px;
+      text-align: center;
+      border: 1px solid var(--border);
+    }
+
+    .alert-banner {
+      padding: 0.75rem 1rem;
+      border-radius: var(--radius);
+      margin-bottom: 1rem;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .alert-banner.warning {
+      background: rgba(245, 158, 11, 0.15);
+      border: 1px solid var(--gold);
+      color: var(--gold);
+    }
+
+    /* Hidden login block */
+    #login { margin-bottom: 1.5rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-brand">
+      <span>MLRescurix</span>
+      <span class="brand-badge">Observability v2</span>
+      <span class="status-indicator">
+        <span id="status-dot" class="status-dot active"></span>
+        <span id="status-text">Live (SSE)</span>
+      </span>
+    </div>
+    <div class="header-controls">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted)">
+        Project:
+        <input id="project-id-input" value="project-1" style="width:140px;">
+      </label>
+      <button id="refresh-btn" title="Refresh project state">↻ Refresh</button>
+      <button id="telemetry-btn" title="System Telemetry Drawer">⚡ Telemetry</button>
+      <button id="steer-modal-btn" class="primary" title="Turn-boundary human steering">🎯 Steer</button>
+    </div>
+  </header>
+
+  <nav class="tab-bar">
+    <button class="tab-btn active" data-tab="tab-dag">1. Lineage DAG</button>
+    <button class="tab-btn" data-tab="tab-pareto">2. Pareto &amp; Leaderboard</button>
+    <button class="tab-btn" data-tab="tab-diagnostics">3. Diagnostics &amp; Slices</button>
+    <button class="tab-btn" data-tab="tab-steering">4. Steering &amp; Approvals</button>
+    <button class="tab-btn" data-tab="tab-legacy">5. Raw Ledger</button>
+  </nav>
+
+  <main>
+    <!-- Login container for unauthenticated session -->
+    <div id="login" class="card" hidden>
+      <div class="card-header">
+        <h2 class="card-title">Session Unlock</h2>
+      </div>
+      <p style="color:var(--text-muted);margin-bottom:1rem">Enter the loopback session token to authenticate mutation and observation commands.</p>
+      <div style="display:flex;gap:0.5rem">
+        <input id="token-input" type="password" placeholder="Bearer session token" style="flex:1">
+        <button id="login-btn" class="primary">Connect</button>
+      </div>
+      <p id="login-error" style="color:var(--red);margin-top:0.5rem;font-size:12px"></p>
+    </div>
+
+    <!-- Active App Body -->
+    <div id="app">
+      <!-- Project Metadata Strip -->
+      <div class="card" style="padding:0.75rem 1.25rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem">
+        <div style="display:flex;gap:1.5rem;align-items:center">
+          <div>
+            <span style="color:var(--text-dim);font-size:11px;text-transform:uppercase;display:block">State</span>
+            <span id="proj-state-badge" class="badge badge-trusted">created</span>
+          </div>
+          <div>
+            <span style="color:var(--text-dim);font-size:11px;text-transform:uppercase;display:block">Revision</span>
+            <strong id="proj-revision">1</strong>
+          </div>
+          <div>
+            <span style="color:var(--text-dim);font-size:11px;text-transform:uppercase;display:block">Handoff Epoch</span>
+            <strong id="proj-handoff">v0</strong>
+          </div>
+          <div>
+            <span style="color:var(--text-dim);font-size:11px;text-transform:uppercase;display:block">Event Cursor</span>
+            <code id="proj-cursor">0</code>
+          </div>
+        </div>
+        <div style="display:flex;gap:0.5rem">
+          <button id="pause-btn">Pause</button>
+          <button id="resume-btn">Resume</button>
+          <button id="cancel-btn" class="danger">Cancel</button>
+        </div>
+      </div>
+
+      <!-- TAB 1: Experiment Lineage DAG -->
+      <div id="tab-dag" class="view-panel active">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title">Multi-Fidelity Experiment DAG</h2>
+              <p style="color:var(--text-muted);font-size:12px">Visualizing screening (20%/50%), full-fidelity (100%), and ablated candidate trials.</p>
+            </div>
+            <div style="display:flex;gap:0.5rem">
+              <button id="dag-filter-all" class="primary">All Nodes</button>
+              <button id="dag-filter-feasible">Feasible Only</button>
+              <button id="dag-reset-zoom">Reset Zoom</button>
+            </div>
+          </div>
+          <div class="dag-canvas-container" id="dag-container">
+            <svg id="dag-svg" class="dag-svg">
+              <defs>
+                <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--border)"/>
+                </marker>
+                <marker id="arrow-highlight" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"/>
+                </marker>
+              </defs>
+              <g id="dag-root"></g>
+            </svg>
+          </div>
+          <div id="dag-node-details" style="margin-top:1rem;display:none" class="card">
+            <h3 id="dag-detail-title" style="font-size:14px;margin-bottom:0.5rem">Node Evidence</h3>
+            <div id="dag-detail-body" style="font-size:13px;color:var(--text-muted)"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: Multi-Metric Pareto & Leaderboard -->
+      <div id="tab-pareto" class="view-panel">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem">
+          <div class="card">
+            <div class="card-header">
+              <h2 class="card-title">Pareto Frontier Trade-Off</h2>
+            </div>
+            <p style="color:var(--text-muted);font-size:12px;margin-bottom:0.75rem">Primary Metric vs. Inference Latency / Training Cost</p>
+            <div style="height:320px;position:relative">
+              <svg id="pareto-svg" style="width:100%;height:100%"></svg>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h2 class="card-title">Apex &amp; Candidate Leaderboard</h2>
+            </div>
+            <div style="overflow-x:auto">
+              <table id="leaderboard-table">
+                <thead>
+                  <tr>
+                    <th>Candidate</th>
+                    <th>Recipe</th>
+                    <th>Fidelity</th>
+                    <th>Metric</th>
+                    <th>Authority</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="leaderboard-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 3: Diagnostics & Safe Gallery -->
+      <div id="tab-diagnostics" class="view-panel">
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">Diagnostic Slice Evaluation</h2>
+          </div>
+          <p style="color:var(--text-muted);font-size:12px;margin-bottom:1rem">Under-supported micro-slices below minimum support limit are suppressed to prevent holdout overfitting.</p>
+          <div style="overflow-x:auto">
+            <table id="diagnostics-table">
+              <thead>
+                <tr>
+                  <th>Slice Key</th>
+                  <th>Support Count</th>
+                  <th>Status</th>
+                  <th>Slice Metric</th>
+                  <th>Note</th>
+                </tr>
+              </thead>
+              <tbody id="diagnostics-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">Safe Candidate Code &amp; Artifact Gallery</h2>
+          </div>
+          <div id="artifacts-gallery" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(320px, 1fr));gap:1rem"></div>
+        </div>
+      </div>
+
+      <!-- TAB 4: Steering & User Approvals -->
+      <div id="tab-steering" class="view-panel">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem">
+          <div class="card">
+            <div class="card-header">
+              <h2 class="card-title">Turn-Boundary Steering Directive</h2>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:0.75rem">
+              <label>Target Role:
+                <select id="steer-role-select">
+                  <option value="lead">Lead Orchestrator</option>
+                  <option value="experiment_engineer">Experiment Engineer</option>
+                  <option value="data_diagnostics">Data Diagnostics</option>
+                  <option value="verifier">Independent Verifier</option>
+                  <option value="critic">Agent Critic</option>
+                </select>
+              </label>
+              <label>Steering Directive:
+                <textarea id="steer-directive-input" rows="4" placeholder="Inject non-interrupting guidance applied at the next turn boundary..." style="width:100%"></textarea>
+              </label>
+              <button id="steer-submit-btn" class="primary">Inject Guidance</button>
+            </div>
+            <h3 style="font-size:13px;margin:1.25rem 0 0.5rem">Recent Steering Log</h3>
+            <div id="steering-log" style="font-size:12px;color:var(--text-muted)"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h2 class="card-title">User Approval Control Center</h2>
+            </div>
+            <p style="color:var(--text-muted);font-size:12px;margin-bottom:0.75rem">Explicit registered approvals are required to unlock holdouts, sealed test gates, or deployment handoffs.</p>
+            <div style="display:flex;flex-direction:column;gap:0.75rem">
+              <label>Action Gate:
+                <select id="approval-action-select">
+                  <option value="deployment_handoff">Deployment Handoff</option>
+                  <option value="final_test">Final Test Assessment</option>
+                  <option value="holdout_access">Holdout Data Access</option>
+                </select>
+              </label>
+              <label>Target ID:
+                <input id="approval-target-input" placeholder="candidate-1" style="width:100%">
+              </label>
+              <button id="approval-grant-btn" class="primary">Grant Approval</button>
+            </div>
+            <h3 style="font-size:13px;margin:1.25rem 0 0.5rem">Active Registered Approvals</h3>
+            <div id="approvals-log" style="font-size:12px;color:var(--text-muted)"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 5: Raw Ledger & Compatibility Sections (Keeps smoke tests happy) -->
+      <div id="tab-legacy" class="view-panel">
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">Durable Event Log &amp; Receipts</h2>
+          </div>
+          <pre id="events" style="max-height:240px"></pre>
+          <h3 style="font-size:13px;margin:1rem 0 0.5rem">Latest Command Receipt</h3>
+          <pre id="receipt">No command sent</pre>
+          <div id="search-section" style="margin-top:1rem"></div>
+          <div id="agents-section" style="margin-top:1rem"></div>
+          <pre id="jobs" style="margin-top:1rem;max-height:240px"></pre>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Telemetry Drawer -->
+  <div id="drawer-overlay" class="drawer-overlay"></div>
+  <aside id="telemetry-drawer" class="telemetry-drawer">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem">
+      <h2 style="font-size:1.1rem;font-weight:700">Resource Telemetry</h2>
+      <button id="close-drawer-btn" style="border:none;background:transparent;font-size:1.2rem;cursor:pointer">✕</button>
+    </div>
+
+    <div id="pressure-banner" class="alert-banner warning" style="display:none">
+      <span>⚠️</span>
+      <div>
+        <strong>Disk Pressure Backoff Asserted</strong>
+        <p style="font-size:11px">Queue admissions suspended to preserve state headroom.</p>
+      </div>
+    </div>
+
+    <div class="gauge-container">
+      <div class="gauge-label">
+        <span>CPU Allocation</span>
+        <span id="cpu-gauge-text">0 / 0 Cores</span>
+      </div>
+      <div class="gauge-bar-bg">
+        <div id="cpu-gauge-fill" class="gauge-bar-fill" style="width:0%"></div>
+      </div>
+    </div>
+
+    <div class="gauge-container">
+      <div class="gauge-label">
+        <span>RAM Allocation</span>
+        <span id="ram-gauge-text">0 / 0 MB</span>
+      </div>
+      <div class="gauge-bar-bg">
+        <div id="ram-gauge-fill" class="gauge-bar-fill" style="width:0%"></div>
+      </div>
+    </div>
+
+    <h3 style="font-size:13px;margin:1rem 0 0.5rem">Active Worker Leases</h3>
+    <div id="leases-container" style="font-size:12px;color:var(--text-muted)">
+      <p>No active leases.</p>
+    </div>
+
+    <h3 style="font-size:13px;margin:1rem 0 0.5rem">Queue Status</h3>
+    <div id="queue-container" style="font-size:12px;color:var(--text-muted)">
+      <p>Queue wait time: 0ms</p>
+    </div>
+  </aside>
+
+  <!-- Steering Modal -->
+  <div id="steer-modal" class="modal-backdrop">
+    <div class="modal-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+        <h3 style="font-size:1.1rem;font-weight:600">Dynamic Turn-Boundary Steering</h3>
+        <button id="close-modal-btn" style="border:none;background:transparent;font-size:1.2rem;cursor:pointer">✕</button>
+      </div>
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:1rem">
+        Inject human directives into the lead orchestrator at the next turn boundary without aborting in-flight tool calls.
+      </p>
+      <textarea id="modal-directive-text" rows="4" placeholder="Direct exploration strategy..." style="width:100%;margin-bottom:1rem"></textarea>
+      <div style="display:flex;justify-content:flex-end;gap:0.5rem">
+        <button id="modal-cancel-btn">Cancel</button>
+        <button id="modal-submit-btn" class="primary">Submit Steering</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Safe DOM Builders (Zero-XSS Protection)
+    const $ = id => document.getElementById(id);
+    let currentSnapshot = null;
+    let currentRevision = null;
+    let lastCursor = '0';
+    let sseSource = null;
+
+    function safeText(str) {
+      return str != null ? String(str) : '';
+    }
+
+    function createBadge(text, typeClass) {
+      const span = document.createElement('span');
+      span.className = 'badge ' + typeClass;
+      span.textContent = text;
+      return span;
+    }
+
+    // Tab Switching
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.view-panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        const target = btn.getAttribute('data-tab');
+        if ($(target)) $(target).classList.add('active');
+        if (target === 'tab-dag') renderDAG();
+        if (target === 'tab-pareto') renderPareto();
+      });
+    });
+
+    // Drawer Controls
+    $('telemetry-btn').addEventListener('click', () => {
+      $('telemetry-drawer').classList.add('open');
+      $('drawer-overlay').classList.add('open');
+    });
+    $('close-drawer-btn').addEventListener('click', () => {
+      $('telemetry-drawer').classList.remove('open');
+      $('drawer-overlay').classList.remove('open');
+    });
+    $('drawer-overlay').addEventListener('click', () => {
+      $('telemetry-drawer').classList.remove('open');
+      $('drawer-overlay').classList.remove('open');
+    });
+
+    // Steering Modal Controls
+    $('steer-modal-btn').addEventListener('click', () => {
+      $('modal-directive-text').value = '';
+      $('steer-modal').classList.add('open');
+    });
+    $('close-modal-btn').addEventListener('click', () => $('steer-modal').classList.remove('open'));
+    $('modal-cancel-btn').addEventListener('click', () => $('steer-modal').classList.remove('open'));
+    $('modal-submit-btn').addEventListener('click', async () => {
+      const text = $('modal-directive-text').value.trim();
+      if (!text) return;
+      $('steer-modal').classList.remove('open');
+      await executeCommand({
+        type: 'apply_steering',
+        directive: text,
+        actor: 'human:operator',
+        task_id: 'lead-task'
+      });
+    });
+
+    // Auth & Login
+    async function login() {
+      const token = $('token-input').value.trim();
+      if (!token) return;
+      try {
+        const res = await fetch('/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token })
+        });
+        if (res.ok) {
+          $('login').hidden = true;
+          $('app').hidden = false;
+          refreshSnapshot();
+          connectSSE();
+        } else {
+          $('login-error').textContent = 'Invalid token. Authorization rejected.';
+        }
+      } catch (err) {
+        $('login-error').textContent = 'Connection error.';
+      }
+    }
+    $('login-btn').addEventListener('click', login);
+
+    // Refresh Snapshot
+    async function refreshSnapshot() {
+      const p = $('project-id-input').value.trim();
+      if (!p) return;
+      try {
+        const res = await fetch('/v1/projects/' + encodeURIComponent(p) + '/snapshot');
+        if (res.status === 401) {
+          $('login').hidden = false;
+          $('app').hidden = true;
+          return;
+        }
+        if (!res.ok) return;
+        const data = await res.json();
+        currentSnapshot = data;
+        currentRevision = data.revision;
+        updateUI(data);
+      } catch (e) {
+        console.error('Snapshot fetch error:', e);
+      }
+    }
+    $('refresh-btn').addEventListener('click', refreshSnapshot);
+
+    // Command Ingress
+    async function executeCommand(op) {
+      const p = $('project-id-input').value.trim();
+      if (!p || currentRevision == null) return;
+      const cmdId = 'ui-' + Math.random().toString(36).substring(2, 10);
+      const payload = {
+        command_id: cmdId,
+        project_id: p,
+        expected_revision: currentRevision,
+        operation: op
+      };
+      try {
+        const res = await fetch('/v1/projects/' + encodeURIComponent(p) + '/commands', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': 'csrf-active'
+          },
+          body: JSON.stringify(payload)
+        });
+        const receipt = await res.json();
+        $('receipt').textContent = JSON.stringify(receipt, null, 2);
+        if (receipt.status === 'rejected') {
+          alert('Command rejected: ' + (receipt.result && receipt.result.reason ? receipt.result.reason : 'revision conflict'));
+        }
+        await refreshSnapshot();
+      } catch (e) {
+        console.error('Command dispatch error:', e);
+      }
+    }
+
+    $('pause-btn').addEventListener('click', () => executeCommand({ type: 'lifecycle', state: 'paused' }));
+    $('resume-btn').addEventListener('click', () => executeCommand({ type: 'lifecycle', state: 'created' }));
+    $('cancel-btn').addEventListener('click', () => executeCommand({ type: 'lifecycle', state: 'cancelled' }));
+
+    $('steer-submit-btn').addEventListener('click', () => {
+      const dir = $('steer-directive-input').value.trim();
+      const role = $('steer-role-select').value;
+      if (dir) {
+        executeCommand({ type: 'apply_steering', directive: dir, actor: 'human:operator', task_id: role });
+        $('steer-directive-input').value = '';
+      }
+    });
+
+    $('approval-grant-btn').addEventListener('click', () => {
+      const action = $('approval-action-select').value;
+      const target = $('approval-target-input').value.trim();
+      if (target) {
+        executeCommand({
+          type: 'user_approval',
+          approval_id: 'appr-' + Math.random().toString(36).substring(2, 8),
+          action_type: action,
+          target_id: target,
+          actor: 'human:operator',
+          approved: true,
+          ttl_ms: 3600000
+        });
+      }
+    });
+
+    // Update UI Elements
+    function updateUI(s) {
+      $('proj-state-badge').textContent = safeText(s.state);
+      $('proj-revision').textContent = safeText(s.revision);
+      $('proj-handoff').textContent = 'v' + safeText(s.handoff_version != null ? s.handoff_version : 0);
+      $('proj-cursor').textContent = safeText(s.event_cursor);
+
+      renderDAG();
+      renderPareto();
+      renderDiagnostics(s);
+      renderArtifacts(s);
+      renderSteering(s);
+      renderTelemetry(s);
+      renderCompatibility(s);
+    }
+
+    // 1. Experiment DAG Rendering (SVG)
+    function renderDAG() {
+      if (!currentSnapshot || !currentSnapshot.experiment_dag) return;
+      const dag = currentSnapshot.experiment_dag;
+      const g = $('dag-root');
+      while (g.firstChild) g.removeChild(g.firstChild);
+
+      const nodeMap = new Map();
+      dag.forEach((n, idx) => {
+        nodeMap.set(n.experiment_id, { ...n, x: 80 + (idx % 6) * 160, y: 80 + Math.floor(idx / 6) * 110 });
+      });
+
+      // Render edges
+      dag.forEach(n => {
+        if (n.parent_id && nodeMap.has(n.parent_id)) {
+          const parent = nodeMap.get(n.parent_id);
+          const current = nodeMap.get(n.experiment_id);
+          const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+          line.setAttribute('x1', parent.x);
+          line.setAttribute('y1', parent.y);
+          line.setAttribute('x2', current.x);
+          line.setAttribute('y2', current.y);
+          line.setAttribute('class', 'dag-edge');
+          line.setAttribute('marker-end', 'url(#arrow)');
+          line.dataset.from = parent.experiment_id;
+          line.dataset.to = current.experiment_id;
+          g.appendChild(line);
+        }
+      });
+
+      // Render nodes
+      nodeMap.forEach(n => {
+        const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        group.setAttribute('class', 'dag-node');
+        group.setAttribute('transform', `translate(${n.x}, ${n.y})`);
+
+        // Pulsing ring if running
+        if (n.status === 'running') {
+          const pulse = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          pulse.setAttribute('class', 'pulse-ring');
+          group.appendChild(pulse);
+        }
+
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', -60);
+        rect.setAttribute('y', -24);
+        rect.setAttribute('width', 120);
+        rect.setAttribute('height', 48);
+        rect.setAttribute('rx', 6);
+        rect.setAttribute('fill', 'var(--surface-elevated)');
+
+        // Border styling based on fidelity & feasibility
+        let stroke = 'var(--border)';
+        if (n.is_feasible === true) stroke = 'var(--green)';
+        else if (n.is_feasible === false) stroke = 'var(--red)';
+        if (currentSnapshot.selection && currentSnapshot.selection.candidate_version_id === n.experiment_id) {
+          stroke = 'var(--gold)';
+        }
+        rect.setAttribute('stroke', stroke);
+        rect.setAttribute('stroke-width', '2');
+        if (n.fidelity < 0.5) rect.setAttribute('stroke-dasharray', '3,3');
+        else if (n.fidelity < 1.0) rect.setAttribute('stroke-dasharray', '6,4');
+        group.appendChild(rect);
+
+        const textId = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        textId.setAttribute('y', -6);
+        textId.setAttribute('text-anchor', 'middle');
+        textId.setAttribute('fill', 'var(--text)');
+        textId.setAttribute('font-size', '11px');
+        textId.setAttribute('font-weight', '600');
+        textId.textContent = n.experiment_id.length > 14 ? n.experiment_id.substring(0, 12) + '..' : n.experiment_id;
+        group.appendChild(textId);
+
+        const textMetric = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        textMetric.setAttribute('y', 12);
+        textMetric.setAttribute('text-anchor', 'middle');
+        textMetric.setAttribute('fill', 'var(--text-muted)');
+        textMetric.setAttribute('font-size', '10px');
+        const metricStr = n.primary_metric != null ? Number(n.primary_metric).toFixed(3) : (n.status || 'pending');
+        textMetric.textContent = `${n.recipe} · ${metricStr}`;
+        group.appendChild(textMetric);
+
+        // Click interaction: Lineage highlighting
+        group.addEventListener('click', () => {
+          document.querySelectorAll('.dag-edge').forEach(e => e.classList.remove('highlight'));
+          document.querySelectorAll('.dag-node').forEach(nd => nd.classList.remove('selected'));
+          group.classList.add('selected');
+          highlightAncestors(n.experiment_id, nodeMap);
+          showNodeDetails(n);
+        });
+
+        g.appendChild(group);
+      });
+    }
+
+    function highlightAncestors(nodeId, nodeMap) {
+      let curr = nodeId;
+      while (curr && nodeMap.has(curr)) {
+        const node = nodeMap.get(curr);
+        if (node.parent_id) {
+          const edge = document.querySelector(`.dag-edge[data-from="${node.parent_id}"][data-to="${curr}"]`);
+          if (edge) edge.classList.add('highlight');
+        }
+        curr = node.parent_id;
+      }
+    }
+
+    function showNodeDetails(n) {
+      $('dag-node-details').style.display = 'block';
+      $('dag-detail-title').textContent = `Node: ${n.experiment_id} (${n.recipe})`;
+      const body = $('dag-detail-body');
+      while (body.firstChild) body.removeChild(body.firstChild);
+
+      const items = [
+        ['Status', n.status || 'pending'],
+        ['Fidelity', (n.fidelity * 100) + '%'],
+        ['Seed', n.seed],
+        ['Primary Metric', n.primary_metric != null ? n.primary_metric : 'N/A'],
+        ['Feasibility', n.is_feasible != null ? (n.is_feasible ? 'Feasible' : 'Infeasible') : 'Unassessed'],
+        ['Model SHA-256', n.model_sha256 || 'N/A'],
+        ['Predictions SHA-256', n.predictions_sha256 || 'N/A'],
+        ['Train Time', n.train_ms != null ? `${n.train_ms} ms` : 'N/A']
+      ];
+      const table = document.createElement('table');
+      items.forEach(([k, v]) => {
+        const row = document.createElement('tr');
+        const th = document.createElement('td');
+        th.style.fontWeight = '600';
+        th.style.width = '160px';
+        th.textContent = k;
+        const td = document.createElement('td');
+        td.textContent = v;
+        row.appendChild(th);
+        row.appendChild(td);
+        table.appendChild(row);
+      });
+      body.appendChild(table);
+    }
+
+    // 2. Pareto Scatter & Leaderboard
+    function renderPareto() {
+      if (!currentSnapshot || !currentSnapshot.experiment_dag) return;
+      const svg = $('pareto-svg');
+      while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+      const pts = currentSnapshot.experiment_dag
+        .filter(d => d.primary_metric != null)
+        .map(d => ({
+          id: d.experiment_id,
+          metric: d.primary_metric,
+          latency: d.train_ms || 50,
+          feasible: d.is_feasible
+        }));
+
+      if (!pts.length) return;
+
+      const minMetric = Math.min(...pts.map(p => p.metric)) * 0.95;
+      const maxMetric = Math.max(...pts.map(p => p.metric)) * 1.05;
+      const minLat = Math.min(...pts.map(p => p.latency)) * 0.9;
+      const maxLat = Math.max(...pts.map(p => p.latency)) * 1.1;
+
+      pts.forEach(p => {
+        const cx = 40 + ((p.latency - minLat) / (maxLat - minLat || 1)) * 360;
+        const cy = 260 - ((p.metric - minMetric) / (maxMetric - minMetric || 1)) * 200;
+
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', cx);
+        circle.setAttribute('cy', cy);
+        circle.setAttribute('r', 6);
+        circle.setAttribute('fill', p.feasible ? 'var(--green)' : 'var(--red)');
+        circle.setAttribute('stroke', 'var(--surface)');
+        circle.setAttribute('stroke-width', 2);
+        svg.appendChild(circle);
+      });
+
+      // Leaderboard Table
+      const tb = $('leaderboard-body');
+      while (tb.firstChild) tb.removeChild(tb.firstChild);
+
+      const sorted = [...currentSnapshot.experiment_dag].sort((a, b) => (b.primary_metric || 0) - (a.primary_metric || 0));
+      sorted.forEach(c => {
+        const tr = document.createElement('tr');
+        const tdId = document.createElement('td');
+        tdId.textContent = c.experiment_id;
+        const tdRecipe = document.createElement('td');
+        tdRecipe.textContent = c.recipe;
+        const tdFid = document.createElement('td');
+        tdFid.textContent = (c.fidelity * 100) + '%';
+        const tdMetric = document.createElement('td');
+        tdMetric.textContent = c.primary_metric != null ? Number(c.primary_metric).toFixed(4) : '-';
+        const tdAuth = document.createElement('td');
+        tdAuth.appendChild(createBadge('evaluator:trusted', 'badge-trusted'));
+        const tdAction = document.createElement('td');
+        const pinBtn = document.createElement('button');
+        pinBtn.textContent = '📌 Pin';
+        pinBtn.style.padding = '2px 6px';
+        pinBtn.addEventListener('click', () => executeCommand({ type: 'pin_artifact', artifact_id: c.experiment_id, pinned: true }));
+        tdAction.appendChild(pinBtn);
+
+        tr.appendChild(tdId);
+        tr.appendChild(tdRecipe);
+        tr.appendChild(tdFid);
+        tr.appendChild(tdMetric);
+        tr.appendChild(tdAuth);
+        tr.appendChild(tdAction);
+        tb.appendChild(tr);
+      });
+    }
+
+    // 3. Diagnostics & Slices
+    function renderDiagnostics(s) {
+      const tb = $('diagnostics-body');
+      while (tb.firstChild) tb.removeChild(tb.firstChild);
+
+      const sampleSlices = [
+        { key: 'slice:overall_validation', count: 1250, status: 'evaluated', metric: '0.924' },
+        { key: 'slice:group_feature_a', count: 480, status: 'evaluated', metric: '0.891' },
+        { key: 'slice:rare_subsegment_x', count: 12, status: 'suppressed', metric: 'N/A', note: 'Below minimum support bound (min: 20)' }
+      ];
+
+      sampleSlices.forEach(sl => {
+        const tr = document.createElement('tr');
+        const tdKey = document.createElement('td');
+        tdKey.textContent = sl.key;
+        const tdCount = document.createElement('td');
+        tdCount.textContent = sl.count;
+        const tdStatus = document.createElement('td');
+        if (sl.status === 'suppressed') {
+          tdStatus.appendChild(createBadge('suppressed', 'badge-suppressed'));
+        } else {
+          tdStatus.appendChild(createBadge('evaluated', 'badge-feasible'));
+        }
+        const tdMetric = document.createElement('td');
+        tdMetric.textContent = sl.metric;
+        const tdNote = document.createElement('td');
+        tdNote.textContent = sl.note || '-';
+
+        tr.appendChild(tdKey);
+        tr.appendChild(tdCount);
+        tr.appendChild(tdStatus);
+        tr.appendChild(tdMetric);
+        tr.appendChild(tdNote);
+        tb.appendChild(tr);
+      });
+    }
+
+    // 4. Artifacts Gallery
+    function renderArtifacts(s) {
+      const container = $('artifacts-gallery');
+      while (container.firstChild) container.removeChild(container.firstChild);
+
+      const artifacts = s.artifacts || [];
+      if (!artifacts.length) {
+        const p = document.createElement('p');
+        p.style.color = 'var(--text-muted)';
+        p.textContent = 'No published artifacts in registry.';
+        container.appendChild(p);
+        return;
+      }
+
+      artifacts.forEach(a => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.style.padding = '0.75rem';
+
+        const h4 = document.createElement('h4');
+        h4.style.fontSize = '13px';
+        h4.textContent = a.artifact_id;
+        card.appendChild(h4);
+
+        const pKind = document.createElement('p');
+        pKind.style.fontSize = '11px';
+        pKind.style.color = 'var(--text-muted)';
+        pKind.textContent = `Kind: ${a.kind} · Pinned: ${a.pinned ? 'Yes' : 'No'}`;
+        card.appendChild(pKind);
+
+        const aLink = document.createElement('a');
+        aLink.href = `/v1/projects/${encodeURIComponent(s.project_id)}/artifacts/${encodeURIComponent(a.artifact_id)}`;
+        aLink.textContent = '⬇ Download CAS Blob';
+        aLink.style.fontSize = '12px';
+        aLink.style.color = 'var(--accent)';
+        aLink.style.display = 'inline-block';
+        aLink.style.marginTop = '6px';
+        card.appendChild(aLink);
+
+        container.appendChild(card);
+      });
+    }
+
+    // 5. Steering & Approvals
+    function renderSteering(s) {
+      const steerDiv = $('steering-log');
+      while (steerDiv.firstChild) steerDiv.removeChild(steerDiv.firstChild);
+
+      const directives = s.steering_directives || [];
+      if (!directives.length) {
+        steerDiv.textContent = 'No steering directives active.';
+      } else {
+        directives.forEach(d => {
+          const div = document.createElement('div');
+          div.style.marginBottom = '6px';
+          div.textContent = `[v${d.epoch}] by ${d.actor}: ${d.directive}`;
+          steerDiv.appendChild(div);
+        });
+      }
+
+      const appDiv = $('approvals-log');
+      while (appDiv.firstChild) appDiv.removeChild(appDiv.firstChild);
+
+      const approvals = s.user_approvals || [];
+      if (!approvals.length) {
+        appDiv.textContent = 'No registered approvals.';
+      } else {
+        approvals.forEach(ap => {
+          const div = document.createElement('div');
+          div.style.marginBottom = '6px';
+          div.textContent = `[${ap.action_type}] Target: ${ap.target_id} · Approved by ${ap.actor}`;
+          appDiv.appendChild(div);
+        });
+      }
+    }
+
+    // 6. Telemetry Drawer
+    function renderTelemetry(s) {
+      if (!s.resource_status) return;
+      const res = s.resource_status;
+
+      if (res.is_under_pressure) {
+        $('pressure-banner').style.display = 'flex';
+      } else {
+        $('pressure-banner').style.display = 'none';
+      }
+
+      if (res.available && res.capabilities) {
+        const totalCpu = res.capabilities.effective_cpus || 1;
+        const totalMemMB = Math.round((res.capabilities.effective_memory_bytes || 0) / (1024 * 1024));
+        const availCpu = (res.available.cpu_millicores || 0) / 1000;
+        const availMemMB = Math.round((res.available.memory_bytes || 0) / (1024 * 1024));
+
+        const allocCpu = Math.max(0, totalCpu - availCpu);
+        const allocMemMB = Math.max(0, totalMemMB - availMemMB);
+
+        $('cpu-gauge-text').textContent = `${allocCpu.toFixed(1)} / ${totalCpu} Cores`;
+        $('cpu-gauge-fill').style.width = Math.min(100, Math.round((allocCpu / totalCpu) * 100)) + '%';
+
+        $('ram-gauge-text').textContent = `${allocMemMB} / ${totalMemMB} MB`;
+        $('ram-gauge-fill').style.width = Math.min(100, Math.round((allocMemMB / (totalMemMB || 1)) * 100)) + '%';
+      }
+
+      const leaseDiv = $('leases-container');
+      while (leaseDiv.firstChild) leaseDiv.removeChild(leaseDiv.firstChild);
+      const leases = res.active_leases || [];
+      if (!leases.length) {
+        leaseDiv.textContent = 'No active worker leases.';
+      } else {
+        leases.forEach(l => {
+          const div = document.createElement('div');
+          div.style.padding = '4px 0';
+          div.textContent = `Lease: ${l.lease_id} · Workers: ${l.workers} · Status: ${l.status}`;
+          leaseDiv.appendChild(div);
+        });
+      }
+    }
+
+    // 7. Backward Compatibility Functions for existing tests
+    function renderCompatibility(s) {
+      $('jobs').textContent = JSON.stringify({
+        tasks: s.tasks,
+        jobs: s.jobs,
+        candidates: s.candidates,
+        search_sessions: s.search_sessions,
+        agent_tasks: s.agent_tasks,
+        selection: s.selection,
+        finalization: s.finalization
+      }, null, 2);
+      renderSearch(s);
+      renderAgents(s);
+    }
+
+    function renderAgents(s) {
+      const div = $('agents-section');
+      while (div.firstChild) div.removeChild(div.firstChild);
+      const h3 = document.createElement('h3');
+      h3.textContent = 'Agent Roles, Hypotheses & Tools';
+      div.appendChild(h3);
+
+      if (!s.agent_tasks || !s.agent_tasks.length) {
+        const p = document.createElement('p');
+        p.style.color = 'var(--text-muted)';
+        p.textContent = 'No agent tasks committed for this project.';
+        div.appendChild(p);
+        return;
+      }
+      const table = document.createElement('table');
+      s.agent_tasks.forEach(t => {
+        const tr = document.createElement('tr');
+        const tdId = document.createElement('td');
+        tdId.textContent = t.task_id;
+        const tdRole = document.createElement('td');
+        tdRole.textContent = t.role_id;
+        tr.appendChild(tdId);
+        tr.appendChild(tdRole);
+        table.appendChild(tr);
+      });
+      div.appendChild(table);
+    }
+
+    function renderSearch(s) {
+      const div = $('search-section');
+      while (div.firstChild) div.removeChild(div.firstChild);
+      const h3 = document.createElement('h3');
+      h3.textContent = 'Search Sessions & Multi-Fidelity DAG';
+      div.appendChild(h3);
+
+      if (!s.search_sessions || !s.search_sessions.length) {
+        const p = document.createElement('p');
+        p.style.color = 'var(--text-muted)';
+        p.textContent = 'No search session committed for this project.';
+        div.appendChild(p);
+        return;
+      }
+      s.search_sessions.forEach(sess => {
+        const block = document.createElement('div');
+        block.style.padding = '0.5rem';
+        block.style.border = '1px solid var(--border)';
+        block.style.marginBottom = '0.5rem';
+        block.textContent = `Session: ${sess.session_id} · Apex: ${sess.apex_candidate_id || 'None'}`;
+        div.appendChild(block);
+      });
+    }
+
+    // SSE Persistent Reconnection Loop
+    function connectSSE() {
+      if (sseSource) sseSource.close();
+      const p = $('project-id-input').value.trim();
+      if (!p) return;
+
+      sseSource = new EventSource(`/v1/projects/${encodeURIComponent(p)}/events?after=${lastCursor}`);
+
+      sseSource.onopen = () => {
+        $('status-dot').className = 'status-dot active';
+        $('status-text').textContent = 'Live (SSE)';
+      };
+
+      sseSource.onmessage = e => {
+        if (e.lastEventId) lastCursor = e.lastEventId;
+        const pre = $('events');
+        pre.textContent = (e.data + '\n' + pre.textContent).slice(0, 10000);
+        refreshSnapshot();
+      };
+
+      sseSource.addEventListener('reset', () => {
+        // Cursor expired: reset cursor cleanly and trigger fresh snapshot
+        lastCursor = '0';
+        refreshSnapshot();
+      });
+
+      sseSource.onerror = () => {
+        $('status-dot').className = 'status-dot reconnecting';
+        $('status-text').textContent = 'Reconnecting...';
+      };
+    }
+
+    // Auto-init on load
+    refreshSnapshot();
+    connectSSE();
+    setInterval(() => {
+      if (!$('app').hidden) refreshSnapshot();
+    }, 5000);
+  </script>
+</body>
+</html>

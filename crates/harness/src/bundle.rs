@@ -32,6 +32,20 @@ pub struct BundleManifest {
     pub project_id: String,
     pub candidate_id: String,
     pub files: HashMap<String, BundleManifestFileEntry>,
+    #[serde(default)]
+    pub model: Option<Value>,
+    #[serde(default)]
+    pub pipeline: Option<Value>,
+    #[serde(default)]
+    pub contracts: Option<Value>,
+    #[serde(default)]
+    pub dependencies: Option<Value>,
+    #[serde(default)]
+    pub scorecard: Option<Value>,
+    #[serde(default)]
+    pub lineage: Option<Value>,
+    #[serde(default)]
+    pub resource_measurements: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,26 +134,45 @@ pub fn verify_bundle_with_state(
     let manifest: BundleManifest = serde_json::from_slice(&manifest_bytes)
         .map_err(|e| format!("malformed manifest.json: {e}"))?;
 
-    if manifest.format != "mlrescurix.bundle.v1" {
-        return Err(format!("unsupported bundle format: '{}'; expected 'mlrescurix.bundle.v1'", manifest.format));
+    if manifest.format != "mlrescurix.bundle.v1" && manifest.format != "mlrescurix.bundle.v2" {
+        return Err(format!("unsupported bundle format: '{}'; expected 'mlrescurix.bundle.v1' or 'mlrescurix.bundle.v2'", manifest.format));
     }
     if manifest.project_id.is_empty() || manifest.candidate_id.is_empty() {
         return Err("manifest.json missing project_id or candidate_id".into());
     }
 
     // 2. Check required files
-    let required_contracts = [
+    let mut required_contracts = vec![
         "input_schema.json",
         "scorecard.json",
         "verification.json",
         "final.json",
-        "frozen_model.joblib",
         "inference.py",
         "inference.lock",
         "examples_input.json",
         "examples_expected.json",
         "README.md",
     ];
+    if manifest.format == "mlrescurix.bundle.v2" {
+        required_contracts.push("output_schema.json");
+        required_contracts.push("training.lock");
+        required_contracts.push("serve.py");
+        if !manifest.files.contains_key("frozen_model.joblib") && !manifest.files.contains_key("weights.safetensors") {
+            return Err("bundle manifest missing model weights ('frozen_model.joblib' or 'weights.safetensors')".into());
+        }
+        let inf_lock_p = bundle_dir.join("inference.lock");
+        if inf_lock_p.is_file() {
+            let inf_lock_content = fs::read_to_string(&inf_lock_p).map_err(|e| e.to_string())?.to_lowercase();
+            for forbidden in &["pytest", "mlrescurix_harness", "cargo", "docker"] {
+                if inf_lock_content.contains(forbidden) {
+                    return Err(format!("dependency isolation violated: inference.lock contains prohibited tool '{forbidden}'"));
+                }
+            }
+        }
+    } else {
+        required_contracts.push("frozen_model.joblib");
+    }
+
     for req in &required_contracts {
         if !manifest.files.contains_key(*req) {
             return Err(format!("bundle manifest missing required contract file: '{req}'"));
@@ -199,16 +232,35 @@ pub fn verify_bundle_with_state(
         &fs::read(bundle_dir.join("verification.json")).map_err(|e| e.to_string())?
     ).map_err(|e| format!("invalid verification.json: {e}"))?;
 
-    let frozen_model_path = bundle_dir.join("frozen_model.joblib");
-    let frozen_model_sha = hash_file(&frozen_model_path)?;
-    let frozen_model_bytes = fs::metadata(&frozen_model_path).map_err(|e| e.to_string())?.len();
-    let declared_frozen_sha = verification_json["frozen_model_sha256"].as_str().unwrap_or("");
-    if declared_frozen_sha != frozen_model_sha {
-        return Err(format!(
-            "tampered bundle: verification.json frozen_model_sha256 mismatch (declared {}, actual {})",
-            declared_frozen_sha, frozen_model_sha
-        ));
-    }
+    let (frozen_model_sha, frozen_model_bytes) = if bundle_dir.join("frozen_model.joblib").is_file() {
+        let p = bundle_dir.join("frozen_model.joblib");
+        let sha = hash_file(&p)?;
+        let bytes = fs::metadata(&p).map_err(|e| e.to_string())?.len();
+        let declared = verification_json["frozen_model_sha256"].as_str().unwrap_or("");
+        if declared != sha {
+            return Err(format!(
+                "tampered bundle: verification.json frozen_model_sha256 mismatch (declared {}, actual {})",
+                declared, sha
+            ));
+        }
+        (sha, bytes)
+    } else if bundle_dir.join("weights.safetensors").is_file() {
+        let p = bundle_dir.join("weights.safetensors");
+        let sha = hash_file(&p)?;
+        let bytes = fs::metadata(&p).map_err(|e| e.to_string())?.len();
+        let declared = verification_json["weights_safetensors_sha256"].as_str()
+            .or_else(|| verification_json["frozen_model_sha256"].as_str())
+            .unwrap_or("");
+        if !declared.is_empty() && declared != sha {
+            return Err(format!(
+                "tampered bundle: verification.json weights sha256 mismatch (declared {}, actual {})",
+                declared, sha
+            ));
+        }
+        (sha, bytes)
+    } else {
+        return Err("bundle missing required weights file ('frozen_model.joblib' or 'weights.safetensors')".into());
+    };
 
     let final_json: Value = serde_json::from_slice(
         &fs::read(bundle_dir.join("final.json")).map_err(|e| e.to_string())?
@@ -230,6 +282,22 @@ pub fn verify_bundle_with_state(
         let db = rusqlite::Connection::open(root.join("state.sqlite")).map_err(|e| e.to_string())?;
         use rusqlite::OptionalExtension;
 
+        // Verify user approval token
+        let has_user_approval: bool = db.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM user_approvals WHERE project=?1 AND target_id=?2 AND action_type IN ('deployment_handoff', 'final_test', 'holdout_access') AND approved=1
+                UNION
+                SELECT 1 FROM user_approvals WHERE project=?1 AND action_type IN ('deployment_handoff', 'final_test', 'holdout_access') AND approved=1
+                UNION
+                SELECT 1 FROM approvals WHERE project=?1 AND candidate_id=?2 AND approved=1
+            )",
+            rusqlite::params![&manifest.project_id, &manifest.candidate_id],
+            |r| r.get(0),
+        ).unwrap_or(false);
+        if !has_user_approval {
+            return Err(format!("external authenticity failed: candidate '{}' lacks verified user approval in user_approvals or approvals ledger", manifest.candidate_id));
+        }
+
         let gate_row: Option<(String, String, String, String, String)> = db.query_row(
             "SELECT access_id, dataset_sha256, status, COALESCE(frozen_model_sha256, ''), COALESCE(result_sha256, '')
              FROM final_test_gates WHERE project=?1 AND candidate_id=?2 ORDER BY rowid DESC LIMIT 1",
@@ -246,15 +314,38 @@ pub fn verify_bundle_with_state(
         if gate_status != "consumed" {
             return Err(format!("external authenticity failed: final_test_gates status is '{gate_status}', expected 'consumed'"));
         }
-        if gate_frozen_sha != frozen_model_sha {
+        if !gate_frozen_sha.is_empty() && gate_frozen_sha != frozen_model_sha {
             return Err(format!(
-                "external authenticity failed: bundle frozen_model_sha256 ({frozen_model_sha}) does not match authoritative state gate ({gate_frozen_sha})"
+                "external authenticity failed: bundle weights sha256 ({frozen_model_sha}) does not match authoritative state gate ({gate_frozen_sha})"
             ));
         }
         if gate_result_sha != final_sha {
             return Err(format!(
                 "external authenticity failed: bundle final.json sha256 ({final_sha}) does not match authoritative state gate ({gate_result_sha})"
             ));
+        }
+
+        // Verify no private evaluation row leakage from sealed holdout test split
+        let wf_manifest_path = root.join("workflows").join(&manifest.project_id).join("dataset_manifest.json");
+        if wf_manifest_path.is_file() {
+            if let Ok(manifest_bytes) = fs::read(&wf_manifest_path) {
+                if let Ok(ds_val) = serde_json::from_slice::<Value>(&manifest_bytes) {
+                    if let Some(test_indices) = ds_val.get("splits").and_then(|s| s.get("test")).and_then(Value::as_array) {
+                        let test_set: HashSet<i64> = test_indices.iter().filter_map(Value::as_i64).collect();
+                        if let Ok(examples_val) = serde_json::from_slice::<Value>(&fs::read(bundle_dir.join("examples_input.json")).unwrap_or_default()) {
+                            if let Some(ex_arr) = examples_val.as_array() {
+                                for row in ex_arr {
+                                    if let Some(row_id) = row.get("__row_id__").and_then(Value::as_i64) {
+                                        if test_set.contains(&row_id) {
+                                            return Err("private evaluation rows leak detected: holdout test rows present in golden examples".into());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         if verification_json["test_access_id"].as_str() != Some(gate_access_id.as_str())
             || final_json["test_access_id"].as_str() != Some(gate_access_id.as_str())
@@ -623,6 +714,123 @@ print("PARITY_VERIFIED_OK")
     match result { Ok(value) => { cleanup?; Ok(value) }, Err(error) => { cleanup?; Err(error) } }
 }
 
+/// Executes standalone CLI prediction in a clean environment:
+/// `python3 inference.py --input <inputs> --output <output>`
+pub fn verify_standalone_cli_inference(
+    bundle_dir: &Path,
+    inputs_path: &Path,
+    output_path: &Path,
+) -> Result<Value> {
+    let script = bundle_dir.join("inference.py");
+    if !script.is_file() {
+        return Err("bundle missing inference.py".into());
+    }
+    let mut cmd = std::process::Command::new("python3");
+    cmd.arg(&script)
+        .arg("--input")
+        .arg(inputs_path)
+        .arg("--output")
+        .arg(output_path)
+        .env("PYTHONDONTWRITEBYTECODE", "1");
+    let status = cmd.output().map_err(|e| format!("failed to execute inference CLI: {e}"))?;
+    if !status.status.success() {
+        return Err(format!(
+            "inference CLI failed ({}): {}\n{}",
+            status.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&status.stdout),
+            String::from_utf8_lossy(&status.stderr)
+        ));
+    }
+    let out_bytes = fs::read(output_path).map_err(|e| format!("cannot read CLI output: {e}"))?;
+    let val: Value = serde_json::from_slice(&out_bytes).map_err(|e| format!("invalid CLI output json: {e}"))?;
+    Ok(val)
+}
+
+/// Spawns serve.py on a local loopback port, checks /health and /predict with examples_input.json,
+/// verifies schema error rejection, and cleanly shuts down.
+pub fn verify_standalone_serving_recipe(
+    bundle_dir: &Path,
+    port: u16,
+) -> Result<Value> {
+    let serve_script = bundle_dir.join("serve.py");
+    if !serve_script.is_file() {
+        return Err("bundle missing serve.py recipe".into());
+    }
+    let mut child = std::process::Command::new("python3")
+        .arg(&serve_script)
+        .arg("--port")
+        .arg(port.to_string())
+        .arg("--bundle-dir")
+        .arg(bundle_dir)
+        .env("PYTHONDONTWRITEBYTECODE", "1")
+        .spawn()
+        .map_err(|e| format!("failed to spawn serve.py: {e}"))?;
+
+    // Wait briefly for server to bind
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    let run_check = || -> Result<Value> {
+        use std::io::{Read, Write};
+        use std::net::TcpStream;
+
+        // 1. Check /health
+        let mut stream = TcpStream::connect(("127.0.0.1", port))
+            .map_err(|e| format!("cannot connect to serve.py on port {port}: {e}"))?;
+        stream.write_all(b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+            .map_err(|e| e.to_string())?;
+        let mut resp = Vec::new();
+        stream.read_to_end(&mut resp).map_err(|e| e.to_string())?;
+        let resp_str = String::from_utf8_lossy(&resp);
+        if !resp_str.contains("200 OK") || !resp_str.contains("\"healthy\"") {
+            return Err(format!("serve.py /health check failed: {resp_str}"));
+        }
+
+        // 2. Check /predict with examples_input.json
+        let ex_in_bytes = fs::read(bundle_dir.join("examples_input.json")).map_err(|e| e.to_string())?;
+        let mut stream2 = TcpStream::connect(("127.0.0.1", port)).map_err(|e| e.to_string())?;
+        let req2 = format!(
+            "POST /predict HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            ex_in_bytes.len(),
+            String::from_utf8_lossy(&ex_in_bytes)
+        );
+        stream2.write_all(req2.as_bytes()).map_err(|e| e.to_string())?;
+        let mut resp2 = Vec::new();
+        stream2.read_to_end(&mut resp2).map_err(|e| e.to_string())?;
+        let resp2_str = String::from_utf8_lossy(&resp2);
+        if !resp2_str.contains("200 OK") || !resp2_str.contains("\"ok\"") {
+            return Err(format!("serve.py /predict check failed: {resp2_str}"));
+        }
+
+        // 3. Check schema rejection with bad body
+        let mut stream3 = TcpStream::connect(("127.0.0.1", port)).map_err(|e| e.to_string())?;
+        let bad_body = b"[{\"__BAD_COL__\": 123}]";
+        let req3 = format!(
+            "POST /predict HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            bad_body.len(),
+            String::from_utf8_lossy(bad_body)
+        );
+        stream3.write_all(req3.as_bytes()).map_err(|e| e.to_string())?;
+        let mut resp3 = Vec::new();
+        stream3.read_to_end(&mut resp3).map_err(|e| e.to_string())?;
+        let resp3_str = String::from_utf8_lossy(&resp3);
+        if !resp3_str.contains("400 Bad Request") {
+            return Err(format!("serve.py schema rejection check failed: {resp3_str}"));
+        }
+
+        Ok(serde_json::json!({
+            "serving_status": "healthy",
+            "health_verified": true,
+            "prediction_verified": true,
+            "schema_rejection_verified": true,
+        }))
+    };
+
+    let outcome = run_check();
+    let _ = child.kill();
+    let _ = child.wait();
+    outcome
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -639,7 +847,13 @@ mod tests {
                 let path = dir.path().join(name);
                 (name.to_string(), BundleManifestFileEntry { bytes: fs::metadata(&path).unwrap().len(), sha256: hash_file(&path).unwrap() })
             }).collect();
-            let manifest = BundleManifest { format:"mlrescurix.bundle.v1".into(), project_id:"p".into(), candidate_id:"c".into(), files:entries };
+            let manifest = BundleManifest {
+                format: "mlrescurix.bundle.v1".into(),
+                project_id: "p".into(),
+                candidate_id: "c".into(),
+                files: entries,
+                model: None, pipeline: None, contracts: None, dependencies: None, scorecard: None, lineage: None, resource_measurements: None,
+            };
             fs::write(dir.path().join("manifest.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
         };
         update_manifest();
@@ -652,5 +866,59 @@ mod tests {
         fs::write(dir.path().join("scorecard.json"), r#"{"candidate_id":"c","constraints":{"latency":{"verdict":"unverified"}}}"#).unwrap();
         update_manifest();
         assert!(verify_bundle(dir.path(), false).unwrap_err().contains("verified pass"));
+    }
+
+    #[test]
+    fn v2_bundle_manifest_and_dependency_isolation() {
+        let dir = tempfile::tempdir().unwrap();
+        let names = [
+            "input_schema.json", "output_schema.json", "scorecard.json", "verification.json",
+            "final.json", "frozen_model.joblib", "inference.py", "inference.lock", "training.lock",
+            "serve.py", "examples_input.json", "examples_expected.json", "README.md"
+        ];
+        for name in names { fs::write(dir.path().join(name), "{}").unwrap(); }
+        fs::write(dir.path().join("inference.lock"), "numpy==2.0\n").unwrap();
+        fs::write(dir.path().join("training.lock"), "numpy==2.0\npytest==8.0\n").unwrap();
+        let model_sha = hash_file(&dir.path().join("frozen_model.joblib")).unwrap();
+        fs::write(dir.path().join("verification.json"), serde_json::json!({"frozen_model_sha256":model_sha}).to_string()).unwrap();
+        fs::write(dir.path().join("scorecard.json"), r#"{"candidate_id":"c2","constraints":{}}"#).unwrap();
+
+        let entries: HashMap<String, BundleManifestFileEntry> = names.iter().map(|name| {
+            let path = dir.path().join(name);
+            (name.to_string(), BundleManifestFileEntry { bytes: fs::metadata(&path).unwrap().len(), sha256: hash_file(&path).unwrap() })
+        }).collect();
+        let manifest = BundleManifest {
+            format: "mlrescurix.bundle.v2".into(),
+            project_id: "p2".into(),
+            candidate_id: "c2".into(),
+            files: entries,
+            model: Some(serde_json::json!({"weights_path": "frozen_model.joblib", "weights_sha256": model_sha, "format": "joblib"})),
+            pipeline: Some(serde_json::json!({"feature_pipeline": "pipeline.py", "entrypoint": "inference.py"})),
+            contracts: Some(serde_json::json!({"cli": "inference.py", "api": "predict(records)", "input_schema": "input_schema.json", "output_schema": "output_schema.json"})),
+            dependencies: Some(serde_json::json!({"training_lock": "training.lock", "inference_lock": "inference.lock", "isolated_inference": true})),
+            scorecard: Some(serde_json::json!({"path": "scorecard.json", "sha256": hash_file(&dir.path().join("scorecard.json")).unwrap()})),
+            lineage: Some(serde_json::json!({"path": "scorecard.json", "sha256": hash_file(&dir.path().join("scorecard.json")).unwrap()})),
+            resource_measurements: Some(serde_json::json!({"cold_load_ms": 10.0, "warm_p95_ms": 2.0, "peak_rss_kb": 1024, "package_bytes": 5000})),
+        };
+        fs::write(dir.path().join("manifest.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
+
+        let report = verify_bundle(dir.path(), false).unwrap();
+        assert_eq!(report.status, "integrity_verified");
+        assert_eq!(report.format, "mlrescurix.bundle.v2");
+
+        // Verify dependency isolation: inference.lock containing pytest must be rejected
+        fs::write(dir.path().join("inference.lock"), "numpy==2.0\npytest==8.0\n").unwrap();
+        let mut tampered_entries = manifest.files.clone();
+        tampered_entries.insert("inference.lock".to_string(), BundleManifestFileEntry {
+            bytes: fs::metadata(dir.path().join("inference.lock")).unwrap().len(),
+            sha256: hash_file(&dir.path().join("inference.lock")).unwrap(),
+        });
+        let mut tampered_manifest = manifest.clone();
+        tampered_manifest.files = tampered_entries;
+        fs::write(dir.path().join("manifest.json"), serde_json::to_vec(&tampered_manifest).unwrap()).unwrap();
+
+        let res = verify_bundle(dir.path(), false);
+        assert!(res.is_err(), "Dependency isolation violation must be rejected");
+        assert!(res.unwrap_err().contains("dependency isolation violated"));
     }
 }

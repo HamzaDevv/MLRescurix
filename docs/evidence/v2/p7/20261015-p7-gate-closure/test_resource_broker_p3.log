@@ -1,0 +1,20 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running tests/resource_broker_p3.rs (target/debug/deps/resource_broker_p3-69c6f382959e6160)
+
+running 13 tests
+test p3_acceptance_gate ... ok
+test p3_test_atomic_capacity_reservations_and_dimension_distinction ... ok
+test p3_test_container_vm_memory_cap_prevents_host_overestimate ... ok
+test p3_test_host_and_container_vm_capability_discovery ... ok
+test p3_test_infeasible_request_early_rejection_before_admission ... ok
+test p3_test_lease_lifecycle_heartbeats_and_recovery_transitions ... ok
+test p3_test_multi_project_stress_and_resilience_10x5 ... ok
+test p3_test_per_project_cancellation_and_pause_isolation ... ok
+test p3_test_pressure_backoff_and_finalization_headroom_preservation ... ok
+test p3_test_resource_headroom_accounting ... ok
+test p3_test_resource_presets_bounds_and_resolution ... ok
+test p3_test_thread_caps_and_broker_routing ... ok
+test p3_test_weighted_fair_queueing_aging_and_stable_tie_ordering ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.76s
+

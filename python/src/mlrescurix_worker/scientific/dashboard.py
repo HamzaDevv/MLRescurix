@@ -40,57 +40,84 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere}.muted{color:#657487}table{borde
 const $=x=>document.getElementById(x);let source=null,revision=null,lastCursor='0';
 function renderAgents(s){
     let div=$('agents-section');
+    while(div.firstChild) div.removeChild(div.firstChild);
+    let h3=document.createElement('h3');h3.textContent='Agent Roles, Hypotheses & Tools';div.appendChild(h3);
     if(!s.agent_tasks||!s.agent_tasks.length){
-        div.innerHTML='<h3>Agent Roles &amp; Hypotheses</h3><p class="muted">No agent tasks committed for this project.</p>';
+        let p=document.createElement('p');p.className='muted';p.textContent='No agent tasks committed for this project.';div.appendChild(p);
         return;
     }
-    let html='<h3>Agent Roles, Hypotheses &amp; Tools</h3>';
-    html+='<table style="margin-top:0.5rem;font-size:13px"><thead><tr><th>Task ID</th><th>Role</th><th>Status</th><th>Branch</th><th>Hypothesis</th><th>Intent</th></tr></thead><tbody>';
+    let tbl=document.createElement('table');tbl.style.marginTop='0.5rem';tbl.style.fontSize='13px';
+    let thead=document.createElement('thead');let trHead=document.createElement('tr');
+    ['Task ID','Role','Status','Branch','Hypothesis','Intent'].forEach(txt=>{
+        let th=document.createElement('th');th.textContent=txt;trHead.appendChild(th);
+    });
+    thead.appendChild(trHead);tbl.appendChild(thead);
+    let tbody=document.createElement('tbody');
     for(let t of s.agent_tasks){
-        html+='<tr><td>'+t.task_id+'</td><td><strong>'+t.role_id+'</strong></td><td>'+t.status+'</td><td>'+(t.branch||'-')+'</td><td>'+(t.hypothesis||'-')+'</td><td>'+t.intent+'</td></tr>';
+        let tr=document.createElement('tr');
+        [t.task_id, t.role_id, t.status, t.branch||'-', t.hypothesis||'-', t.intent].forEach(val=>{
+            let td=document.createElement('td');td.textContent=val!=null?String(val):'';tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
     }
-    html+='</tbody></table>';
+    tbl.appendChild(tbody);div.appendChild(tbl);
     if(s.scientific_findings&&s.scientific_findings.length){
-        html+='<h4 style="margin-top:0.5rem">Scientific Findings</h4><ul>';
+        let h4=document.createElement('h4');h4.style.marginTop='0.5rem';h4.textContent='Scientific Findings';div.appendChild(h4);
+        let ul=document.createElement('ul');
         for(let f of s.scientific_findings){
-            html+='<li><strong>['+f.verdict+']</strong> '+f.hypothesis_id+': '+f.rationale+'</li>';
+            let li=document.createElement('li');li.textContent='['+f.verdict+'] '+(f.hypothesis_id||'')+': '+(f.rationale||'');ul.appendChild(li);
         }
-        html+='</ul>';
+        div.appendChild(ul);
     }
     if(s.agent_tools&&s.agent_tools.length){
-        html+='<h4 style="margin-top:0.5rem">Agent-Authored Tools</h4><ul>';
+        let h4=document.createElement('h4');h4.style.marginTop='0.5rem';h4.textContent='Agent-Authored Tools';div.appendChild(h4);
+        let ul=document.createElement('ul');
         for(let tool of s.agent_tools){
-            html+='<li><code>'+tool.name+':'+tool.version+'</code> - '+(tool.descriptor.description||'')+'</li>';
+            let li=document.createElement('li');
+            li.textContent=tool.name+':'+tool.version+' - '+(tool.descriptor&&tool.descriptor.description?tool.descriptor.description:'');
+            ul.appendChild(li);
         }
-        html+='</ul>';
+        div.appendChild(ul);
     }
-    div.innerHTML=html;
 }
 function renderSearch(s){
     let div=$('search-section');
+    while(div.firstChild) div.removeChild(div.firstChild);
+    let h3=document.createElement('h3');h3.textContent='Search Sessions & Multi-Fidelity DAG';div.appendChild(h3);
     if(!s.search_sessions||!s.search_sessions.length){
-        div.innerHTML='<h3>Search &amp; DAG</h3><p class="muted">No search session committed for this project.</p>';
+        let p=document.createElement('p');p.className='muted';p.textContent='No search session committed for this project.';div.appendChild(p);
         return;
     }
-    let html='<h3>Search Sessions &amp; Multi-Fidelity DAG</h3>';
     for(let sess of s.search_sessions){
-        html+='<div style="background:#fff;border:1px solid #cbd5e1;border-radius:6px;padding:0.75rem;margin-bottom:0.75rem">';
-        html+='<strong>Session:</strong> '+sess.session_id+' · <strong>Status:</strong> '+sess.status+' · <strong>Apex:</strong> '+(sess.apex_candidate_id||'None')+'<br>';
+        let box=document.createElement('div');box.style.background='#fff';box.style.border='1px solid #cbd5e1';box.style.borderRadius='6px';box.style.padding='0.75rem';box.style.marginBottom='0.75rem';
+        let p1=document.createElement('p');p1.textContent='Session: '+sess.session_id+' · Status: '+sess.status+' · Apex: '+(sess.apex_candidate_id||'None');box.appendChild(p1);
         if(sess.selection_record){
-            html+='<strong>Rationale:</strong> '+sess.selection_record.rationale+'<br>';
+            let p2=document.createElement('p');p2.textContent='Rationale: '+(sess.selection_record.rationale||'');box.appendChild(p2);
         }
         let dag=(s.experiment_dag||[]).filter(d=>d.session_id===sess.session_id);
         if(dag.length){
-            html+='<table style="margin-top:0.5rem;font-size:13px"><thead><tr><th>Node ID</th><th>Recipe</th><th>Fidelity</th><th>Seed</th><th>Type</th><th>Parent</th><th>Status</th><th>Primary</th><th>Feasible</th><th>Constraints</th></tr></thead><tbody>';
+            let tbl=document.createElement('table');tbl.style.marginTop='0.5rem';tbl.style.fontSize='13px';
+            let thead=document.createElement('thead');let trH=document.createElement('tr');
+            ['Node ID','Recipe','Fidelity','Seed','Type','Parent','Status','Primary','Feasible','Constraints'].forEach(h=>{
+                let th=document.createElement('th');th.textContent=h;trH.appendChild(th);
+            });
+            thead.appendChild(trH);tbl.appendChild(thead);
+            let tbody=document.createElement('tbody');
             for(let node of dag){
+                let tr=document.createElement('tr');
                 let cStr=node.constraints?JSON.stringify(node.constraints):'-';
-                html+='<tr><td>'+node.experiment_id+'</td><td>'+node.recipe+'</td><td>'+(node.fidelity*100)+'%</td><td>'+node.seed+'</td><td>'+node.node_type+'</td><td>'+(node.parent_id||'-')+'</td><td>'+node.status+'</td><td>'+(node.primary_metric!=null?node.primary_metric.toFixed(4):'-')+'</td><td>'+(node.is_feasible!=null?(node.is_feasible?'Pass':'Fail'):'-')+'</td><td>'+cStr+'</td></tr>';
+                let fStr=(node.fidelity*100)+'%';
+                let pStr=node.primary_metric!=null?Number(node.primary_metric).toFixed(4):'-';
+                let feasStr=node.is_feasible!=null?(node.is_feasible?'Pass':'Fail'):'-';
+                [node.experiment_id, node.recipe, fStr, node.seed, node.node_type, node.parent_id||'-', node.status, pStr, feasStr, cStr].forEach(v=>{
+                    let td=document.createElement('td');td.textContent=v!=null?String(v):'';tr.appendChild(td);
+                });
+                tbody.appendChild(tr);
             }
-            html+='</tbody></table>';
+            tbl.appendChild(tbody);box.appendChild(tbl);
         }
-        html+='</div>';
+        div.appendChild(box);
     }
-    div.innerHTML=html;
 }
 async function login(){let r=await fetch('/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:$('token').value})});if(r.ok){$('login').hidden=true;$('app').hidden=false;refresh();connectEvents()}else $('loginerr').textContent='Token rejected'}
 async function refresh(){let p=$('project').value.trim();if(!/^[A-Za-z0-9_.:-]{1,128}$/.test(p))return;let r=await fetch('/v1/projects/'+encodeURIComponent(p)+'/snapshot');if(!r.ok){$('state').textContent='Snapshot unavailable ('+r.status+')';return}let s=await r.json();revision=s.revision;$('state').textContent='State: '+s.state+' · revision '+s.revision+' · event cursor '+s.event_cursor;renderSearch(s);renderAgents(s);$('jobs').textContent=JSON.stringify({tasks:s.tasks,jobs:s.jobs,candidates:s.candidates,search_sessions:s.search_sessions,agent_tasks:s.agent_tasks,scientific_findings:s.scientific_findings,agent_tools:s.agent_tools,selection:s.selection,finalization:s.finalization,ledger:s.project_ledger},null,2);$('download').hidden=!(s.finalization&&s.finalization.status==='verified_development_only');$('download').href='/v1/projects/'+encodeURIComponent(p)+'/bundle'}

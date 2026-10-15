@@ -1,0 +1,16 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/dashboard_p6.rs (target/debug/deps/dashboard_p6-e7fac37a1245c02c)
+
+running 9 tests
+test test_p6_1_cas_blob_streaming_and_boundary_checks ... ok
+test test_p6_1_and_p6_5_command_revision_fencing_and_security ... ok
+test test_p6_1_and_p6_6_monotonic_sse_event_stream_and_concurrent_mutations ... ok
+test test_p6_6_reconnect_replay_resilience_and_cursor_expiration ... ok
+test test_p6_3_and_p6_4_snapshot_dag_and_resource_telemetry ... ok
+test test_p6_2_zero_xss_and_malicious_script_payload_immunity ... ok
+test test_p6_6_large_dag_and_reduced_motion ... ok
+test test_p6_6_acceptance_gate_full_closure ... ok
+test test_p6_1_native_rust_server_auth_and_host_validation ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.00s
+

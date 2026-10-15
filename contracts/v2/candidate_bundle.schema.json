@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:candidate-bundle:2",
+  "type": "object",
+  "required": [
+    "format",
+    "project_id",
+    "candidate_id",
+    "files",
+    "model",
+    "pipeline",
+    "contracts",
+    "dependencies",
+    "scorecard",
+    "lineage"
+  ],
+  "properties": {
+    "format": {
+      "type": "string",
+      "enum": ["mlrescurix.bundle.v2", "mlrescurix.bundle.v1"]
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "candidate_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "files": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["bytes", "sha256"],
+        "properties": {
+          "bytes": { "type": "integer", "minimum": 0 },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "model": {
+      "type": "object",
+      "required": ["weights_path", "weights_sha256", "format"],
+      "properties": {
+        "weights_path": { "type": "string", "minLength": 1 },
+        "weights_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "format": { "type": "string", "enum": ["joblib", "safetensors", "onnx", "native"] },
+        "tolerances": {
+          "type": "object",
+          "properties": {
+            "rtol": { "type": "number", "minimum": 0 },
+            "atol": { "type": "number", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "pipeline": {
+      "type": "object",
+      "required": ["feature_pipeline", "entrypoint"],
+      "properties": {
+        "feature_pipeline": { "type": "string", "minLength": 1 },
+        "entrypoint": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "contracts": {
+      "type": "object",
+      "required": ["cli", "api", "input_schema", "output_schema"],
+      "properties": {
+        "cli": { "type": "string", "minLength": 1 },
+        "api": { "type": "string", "minLength": 1 },
+        "input_schema": { "type": "string", "minLength": 1 },
+        "output_schema": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "dependencies": {
+      "type": "object",
+      "required": ["training_lock", "inference_lock", "isolated_inference"],
+      "properties": {
+        "training_lock": { "type": "string", "minLength": 1 },
+        "inference_lock": { "type": "string", "minLength": 1 },
+        "isolated_inference": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "scorecard": {
+      "type": "object",
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "lineage": {
+      "type": "object",
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "resource_measurements": {
+      "type": "object",
+      "properties": {
+        "cold_load_ms": { "type": "number", "minimum": 0 },
+        "warm_p50_ms": { "type": "number", "minimum": 0 },
+        "warm_p95_ms": { "type": "number", "minimum": 0 },
+        "peak_rss_kb": { "type": "integer", "minimum": 0 },
+        "package_bytes": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

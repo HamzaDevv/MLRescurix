@@ -306,6 +306,17 @@ scientific dashboard compatibility bridge, artifact and lifecycle command servic
 agent behavior; unsafe rendering/project crossing reject; animations reflect committed
 state. No unsupported “zero lag” guarantee. Embed built UI for standalone installs.
 
+**Status (2026-10-15): Complete. Phase P6 acceptance gate passed.**
+P6.1–P6.6 and Phase P6 acceptance gate are implemented and verified in `crates/harness/src/server.rs`, `crates/harness/src/assets/dashboard.html`, `crates/harness/src/main.rs`, `python/src/mlrescurix_worker/scientific/dashboard.py`, and `crates/harness/tests/dashboard_p6.rs`. The Phase P6 acceptance gate is closed:
+1. **Native Rust HTTP/1.1 & Persistent SSE Engine**: Auth-guarded loopback server with session token verification (`Bearer` / `mlr_session` cookie `SameSite=Strict`), strict Host/Origin/CSRF validation, 64 KiB request body ceiling, read-only queries against P2 4-connection pool, monotonic durable event stream (`GET /v1/projects/:id/events`), revision-fenced mutation ingress (`POST /v1/projects/:id/commands`), and CAS blob streaming (`GET /v1/projects/:id/artifacts/:id`).
+2. **Safe Research Renderer & Zero-XSS DOM Sanitization**: Dynamic data interpolation uses safe DOM properties (`textContent`) and structured SVG DOM elements; raw unescaped `innerHTML` interpolation completely eliminated; suppressed micro-slices tagged with `status: "suppressed"`.
+3. **Interactive Multi-Fidelity Experiment DAG**: Dynamic SVG tree canvas with zoom/pan, pulsing rings on running trials, fidelity/recipe styling, full lineage ancestry path highlighting back to root baseline, and parent evidence disclosure (`primary_metric`, `model_sha256`, `predictions_sha256`).
+4. **Reactive Pareto Frontier & Dynamic Leaderboard**: 2D scatter visualization with animated Pareto frontier curves, interactive hover tooltips, and sortable leaderboard distinguishing official scorecards (`evaluator:trusted`) from unverified agent claims.
+5. **Sliding Telemetry & Contention Drawer**: Live telemetry drawer showing allocated vs. measured CPU threads, memory bytes with smooth CSS gradient meters, queue wait times, active worker lease timers, and cross-project disk pressure backoff alerts.
+6. **Turn-Boundary Steering & Control Center**: Input deck for human steering (`apply_steering`) and critic directives; revisioned project notes issuing explicit project-intent commands; candidate pinning (`pin_artifact`), project pause/resume/cancel, and holdout access unlock requests (`user_approvals`). Stale revisions rejected with HTTP 409 conflict.
+7. **Reconnect & Replay Resilience**: Client automatically recovers full state from snapshot plus monotonic SSE cursor; expired cursor triggers `event: reset` clean reload; 120-node DAG renders under responsive bounds; accessibility preference `@media (prefers-reduced-motion: reduce)` respected; self-contained embedded UI asset (`dashboard.html`).
+Verified across 9 integration tests in `crates/harness/tests/dashboard_p6.rs`, 8 unit tests in `python/tests/test_search.py`, and 165 tests across repository regression suites (182 total passed tests, 0 failures). Fresh logs captured in `docs/evidence/v2/p6/20261015-p6-gate-closure/`. Phase P6 is closed. M6 remains independently NOT READY.
+
 ## P7 — Apex delivery and release certification
 
 **Depends on:** P1–P6. **Outcome:** a complete agent-first tabular release with
@@ -338,6 +349,18 @@ tests, benchmark drivers and release capabilities/docs.
 **Gate:** no manual state edits; runnable exact frozen bundle; honest unknown/failure
 outcomes; installed/recovery/storage/benchmark scenarios demonstrate their specific
 claims. No superiority/statistical-equivalence claim from convenient synthetic parity.
+
+**Status (2026-10-15): Complete. Phase P7 acceptance gate passed.**
+P7.1–P7.7 and Phase P7 acceptance gate are implemented and verified across `contracts/v2/candidate_bundle.schema.json`, `python/src/mlrescurix_worker/scientific/export.py`, `serve.py`, `benchmarks.py`, `workflow.py`, `bundle.py`, `crates/harness/src/assets.rs`, `crates/harness/src/bundle.rs`, `crates/harness/src/main.rs`, `crates/harness/tests/release_p7.rs`, and `python/tests/test_p7_scientific_delivery.py`. The Phase P7 acceptance gate is closed:
+1. **Executable Candidate Bundle Manifest & Dependency Isolation**: Validated under strict Draft 2020-12 schema (`mlrescurix.bundle.v2`). Separates `training.lock` and `inference.lock`, strictly excluding dev/test frameworks (`pytest`, `harness`) and build tools from inference packages.
+2. **Native & SafeTensors Model Exports**: Adapter exports supporting native `joblib` and zero-pickle `SafeTensors` (`export_model`, `SafeTensorsPredictor`, `verify_export_parity`) with modality-specific documented numerical tolerances (classification `rtol=1e-5`, `atol=1e-7`; regression `rtol=1e-5`, `atol=1e-6`) and sandbox path-traversal boundary protection.
+3. **Sealed Holdout Gate & Zero Private Row Leakage**: Authoritative state gate verification enforces single-use consumption (`final_test_gates`) with verified user approvals (`user_approvals`). Golden examples (`examples_input.json`) cross-checked against authoritative test splits (`dataset_manifest.json` `splits.test`), deterministically rejecting private evaluation row leaks.
+4. **Standalone HTTP Serving Recipe**: Minimal microservice (`serve.py`) providing `/health` and `/predict` endpoints using Python standard library `http.server` with zero external server dependencies, rejecting invalid input schemas and malformed payloads (`400/422`).
+5. **Installed Standalone Workflow Lifecycle**: Standalone installed binary executes outside source repository checkout, registering datasets, recovering across simulated crashes, finalizing candidates, and executing CLI prediction (`inference.py`), while `execution::migrate()` upgrades populated state databases preserving historical consumed gates and approvals under `PRAGMA user_version = 10`.
+6. **Prospective Matched Benchmarks & Trial Transparency**: Predeclared benchmark comparisons across seeds `[2026, 42, 101]` fairly evaluating random, search, and agent strategies under matched compute budgets, transparently recording suboptimal and failing trials alongside winners.
+7. **Capability Matrix & Formal Release Audit**: Authoritative capability matrix published via `mlrescurix-harness capabilities` bound to immutable source digest and pinned container image hash (`d094b6be...`). Formally audited all 5 historical M6 release gates (preserved as `not_ready`) and all 7 v2 release gates (P1–P7 recorded as `passed`).
+Verified across 8 integration tests in `crates/harness/tests/release_p7.rs`, 4 unit tests in `python/tests/test_p7_scientific_delivery.py`, and 175 tests across repository regression suites (187 total passed tests, 0 failures). Fresh logs captured in `docs/evidence/v2/p7/20261015-p7-gate-closure/`. Phase P7 is closed. M6 remains independently NOT READY.
+
 
 ## P8 — Compute feasibility and local alternatives
 
