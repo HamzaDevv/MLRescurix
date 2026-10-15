@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 use clap::{Parser,Subcommand};
 use mlrescurix_harness::{Runtime,Policy,Request,contracts::{decode_frame,MAX_FRAME},execution::{self,JobSpec,Supervisor},search};
 use sha2::Digest;
@@ -67,6 +69,11 @@ enum Command {
         #[arg(long)] state: PathBuf,
         #[arg(long)] project: String,
         #[arg(long)] backtest: String,
+    },
+    InspectAnomalyClustering {
+        #[arg(long)] state: PathBuf,
+        #[arg(long)] project: String,
+        #[arg(long)] adapter: String,
     },
     #[command(name="__worker",hide=true)] Worker { spec:PathBuf, output:PathBuf },
     Capabilities,
@@ -261,6 +268,11 @@ async fn run()->Result<(),String>{
             let bt = mlrescurix_harness::adapters::get_time_series_backtest(&state, &project, &backtest)?;
             print(bt)
         },
+        Command::InspectAnomalyClustering { state, project, adapter } => {
+            let ad = mlrescurix_harness::adapters::get_anomaly_clustering_adapter(&state, &project, &adapter)?;
+            mlrescurix_harness::adapters::validate_anomaly_clustering_config(&ad)?;
+            print(ad)
+        },
         Command::Worker{spec,output}=>{let result=execution::worker(&spec,&output)?;if result==0 {Ok(())} else {std::process::exit(result)}}
         Command::Capabilities=>print(serde_json::json!({
             "phase":"P7",
@@ -322,7 +334,12 @@ async fn run()->Result<(),String>{
                 "future_lookahead_rejection":true,
                 "causal_lags_and_rolling":true,
                 "naive_and_seasonal_baselines":true,
-                "time_series_delivery_predict":true
+                "time_series_delivery_predict":true,
+                "unsupervised_anomaly_detection":true,
+                "unsupervised_clustering":true,
+                "empirical_contamination_calibration":true,
+                "clustering_partition_profiles":true,
+                "out_of_sample_projection":true
             },
             "feasibility_capabilities":{
                 "hardware_profile":true,

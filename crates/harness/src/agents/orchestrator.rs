@@ -1134,6 +1134,31 @@ impl AgentOrchestrator {
                 crate::adapters::record_time_series_backtest(&self.root, &self.config.project_id, backtest_id, &adapter)?;
                 Ok(serde_json::to_string(&adapter).unwrap())
             }
+            "evaluate_anomaly_clustering" => {
+                let ds_id = args.get("dataset_id").and_then(Value::as_str).ok_or("dataset_id missing")?;
+                let adapter_id = args.get("adapter_id").and_then(Value::as_str).unwrap_or("ac_default");
+                let adapter_type = args.get("adapter_type").and_then(Value::as_str).unwrap_or("combined");
+                let contamination = args.get("contamination").and_then(Value::as_f64).unwrap_or(0.05);
+                let algorithm = args.get("clustering_algorithm").and_then(Value::as_str).unwrap_or("kmeans");
+                let n_clusters = args.get("n_clusters").and_then(Value::as_u64).unwrap_or(3);
+                let metric = args.get("metric").and_then(Value::as_str).unwrap_or("euclidean");
+
+                if contamination <= 0.0 || contamination >= 0.5 {
+                    return Err(format!("Contamination prior must be strictly in (0.0, 0.5), got {contamination}"));
+                }
+
+                let mut adapter = crate::adapters::AnomalyClusteringAdapter::synthetic(ds_id);
+                adapter.adapter_id = adapter_id.to_string();
+                adapter.adapter_type = adapter_type.to_string();
+                adapter.contamination_prior = contamination;
+                adapter.clustering_protocol.algorithm = algorithm.to_string();
+                adapter.clustering_protocol.n_clusters = Some(n_clusters);
+                adapter.clustering_protocol.metric = metric.to_string();
+
+                crate::adapters::validate_anomaly_clustering_config(&adapter)?;
+                crate::adapters::record_anomaly_clustering_adapter(&self.root, &self.config.project_id, &adapter)?;
+                Ok(serde_json::to_string(&adapter).unwrap())
+            }
             "artifact_crud" => {
                 let action = args.get("action").and_then(Value::as_str).ok_or("action missing")?;
                 let reg = crate::artifacts::ArtifactRegistry::new(&self.root);

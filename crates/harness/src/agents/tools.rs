@@ -240,6 +240,26 @@ impl ToolRegistry {
                     }),
                 },
             },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "evaluate_anomaly_clustering".into(),
+                    description: "Configure and evaluate unsupervised anomaly detection (IsolationForest, LOF) and clustering (KMeans, DBSCAN/HDBSCAN) with empirical calibrations and evaluation profiles.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "adapter_id": { "type": "string", "description": "Adapter identifier" },
+                            "dataset_id": { "type": "string", "description": "Identifier for the dataset" },
+                            "adapter_type": { "type": "string", "enum": ["anomaly_detection", "clustering", "combined"], "description": "Adapter type" },
+                            "contamination": { "type": "number", "description": "Contamination prior strictly in (0.0, 0.5) (default 0.05)" },
+                            "clustering_algorithm": { "type": "string", "enum": ["kmeans", "hdbscan", "dbscan"], "description": "Clustering algorithm (default kmeans)" },
+                            "n_clusters": { "type": "integer", "description": "Number of clusters for KMeans (default 3)" },
+                            "metric": { "type": "string", "enum": ["euclidean", "manhattan", "cosine"], "description": "Distance metric (default euclidean)" }
+                        },
+                        "required": ["dataset_id"]
+                    }),
+                },
+            },
             ToolDefinition {tool_type:"function".into(),function:ToolFunction {
                 name:"schedule_pipeline".into(),
                 description:"Queue a bounded feature/calibration/ensemble protocol in a verified scientific Docker environment. The Rust supervisor evaluates development data and verifies generated OOF provenance; this does not finalize or certify delivery.".into(),

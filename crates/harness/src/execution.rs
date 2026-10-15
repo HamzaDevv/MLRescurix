@@ -85,14 +85,20 @@ pub fn connect(root:&Path)->Result<Connection>{
         sql(tx.commit())?;
         sql(c.execute_batch("PRAGMA foreign_keys=ON;"))?;
     }
-    // The schema fragment is idempotent. Reapply it so additive trigger fixes
-    // (including artifact tombstone journaling) reach already-v10 databases.
-    sql(c.execute_batch(include_str!("schema_p2_events.sql")))?;
-    sql(c.execute_batch(include_str!("schema_p3_leases.sql")))?;
-    sql(c.execute_batch(include_str!("schema_p4_candidates.sql")))?;
-    sql(c.execute_batch(include_str!("schema_p5_orchestration.sql")))?;
-    sql(c.execute_batch(include_str!("schema_p8_feasibility.sql")))?;
-    sql(c.execute_batch(include_str!("schema_p9_adapters.sql")))?;
+    let has_p9_anomaly: bool = c.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='anomaly_clustering_adapters')",
+        [],
+        |r| r.get(0),
+    ).unwrap_or(false);
+    if !has_p9_anomaly {
+        sql(c.execute_batch(include_str!("schema_p2_events.sql")))?;
+        sql(c.execute_batch(include_str!("schema_p3_leases.sql")))?;
+        sql(c.execute_batch(include_str!("schema_p4_candidates.sql")))?;
+        sql(c.execute_batch(include_str!("schema_p5_orchestration.sql")))?;
+        sql(c.execute_batch(include_str!("schema_p8_feasibility.sql")))?;
+        sql(c.execute_batch(include_str!("schema_p9_adapters.sql")))?;
+        sql(c.execute_batch(include_str!("schema_p9_anomaly.sql")))?;
+    }
     let has_old_recipe_check: bool = sql(c.query_row(
         "SELECT (sql LIKE '%CHECK(recipe IN (''dummy'',''linear'',''tree'')%' OR sql LIKE '%CHECK(recipe IN (''dummy'',''linear'',''tree'',''hist_boosting'')%') AND sql NOT LIKE '%length(recipe)%' FROM sqlite_master WHERE type='table' AND name='experiment_dag'",
         [],

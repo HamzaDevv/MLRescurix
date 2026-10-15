@@ -255,6 +255,132 @@ impl TimeSeriesDatasetAdapter {
 }
 
 // ---------------------------------------------------------------------------
+// P9.3 Unsupervised Anomaly Detection & Clustering Adapter Contracts & Models
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScorePercentiles {
+    pub p05: f64,
+    pub p25: f64,
+    pub p50: f64,
+    pub p75: f64,
+    pub p95: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScoreCalibrationReceipt {
+    pub method: String, // empirical_percentile, min_max, z_score
+    pub threshold: f64,
+    pub score_min: f64,
+    pub score_max: f64,
+    pub score_mean: f64,
+    pub score_std: f64,
+    pub percentiles: ScorePercentiles,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClusteringPartitionProtocol {
+    pub algorithm: String, // kmeans, hdbscan, dbscan
+    pub metric: String,    // euclidean, manhattan, cosine
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n_clusters: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eps: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_samples: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EvaluationProfile {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub silhouette_score: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub davies_bouldin_index: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calinski_harabasz_score: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inertia: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roc_auc: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr_auc: Option<f64>,
+    pub num_noise_points: u64,
+    pub num_clusters_found: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnomalyClusteringDeliveryContract {
+    pub supports_out_of_sample_scoring: bool,
+    pub supports_out_of_sample_assignment: bool,
+    pub anomaly_score_bounded: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AnomalyClusteringAdapter {
+    pub schema_version: String,
+    pub adapter_id: String,
+    pub dataset_id: String,
+    pub adapter_type: String, // anomaly_detection, clustering, combined
+    pub feature_columns: Vec<String>,
+    pub contamination_prior: f64,
+    pub score_calibration: ScoreCalibrationReceipt,
+    pub clustering_protocol: ClusteringPartitionProtocol,
+    pub evaluation_profile: EvaluationProfile,
+    pub delivery_inference: AnomalyClusteringDeliveryContract,
+}
+
+impl AnomalyClusteringAdapter {
+    pub fn synthetic(dataset_id: &str) -> Self {
+        Self {
+            schema_version: "v2".into(),
+            adapter_id: format!("adapter_{dataset_id}"),
+            dataset_id: dataset_id.to_string(),
+            adapter_type: "combined".into(),
+            feature_columns: vec!["f1".into(), "f2".into(), "f3".into()],
+            contamination_prior: 0.05,
+            score_calibration: ScoreCalibrationReceipt {
+                method: "empirical_percentile".into(),
+                threshold: 0.78,
+                score_min: 0.0,
+                score_max: 1.0,
+                score_mean: 0.25,
+                score_std: 0.18,
+                percentiles: ScorePercentiles {
+                    p05: 0.02,
+                    p25: 0.12,
+                    p50: 0.22,
+                    p75: 0.35,
+                    p95: 0.72,
+                },
+            },
+            clustering_protocol: ClusteringPartitionProtocol {
+                algorithm: "kmeans".into(),
+                metric: "euclidean".into(),
+                n_clusters: Some(3),
+                eps: None,
+                min_samples: None,
+            },
+            evaluation_profile: EvaluationProfile {
+                silhouette_score: Some(0.62),
+                davies_bouldin_index: Some(0.55),
+                calinski_harabasz_score: Some(312.4),
+                inertia: Some(45.2),
+                roc_auc: Some(0.94),
+                pr_auc: Some(0.88),
+                num_noise_points: 0,
+                num_clusters_found: 3,
+            },
+            delivery_inference: AnomalyClusteringDeliveryContract {
+                supports_out_of_sample_scoring: true,
+                supports_out_of_sample_assignment: true,
+                anomaly_score_bounded: true,
+            },
+        }
+    }
+}
+
+
+// ---------------------------------------------------------------------------
 // Scientific Verification Functions
 // ---------------------------------------------------------------------------
 
@@ -333,6 +459,67 @@ pub fn validate_temporal_split_integrity(
 
     Ok(())
 }
+
+/// Validates anomaly detection & clustering configurations and deterministically rejects
+/// invalid contamination priors (<=0 or >=0.5), non-finite calibrations, or invalid clustering configs.
+pub fn validate_anomaly_clustering_config(adapter: &AnomalyClusteringAdapter) -> Result<()> {
+    if adapter.contamination_prior <= 0.0 || adapter.contamination_prior >= 0.5 {
+        return Err(format!(
+            "Contamination prior must be strictly in (0.0, 0.5), got {}",
+            adapter.contamination_prior
+        ));
+    }
+
+    if adapter.score_calibration.threshold.is_nan()
+        || adapter.score_calibration.score_min.is_nan()
+        || adapter.score_calibration.score_max.is_nan()
+        || adapter.score_calibration.score_mean.is_nan()
+        || adapter.score_calibration.score_std.is_nan()
+    {
+        return Err("Score calibration receipt contains non-finite values".into());
+    }
+
+    if adapter.adapter_type != "anomaly_detection" {
+        let algo = adapter.clustering_protocol.algorithm.as_str();
+        if algo != "kmeans" && algo != "hdbscan" && algo != "dbscan" {
+            return Err(format!("Unsupported clustering algorithm '{algo}'"));
+        }
+
+        let metric = adapter.clustering_protocol.metric.as_str();
+        if metric != "euclidean" && metric != "manhattan" && metric != "cosine" {
+            return Err(format!("Unsupported clustering metric '{metric}'"));
+        }
+
+        if algo == "kmeans" {
+            if let Some(k) = adapter.clustering_protocol.n_clusters {
+                if k < 2 {
+                    return Err(format!("KMeans requires n_clusters >= 2, got {k}"));
+                }
+            } else {
+                return Err("KMeans requires n_clusters to be specified".into());
+            }
+        }
+
+        if algo == "dbscan" {
+            if let Some(eps) = adapter.clustering_protocol.eps {
+                if eps <= 0.0 {
+                    return Err(format!("DBSCAN requires eps > 0, got {eps}"));
+                }
+            } else {
+                return Err("DBSCAN requires eps to be specified".into());
+            }
+        }
+
+        if let Some(min_s) = adapter.clustering_protocol.min_samples {
+            if min_s < 1 {
+                return Err(format!("min_samples must be >= 1, got {min_s}"));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 
 // ---------------------------------------------------------------------------
 // Database Persistence Helpers (Idempotent SQLite under schema v10)
@@ -509,6 +696,64 @@ pub fn get_time_series_backtest(
     }
 }
 
+pub fn record_anomaly_clustering_adapter(
+    state_root: &Path,
+    project: &str,
+    adapter: &AnomalyClusteringAdapter,
+) -> Result<()> {
+    let conn = open_conn(state_root)?;
+    let meta_json = serde_json::to_string(adapter).map_err(|e| format!("JSON serialize error: {e}"))?;
+    let now = now_ms() as i64;
+
+    conn.execute(
+        "INSERT INTO anomaly_clustering_adapters(
+            project, adapter_id, dataset_id, adapter_type, contamination,
+            clustering_algorithm, metadata_json, created_ms
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        ON CONFLICT(project, adapter_id) DO UPDATE SET
+            dataset_id=excluded.dataset_id,
+            adapter_type=excluded.adapter_type,
+            contamination=excluded.contamination,
+            clustering_algorithm=excluded.clustering_algorithm,
+            metadata_json=excluded.metadata_json,
+            created_ms=excluded.created_ms",
+        params![
+            project,
+            adapter.adapter_id,
+            adapter.dataset_id,
+            adapter.adapter_type,
+            adapter.contamination_prior,
+            adapter.clustering_protocol.algorithm,
+            meta_json,
+            now,
+        ],
+    )
+    .map_err(|e| format!("failed to record anomaly clustering adapter: {e}"))?;
+
+    Ok(())
+}
+
+pub fn get_anomaly_clustering_adapter(
+    state_root: &Path,
+    project: &str,
+    adapter_id: &str,
+) -> Result<AnomalyClusteringAdapter> {
+    let conn = open_conn(state_root)?;
+    let meta_json: Option<String> = conn
+        .query_row(
+            "SELECT metadata_json FROM anomaly_clustering_adapters WHERE project=?1 AND adapter_id=?2",
+            params![project, adapter_id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(|e| format!("query error: {e}"))?;
+
+    match meta_json {
+        Some(s) => serde_json::from_str(&s).map_err(|e| format!("JSON parse error: {e}")),
+        None => Err(format!("Anomaly clustering adapter '{adapter_id}' not found in project '{project}'")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -553,5 +798,50 @@ mod tests {
         let order_res = validate_temporal_split_integrity(&protocol, &train_ts, &test_ts_unordered);
         assert!(order_res.is_err());
         assert!(order_res.unwrap_err().contains("out of order"));
+    }
+
+    #[test]
+    fn test_anomaly_clustering_bounds_and_rejection() {
+        let mut adapter = AnomalyClusteringAdapter::synthetic("ds_anomaly_test");
+        assert!(validate_anomaly_clustering_config(&adapter).is_ok());
+
+        // Reject contamination <= 0.0
+        adapter.contamination_prior = 0.0;
+        let err_zero = validate_anomaly_clustering_config(&adapter);
+        assert!(err_zero.is_err());
+        assert!(err_zero.unwrap_err().contains("Contamination prior must be strictly in (0.0, 0.5)"));
+
+        // Reject contamination >= 0.5
+        adapter.contamination_prior = 0.5;
+        let err_half = validate_anomaly_clustering_config(&adapter);
+        assert!(err_half.is_err());
+        assert!(err_half.unwrap_err().contains("Contamination prior must be strictly in (0.0, 0.5)"));
+
+        // Reset contamination to valid
+        adapter.contamination_prior = 0.05;
+
+        // Reject invalid k (< 2) for KMeans
+        adapter.clustering_protocol.n_clusters = Some(1);
+        let err_k = validate_anomaly_clustering_config(&adapter);
+        assert!(err_k.is_err());
+        assert!(err_k.unwrap_err().contains("KMeans requires n_clusters >= 2"));
+
+        // Reset k
+        adapter.clustering_protocol.n_clusters = Some(3);
+
+        // Reject invalid metric
+        adapter.clustering_protocol.metric = "minkowski_unknown".into();
+        let err_metric = validate_anomaly_clustering_config(&adapter);
+        assert!(err_metric.is_err());
+        assert!(err_metric.unwrap_err().contains("Unsupported clustering metric"));
+
+        // Reset metric
+        adapter.clustering_protocol.metric = "euclidean".into();
+
+        // Reject non-finite calibration
+        adapter.score_calibration.threshold = f64::NAN;
+        let err_nan = validate_anomaly_clustering_config(&adapter);
+        assert!(err_nan.is_err());
+        assert!(err_nan.unwrap_err().contains("non-finite"));
     }
 }

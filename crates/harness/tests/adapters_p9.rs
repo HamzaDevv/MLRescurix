@@ -23,9 +23,10 @@ use serde_json::{json, Value};
 
 use mlrescurix_harness::{
     adapters::{
-        get_arrow_adapter, get_time_series_backtest, record_arrow_adapter,
-        record_time_series_backtest, validate_arrow_adapter_memory_bounds,
-        validate_temporal_split_integrity, ArrowDatasetAdapter,
+        get_anomaly_clustering_adapter, get_arrow_adapter, get_time_series_backtest,
+        record_anomaly_clustering_adapter, record_arrow_adapter, record_time_series_backtest,
+        validate_anomaly_clustering_config, validate_arrow_adapter_memory_bounds,
+        validate_temporal_split_integrity, AnomalyClusteringAdapter, ArrowDatasetAdapter,
         TemporalSplitProtocol, TimeSeriesDatasetAdapter,
     },
     agents::{
@@ -369,6 +370,50 @@ fn test_p9_orchestrator_tool_dispatch_arrow_and_time_series() {
     // Confirm stored in SQLite
     let fetched_ts = get_time_series_backtest(&harness.root, "proj_orch", "backtest_orch_01").unwrap();
     assert_eq!(fetched_ts.dataset_id, "ts_orch_ds");
+
+    // 3. Dispatch evaluate_anomaly_clustering
+    let ac_args = json!({
+        "dataset_id": "ac_orch_ds",
+        "adapter_id": "adapter_orch_01",
+        "adapter_type": "combined",
+        "contamination": 0.08,
+        "clustering_algorithm": "kmeans",
+        "n_clusters": 4,
+        "metric": "euclidean"
+    });
+    let ac_res = orchestrator.dispatch_tool_call("evaluate_anomaly_clustering", &ac_args.to_string()).unwrap();
+    let ac_val: Value = serde_json::from_str(&ac_res).unwrap();
+    assert_eq!(ac_val["dataset_id"], "ac_orch_ds");
+    assert_eq!(ac_val["adapter_id"], "adapter_orch_01");
+    assert_eq!(ac_val["contamination_prior"], 0.08);
+    assert_eq!(ac_val["clustering_protocol"]["n_clusters"], 4);
+
+    // Confirm stored in SQLite
+    let fetched_ac = get_anomaly_clustering_adapter(&harness.root, "proj_orch", "adapter_orch_01").unwrap();
+    assert_eq!(fetched_ac.dataset_id, "ac_orch_ds");
+    assert_eq!(fetched_ac.contamination_prior, 0.08);
+
+    // Negative case: reject contamination >= 0.5 in orchestrator dispatch
+    let ac_bad_args = json!({
+        "dataset_id": "ac_orch_bad",
+        "contamination": 0.6
+    });
+    let ac_err = orchestrator.dispatch_tool_call("evaluate_anomaly_clustering", &ac_bad_args.to_string());
+    assert!(ac_err.is_err());
+    assert!(ac_err.unwrap_err().contains("Contamination prior must be strictly in (0.0, 0.5)"));
+}
+
+#[test]
+fn test_p9_3_anomaly_clustering_adapter_models_and_json_roundtrip() {
+    let adapter = AnomalyClusteringAdapter::synthetic("ds_anomaly_roundtrip");
+    assert_eq!(adapter.schema_version, "v2");
+    assert_eq!(adapter.contamination_prior, 0.05);
+    assert!(validate_anomaly_clustering_config(&adapter).is_ok());
+
+    // JSON round-trip
+    let serialized = serde_json::to_string_pretty(&adapter).unwrap();
+    let deserialized: AnomalyClusteringAdapter = serde_json::from_str(&serialized).unwrap();
+    assert_eq!(adapter, deserialized);
 }
 
 #[test]
@@ -376,12 +421,15 @@ fn test_p9_cli_commands_and_capabilities() {
     let harness = TestHarness::new("cli_test");
     harness.create_project("proj_cli");
 
-    // Seed an arrow adapter and time series backtest
+    // Seed an arrow adapter, time series backtest, and anomaly clustering adapter
     let arrow_adapter = ArrowDatasetAdapter::synthetic_parquet("cli_arrow_ds", 15000, 10, "target");
     record_arrow_adapter(&harness.root, "proj_cli", &arrow_adapter).unwrap();
 
     let ts_adapter = TimeSeriesDatasetAdapter::synthetic_daily("cli_ts_ds");
     record_time_series_backtest(&harness.root, "proj_cli", "cli_bt_01", &ts_adapter).unwrap();
+
+    let ac_adapter = AnomalyClusteringAdapter::synthetic("cli_ac_ds");
+    record_anomaly_clustering_adapter(&harness.root, "proj_cli", &ac_adapter).unwrap();
 
     let exe = PathBuf::from(env!("CARGO_BIN_EXE_mlrescurix-harness"));
 
@@ -413,7 +461,22 @@ fn test_p9_cli_commands_and_capabilities() {
     let validate_val: Value = serde_json::from_slice(&validate_out.stdout).unwrap();
     assert_eq!(validate_val["dataset_id"], "cli_ts_ds");
 
-    // 3. Capabilities CLI
+    // 3. InspectAnomalyClustering CLI
+    let inspect_ac_out = Command::new(&exe)
+        .args([
+            "inspect-anomaly-clustering",
+            "--state", harness.root.to_str().unwrap(),
+            "--project", "proj_cli",
+            "--adapter", "adapter_cli_ac_ds",
+        ])
+        .output()
+        .unwrap();
+    assert!(inspect_ac_out.status.success());
+    let inspect_ac_val: Value = serde_json::from_slice(&inspect_ac_out.stdout).unwrap();
+    assert_eq!(inspect_ac_val["dataset_id"], "cli_ac_ds");
+    assert_eq!(inspect_ac_val["adapter_id"], "adapter_cli_ac_ds");
+
+    // 4. Capabilities CLI
     let caps_out = Command::new(&exe).arg("capabilities").output().unwrap();
     let caps_val: Value = serde_json::from_slice(&caps_out.stdout).unwrap();
     assert_eq!(caps_val["phase"], "P7");
@@ -425,6 +488,11 @@ fn test_p9_cli_commands_and_capabilities() {
     assert_eq!(caps_val["adapter_capabilities"]["temporal_splits"], true);
     assert_eq!(caps_val["adapter_capabilities"]["future_lookahead_rejection"], true);
     assert_eq!(caps_val["adapter_capabilities"]["naive_and_seasonal_baselines"], true);
+    assert_eq!(caps_val["adapter_capabilities"]["unsupervised_anomaly_detection"], true);
+    assert_eq!(caps_val["adapter_capabilities"]["unsupervised_clustering"], true);
+    assert_eq!(caps_val["adapter_capabilities"]["empirical_contamination_calibration"], true);
+    assert_eq!(caps_val["adapter_capabilities"]["clustering_partition_profiles"], true);
+    assert_eq!(caps_val["adapter_capabilities"]["out_of_sample_projection"], true);
 }
 
 #[test]
@@ -452,6 +520,13 @@ fn test_p9_acceptance_gate_full_closure() {
     ).unwrap();
     assert_eq!(ts_table_count, 1);
 
+    let ac_table_count: i64 = conn.query_row(
+        "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='anomaly_clustering_adapters'",
+        [],
+        |r| r.get(0),
+    ).unwrap();
+    assert_eq!(ac_table_count, 1);
+
     // Full vertical slice validation
     let arrow_ds = ArrowDatasetAdapter::synthetic_parquet("gate_arrow", 25000, 20, "y");
     assert!(validate_arrow_adapter_memory_bounds(&arrow_ds, 256 * 1024 * 1024).is_ok());
@@ -463,4 +538,11 @@ fn test_p9_acceptance_gate_full_closure() {
     record_time_series_backtest(&harness.root, "proj_gate", "gate_bt", &ts_ds).unwrap();
     let loaded_ts = get_time_series_backtest(&harness.root, "proj_gate", "gate_bt").unwrap();
     assert_eq!(loaded_ts.dataset_id, "gate_ts");
+
+    let ac_ds = AnomalyClusteringAdapter::synthetic("gate_ac");
+    assert!(validate_anomaly_clustering_config(&ac_ds).is_ok());
+    record_anomaly_clustering_adapter(&harness.root, "proj_gate", &ac_ds).unwrap();
+    let loaded_ac = get_anomaly_clustering_adapter(&harness.root, "proj_gate", "adapter_gate_ac").unwrap();
+    assert_eq!(loaded_ac.dataset_id, "gate_ac");
+    assert_eq!(loaded_ac.contamination_prior, 0.05);
 }

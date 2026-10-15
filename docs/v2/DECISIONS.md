@@ -347,3 +347,30 @@ D39 is implemented in `contracts/v2/arrow_dataset_adapter.schema.json`, `contrac
    - Exposed `inspect-arrow` and `validate-temporal-split` subcommands and updated `Capabilities` reporting `"p9_adapters": "passed"` and `adapter_capabilities`.
 4. **Phase P9.1 & P9.2 Acceptance Gate Closure**:
    - Verified across 10 integration tests in `crates/harness/tests/adapters_p9.rs`, 11 unit tests in `python/tests/test_p9_arrow_adapter.py` and `python/tests/test_p9_time_series.py`, 18 unit tests in `crates/harness/src/lib.rs`, and 137 tests across full repository regression suites (235 total passed tests, 0 failures). Evidence captured in `docs/evidence/v2/p9/20261015-p9-adapters-gate-closure/`. Phase P9.1 and P9.2 are closed. M6 remains independently NOT READY.
+
+### P9.3 Task Adapter & Gate Closure decisions (2026-10-15)
+
+D40 is implemented in `contracts/v2/anomaly_clustering_adapter.schema.json`, `python/src/mlrescurix_worker/scientific/anomaly_clustering.py`, `crates/harness/src/adapters.rs`, `crates/harness/src/schema_p9_anomaly.sql`, `crates/harness/src/assets.rs`, `crates/harness/src/execution.rs`, `crates/harness/src/lib.rs`, `crates/harness/src/agents/tools.rs`, `crates/harness/src/agents/roles.rs`, `crates/harness/src/agents/orchestrator.rs`, `crates/harness/src/main.rs`, `crates/harness/tests/adapters_p9.rs`, and `python/tests/test_p9_anomaly_clustering.py`.
+1. **Unsupervised Anomaly Detection & Clustering Schema (P9.3)**:
+   - Defined strict Draft 2020-12 typed schema `contracts/v2/anomaly_clustering_adapter.schema.json` covering unsupervised contamination assumptions (`exclusiveMinimum: 0.0, exclusiveMaximum: 0.5`), empirical score calibration receipts, clustering partition protocols, evaluation profiles, and production delivery inference contracts. Validated via `jsonschema.Draft202012Validator`.
+2. **Outlier Detection Algorithms & Empirical Score Calibrations**:
+   - Implemented `IsolationForestDetector` and `LocalOutlierFactorDetector` (novelty detection mode).
+   - Generated empirical score calibration receipts tracking score distributions (min, max, mean, std, percentiles p50/p90/p95/p99) and calibrated empirical decision thresholds.
+   - Enforced deterministic negative scientific rejection: non-novelty LOF configurations rejected, score distribution inconsistencies rejected.
+3. **Unsupervised Clustering Algorithms & Partition Protocols**:
+   - Implemented `KMeansClusterer` (with inertia tracking and cluster size verification) and `DensityClusterer` (`HDBSCAN` with approximate prediction and `DBSCAN`).
+   - Generated clustering partition protocols capturing cluster count, noise count, noise ratio, and cluster size distributions.
+4. **Evaluation Profiles & Delivery Inference Engine**:
+   - Evaluated internal clustering quality metrics (Silhouette score, Davies-Bouldin index, Calinski-Harabasz score) and semi-supervised contamination-aware classification metrics (ROC-AUC, PR-AUC, precision, recall, F1) when ground truth labels are provided.
+   - Implemented production inference engine `AnomalyClusteringPredictor` providing calibrated `predict_anomaly_score` and out-of-sample `assign_cluster` projections. Deterministically rejected non-inductive clusterers lacking out-of-sample projection capabilities (`OutOfSampleProjectionError`).
+5. **Deterministic Negative Scientific Cases**:
+   - Rejected invalid contamination priors ($\le 0.0$ or $\ge 0.5$, `InvalidContaminationError`).
+   - Rejected non-finite input features (NaN/Inf, `NonFiniteFeatureError`).
+   - Rejected invalid clustering configurations ($k < 2$, negative min_samples, unsupported metrics, `InvalidClusteringConfigError`).
+6. **Harness Persistence, Tool Dispatch, & CLI**:
+   - Retained `PRAGMA user_version = 10` using additive idempotent DDL `crates/harness/src/schema_p9_anomaly.sql` creating `anomaly_clustering_adapters` table with SQL `CHECK(contamination > 0.0 AND contamination < 0.5)`.
+   - Exposed `evaluate_anomaly_clustering` tool in `ToolRegistry` and dispatched in `AgentOrchestrator`, authorized for `lead`, `auditor`, and `model_specialist` roles.
+   - Added CLI subcommand `inspect-anomaly-clustering` and updated harness capabilities reporting `"p9_adapters": "passed"` and expanded adapter capabilities.
+7. **Phase P9.3 Acceptance Gate Closure**:
+   - Verified across 11 integration tests in `crates/harness/tests/adapters_p9.rs`, 8 unit tests in `python/tests/test_p9_anomaly_clustering.py` (19 total in P9 Python adapters suite), 19 unit tests in `crates/harness/src/lib.rs`, and 137 tests across full repository regression suites (245 total passed tests, 0 failures, 8 ignored/deselected). Evidence captured in `docs/evidence/v2/p9/20261015-p93-anomaly-clustering-gate-closure/`. Phase P9.3 is closed. M6 remains independently NOT READY.
+
