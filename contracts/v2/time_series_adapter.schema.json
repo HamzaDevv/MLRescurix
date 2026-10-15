@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:time-series-adapter:2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "dataset_id",
+    "timestamp_column",
+    "target_column",
+    "entity_columns",
+    "frequency",
+    "split_protocol",
+    "feature_config",
+    "baseline_evaluations",
+    "inference_delivery"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "v2" },
+    "dataset_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "timestamp_column": { "type": "string", "minLength": 1 },
+    "target_column": { "type": "string", "minLength": 1 },
+    "entity_columns": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "frequency": { "type": "string", "minLength": 1 },
+    "split_protocol": {
+      "type": "object",
+      "required": [
+        "protocol_type",
+        "gap_steps",
+        "test_horizon_steps",
+        "step_stride",
+        "n_splits",
+        "purge_lookahead_verified"
+      ],
+      "properties": {
+        "protocol_type": {
+          "type": "string",
+          "enum": ["rolling_window", "expanding_window", "entity_aware_temporal"]
+        },
+        "train_window_steps": { "type": ["integer", "null"], "minimum": 1 },
+        "gap_steps": { "type": "integer", "minimum": 0 },
+        "test_horizon_steps": { "type": "integer", "minimum": 1 },
+        "step_stride": { "type": "integer", "minimum": 1 },
+        "n_splits": { "type": "integer", "minimum": 1 },
+        "purge_lookahead_verified": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "feature_config": {
+      "type": "object",
+      "required": ["lags", "rolling_windows", "horizon_alignment_steps"],
+      "properties": {
+        "lags": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 1 }
+        },
+        "rolling_windows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["window_size", "metrics"],
+            "properties": {
+              "window_size": { "type": "integer", "minimum": 1 },
+              "metrics": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["mean", "std", "min", "max", "sum"] }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "horizon_alignment_steps": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "baseline_evaluations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["baseline_name", "metrics"],
+        "properties": {
+          "baseline_name": { "type": "string", "enum": ["last_value", "seasonal_mean", "moving_average"] },
+          "seasonal_period": { "type": ["integer", "null"], "minimum": 1 },
+          "metrics": {
+            "type": "object",
+            "required": ["mae", "rmse", "wape"],
+            "properties": {
+              "mae": { "type": "number", "minimum": 0 },
+              "rmse": { "type": "number", "minimum": 0 },
+              "wape": { "type": "number", "minimum": 0 },
+              "mase": { "type": ["number", "null"], "minimum": 0 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "inference_delivery": {
+      "type": "object",
+      "required": ["horizon_steps", "validate_temporal_monotonicity", "strict_future_lookahead_rejection"],
+      "properties": {
+        "horizon_steps": { "type": "integer", "minimum": 1 },
+        "validate_temporal_monotonicity": { "type": "boolean" },
+        "strict_future_lookahead_rejection": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

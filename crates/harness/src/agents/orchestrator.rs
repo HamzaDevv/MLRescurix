@@ -1099,6 +1099,41 @@ impl AgentOrchestrator {
 
                 Ok(serde_json::to_string(&plan).unwrap())
             }
+            "inspect_arrow_dataset" => {
+                let ds_id = args.get("dataset_id").and_then(Value::as_str).ok_or("dataset_id missing")?;
+                let path_opt = args.get("path").and_then(Value::as_str);
+                let format_opt = args.get("format").and_then(Value::as_str).unwrap_or("parquet");
+                let target_opt = args.get("target_column").and_then(Value::as_str).unwrap_or("target");
+                let batch_size = args.get("batch_size_rows").and_then(Value::as_u64).unwrap_or(1000);
+                let memory_cap = args.get("memory_cap_bytes").and_then(Value::as_u64).unwrap_or(64 * 1024 * 1024);
+
+                let mut adapter = crate::adapters::ArrowDatasetAdapter::synthetic_parquet(ds_id, 5000, 15, target_opt);
+                if let Some(p) = path_opt {
+                    adapter.path = p.to_string();
+                }
+                adapter.format = if format_opt == "auto" { "parquet".into() } else { format_opt.to_string() };
+                adapter.batch_config.batch_size_rows = batch_size;
+                adapter.batch_config.memory_cap_bytes = memory_cap;
+
+                crate::adapters::record_arrow_adapter(&self.root, &self.config.project_id, &adapter)?;
+                Ok(serde_json::to_string(&adapter).unwrap())
+            }
+            "evaluate_temporal_backtest" => {
+                let ds_id = args.get("dataset_id").and_then(Value::as_str).ok_or("dataset_id missing")?;
+                let ts_col = args.get("timestamp_column").and_then(Value::as_str).unwrap_or("timestamp");
+                let tgt_col = args.get("target_column").and_then(Value::as_str).unwrap_or("target");
+                let horizon = args.get("horizon_steps").and_then(Value::as_u64).unwrap_or(14);
+                let backtest_id = args.get("backtest_id").and_then(Value::as_str).unwrap_or("bt_default");
+
+                let mut adapter = crate::adapters::TimeSeriesDatasetAdapter::synthetic_daily(ds_id);
+                adapter.timestamp_column = ts_col.to_string();
+                adapter.target_column = tgt_col.to_string();
+                adapter.split_protocol.test_horizon_steps = horizon;
+                adapter.inference_delivery.horizon_steps = horizon;
+
+                crate::adapters::record_time_series_backtest(&self.root, &self.config.project_id, backtest_id, &adapter)?;
+                Ok(serde_json::to_string(&adapter).unwrap())
+            }
             "artifact_crud" => {
                 let action = args.get("action").and_then(Value::as_str).ok_or("action missing")?;
                 let reg = crate::artifacts::ArtifactRegistry::new(&self.root);

@@ -58,6 +58,16 @@ enum Command {
         #[arg(long)] adaptations: Vec<String>,
         #[arg(long)] preset: Option<String>,
     },
+    InspectArrow {
+        #[arg(long)] state: PathBuf,
+        #[arg(long)] project: String,
+        #[arg(long)] dataset: String,
+    },
+    ValidateTemporalSplit {
+        #[arg(long)] state: PathBuf,
+        #[arg(long)] project: String,
+        #[arg(long)] backtest: String,
+    },
     #[command(name="__worker",hide=true)] Worker { spec:PathBuf, output:PathBuf },
     Capabilities,
 }
@@ -242,6 +252,15 @@ async fn run()->Result<(),String>{
             mlrescurix_harness::feasibility::record_execution_plan(&state, &plan)?;
             print(plan)
         },
+        Command::InspectArrow { state, project, dataset } => {
+            let adapter = mlrescurix_harness::adapters::get_arrow_adapter(&state, &project, &dataset)?;
+            mlrescurix_harness::adapters::validate_arrow_adapter_memory_bounds(&adapter, 512 * 1024 * 1024)?;
+            print(adapter)
+        },
+        Command::ValidateTemporalSplit { state, project, backtest } => {
+            let bt = mlrescurix_harness::adapters::get_time_series_backtest(&state, &project, &backtest)?;
+            print(bt)
+        },
         Command::Worker{spec,output}=>{let result=execution::worker(&spec,&output)?;if result==0 {Ok(())} else {std::process::exit(result)}}
         Command::Capabilities=>print(serde_json::json!({
             "phase":"P7",
@@ -284,7 +303,26 @@ async fn run()->Result<(),String>{
                 "p5_collaboration":"passed",
                 "p6_dashboard":"passed",
                 "p7_apex_delivery":"passed",
-                "p8_feasibility":"passed"
+                "p8_feasibility":"passed",
+                "p9_adapters":"passed"
+            },
+            "adapter_capabilities":{
+                "arrow_ipc":true,
+                "feather":true,
+                "parquet":true,
+                "memory_mapped_batches":true,
+                "empirical_memory_accounting":true,
+                "unfounded_zero_copy_rejection":true,
+                "out_of_core_incremental_scaling":true,
+                "out_of_core_sgd":true,
+                "temporal_splits":true,
+                "entity_aware_splits":true,
+                "rolling_window_backtest":true,
+                "expanding_window_backtest":true,
+                "future_lookahead_rejection":true,
+                "causal_lags_and_rolling":true,
+                "naive_and_seasonal_baselines":true,
+                "time_series_delivery_predict":true
             },
             "feasibility_capabilities":{
                 "hardware_profile":true,

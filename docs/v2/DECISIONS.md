@@ -324,3 +324,26 @@ D38 is implemented in `contracts/v2/hardware_profile.schema.json`, `contracts/v2
 6. **Phase P8 Acceptance Gate Closure (Gate)**:
    - Verified across 11 integration tests in `crates/harness/tests/feasibility_p8.rs`, 6 unit tests in `python/tests/test_p8_feasibility.py`, and 185 tests across repository regression suites (202 total passed tests, 0 failures). Evidence captured in `docs/evidence/v2/p8/20261015-p8-gate-closure/`. Phase P8 is closed. M6 remains independently NOT READY.
 
+### P9.1 & P9.2 Task Adapters & Gate Closure decisions (2026-10-15)
+
+D39 is implemented in `contracts/v2/arrow_dataset_adapter.schema.json`, `contracts/v2/time_series_adapter.schema.json`, `python/src/mlrescurix_worker/scientific/arrow_adapter.py`, `python/src/mlrescurix_worker/scientific/time_series.py`, `crates/harness/src/adapters.rs`, `crates/harness/src/schema_p9_adapters.sql`, `crates/harness/src/assets.rs`, `crates/harness/src/execution.rs`, `crates/harness/src/lib.rs`, `crates/harness/src/agents/tools.rs`, `crates/harness/src/agents/roles.rs`, `crates/harness/src/agents/orchestrator.rs`, `crates/harness/src/main.rs`, `crates/harness/tests/adapters_p9.rs`, `python/tests/test_p9_arrow_adapter.py`, and `python/tests/test_p9_time_series.py`.
+1. **Out-of-Core / Apache Arrow Data Adapter (P9.1)**:
+   - Defined strict Draft 2020-12 typed schema `contracts/v2/arrow_dataset_adapter.schema.json` for Arrow dataset fingerprints, split views, batch configurations, and empirical memory accounting.
+   - Implemented deterministic SHA-256 schema fingerprinting, multi-format detection (Parquet, Feather, IPC file, IPC stream), and typed column descriptors with physical/logical Arrow types, nullability, and feature/target/id roles.
+   - Implemented true memory-mapped column access and chunked batch iterator (`ArrowBatchIterator`) with projection (pruning unselected columns and feature-only split views) reading bounded RecordBatches without inflating memory into dense NumPy arrays.
+   - Enforced empirical memory accounting tracking bytes read, batch counts, peak memory (`tracemalloc`), and actual array copies (`_convert_column_to_numpy`).
+   - Deterministically rejected unfounded zero-copy claims on nullable/non-contiguous data (`UnfoundedZeroCopyError`) and halted on batch/peak memory cap violations (`MemoryCapExceededError`).
+   - Implemented incremental feature scaling (`IncrementalFeatureScaler`) using Chan et al. parallel Welford updates matching `StandardScaler` within numerical tolerance, and out-of-core linear models (`OutOfCoreSGDClassifier`, `OutOfCoreSGDRegressor`) supporting multi-epoch chunked training.
+2. **Time-Series Forecasting Adapter (P9.2)**:
+   - Defined strict Draft 2020-12 typed schema `contracts/v2/time_series_adapter.schema.json` for temporal split protocols, causal feature configs, naive/seasonal baseline metrics, and delivery contracts.
+   - Implemented strict temporal splitters (`TemporalSplitter`): rolling-window, expanding-window, and entity-aware backtesting across multiple store/sensor entities. Enforced non-negative gap/purge windows between train and test partitions.
+   - Enforced deterministic negative scientific guards: rejected future lookahead leakage (`min(test) <= max(train)` rejected with `FutureLookaheadLeakageError`), timestamp disorder or duplicate entity timestamps (`InvalidTimestampError`), and non-causal lags ($k \le 0$).
+   - Implemented causal feature engineering (`TimeSeriesFeatureEngineer`) generating strictly past lags ($k \ge 1$) and rolling aggregations (mean, std, min, max, sum) over past causal windows. Verified causal invariance: truncating future records does not alter feature values at time $T$.
+   - Implemented naive and seasonal benchmark baselines (`LastValueBaseline`, `SeasonalMeanBaseline`, `MovingAverageBaseline`) and error metrics (MAE, RMSE, WAPE, MASE) against which ML models must compete.
+   - Implemented production time-series delivery inference contract (`TimeSeriesPredictor.predict_horizon`) with timestamp input validation, causal lag propagation, and multi-step point forecast generation.
+3. **Database Migration & Governance**:
+   - Strictly retained `PRAGMA user_version = 10` using additive idempotent DDL `crates/harness/src/schema_p9_adapters.sql` creating `arrow_dataset_adapters` and `time_series_backtests` tables.
+   - Registered `inspect_arrow_dataset` and `evaluate_temporal_backtest` tools in `ToolRegistry`, dispatched in `AgentOrchestrator`, and granted to `lead` and `auditor` roles.
+   - Exposed `inspect-arrow` and `validate-temporal-split` subcommands and updated `Capabilities` reporting `"p9_adapters": "passed"` and `adapter_capabilities`.
+4. **Phase P9.1 & P9.2 Acceptance Gate Closure**:
+   - Verified across 10 integration tests in `crates/harness/tests/adapters_p9.rs`, 11 unit tests in `python/tests/test_p9_arrow_adapter.py` and `python/tests/test_p9_time_series.py`, 18 unit tests in `crates/harness/src/lib.rs`, and 137 tests across full repository regression suites (235 total passed tests, 0 failures). Evidence captured in `docs/evidence/v2/p9/20261015-p9-adapters-gate-closure/`. Phase P9.1 and P9.2 are closed. M6 remains independently NOT READY.

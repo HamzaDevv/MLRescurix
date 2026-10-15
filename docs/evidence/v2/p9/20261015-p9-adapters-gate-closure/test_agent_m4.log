@@ -1,0 +1,31 @@
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.64s
+     Running tests/agent_m4.rs (target/debug/deps/agent_m4-c5a176030549b361)
+
+running 23 tests
+test m4_outbound_data_redaction_filter ... ok
+test m4_authoritative_budget_query_and_remaining_calculation ... ok
+test m4_path_traversal_and_symlink_rejection_in_workspace ... ok
+test m4_cross_branch_immutable_snapshot_reuse ... ok
+test m4_role_registry_defines_all_eight_specialist_roles ... ok
+test m4_sandbox_detector_and_honest_refusal_when_unavailable ... ok
+test m4_exhausted_budget_blocks_provider_before_dispatch ... ok
+test m4_achievement_checkpointing_and_context_compaction ... ok
+test m4_conservative_ceiling_settlement_on_provider_failure ... ok
+test m4_reconstructable_checkpoint_and_evidence_integrity ... ok
+test m4_schema_validation_pre_and_post_execution ... ok
+test m4_role_rbac_enforcement ... ok
+test m4_agent_authors_tests_and_reuses_diagnostic_tool_and_adapts_decision ... ok
+test m4_workspace_symlink_cannot_read_or_overwrite_host_file ... ok
+test m6_outbound_view_policy_approval_content_binding_and_expiry ... ok
+test m6_currency_cost_millicents_and_finalization_reserve_enforcement ... ok
+test m6_specialist_scheduling_crash_recovery_and_handoff ... ok
+test m5_delegation_preserves_prior_tasks_and_reports_provider_failure ... ok
+test m6_provider_turn_crash_reconciliation_all_four_states ... ok
+test m4_research_closure_and_critic_finalization ... ok
+test p1_delegation_and_registration_crash_reconciliation_and_fault_regressions ... ok
+test p1_scheduler_job_submission_crash_reconciliation_and_fault_regressions ... ok
+test m4_ten_projects_and_three_branches_fairness ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.86s
+

@@ -30,16 +30,14 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
   - Full `cargo test --locked` passed; live pinned-Docker cgroup/OOM/survivor checks, six end-to-end scientific pipeline modes, and real ENOSPC regression passed. See the fresh evidence below.
   - Architecture decisions D20–D25 recorded in `docs/v2/DECISIONS.md`.
   - Historical M6 evidence preserved untouched.
-  - Runtime implementation: P1.1–P1.6 complete and verified. P2 (P2.1–P2.6 and full P2 Roadmap Acceptance Gate) complete and verified. P3 (P3.1–P3.5 and full Phase P3 Acceptance Gate) complete and verified. P4 (P4.1–P4.3 and full Phase P4 Acceptance Gate) complete and verified. P5 (P5.1–P5.6 and full Phase P5 Acceptance Gate) complete and verified. P6 (P6.1–P6.6 and full Phase P6 Acceptance Gate) complete and verified. P7 (P7.1–P7.7 and full Phase P7 Acceptance Gate) complete and verified. P8 (P8.1–P8.5 and full Phase P8 Acceptance Gate) complete and verified:
-    1. P8.1: Strict typed JSON schemas for `HardwareProfile`, `DatasetMetadata`, `FeasibilityReport`, and `ExecutionPlan` (`contracts/v2/*.schema.json`). Rust and Python domain models integrated with P3 resource broker discovery (`broker.rs`), capturing effective CPU, RAM, disk headroom, Docker VM/accelerator limits, and memory certification capability. Computes transformation expansion factor (one-hot cardinality expansion) and dense memory footprint.
-    2. P8.2: Analytical complexity estimators for Linear, Boosting, Tree, Neural, and Custom architectures factoring in CV fold counts, final refit multiplier, expanded dimensionality, and concurrent worker lease allocations. Capped micro-pilots ($N \le 100$ rows, low-epoch probes) respecting strict timeout and peak RSS memory guards, clamping requested rows to $\le 100$ rows.
-    3. P8.3: Transparent multi-tier feasibility verdicts emitted prior to heavy dispatch: `locally_feasible`, `feasible_with_adaptation`, `requires_external_compute`, `unknown`. Reports include full documented assumptions, confidence bounds (`high`, `medium`, `low`), predicted runtime/RAM ranges, and measured pilot trial IDs.
-    4. P8.4: Concrete evidence-backed local alternatives: quantization (float64 to float32 downcasting), sparse linear baselines (scipy CSR matrices), progressive fidelity screening (20% subsampling for candidate exploration), downsampled screening, smaller tree/boosting architectures, and chunked streaming ingestion without quiet semantic degradation.
-    5. P8.5 & Gate: Deterministic constraint negotiation generating immutable `ExecutionPlan` artifacts. Enforces safe local downscaling without purchasing external compute, strictly preserving locked evaluation split protocols (`locked_split_protocol_preserved = true`), and refusing heavy training dispatch on infeasible tasks (`enforce_heavy_dispatch_feasibility`).
-    Verified across 11 integration tests in `crates/harness/tests/feasibility_p8.rs`, 6 unit tests in `python/tests/test_p8_feasibility.py`, and 185 tests across repository regression suites (202 total passed tests, 0 failures). Fresh logs in `docs/evidence/v2/p8/20261015-p8-gate-closure/`. Phase P8 is closed.
+  - Runtime implementation: P1.1–P1.6 complete and verified. P2 (P2.1–P2.6 and full P2 Roadmap Acceptance Gate) complete and verified. P3 (P3.1–P3.5 and full Phase P3 Acceptance Gate) complete and verified. P4 (P4.1–P4.3 and full Phase P4 Acceptance Gate) complete and verified. P5 (P5.1–P5.6 and full Phase P5 Acceptance Gate) complete and verified. P6 (P6.1–P6.6 and full Phase P6 Acceptance Gate) complete and verified. P7 (P7.1–P7.7 and full Phase P7 Acceptance Gate) complete and verified. P8 (P8.1–P8.5 and full Phase P8 Acceptance Gate) complete and verified. P9 (P9.1 Out-of-Core / Arrow Data Adapter and P9.2 Time-Series Forecasting Adapter and Acceptance Gates) complete and verified:
+    1. P9.1: Strict Draft 2020-12 typed schema (`contracts/v2/arrow_dataset_adapter.schema.json`) for Arrow IPC/Feather/Parquet ingestion fingerprints, split views, byte limits, and empirical memory accounting. Memory-mapped column access and chunked projection iterators without dense NumPy inflation. Incremental feature scaler (Chan/Welford parallel statistics) and out-of-core SGD models. Negative bounds enforcement rejecting allocations exceeding memory caps.
+    2. P9.2: Strict Draft 2020-12 typed schema (`contracts/v2/time_series_adapter.schema.json`) for entity-aware, rolling-window, and expanding-window temporal splits without future lookahead leakage. Causal lag feature engineering ($\text{lag} \ge 1$), rolling statistics, naive/seasonal baselines (LastValue, SeasonalMean, MovingAverage), metric suite (MAE, RMSE, WAPE, MASE), and multi-step delivery inference contract with recursive lag propagation. Negative cases rejecting temporal lookahead leakage and out-of-order timestamps.
+    3. Rust Harness: Additive idempotent DDL (`crates/harness/src/schema_p9_adapters.sql`) creating `arrow_dataset_adapters` and `time_series_backtests` under `user_version = 10`. Integrated `adapters.rs` module, tool registry (`inspect_arrow_dataset`, `evaluate_temporal_backtest`), agent role authorizations, orchestrator tool dispatch, and CLI subcommands (`InspectArrow`, `ValidateTemporalSplit`).
+    Verified across 10 integration tests in `crates/harness/tests/adapters_p9.rs`, 5 unit tests in `python/tests/test_p9_arrow_adapter.py`, 6 unit tests in `python/tests/test_p9_time_series.py`, and 235 total passed tests across repository regression suites (0 failures). Fresh logs in `docs/evidence/v2/p9/20261015-p9-adapters-gate-closure/`. Phase P9.1 and P9.2 slices are closed.
 - Release: M6 remains **NOT READY**, as recorded in `docs/m6-completion-status.md`.
-  - Authorization: P8.1–P8.5 and Phase P8 Acceptance Gate were authorized and completed in this session. P9 or later phases are NOT begun.
-  - Next recommended slice: Phase P9 (when explicitly authorized). M6 release gates remain independently open.
+  - Authorization: P9.1 (Arrow adapter) and P9.2 (Time-series adapter) were authorized and completed in this session. P9.3+ or other un-authorized slices are NOT begun.
+  - Next recommended slice: Phase P9.3 (Anomaly/Clustering) or subsequent slices when explicitly authorized. M6 release gates remain independently open.
 
 | Phase | Status | Evidence / next step |
 | --- | --- | --- |
@@ -52,7 +50,7 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
 | P6 | complete | P6.1–P6.6 and full Phase P6 Acceptance Gate verified across 9 tests in dashboard_p6, 8 tests in test_search.py, and full regression suites (182 total passed tests). Fresh logs in `20261015-p6-gate-closure/`. M6 remains independently NOT READY. |
 | P7 | complete | P7.1–P7.7 and full Phase P7 Acceptance Gate verified across 8 tests in release_p7, 4 tests in test_p7_scientific_delivery.py, 53 tests in python_host, and full regression suites (187 total passed tests, 0 failures). Fresh logs in `docs/evidence/v2/p7/20261015-p7-gate-closure/`. M6 remains independently NOT READY. |
 | P8 | complete | P8.1–P8.5 and full Phase P8 Acceptance Gate verified across 11 tests in feasibility_p8, 6 tests in test_p8_feasibility.py, and full regression suites (202 total passed tests, 0 failures). Fresh logs in `docs/evidence/v2/p8/20261015-p8-gate-closure/`. M6 remains independently NOT READY. |
-| P9 | Optional/planned | Approve and certify each adapter/backend separately |
+| P9 | complete (P9.1 & P9.2) | P9.1 Out-of-Core / Arrow and P9.2 Time-Series Forecasting adapters complete and fully evidenced across 10 tests in adapters_p9, 11 tests in Python adapter suites, and 235 total passed tests across full repository regression suites. Evidence in `docs/evidence/v2/p9/20261015-p9-adapters-gate-closure/`. P9.3+ remain planned/optional. |
 
 Allowed implementation statuses: planned, in_progress, blocked, implemented_unverified,
 verified, complete. Complete requires the phase gate and evidence; code presence
@@ -91,6 +89,7 @@ or a specialist's assertion alone does not meet it. P0 is documentation complete
 | 2026-10-15 | P6.1–P6.6 & Phase P6 Acceptance Gate Closure | Implemented native Rust HTTP/1.1 and persistent SSE service (`crates/harness/src/server.rs`) with loopback binding (`127.0.0.1`), session token authentication (`Bearer`/Cookie `SameSite=Strict`), strict Host/Origin/CSRF validation, 64 KiB request body ceiling, read-only queries against P2 4-connection pool, monotonic durable event stream (`GET /v1/projects/:id/events`), revision-fenced mutation command ingress (`POST /v1/projects/:id/commands`), and CAS blob streaming with traversal checks. Created aesthetic, animated, reactive single-page dashboard application (`crates/harness/src/assets/dashboard.html`) embedded directly in the harness binary, featuring zero-XSS DOM sanitization, interactive multi-fidelity experiment DAG canvas with zoom/pan and lineage ancestry highlighting, real-time Pareto scatter plot and dynamic leaderboard separating official scorecards from unverified agent claims, sliding resource and contention telemetry drawer with CPU/RAM gauges and pressure backoff alerts, diagnostic slice visualizer with suppressed micro-slice status badges, and human-in-the-loop turn-boundary steering/control center with note revisioning. Verified reconnect/replay resilience, expired cursor reset frames, 120-node DAG responsiveness, and reduced-motion accessibility preference. All 9 tests in dashboard_p6, 8 tests in test_search.py, and full regression suites passed (182 total passed tests, 0 failures). Added D36. Fresh logs in `docs/evidence/v2/p6/20261015-p6-gate-closure/`. Phase P6 is closed; M6 remains NOT READY. |
 | 2026-10-15 | P7.1–P7.7 & Phase P7 Acceptance Gate Closure | Implemented executable candidate bundle manifest (`mlrescurix.bundle.v2`) under strict Draft 2020-12 schema (`contracts/v2/candidate_bundle.schema.json`) with clean separation between `training.lock` and standalone `inference.lock` rejecting build/test tools (`pytest`, `harness`). Implemented native joblib and zero-pickle SafeTensors model export adapters (`export_model`, `SafeTensorsPredictor`, `verify_export_parity`) in `export.py` with modality-specific documented tolerances and sandbox boundary checks. Enforced sealed holdout evaluation gate (`final_test_gates` status `consumed`) with verified user approvals (`user_approvals`), and strict zero evaluation row leakage rejection against `splits.test` in `dataset_manifest.json`. Implemented minimal standalone HTTP serving recipe (`serve.py`) with `/health` and `/predict` endpoints using standard library `http.server`. Proved installed standalone workflow outside checkout with crash/resume and populated state migration without schema version bump (`PRAGMA user_version = 10`). Implemented matched prospective benchmarks (`benchmarks.py`) across seeds `[2026, 42, 101]` transparently recording suboptimal/failing trials. Published capability matrix and audited all 5 M6 gates (preserved as `not_ready`) and all 7 v2 gates (P1–P7 passed). All 8 tests in release_p7, 4 tests in test_p7_scientific_delivery.py, 53 tests in python_host, and full regression suites passed (187 total passed tests, 0 failures). Added D37. Fresh logs in `docs/evidence/v2/p7/20261015-p7-gate-closure/`. Phase P7 is closed; M6 remains NOT READY. |
 | 2026-10-15 | P8.1–P8.5 & Phase P8 Acceptance Gate Closure | Defined typed schemas for HardwareProfile, DatasetMetadata, FeasibilityReport, ExecutionPlan (`contracts/v2/*.schema.json`). Implemented Rust and Python models integrating P3 broker discovery (`broker.rs`), capturing effective CPU, RAM, disk headroom, Docker VM/accelerator limits, and memory certification capability. Added model family analytical complexity estimators (Linear, Boosting, Tree, Neural, Custom) and capped micro-pilots ($N \le 100$, low-epoch probes, tight timeout/RAM guards). Implemented transparent multi-tier feasibility verdicts (`locally_feasible`, `feasible_with_adaptation`, `requires_external_compute`, `unknown`) with documented assumptions, confidence bounds, predicted runtime/RAM ranges, and pilot trial IDs. Evaluated evidence-backed local alternatives (quantization, sparse linear, progressive fidelity, downsampled screening, smaller architectures, streaming) without quiet semantic degradation. Implemented safe constraint negotiation generating immutable `ExecutionPlan` artifacts while strictly preserving locked evaluation splits (`locked_split_protocol_preserved = true`) and gating heavy training dispatch (`enforce_heavy_dispatch_feasibility`). All 11 tests in feasibility_p8, 6 tests in test_p8_feasibility.py, and full regression suites passed (202 total passed tests, 0 failures). Added D38. Fresh logs in `docs/evidence/v2/p8/20261015-p8-gate-closure/`. Phase P8 is closed; M6 remains NOT READY. |
+| 2026-10-15 | P9.1 & P9.2 Out-of-Core Arrow and Time-Series Forecasting Adapters | Defined Draft 2020-12 schemas for Arrow and Time-Series adapters. Implemented true Arrow memory-mapped batch iterators with empirical memory accounting, incremental feature scaling, and out-of-core SGD baselines. Implemented temporal splitters (rolling/expanding window, entity-aware), causal lag feature generation, naive/seasonal baselines, and multi-step delivery inference contract with recursive lag propagation. Added Rust harness persistence (schema_p9_adapters.sql under user_version = 10), orchestrator tool dispatch, role authorizations, and CLI subcommands. Verified negative scientific cases (leakage rejection, out-of-order rejection, memory overage rejection). All 10 tests in adapters_p9, 11 tests in python adapter suites, and full repository regression suites passed (235 total passed tests, 0 failures). Added D39. Fresh logs in `docs/evidence/v2/p9/20261015-p9-adapters-gate-closure/`. P9.1 & P9.2 closed; M6 remains NOT READY. |
 
 ## Update at the end of every implementation session
 
@@ -966,6 +965,80 @@ Budget / compatibility / migration implications:
   - Historical evidence in docs/evidence/m6/ left completely untouched.
 Next small actionable slice:
   - Phase P9 (separately gated expansion and optimizations) upon explicit user authorization.
+```
+
+### Implementation Session 2026-10-15 (P9.1 & P9.2 Slices)
+
+```text
+Date / phase / task IDs: 2026-10-15 / P9 / P9.1 (Out-of-Core Arrow Data Adapter) & P9.2 (Time-Series Forecasting Adapter) & Phase P9.1/P9.2 Acceptance Gate Closure
+User-authorized scope: Phase P9.1 (Out-of-Core / Arrow Data Adapter) and P9.2 (Time-Series Forecasting Adapter) and their respective adapter acceptance gates. Retain PRAGMA user_version = 10; keep docs/evidence/m6/ untouched; do not begin P9.3 or later slices.
+Starting commit and pre-existing dirty files: abf1f235030a79f9a606b429e34608431e37603d; dirty: crates/, docs/v2/, python/, contracts/
+Changes and source paths:
+  - contracts/v2/arrow_dataset_adapter.schema.json: Strict Draft 2020-12 schema for Arrow IPC, Feather, and Parquet ingestion fingerprints, split views, byte limits, and empirical memory accounting.
+  - contracts/v2/time_series_adapter.schema.json: Strict Draft 2020-12 schema for temporal split protocols, causal lag configurations, baseline evaluations, and multi-step delivery contracts.
+  - python/src/mlrescurix_worker/scientific/arrow_adapter.py: Python implementation of true memory-mapped column access (pa.memory_map, pq.ParquetFile), format auto-detection, deterministic SHA-256 schema fingerprinting, ArrowBatchIterator with projection/feature-only views, empirical memory tracking (tracemalloc, zero-copy checking), IncrementalFeatureScaler (Chan/Welford parallel updates), OutOfCoreSGDClassifier, and OutOfCoreSGDRegressor.
+  - python/src/mlrescurix_worker/scientific/time_series.py: Python implementation of TemporalSplitter (rolling-window, expanding-window, entity-aware), verify_temporal_split_no_leakage, parse_and_validate_timestamps, TimeSeriesFeatureEngineer (causal lags >= 1, rolling aggregations, causal invariance verification), baselines (LastValueBaseline, SeasonalMeanBaseline, MovingAverageBaseline), metric suite (MAE, RMSE, WAPE, MASE), and TimeSeriesPredictor.predict_horizon with recursive lag propagation and input validation.
+  - crates/harness/src/adapters.rs: Rust domain models, database persistence (record_arrow_adapter, get_arrow_adapter, record_time_series_backtest, get_time_series_backtest), and scientific integrity checks (validate_arrow_adapter_memory_bounds, validate_temporal_split_integrity).
+  - crates/harness/src/schema_p9_adapters.sql: Additive idempotent DDL creating arrow_dataset_adapters and time_series_backtests tables under user_version = 10.
+  - crates/harness/src/execution.rs: Embedded schema_p9_adapters.sql in connection migration.
+  - crates/harness/src/lib.rs: Exported pub mod adapters.
+  - crates/harness/src/assets.rs: Added arrow_adapter.py and time_series.py to EMBEDDED_PYTHON_FILES.
+  - crates/harness/src/agents/tools.rs: Added inspect_arrow_dataset and evaluate_temporal_backtest tools to ToolRegistry.
+  - crates/harness/src/agents/roles.rs: Granted adapter capabilities to lead and auditor roles.
+  - crates/harness/src/agents/orchestrator.rs: Dispatched adapter tool calls in AgentOrchestrator.
+  - crates/harness/src/main.rs: Added InspectArrow and ValidateTemporalSplit subcommands; exposed p9_adapters release gate and adapter_capabilities in Capabilities command.
+  - crates/harness/tests/adapters_p9.rs: 10 integration tests covering Arrow memory mapping, bounds enforcement, temporal split protocols, causal lag validation, orchestrator tool dispatch, CLI subcommands, database persistence, and acceptance gate closure.
+  - python/tests/test_p9_arrow_adapter.py: 5 unit tests validating Arrow format detection, schema fingerprinting, streaming batch iteration, incremental scaling, out-of-core SGD models, and empirical memory caps.
+  - python/tests/test_p9_time_series.py: 6 unit tests validating temporal split protocols, timestamp validation, causal lag feature engineering, naive/seasonal baselines, forecast metrics, and multi-step delivery inference contract.
+  - docs/v2/DECISIONS.md: Recorded Decision D39.
+  - docs/v2/ROADMAP.md: Updated Phase P9 section for P9.1 and P9.2 completion.
+  - docs/v2/PROGRESS.md: Updated progress, session ledger, and acceptance gate closure.
+  - docs/evidence/v2/p9/20261015-p9-adapters-gate-closure/: Captured test execution logs and summary.md.
+Decisions added or revised: D39 added (Arrow Out-of-Core and Time-Series Forecasting Adapters, typed schemas, memory-mapped streaming iterators, empirical memory accounting, temporal split protocols, causal lag generation, naive/seasonal baselines, multi-step delivery inference contract).
+Exact verification commands and exit results:
+  - cargo test --locked --test adapters_p9 (exit code 0; 10 passed)
+  - PYTHONPATH=python/src pytest python/tests/test_p9_arrow_adapter.py python/tests/test_p9_time_series.py (exit code 0; 11 passed)
+  - cargo test --locked --test feasibility_p8 (exit code 0; 11 passed)
+  - cargo test --locked --test release_p7 (exit code 0; 8 passed)
+  - cargo test --locked --test dashboard_p6 (exit code 0; 9 passed)
+  - cargo test --locked --test collaboration_p5 (exit code 0; 11 passed)
+  - cargo test --locked --lib (exit code 0; 18 passed, 2 ignored)
+  - cargo test --locked --test candidate_tools_p4 (exit code 0; 9 passed)
+  - cargo test --locked --test artifact_registry_p2 (exit code 0; 14 passed)
+  - cargo test --locked --test resource_broker_p3 -- --test-threads=1 (exit code 0; 13 passed)
+  - cargo test --locked --test foundation -- --test-threads=1 (exit code 0; 26 passed)
+  - cargo test --locked --test agent_m4 (exit code 0; 23 passed)
+  - cargo test --locked --test recovery_cycles -- --test-threads=1 (exit code 0; 8 passed, 2 ignored)
+  - cargo test --locked --test release_m6 (exit code 0; 5 passed, 3 ignored)
+  - PYTHONPATH=python/src pytest python/tests/ -k "not test_real_container_tmpfs_enospc_never_publishes" (exit code 0; 70 passed, 1 deselected)
+Evidence paths plus source/image/schema hashes:
+  - docs/evidence/v2/p9/20261015-p9-adapters-gate-closure/test_adapters_p9.log
+  - docs/evidence/v2/p9/20261015-p9-adapters-gate-closure/test_p9_adapters_py.log
+  - docs/evidence/v2/p9/20261015-p9-adapters-gate-closure/test_feasibility_p8.log
+  - docs/evidence/v2/p9/20261015-p9-adapters-gate-closure/test_release_p7.log
+  - docs/evidence/v2/p9/20261015-p9-adapters-gate-closure/test_dashboard_p6.log
+  - docs/evidence/v2/p9/20261015-p9-adapters-gate-closure/test_collaboration_p5.log
+  - docs/evidence/v2/p9/20261015-p9-adapters-gate-closure/test_lib.log
+  - docs/evidence/v2/p9/20261015-p9-adapters-gate-closure/test_candidate_tools_p4.log
+  - docs/evidence/v2/p9/20261015-p9-adapters-gate-closure/test_artifact_registry_p2.log
+  - docs/evidence/v2/p9/20261015-p9-adapters-gate-closure/test_resource_broker_p3.log
+  - docs/evidence/v2/p9/20261015-p9-adapters-gate-closure/test_foundation.log
+  - docs/evidence/v2/p9/20261015-p9-adapters-gate-closure/test_agent_m4.log
+  - docs/evidence/v2/p9/20261015-p9-adapters-gate-closure/test_recovery_cycles.log
+  - docs/evidence/v2/p9/20261015-p9-adapters-gate-closure/test_release_m6.log
+  - docs/evidence/v2/p9/20261015-p9-adapters-gate-closure/test_python_host.log
+  - docs/evidence/v2/p9/20261015-p9-adapters-gate-closure/summary.md
+Implemented but unverified:
+  - None within Phase P9.1 and P9.2 scope (all P9.1 and P9.2 deliverables implemented and verified with passing tests).
+Failure/recovery scenarios still open:
+  - Phase P9.3 through P9.9 separately gated adapter expansions remain planned and not begun.
+Budget / compatibility / migration implications:
+  - Zero schema version bump required (user_version remains 10).
+  - 128 MiB policy ceiling strictly preserved.
+  - M0–M8 compatibility fully preserved across all regression suites (235 passed tests).
+  - Historical evidence in docs/evidence/m6/ left completely untouched.
+Next small actionable slice:
+  - Phase P9.3 (Anomaly Detection / Clustering Adapter) upon explicit user authorization.
 ```
 
 Copy and fill one entry; update phase/task statuses above too.

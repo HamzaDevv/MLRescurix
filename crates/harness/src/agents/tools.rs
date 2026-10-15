@@ -203,6 +203,43 @@ impl ToolRegistry {
                     }),
                 },
             },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "inspect_arrow_dataset".into(),
+                    description: "Inspect an Arrow IPC, Feather, or Parquet dataset, extract typed schema fingerprint, column descriptors, and configure chunked memory-mapped batch ingestion.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "dataset_id": { "type": "string", "description": "Identifier for the Arrow dataset" },
+                            "path": { "type": "string", "description": "Path to the Arrow/Parquet/Feather file" },
+                            "format": { "type": "string", "enum": ["auto", "parquet", "feather", "ipc_file", "ipc_stream"], "description": "Format type (default auto)" },
+                            "target_column": { "type": "string", "description": "Optional target column name" },
+                            "batch_size_rows": { "type": "integer", "description": "Batch size in rows (default 1000)" },
+                            "memory_cap_bytes": { "type": "integer", "description": "Memory ceiling in bytes (default 67108864 = 64 MiB)" }
+                        },
+                        "required": ["dataset_id"]
+                    }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "evaluate_temporal_backtest".into(),
+                    description: "Configure and evaluate temporal splits (rolling/expanding window, entity-aware), causal lags, rolling aggregations, and naive/seasonal baselines for time-series forecasting.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "dataset_id": { "type": "string", "description": "Identifier for the time-series dataset" },
+                            "timestamp_column": { "type": "string", "description": "Timestamp column name" },
+                            "target_column": { "type": "string", "description": "Target forecasting column name" },
+                            "horizon_steps": { "type": "integer", "description": "Forecast horizon steps (default 14)" },
+                            "backtest_id": { "type": "string", "description": "Optional backtest identifier" }
+                        },
+                        "required": ["dataset_id"]
+                    }),
+                },
+            },
             ToolDefinition {tool_type:"function".into(),function:ToolFunction {
                 name:"schedule_pipeline".into(),
                 description:"Queue a bounded feature/calibration/ensemble protocol in a verified scientific Docker environment. The Rust supervisor evaluates development data and verifies generated OOF provenance; this does not finalize or certify delivery.".into(),
