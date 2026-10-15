@@ -2422,47 +2422,44 @@ D38 is implemented in `contracts/v2/hardware_profile.schema.json`, `contracts/v2
 
 # Paste-ready continuation prompt
 
-Use this in a fresh local coding session for Phase P4 (Agent-first tools and executable candidates).
-Phases P1, P2, and P3 are complete, evidenced, and their acceptance gates are closed.
+Use this in a fresh local coding session for Phase P9 (Separately Gated Expansion & Optimizations: P9.1 Out-of-Core Arrow Data Adapter & P9.2 Time-Series Forecasting Adapter).
+Phases P1 through P8 are complete, evidenced, and their acceptance gates are closed on `main`.
 
 ```text
-Continue MLRescurix in /Users/hamza/Developer/Imp_Projects/MLRescurix.
-Authorized scope: implement Phase P4 (P4.1–P4.3) and work toward the Phase P4 acceptance gate as defined in docs/v2/ROADMAP.md, ARCHITECTURE.md, DECISIONS.md, and PROGRESS.md. Do not begin P5 or later phases.
+Continue MLRescurix in /Users/hamza/Developer/Imp_Projects/MLRescurix on branch 'main'.
+Authorized scope: implement Phase P9.1 (Out-of-Core / Arrow Data Adapter) and P9.2 (Time-Series Forecasting Adapter) and satisfy their respective adapter acceptance gates as defined in docs/v2/ROADMAP.md, ARCHITECTURE.md, DECISIONS.md, and PROGRESS.md. Do not begin P9.3 or later slices without explicit authorization.
 
-Start by reading docs/v2/README.md, PROGRESS.md, ROADMAP.md, DECISIONS.md,
-ARCHITECTURE.md, and docs/m6-completion-status.md. Inspect git status and recent
-history before changing anything. Preserve all existing work and historical evidence.
-Current expected schema is user_version 10; verify the checkout and existing P1-P3 evidence.
+Start by inspecting git status on 'main' and reading:
+- docs/v2/README.md
+- docs/v2/PROGRESS.md
+- docs/v2/ROADMAP.md (Phase P9 section)
+- docs/v2/DECISIONS.md (Decisions D1–D38)
+- docs/v2/ARCHITECTURE.md
+- docs/evidence/v2/p8/20261015-p8-gate-closure/summary.md
 
-Deliverables for Phase P4:
-1. P4.1: Versioned workspace_fs, sandbox_exec, evaluate_submission, and artifact_crud adapters;
-   retain existing operations during migration. Add capability discovery. Keep governed
-   delegation/lifecycle/finalization controls. Optional dataset_query and experiment_tree
-   convenience surfaces using the same authority boundaries. Default to immutable /workspace:ro,
-   bounded task-local scratch/outputs, and reviewed source commits through workspace_fs.
-   Bind scientific development and candidate prediction to the same approved digest-pinned
-   environment profile; separately verify any distinct delivery inference profile.
-2. P4.2: Define executable candidate manifest and CLI fit/predict protocol, raw-input schemas,
-   stable row keys, class order, source/model/environment bindings, and diagnostic slice evaluation.
-3. P4.3: Custom runner implementation, fallback isolation, evaluation without recipe modifications,
-   and baseline candidate validation.
-4. P4 Acceptance Gate: Agents can create and fix arbitrary candidate code without modifying a
-   recipe registry; evaluation, scoring, and budgets remain under trusted authority; split/label
-   isolation, single-use final test gate, and generation/intent fencing are strictly enforced.
+Retain `PRAGMA user_version = 10` and keep `docs/evidence/m6/` completely untouched.
 
-Preserve trusted evaluator authority, split/label isolation, final-test single use,
-generation/intent fencing, durable retry fences, resource leases, outbound filtering,
-and approved-view controls. Keep managed state within the 128 MiB ceiling with zero
-silent write exemptions. Maintain M0–M6 compatibility through the existing adapters.
-Do not claim M6 readiness.
+--------------------------------------------------------------------------------
+1. CORE DELIVERABLES (P9.1 & P9.2)
+--------------------------------------------------------------------------------
+1. P9.1 Out-of-Core / Apache Arrow Data Adapter:
+   - Typed schema and contract for Arrow IPC / Feather / Parquet ingestion fingerprints, split views, and byte limits.
+   - True memory-mapped column access and chunked batch iterators without inflating memory into dense NumPy arrays.
+   - Empirical memory accounting: measure actual preprocessing and model copies; do not make unfounded zero-copy claims.
+   - Out-of-core baseline models (SGDClassifier/Regressor partial_fit, incremental feature scaling).
 
-Run locked tests for the chosen work and relevant compatibility suites. Capture fresh
-logs under `docs/evidence/v2/p4/<session>/`; leave `docs/evidence/m6/` untouched.
-Update PROGRESS.md with exact results, evidence, limitations, and next slice; update
-DECISIONS.md when design changes. Regenerate `docs/v2/ARGON_REVIEW_PACKET.txt` with
-`python3 scripts/build_argon_review_packet.py` after source-document changes. Do not
-mark a phase complete until its roadmap gate passes. Report implemented, verified,
-and unverified items separately.
+2. P9.2 Time-Series Forecasting Adapter:
+   - Strict temporal split contracts: entity-aware, rolling-window, and expanding-window backtesting without future lookahead leakage.
+   - Lagged feature generation, rolling statistical aggregations, and horizon alignment.
+   - Naive and seasonal baselines (LastValue, SeasonalMean) against which ML models must compete.
+   - Time-series delivery inference contract: multi-step horizon prediction with timestamp input validation.
+
+3. P9.1 & P9.2 Acceptance Gates:
+   - Complete fit/predict/evaluate/package vertical slice for both out-of-core and time-series models.
+   - Negative scientific cases: reject future lookahead leakage, timestamps out of order, and out-of-core allocations exceeding memory caps.
+   - Full locked regression suites re-verified: feasibility_p8, release_p7, dashboard_p6, collaboration_p5, candidate_tools_p4, resource_broker_p3, artifact_registry_p2, foundation, agent_m4, recovery_cycles, release_m6, and Python tests.
+   - Save fresh evidence logs under docs/evidence/v2/p9/<session>/.
+   - Record Decision D39 in docs/v2/DECISIONS.md, update PROGRESS.md, ROADMAP.md, and rebuild docs/v2/ARGON_REVIEW_PACKET.txt.
 ```
 
 <<<END SOURCE FILE>>>
