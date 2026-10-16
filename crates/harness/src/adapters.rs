@@ -379,6 +379,188 @@ impl AnomalyClusteringAdapter {
     }
 }
 
+// ---------------------------------------------------------------------------
+// P9.4 Frozen-Embedding Adapter Contracts & Models
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EmbeddingModelArchitecture {
+    pub family: String, // transformer, bag_of_embeddings, patch_projector, convnet, multimodal_projection
+    pub encoder_type: String,
+    pub weights_status: String, // frozen_embedded, frozen_local_checkpoint, deterministic_synthetic
+    pub backbone_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EmbeddingDimensionFingerprint {
+    pub input_dim: Vec<u64>,
+    pub embedding_dim: u64,
+    pub pooling_strategy: String, // mean, cls, max, flatten_project
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EmbeddingCacheProtocol {
+    pub cache_enabled: bool,
+    pub content_addressed: bool,
+    pub hasher: String, // sha256, sha512
+    pub storage_budget_bytes: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_entries: Option<u64>,
+    pub eviction_policy: String, // lru, fifo, refuse
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EmbeddingPreprocessingLimits {
+    pub max_batch_size: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_sequence_length: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub truncation_strategy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_image_dimension: Option<Vec<u64>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_channels: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub normalization_preset: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EmbeddingPrivacyLicensing {
+    pub license_type: String,
+    pub remote_download_allowed: bool,
+    pub uncertified_remote_download_refused: bool,
+    pub offline_inference_certified: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EmbeddingDeliveryInference {
+    pub downstream_feature_dim: u64,
+    pub output_representation: String, // dense_float32, dense_float64
+    pub calibrated_tabular_prefix: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FrozenEmbeddingAdapter {
+    pub schema_version: String,
+    pub adapter_id: String,
+    pub dataset_id: String,
+    pub modality: String, // text, vision, multimodal
+    pub model_architecture: EmbeddingModelArchitecture,
+    pub dimension_fingerprint: EmbeddingDimensionFingerprint,
+    pub cache_protocol: EmbeddingCacheProtocol,
+    pub preprocessing_limits: EmbeddingPreprocessingLimits,
+    pub privacy_licensing: EmbeddingPrivacyLicensing,
+    pub delivery_inference: EmbeddingDeliveryInference,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EmbeddingCacheRecord {
+    pub project: String,
+    pub cache_key: String,
+    pub adapter_id: String,
+    pub input_sha256: String,
+    pub byte_size: u64,
+    pub access_count: u64,
+    pub created_ms: u64,
+    pub last_accessed_ms: u64,
+}
+
+impl FrozenEmbeddingAdapter {
+    pub fn synthetic_text(dataset_id: &str, embedding_dim: u64) -> Self {
+        Self {
+            schema_version: "v2".into(),
+            adapter_id: format!("text_emb_{dataset_id}"),
+            dataset_id: dataset_id.to_string(),
+            modality: "text".into(),
+            model_architecture: EmbeddingModelArchitecture {
+                family: "transformer".into(),
+                encoder_type: "lightweight_frozen_transformer".into(),
+                weights_status: "frozen_embedded".into(),
+                backbone_name: "frozen-transformer-text-v1".into(),
+            },
+            dimension_fingerprint: EmbeddingDimensionFingerprint {
+                input_dim: vec![128],
+                embedding_dim,
+                pooling_strategy: "mean".into(),
+            },
+            cache_protocol: EmbeddingCacheProtocol {
+                cache_enabled: true,
+                content_addressed: true,
+                hasher: "sha256".into(),
+                storage_budget_bytes: 33554432, // 32 MiB
+                max_entries: Some(10000),
+                eviction_policy: "lru".into(),
+            },
+            preprocessing_limits: EmbeddingPreprocessingLimits {
+                max_batch_size: 1000,
+                max_sequence_length: Some(128),
+                truncation_strategy: Some("truncate_tail".into()),
+                max_image_dimension: None,
+                image_channels: None,
+                normalization_preset: None,
+            },
+            privacy_licensing: EmbeddingPrivacyLicensing {
+                license_type: "MIT".into(),
+                remote_download_allowed: false,
+                uncertified_remote_download_refused: true,
+                offline_inference_certified: true,
+            },
+            delivery_inference: EmbeddingDeliveryInference {
+                downstream_feature_dim: embedding_dim,
+                output_representation: "dense_float32".into(),
+                calibrated_tabular_prefix: "text_emb".into(),
+            },
+        }
+    }
+
+    pub fn synthetic_vision(dataset_id: &str, embedding_dim: u64) -> Self {
+        Self {
+            schema_version: "v2".into(),
+            adapter_id: format!("vision_emb_{dataset_id}"),
+            dataset_id: dataset_id.to_string(),
+            modality: "vision".into(),
+            model_architecture: EmbeddingModelArchitecture {
+                family: "patch_projector".into(),
+                encoder_type: "lightweight_patch_projector".into(),
+                weights_status: "frozen_embedded".into(),
+                backbone_name: "frozen-patch-projector-v1".into(),
+            },
+            dimension_fingerprint: EmbeddingDimensionFingerprint {
+                input_dim: vec![3, 64, 64],
+                embedding_dim,
+                pooling_strategy: "mean".into(),
+            },
+            cache_protocol: EmbeddingCacheProtocol {
+                cache_enabled: true,
+                content_addressed: true,
+                hasher: "sha256".into(),
+                storage_budget_bytes: 33554432,
+                max_entries: Some(10000),
+                eviction_policy: "lru".into(),
+            },
+            preprocessing_limits: EmbeddingPreprocessingLimits {
+                max_batch_size: 1000,
+                max_sequence_length: None,
+                truncation_strategy: None,
+                max_image_dimension: Some(vec![1024, 1024]),
+                image_channels: Some(3),
+                normalization_preset: Some("imagenet".into()),
+            },
+            privacy_licensing: EmbeddingPrivacyLicensing {
+                license_type: "MIT".into(),
+                remote_download_allowed: false,
+                uncertified_remote_download_refused: true,
+                offline_inference_certified: true,
+            },
+            delivery_inference: EmbeddingDeliveryInference {
+                downstream_feature_dim: embedding_dim,
+                output_representation: "dense_float32".into(),
+                calibrated_tabular_prefix: "vis_emb".into(),
+            },
+        }
+    }
+}
+
 
 // ---------------------------------------------------------------------------
 // Scientific Verification Functions
@@ -517,6 +699,74 @@ pub fn validate_anomaly_clustering_config(adapter: &AnomalyClusteringAdapter) ->
         }
     }
 
+    Ok(())
+}
+
+/// Verifies frozen embedding configuration bounds and refuses uncertified remote downloads.
+pub fn validate_frozen_embedding_config(adapter: &FrozenEmbeddingAdapter) -> Result<()> {
+    if adapter.dimension_fingerprint.embedding_dim == 0 || adapter.dimension_fingerprint.embedding_dim > 4096 {
+        return Err(format!(
+            "Embedding dimension must be in [1, 4096], got {}",
+            adapter.dimension_fingerprint.embedding_dim
+        ));
+    }
+
+    if adapter.privacy_licensing.remote_download_allowed {
+        return Err("Uncertified remote model download requests are strictly rejected in certified offline execution".into());
+    }
+
+    if !adapter.privacy_licensing.uncertified_remote_download_refused {
+        return Err("uncertified_remote_download_refused must be true".into());
+    }
+
+    if adapter.cache_protocol.storage_budget_bytes < 1048576 {
+        return Err(format!(
+            "Embedding cache storage budget must be at least 1 MiB (1048576 bytes), got {}",
+            adapter.cache_protocol.storage_budget_bytes
+        ));
+    }
+
+    if adapter.preprocessing_limits.max_batch_size == 0 || adapter.preprocessing_limits.max_batch_size > 10000 {
+        return Err(format!(
+            "max_batch_size must be in [1, 10000], got {}",
+            adapter.preprocessing_limits.max_batch_size
+        ));
+    }
+
+    if let Some(max_seq) = adapter.preprocessing_limits.max_sequence_length {
+        if max_seq == 0 || max_seq > 4096 {
+            return Err(format!("max_sequence_length must be in [1, 4096], got {max_seq}"));
+        }
+    }
+
+    if let Some(ref dims) = adapter.preprocessing_limits.max_image_dimension {
+        if dims.len() != 2 || dims[0] == 0 || dims[0] > 2048 || dims[1] == 0 || dims[1] > 2048 {
+            return Err(format!("max_image_dimension must be 2D bounded in [1, 2048], got {:?}", dims));
+        }
+    }
+
+    let valid_poolings = ["mean", "cls", "max", "flatten_project"];
+    if !valid_poolings.contains(&adapter.dimension_fingerprint.pooling_strategy.as_str()) {
+        return Err(format!(
+            "Unsupported pooling strategy: {}",
+            adapter.dimension_fingerprint.pooling_strategy
+        ));
+    }
+
+    Ok(())
+}
+
+/// Verifies that embedding cache storage does not violate configured quotas.
+pub fn validate_embedding_cache_budget(
+    record: &EmbeddingCacheRecord,
+    max_budget_bytes: u64,
+) -> Result<()> {
+    if record.byte_size > max_budget_bytes {
+        return Err(format!(
+            "Embedding cache entry ({} bytes) violates configured cache storage budget ({} bytes)",
+            record.byte_size, max_budget_bytes
+        ));
+    }
     Ok(())
 }
 
@@ -754,6 +1004,131 @@ pub fn get_anomaly_clustering_adapter(
     }
 }
 
+pub fn record_frozen_embedding_adapter(
+    state_root: &Path,
+    project: &str,
+    adapter: &FrozenEmbeddingAdapter,
+) -> Result<()> {
+    let conn = open_conn(state_root)?;
+    let meta_json = serde_json::to_string(adapter).map_err(|e| format!("JSON serialize error: {e}"))?;
+    let now = now_ms() as i64;
+
+    conn.execute(
+        "INSERT INTO frozen_embedding_adapters(
+            project, adapter_id, dataset_id, modality, model_name,
+            embedding_dim, pooling_strategy, metadata_json, created_ms
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+        ON CONFLICT(project, adapter_id) DO UPDATE SET
+            dataset_id=excluded.dataset_id,
+            modality=excluded.modality,
+            model_name=excluded.model_name,
+            embedding_dim=excluded.embedding_dim,
+            pooling_strategy=excluded.pooling_strategy,
+            metadata_json=excluded.metadata_json,
+            created_ms=excluded.created_ms",
+        params![
+            project,
+            adapter.adapter_id,
+            adapter.dataset_id,
+            adapter.modality,
+            adapter.model_architecture.backbone_name,
+            adapter.dimension_fingerprint.embedding_dim as i64,
+            adapter.dimension_fingerprint.pooling_strategy,
+            meta_json,
+            now,
+        ],
+    )
+    .map_err(|e| format!("failed to record frozen embedding adapter: {e}"))?;
+
+    Ok(())
+}
+
+pub fn get_frozen_embedding_adapter(
+    state_root: &Path,
+    project: &str,
+    adapter_id: &str,
+) -> Result<FrozenEmbeddingAdapter> {
+    let conn = open_conn(state_root)?;
+    let meta_json: Option<String> = conn
+        .query_row(
+            "SELECT metadata_json FROM frozen_embedding_adapters WHERE project=?1 AND adapter_id=?2",
+            params![project, adapter_id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(|e| format!("query error: {e}"))?;
+
+    match meta_json {
+        Some(s) => serde_json::from_str(&s).map_err(|e| format!("JSON parse error: {e}")),
+        None => Err(format!("Frozen embedding adapter '{adapter_id}' not found in project '{project}'")),
+    }
+}
+
+pub fn record_embedding_cache_record(
+    state_root: &Path,
+    project: &str,
+    record: &EmbeddingCacheRecord,
+) -> Result<()> {
+    let conn = open_conn(state_root)?;
+    let now = now_ms() as i64;
+
+    conn.execute(
+        "INSERT INTO embedding_cache_records(
+            project, cache_key, adapter_id, input_sha256, byte_size,
+            access_count, created_ms, last_accessed_ms
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        ON CONFLICT(project, cache_key) DO UPDATE SET
+            access_count=embedding_cache_records.access_count + 1,
+            last_accessed_ms=excluded.last_accessed_ms",
+        params![
+            project,
+            record.cache_key,
+            record.adapter_id,
+            record.input_sha256,
+            record.byte_size as i64,
+            record.access_count as i64,
+            now,
+            now,
+        ],
+    )
+    .map_err(|e| format!("failed to record embedding cache record: {e}"))?;
+
+    Ok(())
+}
+
+pub fn get_embedding_cache_record(
+    state_root: &Path,
+    project: &str,
+    cache_key: &str,
+) -> Result<EmbeddingCacheRecord> {
+    let conn = open_conn(state_root)?;
+    let row = conn
+        .query_row(
+            "SELECT project, cache_key, adapter_id, input_sha256, byte_size, access_count, created_ms, last_accessed_ms
+             FROM embedding_cache_records WHERE project=?1 AND cache_key=?2",
+            params![project, cache_key],
+            |r| {
+                Ok(EmbeddingCacheRecord {
+                    project: r.get(0)?,
+                    cache_key: r.get(1)?,
+                    adapter_id: r.get(2)?,
+                    input_sha256: r.get(3)?,
+                    byte_size: r.get::<_, i64>(4)? as u64,
+                    access_count: r.get::<_, i64>(5)? as u64,
+                    created_ms: r.get::<_, i64>(6)? as u64,
+                    last_accessed_ms: r.get::<_, i64>(7)? as u64,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| format!("query error: {e}"))?;
+
+    match row {
+        Some(rec) => Ok(rec),
+        None => Err(format!("Embedding cache record for key '{cache_key}' not found in project '{project}'")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -843,5 +1218,64 @@ mod tests {
         let err_nan = validate_anomaly_clustering_config(&adapter);
         assert!(err_nan.is_err());
         assert!(err_nan.unwrap_err().contains("non-finite"));
+    }
+
+    #[test]
+    fn test_frozen_embeddings_bounds_and_rejection() {
+        let mut text_adapter = FrozenEmbeddingAdapter::synthetic_text("ds_txt", 64);
+        assert!(validate_frozen_embedding_config(&text_adapter).is_ok());
+
+        let mut vision_adapter = FrozenEmbeddingAdapter::synthetic_vision("ds_vis", 128);
+        assert!(validate_frozen_embedding_config(&vision_adapter).is_ok());
+
+        // Reject embedding_dim == 0
+        text_adapter.dimension_fingerprint.embedding_dim = 0;
+        let err_dim = validate_frozen_embedding_config(&text_adapter);
+        assert!(err_dim.is_err());
+        assert!(err_dim.unwrap_err().contains("Embedding dimension must be in [1, 4096]"));
+        text_adapter.dimension_fingerprint.embedding_dim = 64;
+
+        // Reject uncertified remote download
+        text_adapter.privacy_licensing.remote_download_allowed = true;
+        let err_remote = validate_frozen_embedding_config(&text_adapter);
+        assert!(err_remote.is_err());
+        assert!(err_remote.unwrap_err().contains("Uncertified remote model download requests are strictly rejected"));
+        text_adapter.privacy_licensing.remote_download_allowed = false;
+
+        // Reject cache budget < 1 MiB
+        text_adapter.cache_protocol.storage_budget_bytes = 100;
+        let err_budget = validate_frozen_embedding_config(&text_adapter);
+        assert!(err_budget.is_err());
+        assert!(err_budget.unwrap_err().contains("Embedding cache storage budget must be at least 1 MiB"));
+        text_adapter.cache_protocol.storage_budget_bytes = 33554432;
+
+        // Reject unsupported pooling
+        text_adapter.dimension_fingerprint.pooling_strategy = "invalid_pooling".into();
+        let err_pool = validate_frozen_embedding_config(&text_adapter);
+        assert!(err_pool.is_err());
+        assert!(err_pool.unwrap_err().contains("Unsupported pooling strategy"));
+        text_adapter.dimension_fingerprint.pooling_strategy = "mean".into();
+
+        // Reject invalid image dimension
+        vision_adapter.preprocessing_limits.max_image_dimension = Some(vec![4096, 4096]);
+        let err_img = validate_frozen_embedding_config(&vision_adapter);
+        assert!(err_img.is_err());
+        assert!(err_img.unwrap_err().contains("max_image_dimension must be 2D bounded in [1, 2048]"));
+
+        // Cache budget verification
+        let rec = EmbeddingCacheRecord {
+            project: "proj".into(),
+            cache_key: "k1".into(),
+            adapter_id: "ad1".into(),
+            input_sha256: "sha".into(),
+            byte_size: 2 * 1024 * 1024,
+            access_count: 1,
+            created_ms: 1000,
+            last_accessed_ms: 1000,
+        };
+        assert!(validate_embedding_cache_budget(&rec, 4 * 1024 * 1024).is_ok());
+        let err_rec = validate_embedding_cache_budget(&rec, 1 * 1024 * 1024);
+        assert!(err_rec.is_err());
+        assert!(err_rec.unwrap_err().contains("violates configured cache storage budget"));
     }
 }

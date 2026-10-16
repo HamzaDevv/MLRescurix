@@ -23,11 +23,14 @@ use serde_json::{json, Value};
 
 use mlrescurix_harness::{
     adapters::{
-        get_anomaly_clustering_adapter, get_arrow_adapter, get_time_series_backtest,
-        record_anomaly_clustering_adapter, record_arrow_adapter, record_time_series_backtest,
-        validate_anomaly_clustering_config, validate_arrow_adapter_memory_bounds,
+        get_anomaly_clustering_adapter, get_arrow_adapter, get_frozen_embedding_adapter,
+        get_time_series_backtest, record_anomaly_clustering_adapter, record_arrow_adapter,
+        record_embedding_cache_record, record_frozen_embedding_adapter,
+        record_time_series_backtest, validate_anomaly_clustering_config,
+        validate_arrow_adapter_memory_bounds, validate_frozen_embedding_config,
         validate_temporal_split_integrity, AnomalyClusteringAdapter, ArrowDatasetAdapter,
-        TemporalSplitProtocol, TimeSeriesDatasetAdapter,
+        EmbeddingCacheRecord, FrozenEmbeddingAdapter, TemporalSplitProtocol,
+        TimeSeriesDatasetAdapter,
     },
     agents::{
         gateway::{ProviderGateway, ScriptedProviderFixture},
@@ -401,6 +404,72 @@ fn test_p9_orchestrator_tool_dispatch_arrow_and_time_series() {
     let ac_err = orchestrator.dispatch_tool_call("evaluate_anomaly_clustering", &ac_bad_args.to_string());
     assert!(ac_err.is_err());
     assert!(ac_err.unwrap_err().contains("Contamination prior must be strictly in (0.0, 0.5)"));
+
+    // 4. Dispatch extract_frozen_embeddings (text modality)
+    let emb_args = json!({
+        "dataset_id": "text_orch_ds",
+        "adapter_id": "adapter_text_emb_01",
+        "modality": "text",
+        "model_name": "frozen-transformer-text-v1",
+        "embedding_dim": 64,
+        "pooling_strategy": "cls",
+        "cache_enabled": true
+    });
+    let emb_res = orchestrator.dispatch_tool_call("extract_frozen_embeddings", &emb_args.to_string()).unwrap();
+    let emb_val: Value = serde_json::from_str(&emb_res).unwrap();
+    assert_eq!(emb_val["dataset_id"], "text_orch_ds");
+    assert_eq!(emb_val["adapter_id"], "adapter_text_emb_01");
+    assert_eq!(emb_val["dimension_fingerprint"]["embedding_dim"], 64);
+    assert_eq!(emb_val["dimension_fingerprint"]["pooling_strategy"], "cls");
+
+    // Confirm stored in SQLite
+    let fetched_emb = get_frozen_embedding_adapter(&harness.root, "proj_orch", "adapter_text_emb_01").unwrap();
+    assert_eq!(fetched_emb.dataset_id, "text_orch_ds");
+    assert_eq!(fetched_emb.dimension_fingerprint.embedding_dim, 64);
+
+    // Negative case: reject uncertified remote download in orchestrator dispatch
+    let emb_bad_args = json!({
+        "dataset_id": "text_orch_bad",
+        "remote_download": true
+    });
+    let emb_err = orchestrator.dispatch_tool_call("extract_frozen_embeddings", &emb_bad_args.to_string());
+    assert!(emb_err.is_err());
+    assert!(emb_err.unwrap_err().contains("Uncertified remote model download requests are strictly rejected"));
+}
+
+#[test]
+fn test_p9_4_frozen_embeddings_adapter_models_and_json_roundtrip() {
+    let text_adapter = FrozenEmbeddingAdapter::synthetic_text("ds_txt_roundtrip", 64);
+    assert_eq!(text_adapter.schema_version, "v2");
+    assert_eq!(text_adapter.modality, "text");
+    assert!(validate_frozen_embedding_config(&text_adapter).is_ok());
+
+    let text_json = serde_json::to_string_pretty(&text_adapter).unwrap();
+    let text_deser: FrozenEmbeddingAdapter = serde_json::from_str(&text_json).unwrap();
+    assert_eq!(text_adapter, text_deser);
+
+    let vis_adapter = FrozenEmbeddingAdapter::synthetic_vision("ds_vis_roundtrip", 128);
+    assert_eq!(vis_adapter.modality, "vision");
+    assert!(validate_frozen_embedding_config(&vis_adapter).is_ok());
+
+    let vis_json = serde_json::to_string_pretty(&vis_adapter).unwrap();
+    let vis_deser: FrozenEmbeddingAdapter = serde_json::from_str(&vis_json).unwrap();
+    assert_eq!(vis_adapter, vis_deser);
+
+    // EmbeddingCacheRecord roundtrip
+    let cache_rec = EmbeddingCacheRecord {
+        project: "proj_rt".into(),
+        cache_key: "key_123".into(),
+        adapter_id: "adapter_text_emb_01".into(),
+        input_sha256: "sha256_deadbeef".into(),
+        byte_size: 256,
+        access_count: 5,
+        created_ms: 1000,
+        last_accessed_ms: 1050,
+    };
+    let rec_json = serde_json::to_string(&cache_rec).unwrap();
+    let rec_deser: EmbeddingCacheRecord = serde_json::from_str(&rec_json).unwrap();
+    assert_eq!(cache_rec, rec_deser);
 }
 
 #[test]
@@ -430,6 +499,9 @@ fn test_p9_cli_commands_and_capabilities() {
 
     let ac_adapter = AnomalyClusteringAdapter::synthetic("cli_ac_ds");
     record_anomaly_clustering_adapter(&harness.root, "proj_cli", &ac_adapter).unwrap();
+
+    let emb_adapter = FrozenEmbeddingAdapter::synthetic_text("cli_emb_ds", 64);
+    record_frozen_embedding_adapter(&harness.root, "proj_cli", &emb_adapter).unwrap();
 
     let exe = PathBuf::from(env!("CARGO_BIN_EXE_mlrescurix-harness"));
 
@@ -476,7 +548,23 @@ fn test_p9_cli_commands_and_capabilities() {
     assert_eq!(inspect_ac_val["dataset_id"], "cli_ac_ds");
     assert_eq!(inspect_ac_val["adapter_id"], "adapter_cli_ac_ds");
 
-    // 4. Capabilities CLI
+    // 4. InspectFrozenEmbeddings CLI
+    let inspect_emb_out = Command::new(&exe)
+        .args([
+            "inspect-frozen-embeddings",
+            "--state", harness.root.to_str().unwrap(),
+            "--project", "proj_cli",
+            "--adapter", "text_emb_cli_emb_ds",
+        ])
+        .output()
+        .unwrap();
+    assert!(inspect_emb_out.status.success());
+    let inspect_emb_val: Value = serde_json::from_slice(&inspect_emb_out.stdout).unwrap();
+    assert_eq!(inspect_emb_val["dataset_id"], "cli_emb_ds");
+    assert_eq!(inspect_emb_val["adapter_id"], "text_emb_cli_emb_ds");
+    assert_eq!(inspect_emb_val["dimension_fingerprint"]["embedding_dim"], 64);
+
+    // 5. Capabilities CLI
     let caps_out = Command::new(&exe).arg("capabilities").output().unwrap();
     let caps_val: Value = serde_json::from_slice(&caps_out.stdout).unwrap();
     assert_eq!(caps_val["phase"], "P7");
@@ -493,6 +581,9 @@ fn test_p9_cli_commands_and_capabilities() {
     assert_eq!(caps_val["adapter_capabilities"]["empirical_contamination_calibration"], true);
     assert_eq!(caps_val["adapter_capabilities"]["clustering_partition_profiles"], true);
     assert_eq!(caps_val["adapter_capabilities"]["out_of_sample_projection"], true);
+    assert_eq!(caps_val["adapter_capabilities"]["frozen_text_embeddings"], true);
+    assert_eq!(caps_val["adapter_capabilities"]["frozen_vision_embeddings"], true);
+    assert_eq!(caps_val["adapter_capabilities"]["content_addressed_embedding_cache"], true);
 }
 
 #[test]
@@ -527,6 +618,20 @@ fn test_p9_acceptance_gate_full_closure() {
     ).unwrap();
     assert_eq!(ac_table_count, 1);
 
+    let emb_table_count: i64 = conn.query_row(
+        "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='frozen_embedding_adapters'",
+        [],
+        |r| r.get(0),
+    ).unwrap();
+    assert_eq!(emb_table_count, 1);
+
+    let cache_table_count: i64 = conn.query_row(
+        "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='embedding_cache_records'",
+        [],
+        |r| r.get(0),
+    ).unwrap();
+    assert_eq!(cache_table_count, 1);
+
     // Full vertical slice validation
     let arrow_ds = ArrowDatasetAdapter::synthetic_parquet("gate_arrow", 25000, 20, "y");
     assert!(validate_arrow_adapter_memory_bounds(&arrow_ds, 256 * 1024 * 1024).is_ok());
@@ -545,4 +650,26 @@ fn test_p9_acceptance_gate_full_closure() {
     let loaded_ac = get_anomaly_clustering_adapter(&harness.root, "proj_gate", "adapter_gate_ac").unwrap();
     assert_eq!(loaded_ac.dataset_id, "gate_ac");
     assert_eq!(loaded_ac.contamination_prior, 0.05);
+
+    let emb_ds = FrozenEmbeddingAdapter::synthetic_text("gate_emb", 128);
+    assert!(validate_frozen_embedding_config(&emb_ds).is_ok());
+    record_frozen_embedding_adapter(&harness.root, "proj_gate", &emb_ds).unwrap();
+    let loaded_emb = get_frozen_embedding_adapter(&harness.root, "proj_gate", "text_emb_gate_emb").unwrap();
+    assert_eq!(loaded_emb.dataset_id, "gate_emb");
+    assert_eq!(loaded_emb.dimension_fingerprint.embedding_dim, 128);
+
+    let cache_rec = EmbeddingCacheRecord {
+        project: "proj_gate".into(),
+        cache_key: "gate_cache_key_01".into(),
+        adapter_id: "text_emb_gate_emb".into(),
+        input_sha256: "gate_input_sha256".into(),
+        byte_size: 512,
+        access_count: 1,
+        created_ms: 2000,
+        last_accessed_ms: 2000,
+    };
+    record_embedding_cache_record(&harness.root, "proj_gate", &cache_rec).unwrap();
+    let loaded_rec = mlrescurix_harness::adapters::get_embedding_cache_record(&harness.root, "proj_gate", "gate_cache_key_01").unwrap();
+    assert_eq!(loaded_rec.cache_key, "gate_cache_key_01");
+    assert_eq!(loaded_rec.byte_size, 512);
 }

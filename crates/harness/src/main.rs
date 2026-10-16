@@ -75,6 +75,11 @@ enum Command {
         #[arg(long)] project: String,
         #[arg(long)] adapter: String,
     },
+    InspectFrozenEmbeddings {
+        #[arg(long)] state: PathBuf,
+        #[arg(long)] project: String,
+        #[arg(long)] adapter: String,
+    },
     #[command(name="__worker",hide=true)] Worker { spec:PathBuf, output:PathBuf },
     Capabilities,
 }
@@ -273,6 +278,11 @@ async fn run()->Result<(),String>{
             mlrescurix_harness::adapters::validate_anomaly_clustering_config(&ad)?;
             print(ad)
         },
+        Command::InspectFrozenEmbeddings { state, project, adapter } => {
+            let ad = mlrescurix_harness::adapters::get_frozen_embedding_adapter(&state, &project, &adapter)?;
+            mlrescurix_harness::adapters::validate_frozen_embedding_config(&ad)?;
+            print(ad)
+        },
         Command::Worker{spec,output}=>{let result=execution::worker(&spec,&output)?;if result==0 {Ok(())} else {std::process::exit(result)}}
         Command::Capabilities=>print(serde_json::json!({
             "phase":"P7",
@@ -339,7 +349,10 @@ async fn run()->Result<(),String>{
                 "unsupervised_clustering":true,
                 "empirical_contamination_calibration":true,
                 "clustering_partition_profiles":true,
-                "out_of_sample_projection":true
+                "out_of_sample_projection":true,
+                "frozen_text_embeddings":true,
+                "frozen_vision_embeddings":true,
+                "content_addressed_embedding_cache":true
             },
             "feasibility_capabilities":{
                 "hardware_profile":true,

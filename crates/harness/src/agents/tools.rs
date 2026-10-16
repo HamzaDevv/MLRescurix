@@ -260,6 +260,27 @@ impl ToolRegistry {
                     }),
                 },
             },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "extract_frozen_embeddings".into(),
+                    description: "Configure and extract frozen text or vision embeddings with content-addressed caching, sequence/image bounds, and calibrated tabular feature delivery.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "adapter_id": { "type": "string", "description": "Adapter identifier" },
+                            "dataset_id": { "type": "string", "description": "Identifier for the dataset" },
+                            "modality": { "type": "string", "enum": ["text", "vision", "multimodal"], "description": "Modality type (default text)" },
+                            "model_name": { "type": "string", "description": "Backbone model name (default frozen-transformer-text-v1 or frozen-patch-projector-v1)" },
+                            "embedding_dim": { "type": "integer", "description": "Embedding output dimension in [1, 4096] (default 64)" },
+                            "pooling_strategy": { "type": "string", "enum": ["mean", "cls", "max", "flatten_project"], "description": "Pooling strategy (default mean)" },
+                            "cache_enabled": { "type": "boolean", "description": "Whether content-addressed embedding cache is enabled (default true)" },
+                            "remote_download": { "type": "boolean", "description": "Whether remote download is requested (must be false in certified offline execution)" }
+                        },
+                        "required": ["dataset_id"]
+                    }),
+                },
+            },
             ToolDefinition {tool_type:"function".into(),function:ToolFunction {
                 name:"schedule_pipeline".into(),
                 description:"Queue a bounded feature/calibration/ensemble protocol in a verified scientific Docker environment. The Rust supervisor evaluates development data and verifies generated OOF provenance; this does not finalize or certify delivery.".into(),

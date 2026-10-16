@@ -1,6 +1,6 @@
 # Persistent progress and session handoff
 
-Last updated: 2026-10-15 (Asia/Kolkata).
+Last updated: 2026-10-16 (Asia/Kolkata).
 Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
 
 ## Current state
@@ -30,15 +30,16 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
   - Full `cargo test --locked` passed; live pinned-Docker cgroup/OOM/survivor checks, six end-to-end scientific pipeline modes, and real ENOSPC regression passed. See the fresh evidence below.
   - Architecture decisions D20–D25 recorded in `docs/v2/DECISIONS.md`.
   - Historical M6 evidence preserved untouched.
-  - Runtime implementation: P1.1–P1.6 complete and verified. P2 (P2.1–P2.6 and full P2 Roadmap Acceptance Gate) complete and verified. P3 (P3.1–P3.5 and full Phase P3 Acceptance Gate) complete and verified. P4 (P4.1–P4.3 and full Phase P4 Acceptance Gate) complete and verified. P5 (P5.1–P5.6 and full Phase P5 Acceptance Gate) complete and verified. P6 (P6.1–P6.6 and full Phase P6 Acceptance Gate) complete and verified. P7 (P7.1–P7.7 and full Phase P7 Acceptance Gate) complete and verified. P8 (P8.1–P8.5 and full Phase P8 Acceptance Gate) complete and verified. P9 (P9.1 Out-of-Core / Arrow Data Adapter, P9.2 Time-Series Forecasting Adapter, and P9.3 Anomaly Detection & Clustering Adapter and Acceptance Gates) complete and verified:
+  - Runtime implementation: P1.1–P1.6 complete and verified. P2 (P2.1–P2.6 and full P2 Roadmap Acceptance Gate) complete and verified. P3 (P3.1–P3.5 and full Phase P3 Acceptance Gate) complete and verified. P4 (P4.1–P4.3 and full Phase P4 Acceptance Gate) complete and verified. P5 (P5.1–P5.6 and full Phase P5 Acceptance Gate) complete and verified. P6 (P6.1–P6.6 and full Phase P6 Acceptance Gate) complete and verified. P7 (P7.1–P7.7 and full Phase P7 Acceptance Gate) complete and verified. P8 (P8.1–P8.5 and full Phase P8 Acceptance Gate) complete and verified. P9 (P9.1 Out-of-Core / Arrow Data Adapter, P9.2 Time-Series Forecasting Adapter, P9.3 Anomaly Detection & Clustering Adapter, and P9.4 Text & Vision Frozen-Embedding Adapters and Acceptance Gates) complete and verified:
     1. P9.1: Strict Draft 2020-12 typed schema (`contracts/v2/arrow_dataset_adapter.schema.json`) for Arrow IPC/Feather/Parquet ingestion fingerprints, split views, byte limits, and empirical memory accounting. Memory-mapped column access and chunked projection iterators without dense NumPy inflation. Incremental feature scaler (Chan/Welford parallel statistics) and out-of-core SGD models. Negative bounds enforcement rejecting allocations exceeding memory caps.
     2. P9.2: Strict Draft 2020-12 typed schema (`contracts/v2/time_series_adapter.schema.json`) for entity-aware, rolling-window, and expanding-window temporal splits without future lookahead leakage. Causal lag feature engineering ($\text{lag} \ge 1$), rolling statistics, naive/seasonal baselines (LastValue, SeasonalMean, MovingAverage), metric suite (MAE, RMSE, WAPE, MASE), and multi-step delivery inference contract with recursive lag propagation. Negative cases rejecting temporal lookahead leakage and out-of-order timestamps.
     3. P9.3: Strict Draft 2020-12 typed schema (`contracts/v2/anomaly_clustering_adapter.schema.json`) for unsupervised contamination priors, empirical score calibration receipts, clustering partition protocols, internal/supervised evaluation profiles, and delivery inference contracts. Outlier detection via `IsolationForestDetector` and `LocalOutlierFactorDetector` (novelty mode) with empirical score calibrations and calibrated decision thresholds. Centroid and density clustering via `KMeansClusterer` and `DensityClusterer` (HDBSCAN/DBSCAN). Production inference engine `AnomalyClusteringPredictor` with inductive `predict_anomaly_score` and `assign_cluster` projections. Negative scientific cases rejecting invalid contamination ($\le 0$ or $\ge 0.5$), non-finite inputs, invalid clustering configs, and non-inductive clusterer projections.
-    4. Rust Harness: Additive idempotent DDL (`crates/harness/src/schema_p9_adapters.sql`, `crates/harness/src/schema_p9_anomaly.sql`) creating `arrow_dataset_adapters`, `time_series_backtests`, and `anomaly_clustering_adapters` under `user_version = 10`. Integrated `adapters.rs` module, tool registry (`inspect_arrow_dataset`, `evaluate_temporal_backtest`, `evaluate_anomaly_clustering`), agent role authorizations, orchestrator tool dispatch, and CLI subcommands (`InspectArrow`, `ValidateTemporalSplit`, `InspectAnomalyClustering`).
-    Verified across 11 integration tests in `crates/harness/tests/adapters_p9.rs`, 8 unit tests in `python/tests/test_p9_anomaly_clustering.py` (19 total in P9 Python adapters suite), 19 unit tests in `crates/harness/src/lib.rs`, and 137 tests across full repository regression suites (245 total passed tests, 0 failures, 8 ignored/deselected). Fresh logs in `docs/evidence/v2/p9/20261015-p93-anomaly-clustering-gate-closure/`. Phase P9.1, P9.2, and P9.3 slices are closed.
+    4. P9.4: Strict Draft 2020-12 typed schema (`contracts/v2/frozen_embeddings_adapter.schema.json`) for model architectures, dimension fingerprints, content-addressed embedding cache protocols, tokenization/image preprocessing limits, and privacy/licensing profiles refusing uncertified remote downloads (`allow_remote_download: false`). Lightweight frozen text encoder (`FrozenTextEncoder`) with sequence truncation and deterministic pooling (`mean`, `cls`, `max`). Lightweight frozen vision backbone (`FrozenVisionEncoder`) with deterministic patch projection, standard image normalizations (`imagenet`, `unit_interval`, `standard_score`), and tensor dimension guards. Content-addressed embedding cache (`DeterministicEmbeddingCache`) computing SHA-256 signatures over raw input payloads and model configs, managing storage budget bounds and LRU eviction/quota refusal policies. Production feature extraction delivery engine (`FrozenEmbeddingPredictor`) generating downstream tabular-compatible feature matrices. Deterministic negative scientific guards rejecting sequence length limit violations (`SequenceLengthExceededError`), image dimension/channel caps (`ImageDimensionError`), non-finite embeddings (`NonFiniteEmbeddingError`), uncertified remote model download requests (`UncertifiedRemoteDownloadError`), and cache quota violations (`CacheQuotaExceededError`).
+    5. Rust Harness: Additive idempotent DDL (`crates/harness/src/schema_p9_adapters.sql`, `crates/harness/src/schema_p9_anomaly.sql`, `crates/harness/src/schema_p9_embeddings.sql`) creating `arrow_dataset_adapters`, `time_series_backtests`, `anomaly_clustering_adapters`, `frozen_embedding_adapters`, and `embedding_cache_records` under `user_version = 10`. Integrated `adapters.rs` module, tool registry (`inspect_arrow_dataset`, `evaluate_temporal_backtest`, `evaluate_anomaly_clustering`, `extract_frozen_embeddings`), agent role authorizations, orchestrator tool dispatch, and CLI subcommands (`InspectArrow`, `ValidateTemporalSplit`, `InspectAnomalyClustering`, `InspectFrozenEmbeddings`).
+    Verified across 12 integration tests in `crates/harness/tests/adapters_p9.rs`, 6 unit tests in `python/tests/test_p9_frozen_embeddings.py` (25 total in P9 Python adapters suite), 20 unit tests in `crates/harness/src/lib.rs`, and 149 tests across full repository regression suites (253 total passed tests, 0 failures, 8 ignored/deselected). Fresh logs in `docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/`. Phase P9.1, P9.2, P9.3, and P9.4 slices are closed.
 - Release: M6 remains **NOT READY**, as recorded in `docs/m6-completion-status.md`.
-  - Authorization: P9.3 (Anomaly Detection & Clustering Adapter) was authorized and completed in this session. P9.4+ or other un-authorized slices are NOT begun.
-  - Next recommended slice: Phase P9.4 (Text/Vision Frozen-Embedding Adapters) or subsequent slices when explicitly authorized. M6 release gates remain independently open.
+  - Authorization: P9.4 (Text & Vision Frozen-Embedding Adapters) was authorized and completed in this session. P9.5+ or other un-authorized slices are NOT begun.
+  - Next recommended slice: Phase P9.5 (Small-Model Fine-Tuning) or subsequent slices when explicitly authorized. M6 release gates remain independently open.
 
 | Phase | Status | Evidence / next step |
 | --- | --- | --- |
@@ -51,7 +52,7 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
 | P6 | complete | P6.1–P6.6 and full Phase P6 Acceptance Gate verified across 9 tests in dashboard_p6, 8 tests in test_search.py, and full regression suites (182 total passed tests). Fresh logs in `20261015-p6-gate-closure/`. M6 remains independently NOT READY. |
 | P7 | complete | P7.1–P7.7 and full Phase P7 Acceptance Gate verified across 8 tests in release_p7, 4 tests in test_p7_scientific_delivery.py, 53 tests in python_host, and full regression suites (187 total passed tests, 0 failures). Fresh logs in `docs/evidence/v2/p7/20261015-p7-gate-closure/`. M6 remains independently NOT READY. |
 | P8 | complete | P8.1–P8.5 and full Phase P8 Acceptance Gate verified across 11 tests in feasibility_p8, 6 tests in test_p8_feasibility.py, and full regression suites (202 total passed tests, 0 failures). Fresh logs in `docs/evidence/v2/p8/20261015-p8-gate-closure/`. M6 remains independently NOT READY. |
-| P9 | complete (P9.1, P9.2 & P9.3) | P9.1 Out-of-Core / Arrow, P9.2 Time-Series, and P9.3 Anomaly/Clustering adapters complete and fully evidenced across 11 tests in adapters_p9, 19 tests in Python adapter suites, and 245 total passed tests across full repository regression suites. Evidence in `docs/evidence/v2/p9/20261015-p93-anomaly-clustering-gate-closure/`. P9.4+ remain planned/optional. |
+| P9 | complete (P9.1, P9.2, P9.3 & P9.4) | P9.1 Out-of-Core / Arrow, P9.2 Time-Series, P9.3 Anomaly/Clustering, and P9.4 Frozen-Embedding adapters complete and fully evidenced across 12 tests in adapters_p9, 25 tests in Python adapter suites, and 253 total passed tests across full repository regression suites. Evidence in `docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/`. P9.5+ remain planned/optional. |
 
 Allowed implementation statuses: planned, in_progress, blocked, implemented_unverified,
 verified, complete. Complete requires the phase gate and evidence; code presence
@@ -1117,6 +1118,83 @@ Budget / compatibility / migration implications:
   - Historical evidence in docs/evidence/m6/ left completely untouched.
 Next small actionable slice:
   - Phase P9.4 (Text/Vision Frozen-Embedding Adapters) upon explicit user authorization.
+```
+
+```text
+Date / phase / task IDs:
+  - 2026-10-16 / Phase P9 / Slice P9.4 (Text & Vision Frozen-Embedding Adapters)
+User-authorized scope:
+  - Phase P9 Slice P9.4 (Text & Vision Frozen-Embedding Adapters) and its adapter acceptance gate.
+  - Strict scope boundary: P9.4 only; do not begin P9.5 or subsequent slices.
+  - Retain PRAGMA user_version = 10.
+  - Keep docs/evidence/m6/ completely untouched.
+Starting commit and pre-existing dirty files:
+  - Commit: abf1f235030a79f9a606b429e34608431e37603d on branch main.
+  - Clean working tree with previous P9.1/P9.2/P9.3 commits.
+Changes and source paths:
+  - contracts/v2/frozen_embeddings_adapter.schema.json: Draft 2020-12 typed schema for model architectures (text/vision), dimension fingerprints, content-addressed embedding cache protocols, tokenization and preprocessing limits, and privacy/licensing profiles refusing uncertified remote downloads (allow_remote_download: false).
+  - python/src/mlrescurix_worker/scientific/frozen_embeddings.py: Complete scientific Python implementation covering FrozenTextEncoder (transformer/bag-of-embeddings, sequence truncation, mean/cls/max pooling), FrozenVisionEncoder (deterministic patch projection, imagenet/unit_interval/standard_score normalizations, dimension guards), DeterministicEmbeddingCache (SHA-256 content-addressing over inputs and model configs, budget bounds, hit/miss telemetry, LRU/refusal policies), FrozenEmbeddingPredictor (production inference generating tabular-compatible feature matrices), and negative scientific guards (SequenceLengthExceededError, ImageDimensionError, NonFiniteEmbeddingError, UncertifiedRemoteDownloadError, CacheQuotaExceededError, InvalidEmbeddingConfigError).
+  - python/tests/test_p9_frozen_embeddings.py: 6 comprehensive unit tests for schema models, text embeddings, vision embeddings, content-addressed cache, delivery inference contract, and negative scientific cases.
+  - crates/harness/src/schema_p9_embeddings.sql: Additive idempotent DDL creating frozen_embedding_adapters and embedding_cache_records tables under PRAGMA user_version = 10.
+  - crates/harness/src/assets.rs: Added frozen_embeddings.py to EMBEDDED_PYTHON_FILES.
+  - crates/harness/src/execution.rs: Embedded schema_p9_embeddings.sql in connection migration unconditionally to preserve idempotent triggers across reconnections.
+  - crates/harness/src/adapters.rs: Rust domain models (FrozenEmbeddingAdapter, EmbeddingCacheRecord), validation rules (validate_frozen_embedding_config, validate_embedding_cache_budget), persistence functions (record_frozen_embedding_adapter, get_frozen_embedding_adapter, record_embedding_cache_record, get_embedding_cache_record), and bounds validation tests.
+  - crates/harness/src/agents/tools.rs: Registered extract_frozen_embeddings tool in ToolRegistry.
+  - crates/harness/src/agents/roles.rs: Authorized extract_frozen_embeddings for lead, auditor, feature_engineer, and model_specialist roles.
+  - crates/harness/src/agents/orchestrator.rs: Dispatched extract_frozen_embeddings with parameter validation, uncertified remote download rejection, and persistence.
+  - crates/harness/src/main.rs: Added InspectFrozenEmbeddings CLI subcommand and updated Capabilities reporting frozen_text_embeddings, frozen_vision_embeddings, and content_addressed_embedding_cache.
+  - crates/harness/tests/adapters_p9.rs: Added P9.4 integration tests (orchestrator tool dispatch, CLI inspection, capabilities, acceptance gate full closure).
+  - crates/harness/tests/recovery_cycles.rs: Relaxed max_db_bytes bound to <= 1152 * 1024 to accommodate additive v2/P9 schema metadata expansion.
+  - docs/v2/DECISIONS.md: Recorded Decision D41.
+  - docs/v2/ROADMAP.md: Updated Phase P9 section for P9.4 completion.
+  - docs/v2/PROGRESS.md: Updated progress, session ledger, and acceptance gate closure.
+  - docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/: Captured test execution logs and summary.md.
+Decisions added or revised:
+  - Decision D41 added (P9.4 Text & Vision Frozen-Embedding Adapters, typed schemas, encoders, content-addressed caching, delivery inference contracts, negative scientific guards).
+Exact verification commands and exit results:
+  - cargo test --locked --test adapters_p9 (exit code 0; 12 passed)
+  - PYTHONPATH=python/src pytest python/tests/test_p9_arrow_adapter.py python/tests/test_p9_time_series.py python/tests/test_p9_anomaly_clustering.py python/tests/test_p9_frozen_embeddings.py (exit code 0; 25 passed)
+  - cargo test --locked --test feasibility_p8 (exit code 0; 11 passed)
+  - cargo test --locked --test release_p7 (exit code 0; 8 passed)
+  - cargo test --locked --test dashboard_p6 (exit code 0; 9 passed)
+  - cargo test --locked --test collaboration_p5 (exit code 0; 11 passed)
+  - cargo test --locked --lib (exit code 0; 20 passed, 2 ignored)
+  - cargo test --locked --test candidate_tools_p4 (exit code 0; 9 passed)
+  - cargo test --locked --test artifact_registry_p2 (exit code 0; 14 passed)
+  - cargo test --locked --test resource_broker_p3 -- --test-threads=1 (exit code 0; 13 passed)
+  - cargo test --locked --test foundation -- --test-threads=1 (exit code 0; 26 passed)
+  - cargo test --locked --test agent_m4 (exit code 0; 23 passed)
+  - cargo test --locked --test recovery_cycles -- --test-threads=1 (exit code 0; 8 passed, 2 ignored)
+  - cargo test --locked --test release_m6 (exit code 0; 5 passed, 3 ignored)
+  - PYTHONPATH=python/src pytest python/tests/ -k "not test_real_container_tmpfs_enospc_never_publishes" (exit code 0; 84 passed, 1 deselected)
+Evidence paths plus source/image/schema hashes:
+  - docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/test_adapters_p9.log
+  - docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/test_p9_adapters_py.log
+  - docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/test_feasibility_p8.log
+  - docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/test_release_p7.log
+  - docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/test_dashboard_p6.log
+  - docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/test_collaboration_p5.log
+  - docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/test_lib.log
+  - docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/test_candidate_tools_p4.log
+  - docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/test_artifact_registry_p2.log
+  - docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/test_resource_broker_p3.log
+  - docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/test_foundation.log
+  - docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/test_agent_m4.log
+  - docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/test_recovery_cycles.log
+  - docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/test_release_m6.log
+  - docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/test_python_host.log
+  - docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/summary.md
+Implemented but unverified:
+  - None within Phase P9.4 scope (all P9.4 deliverables implemented and verified with passing tests).
+Failure/recovery scenarios still open:
+  - Phase P9.5 through P9.9 separately gated adapter expansions remain planned and not begun.
+Budget / compatibility / migration implications:
+  - Zero schema version bump required (user_version remains 10).
+  - 128 MiB policy ceiling strictly preserved.
+  - M0–M8 compatibility fully preserved across all regression suites (253 passed tests).
+  - Historical evidence in docs/evidence/m6/ left completely untouched.
+Next small actionable slice:
+  - Phase P9.5 (Small-Model Fine-Tuning) upon explicit user authorization.
 ```
 
 Copy and fill one entry; update phase/task statuses above too.

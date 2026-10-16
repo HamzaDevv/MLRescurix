@@ -1159,6 +1159,40 @@ impl AgentOrchestrator {
                 crate::adapters::record_anomaly_clustering_adapter(&self.root, &self.config.project_id, &adapter)?;
                 Ok(serde_json::to_string(&adapter).unwrap())
             }
+            "extract_frozen_embeddings" => {
+                let ds_id = args.get("dataset_id").and_then(Value::as_str).ok_or("dataset_id missing")?;
+                let adapter_id = args.get("adapter_id").and_then(Value::as_str).unwrap_or("emb_default");
+                let modality = args.get("modality").and_then(Value::as_str).unwrap_or("text");
+                let embedding_dim = args.get("embedding_dim").and_then(Value::as_u64).unwrap_or(64);
+                let pooling = args.get("pooling_strategy").and_then(Value::as_str).unwrap_or("mean");
+                let cache_enabled = args.get("cache_enabled").and_then(Value::as_bool).unwrap_or(true);
+                let remote_download = args.get("remote_download").and_then(Value::as_bool).unwrap_or(false);
+
+                if remote_download {
+                    return Err("Uncertified remote model download requests are strictly rejected in certified offline execution".into());
+                }
+
+                let mut adapter = if modality == "vision" {
+                    crate::adapters::FrozenEmbeddingAdapter::synthetic_vision(ds_id, embedding_dim)
+                } else {
+                    crate::adapters::FrozenEmbeddingAdapter::synthetic_text(ds_id, embedding_dim)
+                };
+
+                adapter.adapter_id = adapter_id.to_string();
+                adapter.modality = modality.to_string();
+                adapter.dimension_fingerprint.embedding_dim = embedding_dim;
+                adapter.dimension_fingerprint.pooling_strategy = pooling.to_string();
+                adapter.cache_protocol.cache_enabled = cache_enabled;
+                adapter.delivery_inference.downstream_feature_dim = embedding_dim;
+
+                if let Some(m_name) = args.get("model_name").and_then(Value::as_str) {
+                    adapter.model_architecture.backbone_name = m_name.to_string();
+                }
+
+                crate::adapters::validate_frozen_embedding_config(&adapter)?;
+                crate::adapters::record_frozen_embedding_adapter(&self.root, &self.config.project_id, &adapter)?;
+                Ok(serde_json::to_string(&adapter).unwrap())
+            }
             "artifact_crud" => {
                 let action = args.get("action").and_then(Value::as_str).ok_or("action missing")?;
                 let reg = crate::artifacts::ArtifactRegistry::new(&self.root);

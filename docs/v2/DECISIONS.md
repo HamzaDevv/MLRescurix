@@ -374,3 +374,28 @@ D40 is implemented in `contracts/v2/anomaly_clustering_adapter.schema.json`, `py
 7. **Phase P9.3 Acceptance Gate Closure**:
    - Verified across 11 integration tests in `crates/harness/tests/adapters_p9.rs`, 8 unit tests in `python/tests/test_p9_anomaly_clustering.py` (19 total in P9 Python adapters suite), 19 unit tests in `crates/harness/src/lib.rs`, and 137 tests across full repository regression suites (245 total passed tests, 0 failures, 8 ignored/deselected). Evidence captured in `docs/evidence/v2/p9/20261015-p93-anomaly-clustering-gate-closure/`. Phase P9.3 is closed. M6 remains independently NOT READY.
 
+### P9.4 Task Adapter & Gate Closure decisions (2026-10-16)
+
+D41 is implemented in `contracts/v2/frozen_embeddings_adapter.schema.json`, `python/src/mlrescurix_worker/scientific/frozen_embeddings.py`, `crates/harness/src/adapters.rs`, `crates/harness/src/schema_p9_embeddings.sql`, `crates/harness/src/assets.rs`, `crates/harness/src/execution.rs`, `crates/harness/src/lib.rs`, `crates/harness/src/agents/tools.rs`, `crates/harness/src/agents/roles.rs`, `crates/harness/src/agents/orchestrator.rs`, `crates/harness/src/main.rs`, `crates/harness/tests/adapters_p9.rs`, `crates/harness/tests/recovery_cycles.rs`, and `python/tests/test_p9_frozen_embeddings.py`.
+1. **Text & Vision Frozen-Embedding Schema (P9.4)**:
+   - Defined strict Draft 2020-12 typed schema `contracts/v2/frozen_embeddings_adapter.schema.json` covering model architectures (`frozen_transformer`, `frozen_bag_of_embeddings`, `frozen_vision_backbone`, `frozen_patch_projector`), dimension fingerprints, content-addressed embedding cache protocols, tokenization and image preprocessing limits, and privacy/licensing profiles refusing uncertified remote downloads (`allow_remote_download: false`). Validated via `jsonschema.Draft202012Validator`.
+2. **Text Embeddings & Deterministic Pooling**:
+   - Implemented `FrozenTextEncoder` with sequence truncation (`max_sequence_length`), batch dimension validation, and deterministic pooling strategies (`mean`, `cls`, `max`). Guarantees strict output dimensionality matching `dimension_fingerprint`.
+3. **Vision Embeddings & Patch Projection**:
+   - Implemented `FrozenVisionEncoder` with deterministic patch projection, standard image normalizations (`imagenet`, `unit_interval`, `standard_score`), and tensor dimension guards (channels, height, width).
+4. **Content-Addressed Embedding Cache**:
+   - Implemented `DeterministicEmbeddingCache` computing SHA-256 signatures over raw input payloads and model configuration hashes. Enforces storage budget bounds (`max_cache_entries`, `max_cache_bytes`), tracks hit/miss telemetry, and executes LRU eviction or quota refusal policies.
+5. **Delivery Inference Contract**:
+   - Implemented `FrozenEmbeddingPredictor` generating downstream tabular-compatible feature matrices (`text_emb_0`, `vis_emb_0`) ready for downstream gradient-boosted trees and linear classifiers.
+6. **Deterministic Negative Scientific Cases**:
+   - Rejected inputs exceeding sequence length limits (`SequenceLengthExceededError`).
+   - Rejected invalid image dimensions or channel configurations (`ImageDimensionError`).
+   - Rejected uncertified remote model download requests (`UncertifiedRemoteDownloadError`).
+   - Rejected non-finite embedding representations (`NonFiniteEmbeddingError`).
+   - Rejected cache quota violations under refusal policy (`CacheQuotaExceededError`).
+7. **Harness Persistence, Tool Dispatch, CLI, & Capabilities**:
+   - Retained `PRAGMA user_version = 10` using additive idempotent DDL `crates/harness/src/schema_p9_embeddings.sql` creating `frozen_embedding_adapters` and `embedding_cache_records` tables.
+   - Exposed `extract_frozen_embeddings` tool in `ToolRegistry` and dispatched in `AgentOrchestrator`, authorized for `lead`, `auditor`, `feature_engineer`, and `model_specialist` roles.
+   - Added CLI subcommand `inspect-frozen-embeddings` and updated harness capabilities reporting `"frozen_text_embeddings": true`, `"frozen_vision_embeddings": true`, and `"content_addressed_embedding_cache": true`.
+8. **Phase P9.4 Acceptance Gate Closure**:
+   - Verified across 12 integration tests in `crates/harness/tests/adapters_p9.rs`, 6 unit tests in `python/tests/test_p9_frozen_embeddings.py` (25 total in P9 Python adapters suite), 20 unit tests in `crates/harness/src/lib.rs`, and 149 tests across full repository regression suites (253 total passed tests, 0 failures, 8 ignored/deselected). Evidence captured in `docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/`. Phase P9.4 is closed. M6 remains independently NOT READY.
