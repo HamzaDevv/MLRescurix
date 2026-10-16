@@ -55,9 +55,15 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
     3. Rust Harness: Additive idempotent DDL (`crates/harness/src/schema_p10_iteration.sql`) creating `iteration_hypotheses` and `pareto_frontier_records` under `PRAGMA user_version = 10`. Implemented Rust domain models, query APIs, and native Pareto calculator in `crates/harness/src/iteration.rs`. Registered `propose_hypothesis`, `screen_candidate_fidelity`, and `query_pareto_frontier` tools in `ToolRegistry` and authorized for `lead`, `feature_engineer`, and `model_specialist` roles. Embedded `iteration_loop.py` into binary assets. Exposed `propose-hypothesis` and `query-pareto-frontier` CLI subcommands and updated `Capabilities`.
     4. Multi-Turn Refinement & Verification Gate: Comprehensive test suite verifying hypothesis proposal, Tier 0 proxy screening early discard, Tier 1 full cross-validation and scorecard generation, deterministic hypothesis settlement (`confirmed` vs `refuted`), non-dominated Pareto frontier tracking, and strict RBAC authorization enforcement.
     Verified across 5 integration tests in `crates/harness/tests/iteration_loop_p10.rs`, 6 unit tests in `python/tests/test_p10_iteration_loop.py` (104 total in Python test suite), 24 unit tests in `crates/harness/src/lib.rs`, and 166 tests across full repository regression suites (294 total passed tests, 0 failures). Fresh logs in `docs/evidence/v2/p10/20261016-p103-iteration-loop-gate-closure/`. Slice P10.3 is closed.
+  - P10.4 (Autonomous End-to-End Model Rescue Gate and Acceptance Gate) complete and verified:
+    1. Strict Draft 2020-12 typed schema (`contracts/v2/autonomous_rescue.schema.json`) covering session status, dataset profile, turn history, failure interception, hypotheses, Pareto candidate IDs, finalization delivery record, and resource accounting.
+    2. Python Autonomous Rescue Engine (`python/src/mlrescurix_worker/scientific/autonomous_rescue.py`) orchestrating the complete closed loop: dataset profiling without private row leakage (`profile_dataset`), baseline candidate synthesis, injected failure interception (`inject_candidate_failure`) and self-healing (`repair_candidate_failure`), multi-fidelity screening, Pareto optimization, and certified delivery bundle packaging (`bundle_candidate`) generating all 13 verified bundle contracts. Exposed CLI subcommands `dataset-profile`, `candidate-package-bundle`, and `rescue-orchestrate` in `cli.py`.
+    3. Rust Harness: Additive idempotent DDL (`crates/harness/src/schema_p10_rescue.sql`) creating `autonomous_rescue_sessions` under `PRAGMA user_version = 10`. Implemented Rust domain models, queries, and CLI process wrappers in `crates/harness/src/rescue.rs`. Registered `profile_dataset` and `package_candidate_bundle` tools in `ToolRegistry` and agent roles. Enhanced `request_finalization` with autonomous candidate bundle packaging and verification gate with safe rollback and two-key gate semantics. Exposed `profile-dataset` and `package-candidate-bundle` CLI subcommands and updated `Capabilities`.
+    4. Closed-Loop Verification Gate: Comprehensive integration test suite verifying dataset profiling, injected failure healing, bundle contract integrity, standalone inference and HTTP serve parity, sealed holdout leakage prevention, tamper detection, and RBAC authorization.
+    Verified across 5 integration tests in `crates/harness/tests/autonomous_rescue_p10.rs`, 6 unit tests in `python/tests/test_p10_autonomous_rescue.py` (110 total in Python test suite), 24 unit tests in `crates/harness/src/lib.rs`, and 171 tests across full repository regression suites (305 total passed tests, 0 failures). Fresh logs in `docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/`. Phase P10 is closed.
 - Release: M6 remains **NOT READY**, as recorded in `docs/m6-completion-status.md`.
-  - Authorization: P10.1, P10.2, and P10.3 were completed and verified.
-  - Next recommended slice: Phase P10.4 (Autonomous End-to-End Model Rescue Gate) verifying the full autonomous lifecycle under hard cgroup resource leases. M6 release gates remain independently open.
+  - Authorization: P10.1, P10.2, P10.3, and P10.4 were completed and verified.
+  - Phase P10 (Autonomous Candidate Synthesis & Iterative Refinement Loop) is fully closed and verified. M6 release gates remain independently open.
 
 | Phase | Status | Evidence / next step |
 | --- | --- | --- |
@@ -71,7 +77,7 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
 | P7 | complete | P7.1–P7.7 and full Phase P7 Acceptance Gate verified across 8 tests in release_p7, 4 tests in test_p7_scientific_delivery.py, 53 tests in python_host, and full regression suites (187 total passed tests, 0 failures). Fresh logs in `docs/evidence/v2/p7/20261015-p7-gate-closure/`. M6 remains independently NOT READY. |
 | P8 | complete | P8.1–P8.5 and full Phase P8 Acceptance Gate verified across 11 tests in feasibility_p8, 6 tests in test_p8_feasibility.py, and full regression suites (202 total passed tests, 0 failures). Fresh logs in `docs/evidence/v2/p8/20261015-p8-gate-closure/`. M6 remains independently NOT READY. |
 | P9 | complete (P9.1–P9.4) | P9.1 Out-of-Core / Arrow, P9.2 Time-Series, P9.3 Anomaly/Clustering, and P9.4 Frozen-Embedding adapters complete and fully evidenced across 12 tests in adapters_p9, 25 tests in Python adapter suites, and 253 total passed tests across full repository regression suites. Evidence in `docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/`. P9 adapters serve as optional primitives. |
-| P10 | in_progress (P10.1, P10.2 & P10.3 complete) | P10.1 Autonomous Candidate Synthesis Engine, P10.2 Structured Diagnostic Feedback Bridge, and P10.3 Multi-Fidelity Iteration & Hypothesis Loop complete and fully evidenced across 5 tests in iteration_loop_p10, 6 tests in candidate_synthesis_p10, 6 tests in diagnostic_bridge_p10, 20 unit tests in test_p10_*.py, and 294 total passed tests across full repository regression suites. Evidence in `docs/evidence/v2/p10/20261016-p103-iteration-loop-gate-closure/`. Next: P10.4 Autonomous End-to-End Model Rescue Gate. |
+| P10 | complete | P10.1 Autonomous Candidate Synthesis Engine, P10.2 Structured Diagnostic Feedback Bridge, P10.3 Multi-Fidelity Iteration & Hypothesis Loop, and P10.4 Autonomous End-to-End Model Rescue Gate complete and fully evidenced across 5 tests in autonomous_rescue_p10, 5 tests in iteration_loop_p10, 6 tests in candidate_synthesis_p10, 6 tests in diagnostic_bridge_p10, 26 unit tests in test_p10_*.py, and 305 total passed tests across full repository regression suites. Evidence in `docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/`. Phase P10 is closed. |
 
 Allowed implementation statuses: planned, in_progress, blocked, implemented_unverified,
 verified, complete. Complete requires the phase gate and evidence; code presence
@@ -116,6 +122,7 @@ or a specialist's assertion alone does not meet it. P0 is documentation complete
 | 2026-10-16 | P10.1 Autonomous Candidate Synthesis Engine | Defined Draft 2020-12 candidate synthesis schema (candidate_synthesis.schema.json). Implemented autonomous CandidateSynthesizer generating decoupled entrypoint.py, model.py, features.py, and manifest.json supporting LightGBM, XGBoost, PyTorch, Trees, and Linear families adhering strictly to candidate CLI protocol (fit/predict), row ID preservation, and label isolation. Added Rust persistence (schema_p10_synthesis.sql under user_version = 10), ToolRegistry dispatch (synthesize_candidate), role authorizations, CLI subcommand, and capabilities. Wired directly to sandbox_exec and evaluate_submission (cross-validation, scorecards in CAS). Verified label isolation, tampering rejection, and RBAC enforcement. All 6 tests in candidate_synthesis_p10, 6 unit tests in test_p10_candidate_synthesis.py, and full regression suites passed (254 total passed tests). Added D43. Fresh logs in `docs/evidence/v2/p10/20261016-p101-candidate-synthesis-gate-closure/`. Slice P10.1 closed; M6 remains NOT READY. |
 | 2026-10-16 | P10.2 Structured Diagnostic Feedback Bridge | Defined Draft 2020-12 diagnostic receipt schema (diagnostic_receipt.schema.json) covering 8 canonical failure modes (cgroup_oom, non_finite_loss, shape_mismatch, class_order_mismatch, execution_timeout, missing_dependency, syntax_error, runtime_exception), root-cause attribution, bounded tracebacks (<=32KB), peak telemetry, and actionable remediations. Implemented DiagnosticBridge in diagnostic_bridge.py and candidate_runner.py. Added Rust persistence (schema_p10_diagnostics.sql under user_version = 10), diagnostics.rs models/queries, inspect_diagnostics tool dispatch in orchestrator.rs, role authorizations, and inspect-diagnostics CLI subcommand. Verified against all 8 fault modes, sandbox integration, and RBAC refusals. All 6 tests in diagnostic_bridge_p10, 8 unit tests in test_p10_diagnostic_bridge.py, and full regression suites passed (280 total passed tests). Added D44. Fresh logs in `docs/evidence/v2/p10/20261016-p102-diagnostic-bridge-gate-closure/`. Slice P10.2 closed; M6 remains NOT READY. |
 | 2026-10-16 | P10.3 Multi-Fidelity Iteration & Hypothesis Loop | Defined Draft 2020-12 typed schemas for iteration hypotheses (iteration_hypothesis.schema.json) and Pareto frontiers (pareto_frontier.schema.json). Implemented MultiFidelityIterationEngine in iteration_loop.py providing Tier 0 subsampled proxy screening (N <= 500, 15s timeout) with early discard of non-viable mutations, progressive CV routing, deterministic hypothesis settlement (confirmed/refuted/inconclusive), and non-dominated Pareto frontier tracking across validation score, latency ms, and peak memory bytes. Added Rust harness persistence (schema_p10_iteration.sql under user_version = 10), iteration.rs models/queries, propose_hypothesis, screen_candidate_fidelity, and query_pareto_frontier tool dispatch in orchestrator.rs, role authorizations, and CLI subcommands. Verified early screening discard, progressive full CV, hypothesis settlement, Pareto tracking, and RBAC refusals. All 5 tests in iteration_loop_p10, 6 unit tests in test_p10_iteration_loop.py, and full regression suites passed (294 total passed tests). Added D45. Fresh logs in `docs/evidence/v2/p10/20261016-p103-iteration-loop-gate-closure/`. Slice P10.3 closed; M6 remains NOT READY. |
+| 2026-10-16 | P10.4 Autonomous End-to-End Model Rescue Gate | Defined Draft 2020-12 typed schema for autonomous rescue sessions (autonomous_rescue.schema.json). Implemented AutonomousRescueEngine in autonomous_rescue.py orchestrating the complete closed loop: dataset profiling without private row leakage, baseline candidate synthesis, injected failure interception and self-healing, multi-fidelity screening, Pareto optimization, and certified delivery bundle packaging (bundle_candidate) generating all 13 verified bundle contracts. Added Rust persistence (schema_p10_rescue.sql under user_version = 10), rescue.rs models/queries/process wrappers, profile_dataset and package_candidate_bundle tool dispatch in orchestrator.rs, role authorizations, request_finalization autonomous packaging branch with verification and rollback safety, and CLI subcommands. Verified dataset profiling, injected failure healing, bundle contract integrity, standalone inference and serve parity, sealed holdout leakage prevention, tamper detection, and RBAC refusals. All 5 tests in autonomous_rescue_p10, 6 unit tests in test_p10_autonomous_rescue.py, and full regression suites passed (305 total passed tests). Added D46. Fresh logs in `docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/`. Phase P10 is closed; M6 remains NOT READY. |
 
 ## Update at the end of every implementation session
 
@@ -1457,6 +1464,95 @@ Budget / compatibility / migration implications:
   - Historical evidence in docs/evidence/m6/ left completely untouched.
 Next small actionable slice:
   - Phase P10.4 (Autonomous End-to-End Model Rescue Gate) upon explicit user authorization.
+```
+
+### Implementation Session 2026-10-16 (P10.4 Autonomous End-to-End Model Rescue Gate Slice)
+
+```text
+Date / phase / task IDs: 2026-10-16 / P10 / P10.4 (Autonomous End-to-End Model Rescue Gate)
+User-authorized scope:
+  - Phase P10.4: Autonomous End-to-End Model Rescue Gate verifying complete closed-loop autonomous capability: dataset profiling, baseline candidate synthesis, injected failure interception and self-healing, multi-fidelity screening, Pareto optimization, and certified delivery bundle packaging under hard resource budgets without manual developer code edits.
+Starting commit and pre-existing dirty files:
+  - Starting commit: 886f5b2a9435ece344cdd0f6007a2facab073c04
+  - Pre-existing dirty files: None (working tree clean on branch 'main')
+Changes and source paths:
+  - contracts/v2/autonomous_rescue.schema.json: Strict Draft 2020-12 schema covering session status, dataset profile, turn history, failure interception, hypotheses, Pareto candidate IDs, finalization delivery record, and resource accounting.
+  - python/src/mlrescurix_worker/scientific/autonomous_rescue.py: Implemented profile_dataset, inject_candidate_failure, repair_candidate_failure, bundle_candidate (generating all 13 bundle contracts), and AutonomousRescueEngine orchestrating the complete closed loop.
+  - python/src/mlrescurix_worker/scientific/cli.py: Exposed dataset-profile, candidate-package-bundle, and rescue-orchestrate CLI subcommands.
+  - crates/harness/src/schema_p10_rescue.sql: Additive SQLite DDL for autonomous_rescue_sessions under PRAGMA user_version = 10.
+  - crates/harness/src/rescue.rs: Domain models (AutonomousRescueSession, DatasetProfile), SQLite queries, and CLI process wrappers (profile_dataset_csv, package_candidate_bundle).
+  - crates/harness/src/agents/tools.rs: Registered profile_dataset and package_candidate_bundle tools in ToolRegistry.
+  - crates/harness/src/agents/roles.rs: Authorized P10.4 tools for lead, critic, and specialist roles.
+  - crates/harness/src/agents/orchestrator.rs: Dispatched profile_dataset and package_candidate_bundle; added profiling to dataset_query; enhanced request_finalization to branch on candidate manifest existence (is_autonomous_candidate) with bundle verification and safe rollback to created on failure.
+  - crates/harness/src/main.rs: Exposed ProfileDataset and PackageCandidateBundle CLI subcommands; updated Capabilities reporting "p10_autonomous_rescue": "passed" and autonomous_rescue_capabilities.
+  - crates/harness/src/assets.rs: Embedded autonomous_rescue.py into EMBEDDED_PYTHON_FILES.
+  - crates/harness/tests/autonomous_rescue_p10.rs: Comprehensive 5-test integration suite for P10.4 closed loop and negative guards.
+  - python/tests/test_p10_autonomous_rescue.py: Comprehensive 6-test Python unit suite for P10.4.
+  - docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/: Captured 24 evidence log files and summary.md.
+  - D46 added to docs/v2/DECISIONS.md (Phase P10.4 Autonomous End-to-End Model Rescue Gate architecture).
+  - docs/v2/ROADMAP.md and docs/v2/PROGRESS.md updated to reflect complete Phase P10 closure.
+Decisions added or revised:
+  - Decision D46 added to docs/v2/DECISIONS.md.
+Exact verification commands and exit results:
+  - cargo test --locked --test autonomous_rescue_p10 (exit code 0; 5 passed, 0 failed)
+  - PYTHONPATH=python/src pytest python/tests/test_p10_autonomous_rescue.py (exit code 0; 6 passed, 0 failed)
+  - cargo test --locked --test iteration_loop_p10 (exit code 0; 5 passed, 0 failed)
+  - PYTHONPATH=python/src pytest python/tests/test_p10_iteration_loop.py (exit code 0; 6 passed, 0 failed)
+  - cargo test --locked --test diagnostic_bridge_p10 (exit code 0; 6 passed, 0 failed)
+  - PYTHONPATH=python/src pytest python/tests/test_p10_diagnostic_bridge.py (exit code 0; 8 passed, 0 failed)
+  - cargo test --locked --test candidate_synthesis_p10 (exit code 0; 6 passed, 0 failed)
+  - PYTHONPATH=python/src pytest python/tests/test_p10_candidate_synthesis.py (exit code 0; 6 passed, 0 failed)
+  - cargo test --locked --test adapters_p9 (exit code 0; 12 passed, 0 failed)
+  - cargo test --locked --test feasibility_p8 (exit code 0; 11 passed, 0 failed)
+  - cargo test --locked --test release_p7 (exit code 0; 8 passed, 0 failed)
+  - cargo test --locked --test dashboard_p6 (exit code 0; 9 passed, 0 failed)
+  - cargo test --locked --test collaboration_p5 (exit code 0; 11 passed, 0 failed)
+  - cargo test --locked --test candidate_tools_p4 (exit code 0; 9 passed, 0 failed)
+  - cargo test --locked --test resource_broker_p3 -- --test-threads=2 (exit code 0; 13 passed, 0 failed)
+  - cargo test --locked --test artifact_registry_p2 (exit code 0; 14 passed, 0 failed)
+  - cargo test --locked --test agent_m4 (exit code 0; 23 passed, 0 failed)
+  - cargo test --locked --test foundation -- --test-threads=2 (exit code 0; 26 passed, 0 failed)
+  - cargo test --locked --test recovery_cycles -- --test-threads=2 (exit code 0; 8 passed, 2 ignored, 0 failed)
+  - cargo test --locked --test release_m6 (exit code 0; 5 passed, 3 ignored, 0 failed)
+  - cargo test --locked --lib (exit code 0; 24 passed, 2 ignored, 0 failed)
+  - PYTHONPATH=python/src pytest python/tests/ -k "not test_real_container_tmpfs_enospc_never_publishes" (exit code 0; 110 passed, 1 deselected, 0 failed)
+  - Total passed tests: 305 passed, 0 failed across full repository suites.
+Evidence paths plus source/image/schema hashes:
+  - docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/capabilities.json
+  - docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/test_autonomous_rescue_p10.log
+  - docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/test_p10_autonomous_rescue_py.log
+  - docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/test_iteration_loop_p10.log
+  - docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/test_p10_iteration_loop_py.log
+  - docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/test_diagnostic_bridge_p10.log
+  - docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/test_p10_diagnostic_bridge_py.log
+  - docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/test_candidate_synthesis_p10.log
+  - docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/test_p10_candidate_synthesis_py.log
+  - docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/test_adapters_p9.log
+  - docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/test_feasibility_p8.log
+  - docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/test_release_p7.log
+  - docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/test_dashboard_p6.log
+  - docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/test_collaboration_p5.log
+  - docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/test_candidate_tools_p4.log
+  - docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/test_resource_broker_p3.log
+  - docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/test_artifact_registry_p2.log
+  - docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/test_agent_m4.log
+  - docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/test_foundation.log
+  - docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/test_recovery_cycles.log
+  - docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/test_release_m6.log
+  - docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/test_lib.log
+  - docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/test_python_host.log
+  - docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/summary.md
+Implemented but unverified:
+  - None within Phase P10 scope (all P10 deliverables implemented and verified with passing test suites).
+Failure/recovery scenarios still open:
+  - M6 release gates remain independently open (Gate 3, Gate 4, Gate 5).
+Budget / compatibility / migration implications:
+  - Zero schema version bump required (user_version remains 10).
+  - 128 MiB policy ceiling strictly preserved.
+  - M0–M9 compatibility fully preserved across all regression suites (305 passed tests).
+  - Historical evidence in docs/evidence/m6/ left completely untouched.
+Next small actionable slice:
+  - Phase P10 is complete. Await user authorization for subsequent development or release activities.
 ```
 
 Copy and fill one entry; update phase/task statuses above too.

@@ -1,0 +1,12 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/autonomous_rescue_p10.rs (target/debug/deps/autonomous_rescue_p10-1c3a8ab3a6138a3f)
+
+running 5 tests
+test p10_4_negative_role_rbac_authorization ... ok
+test p10_4_schema_v10_persistence_and_rescue_session_model ... ok
+test p10_4_negative_holdout_access_refusal_without_approval ... ok
+test p10_4_dataset_profiling_tool_dispatch ... ok
+test p10_4_full_autonomous_rescue_closed_loop_and_bundle_delivery ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.47s
+

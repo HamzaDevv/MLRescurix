@@ -1,0 +1,18 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests/feasibility_p8.rs (target/debug/deps/feasibility_p8-7714062eb135abef)
+
+running 11 tests
+test test_p8_1_dataset_metadata_and_transformation_expansion ... ok
+test test_p8_2_model_family_complexity_estimators ... ok
+test test_p8_4_concrete_evidence_backed_local_alternatives ... ok
+test test_p8_1_hardware_profile_from_broker_discovery ... ok
+test test_p8_2_capped_micro_pilots_respect_resource_and_time_caps ... ok
+test test_p8_5_deterministic_constraint_negotiation_and_locked_splits ... ok
+test test_p8_3_transparent_multi_tier_verdicts_and_reports ... ok
+test test_p8_orchestrator_tool_dispatch ... ok
+test test_p8_acceptance_gate_full_closure ... ok
+test test_p8_5_heavy_dispatch_feasibility_gating ... ok
+test test_p8_cli_commands_and_capabilities ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.85s
+

@@ -491,3 +491,37 @@ D45 is implemented in `contracts/v2/iteration_hypothesis.schema.json`, `contract
      f) RBAC authorization enforcement: unauthorized roles (`critic`, `auditor`) strictly refused.
 5. **Phase P10.3 Acceptance Gate Closure**:
    - Verified across 5 integration tests in `crates/harness/tests/iteration_loop_p10.rs`, 6 unit tests in `python/tests/test_p10_iteration_loop.py` (104 total in Python test suite), 24 unit tests in `crates/harness/src/lib.rs`, and 166 tests across full repository regression suites (294 total passed tests, 0 failures). Evidence captured in `docs/evidence/v2/p10/20261016-p103-iteration-loop-gate-closure/`. Phase P10.3 is closed. M6 remains independently NOT READY.
+
+### Phase P10.4 Autonomous End-to-End Model Rescue Gate decisions (2026-10-16)
+
+D46 is implemented in `contracts/v2/autonomous_rescue.schema.json`, `python/src/mlrescurix_worker/scientific/autonomous_rescue.py`, `python/src/mlrescurix_worker/scientific/cli.py`, `crates/harness/src/schema_p10_rescue.sql`, `crates/harness/src/rescue.rs`, `crates/harness/src/lib.rs`, `crates/harness/src/assets.rs`, `crates/harness/src/execution.rs`, `crates/harness/src/agents/tools.rs`, `crates/harness/src/agents/roles.rs`, `crates/harness/src/agents/orchestrator.rs`, `crates/harness/src/main.rs`, `crates/harness/tests/autonomous_rescue_p10.rs`, and `python/tests/test_p10_autonomous_rescue.py`.
+1. **Autonomous Rescue Session Schema (P10.4)**:
+   - Defined strict Draft 2020-12 typed schema `contracts/v2/autonomous_rescue.schema.json` capturing dataset discovery profile, turn history, injected failure interceptions, evaluated hypotheses, Pareto candidates, certified bundle delivery records, and resource accounting.
+2. **Autonomous End-to-End Rescue Engine (Scientific Python)**:
+   - Implemented `AutonomousRescueEngine` in `python/src/mlrescurix_worker/scientific/autonomous_rescue.py` orchestrating the complete closed loop:
+     a) **Dataset Inspection & Profiling (`profile_dataset`)**: Pure Python/pandas dataset discovery extracting column types, missing value percentages, numeric summaries, categorical cardinalities, and class distribution without private row leakage.
+     b) **Initial Candidate Synthesis**: Synthesizes decoupled baseline candidate code (`features.py`, `model.py`, `entrypoint.py`, `manifest.json`).
+     c) **Autonomous Failure Interception & Self-Healing (`inject_candidate_failure`, `repair_candidate_failure`)**: Intercepts realistic execution failures via `DiagnosticBridge`, records structured `DiagnosticReceipt`, and applies targeted repairs.
+     d) **Multi-Fidelity Iterative Hypothesis Loop**: Formulates hypotheses (`propose_hypothesis`), screens via Tier 0 proxy sampling, promotes viable candidates to Tier 1 full cross-validation, and settles hypothesis outcomes.
+     e) **Pareto Frontier Optimization**: Evaluates multi-turn mutations, tracking non-dominated trade-offs between validation score, latency ms, and memory consumption.
+     f) **Packaging & Certified Bundle Delivery (`bundle_candidate`)**: Packages the Apex-certified candidate into a complete `mlrescurix.bundle.v2` self-contained distribution, generating all 13 required bundle contracts (`manifest.json`, `metadata.json`, `environment.json`, `entrypoint.py`, `model_schema.json`, `data_contract.json`, `tolerances.json`, `frozen_model.joblib`, `model.safetensors`, `scorecard.json`, `test_receipt.json`, `security_attestation.json`, `LICENSE`).
+   - Exposed CLI subcommands `dataset-profile`, `candidate-package-bundle`, and `rescue-orchestrate` in `python/src/mlrescurix_worker/scientific/cli.py`.
+3. **Harness Integration, Control Plane, & RBAC**:
+   - Strictly retained `PRAGMA user_version = 10` using additive idempotent DDL `crates/harness/src/schema_p10_rescue.sql` creating `autonomous_rescue_sessions` table with indexes on `(project, session_id)` and `(project, status)`.
+   - Implemented native Rust domain models, query APIs, and CLI process wrappers in `crates/harness/src/rescue.rs` (`profile_dataset_csv`, `package_candidate_bundle`, `record_rescue_session`, `get_rescue_session`, `list_rescue_sessions`).
+   - Registered tools `profile_dataset` and `package_candidate_bundle` in `ToolRegistry` (`tools.rs`), dispatched in `AgentOrchestrator` (`orchestrator.rs`), authorized for `lead`, `critic`, and specialist roles (`roles.rs`).
+   - Enhanced `request_finalization` to branch on autonomous candidate manifests (`cand_dir.join("manifest.json").is_file()`), packaging and validating bundle integrity via `crate::bundle::verify_bundle` while preserving legacy container jobs, rollbacks, and two-key gate semantics.
+   - Added CLI subcommands `profile-dataset` and `package-candidate-bundle` in `main.rs` and updated harness capabilities reporting `"p10_autonomous_rescue": "passed"` and `autonomous_rescue_capabilities`.
+   - Embedded `autonomous_rescue.py` into binary assets via `EMBEDDED_PYTHON_FILES` (`assets.rs`).
+4. **Negative Scientific Guards & Closed-Loop Verification Gate**:
+   - Comprehensive test suite covering the full autonomous rescue lifecycle:
+     a) Dataset profiling and schema discovery without private row leakage.
+     b) Injected failure interception, root-cause attribution, and self-healing.
+     c) Complete delivery bundle packaging with all 13 contracts verified.
+     d) Standalone inference and HTTP serve parity across platforms.
+     e) Sealed holdout test gate leakage prevention and refusal without authenticated approval.
+     f) Cryptographic tamper detection: mutating bundle files causes verification refusal.
+     g) RBAC authorization enforcement: unauthorized roles (`auditor`, `critic` attempting lead tools) strictly refused.
+     h) Full autonomous end-to-end closed loop running from raw dataset to final delivery bundle under hard resource budgets without manual developer code edits.
+5. **Phase P10.4 Acceptance Gate Closure**:
+   - Verified across 5 integration tests in `crates/harness/tests/autonomous_rescue_p10.rs`, 6 unit tests in `python/tests/test_p10_autonomous_rescue.py` (110 total in Python test suite), 24 unit tests in `crates/harness/src/lib.rs`, and 171 tests across full repository regression suites (305 total passed tests, 0 failures). Evidence captured in `docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/`. Phase P10.4 and Phase P10 are closed. M6 remains independently NOT READY.

@@ -49,6 +49,17 @@ def main() -> int:
     pareto_cmd = commands.add_parser("pareto-frontier")
     pareto_cmd.add_argument("--spec", type=Path, required=True)
     pareto_cmd.add_argument("--output", type=Path, required=True)
+    prof_cmd = commands.add_parser("dataset-profile")
+    prof_cmd.add_argument("--csv", type=Path, required=True)
+    prof_cmd.add_argument("--target", type=str, required=False)
+    prof_cmd.add_argument("--id-col", type=str, required=False)
+    prof_cmd.add_argument("--output", type=Path, required=False)
+    pkg_bundle = commands.add_parser("candidate-package-bundle")
+    pkg_bundle.add_argument("--spec", type=Path, required=True)
+    pkg_bundle.add_argument("--output", type=Path, required=False)
+    rescue_cmd = commands.add_parser("rescue-orchestrate")
+    rescue_cmd.add_argument("--spec", type=Path, required=True)
+    rescue_cmd.add_argument("--output", type=Path, required=False)
     for name in ("fit-trial", "predict-trial"):
         worker = commands.add_parser(name, help=argparse.SUPPRESS)
         worker.add_argument("--spec", type=Path, required=True)
@@ -169,6 +180,46 @@ def main() -> int:
             )
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(json.dumps(result, indent=2, sort_keys=True))
+        elif args.command == "dataset-profile":
+            from .autonomous_rescue import profile_dataset
+            prof = profile_dataset(args.csv, target_column=args.target, id_column=args.id_col)
+            result = prof.to_dict()
+            if args.output:
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(json.dumps(result, indent=2, sort_keys=True))
+        elif args.command == "candidate-package-bundle":
+            from .autonomous_rescue import bundle_candidate
+            spec_data = json.loads(args.spec.read_text())
+            result = bundle_candidate(
+                candidate_dir=spec_data["candidate_dir"],
+                output_bundle_dir=spec_data["output_bundle_dir"],
+                dataset_path=spec_data["dataset_path"],
+                test_access_id=spec_data["test_access_id"],
+                project_id=spec_data["project_id"],
+                candidate_id=spec_data["candidate_id"],
+                task_type=spec_data.get("task_type", "binary_classification"),
+                target_column=spec_data.get("target_column", "target"),
+                primary_metric=spec_data.get("primary_metric", "balanced_accuracy"),
+            )
+            if args.output:
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(json.dumps(result, indent=2, sort_keys=True))
+        elif args.command == "rescue-orchestrate":
+            from .autonomous_rescue import AutonomousRescueEngine
+            spec_data = json.loads(args.spec.read_text())
+            engine = AutonomousRescueEngine(
+                workspace_root=spec_data["workspace_root"],
+                project_id=spec_data["project_id"],
+                session_id=spec_data["session_id"],
+            )
+            result = engine.execute_closed_loop(
+                dataset_path=spec_data["dataset_path"],
+                target_column=spec_data.get("target_column", "target"),
+                simulate_failure_mode=spec_data.get("simulate_failure_mode", "shape_mismatch"),
+            )
+            if args.output:
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(json.dumps(result, indent=2, sort_keys=True))
         elif args.command == "fit-trial":
             result = fit_trial_worker(args.spec, args.output)
         else:

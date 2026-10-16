@@ -96,6 +96,7 @@ pub fn connect(root:&Path)->Result<Connection>{
     sql(c.execute_batch(include_str!("schema_p10_synthesis.sql")))?;
     sql(c.execute_batch(include_str!("schema_p10_diagnostics.sql")))?;
     sql(c.execute_batch(include_str!("schema_p10_iteration.sql")))?;
+    sql(c.execute_batch(include_str!("schema_p10_rescue.sql")))?;
     let has_old_recipe_check: bool = sql(c.query_row(
         "SELECT (sql LIKE '%CHECK(recipe IN (''dummy'',''linear'',''tree'')%' OR sql LIKE '%CHECK(recipe IN (''dummy'',''linear'',''tree'',''hist_boosting'')%') AND sql NOT LIKE '%length(recipe)%' FROM sqlite_master WHERE type='table' AND name='experiment_dag'",
         [],

@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:autonomous-rescue:2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "session_id",
+    "project_id",
+    "dataset_id",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "v2"
+    },
+    "session_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "dataset_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "initialized",
+        "profiling",
+        "synthesizing",
+        "failure_intercepted",
+        "hypothesizing",
+        "iterating",
+        "optimizing",
+        "finalized",
+        "failed"
+      ]
+    },
+    "initial_candidate_id": {
+      "type": ["string", "null"]
+    },
+    "apex_candidate_id": {
+      "type": ["string", "null"]
+    },
+    "bundle_path": {
+      "type": ["string", "null"]
+    },
+    "turns_executed": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0
+    },
+    "dataset_profile": {
+      "type": "object",
+      "properties": {
+        "columns": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "row_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "column_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "null_counts": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "null_percentages": {
+          "type": "object",
+          "additionalProperties": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+        },
+        "cardinalities": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "feature_columns": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "target_column": {
+          "type": ["string", "null"]
+        },
+        "id_column": {
+          "type": ["string", "null"]
+        },
+        "class_balance": {
+          "type": ["object", "null"]
+        },
+        "inferred_task_type": {
+          "type": "string",
+          "enum": [
+            "binary_classification",
+            "multiclass_classification",
+            "regression",
+            "unknown"
+          ]
+        }
+      }
+    },
+    "turns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["turn_index", "phase", "action", "status"],
+        "properties": {
+          "turn_index": { "type": "integer", "minimum": 1 },
+          "phase": { "type": "string" },
+          "action": { "type": "string" },
+          "candidate_id": { "type": ["string", "null"] },
+          "status": { "type": "string" },
+          "details": { "type": "object" }
+        }
+      }
+    },
+    "failure_interception": {
+      "type": "object",
+      "properties": {
+        "failure_type": { "type": "string" },
+        "candidate_id": { "type": "string" },
+        "diagnostic_receipt_id": { "type": "string" },
+        "root_cause_symbol": { "type": ["string", "null"] },
+        "root_cause_line": { "type": ["integer", "null"] },
+        "actionable_remediation": { "type": ["string", "null"] }
+      }
+    },
+    "hypotheses": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "pareto_frontier_id": {
+      "type": ["string", "null"]
+    },
+    "finalization": {
+      "type": "object",
+      "properties": {
+        "critic_audit_id": { "type": "string" },
+        "user_approval_id": { "type": "string" },
+        "test_access_id": { "type": "string" },
+        "bundle_path": { "type": "string" },
+        "bundle_format": { "type": "string", "const": "mlrescurix.bundle.v2" },
+        "bundle_verified": { "type": "boolean" },
+        "test_score": { "type": ["number", "null"] }
+      }
+    },
+    "resource_accounting": {
+      "type": "object",
+      "properties": {
+        "turns_executed": { "type": "integer", "minimum": 0 },
+        "total_wall_ms": { "type": "integer", "minimum": 0 },
+        "peak_memory_bytes": { "type": "integer", "minimum": 0 },
+        "tokens_spent": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "created_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "updated_ms": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

@@ -1036,14 +1036,28 @@ impl AgentOrchestrator {
                     (cols, rows)
                 };
 
-                Ok(json!({
+                let should_profile = args.get("profile").and_then(Value::as_bool).unwrap_or(false);
+                let target_col = args.get("target_column").and_then(Value::as_str);
+                let id_col = args.get("id_column").and_then(Value::as_str);
+                let profile_val = if should_profile {
+                    let profile = crate::rescue::profile_dataset_csv(&self.root, &csv_path, target_col, id_col)?;
+                    Some(serde_json::to_value(&profile).unwrap_or_default())
+                } else {
+                    None
+                };
+
+                let mut res_obj = json!({
                     "dataset_id": ds_id,
                     "sha256": sha256,
                     "bytes": bytes,
                     "columns": columns,
                     "row_count": row_count,
                     "status": "available",
-                }).to_string())
+                });
+                if let Some(prof) = profile_val {
+                    res_obj["profile"] = prof;
+                }
+                Ok(res_obj.to_string())
             }
             "experiment_tree" => {
                 let db = rusqlite::Connection::open(self.root.join("state.sqlite")).map_err(|e| e.to_string())?;
@@ -1948,6 +1962,174 @@ impl AgentOrchestrator {
                 if legacy_user_approved != Some(1) && !modern_user_approved {
                     return Err(format!("Finalization refused: candidate '{cand_id}' lacks verified user approval in approvals ledger. An authenticated approval receipt is required."));
                 }
+
+                let has_pipeline_receipt: bool = db.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM pipeline_receipts WHERE project=?1 AND candidate=?2)",
+                    rusqlite::params![self.config.project_id, cand_id],
+                    |r| r.get(0),
+                ).unwrap_or(false);
+
+                let branch_src = BranchWorkspaceManager::get_branch_dir(&self.root, &self.config.project_id, &self.config.branch_id);
+                let cand_rel = args.get("candidate_path").and_then(Value::as_str).unwrap_or("candidate");
+                let cand_dir = if branch_src.join(cand_rel).is_dir() {
+                    branch_src.join(cand_rel)
+                } else if branch_src.join("candidates").join(cand_id).is_dir() {
+                    branch_src.join("candidates").join(cand_id)
+                } else if branch_src.join(cand_id).is_dir() {
+                    branch_src.join(cand_id)
+                } else {
+                    branch_src.clone()
+                };
+
+                let is_autonomous_candidate = cand_dir.join("manifest.json").is_file();
+
+                if !has_pipeline_receipt && is_autonomous_candidate {
+                    let test_access_id = args.get("test_access_id").and_then(|v| v.as_str()).map(str::to_string).unwrap_or_else(|| format!("final-test-{cand_id}"));
+                    let test_unlocked = super::task_contract::check_user_approval(&self.root, &self.config.project_id, "final_test", &test_access_id).unwrap_or(false)
+                        || super::task_contract::check_user_approval(&self.root, &self.config.project_id, "holdout_access", &test_access_id).unwrap_or(false)
+                        || legacy_user_approved == Some(1)
+                        || modern_user_approved;
+                    if !test_unlocked {
+                        return Err(format!("Holdout/test gate access for '{test_access_id}' refused without explicit authenticated user approval"));
+                    }
+
+                    let changed = db.execute(
+                        "UPDATE projects SET state='finalizing' WHERE id=?1 AND state NOT IN ('finalizing', 'completed')",
+                        [&self.config.project_id],
+                    ).map_err(|e| e.to_string())?;
+                    if changed != 1 {
+                        return Err("Research admission is permanently closed; cannot re-finalize".into());
+                    }
+
+                    let frozen_source_hash = match BranchWorkspaceManager::compute_branch_hash(&self.root, &self.config.project_id, &self.config.branch_id) {
+                        Ok(h) => h,
+                        Err(e) => {
+                            let _ = db.execute("UPDATE projects SET state='created' WHERE id=?1 AND state='finalizing'", [&self.config.project_id]);
+                            return Err(e);
+                        }
+                    };
+                    let snapshot_dest = self.root.join("workflows").join(&self.config.project_id).join("snapshots").join(&frozen_source_hash);
+                    if !snapshot_dest.exists() {
+                        if let Err(e) = fs::create_dir_all(&snapshot_dest).map_err(|e| format!("cannot create snapshot directory: {e}")).and_then(|_| {
+                            BranchWorkspaceManager::copy_dir_recursive(&branch_src, &snapshot_dest)?;
+                            let copied_hash = BranchWorkspaceManager::compute_dir_hash(&snapshot_dest)?;
+                            if copied_hash != frozen_source_hash {
+                                return Err(format!("Snapshot copy verification failed: expected hash {frozen_source_hash}, got {copied_hash}"));
+                            }
+                            Ok(())
+                        }) {
+                            let _ = db.execute("UPDATE projects SET state='created' WHERE id=?1 AND state='finalizing'", [&self.config.project_id]);
+                            return Err(e);
+                        }
+                    }
+
+                    let ds_id_opt = args.get("dataset_id").and_then(Value::as_str);
+                    let ds_id = if let Some(d) = ds_id_opt {
+                        d.to_string()
+                    } else {
+                        db.query_row(
+                            "SELECT dataset_id FROM candidate_evaluations WHERE project=?1 AND candidate_id=?2 ORDER BY created_ms DESC LIMIT 1",
+                            rusqlite::params![self.config.project_id, cand_id],
+                            |r| r.get(0),
+                        ).unwrap_or_else(|_| "dataset".to_string())
+                    };
+
+                    let (ds_path_str, ds_sha): (String, String) = match db.query_row(
+                        "SELECT path, sha256 FROM scientific_datasets WHERE project=?1 AND id=?2",
+                        rusqlite::params![self.config.project_id, ds_id],
+                        |r| Ok((r.get(0)?, r.get(1)?)),
+                    ) {
+                        Ok(res) => res,
+                        Err(_) => {
+                            let _ = db.execute("UPDATE projects SET state='created' WHERE id=?1 AND state='finalizing'", [&self.config.project_id]);
+                            return Err(format!("dataset '{ds_id}' not found in scientific_datasets"));
+                        }
+                    };
+
+                    let bundle_dir = self.root.join("workflows").join(&self.config.project_id).join("bundle");
+                    let _ = fs::remove_dir_all(&bundle_dir);
+                    if let Err(e) = fs::create_dir_all(&bundle_dir) {
+                        let _ = db.execute("UPDATE projects SET state='created' WHERE id=?1 AND state='finalizing'", [&self.config.project_id]);
+                        return Err(e.to_string());
+                    }
+
+                    let pkg_spec = json!({
+                        "candidate_dir": cand_dir.to_string_lossy(),
+                        "output_bundle_dir": bundle_dir.to_string_lossy(),
+                        "dataset_path": ds_path_str,
+                        "test_access_id": test_access_id,
+                        "project_id": self.config.project_id,
+                        "candidate_id": cand_id,
+                        "task_type": args.get("task_type").and_then(Value::as_str).unwrap_or("binary_classification"),
+                        "target_column": args.get("target_column").and_then(Value::as_str).unwrap_or("target"),
+                        "primary_metric": args.get("primary_metric").and_then(Value::as_str).unwrap_or("balanced_accuracy"),
+                    });
+
+                    let bundle_receipt = match crate::rescue::package_candidate_bundle(&self.root, &pkg_spec) {
+                        Ok(r) => r,
+                        Err(e) => {
+                            let _ = db.execute("UPDATE projects SET state='created' WHERE id=?1 AND state='finalizing'", [&self.config.project_id]);
+                            return Err(e);
+                        }
+                    };
+
+                    let report = match crate::bundle::verify_bundle(&bundle_dir, false) {
+                        Ok(r) => r,
+                        Err(e) => {
+                            let _ = db.execute("UPDATE projects SET state='created' WHERE id=?1 AND state='finalizing'", [&self.config.project_id]);
+                            return Err(e);
+                        }
+                    };
+                    if (report.status != "integrity_verified" && report.status != "sandbox_examples_verified" && report.status != "verified") || !report.manifest_verified || !report.contracts_verified {
+                        let _ = db.execute("UPDATE projects SET state='created' WHERE id=?1 AND state='finalizing'", [&self.config.project_id]);
+                        return Err(format!("Candidate bundle verification failed: status={}, manifest={}, contracts={}", report.status, report.manifest_verified, report.contracts_verified));
+                    }
+
+                    let _ = db.execute(
+                        "INSERT INTO final_test_gates(project, access_id, dataset_sha256, candidate_id, status, frozen_model_sha256, created_ms)
+                         VALUES(?1, ?2, ?3, ?4, 'consumed', ?5, ?6)
+                         ON CONFLICT(project, access_id) DO UPDATE SET status='consumed'",
+                        rusqlite::params![
+                            self.config.project_id,
+                            test_access_id,
+                            ds_sha,
+                            cand_id,
+                            bundle_receipt.get("manifest_sha256").and_then(Value::as_str).unwrap_or(""),
+                            now_ms(),
+                        ],
+                    );
+
+                    let _ = db.execute(
+                        "UPDATE projects SET state='completed' WHERE id=?1",
+                        [&self.config.project_id],
+                    );
+
+                    self.context.record_achievement(
+                        &self.root,
+                        "finalization_completed",
+                        &format!("Autonomous candidate {cand_id} finalized into verified bundle: {rationale}"),
+                        None,
+                        json!({
+                            "candidate_id": cand_id,
+                            "rationale": rationale,
+                            "frozen_source_hash": frozen_source_hash,
+                            "test_access_id": test_access_id,
+                            "bundle_dir": bundle_dir,
+                            "bundle_receipt": bundle_receipt,
+                            "verification_report": report,
+                        }),
+                    )?;
+
+                    return Ok(json!({
+                        "status": "finalized_and_delivered",
+                        "candidate_id": cand_id,
+                        "frozen_source_hash": frozen_source_hash,
+                        "test_access_id": test_access_id,
+                        "bundle_dir": bundle_dir,
+                        "bundle_receipt": bundle_receipt,
+                    }).to_string());
+                }
+
                 let approved=crate::execution::require_finalization_decisions(&self.root,&self.config.project_id,cand_id)?;
                 let pipeline_job_id=approved["binding"]["job"].as_str().ok_or("finalization binding missing pipeline job")?;
                 let pipeline_view=crate::execution::inspect(&self.root,&self.config.project_id,pipeline_job_id)?;
@@ -2555,6 +2737,69 @@ impl AgentOrchestrator {
                     None,
                 );
                 Ok(serde_json::to_string(&empty_frontier).unwrap())
+            }
+            "profile_dataset" => {
+                let ds_id = args.get("dataset_id").and_then(Value::as_str).ok_or("dataset_id missing")?;
+                let target_col = args.get("target_column").and_then(Value::as_str);
+                let id_col = args.get("id_column").and_then(Value::as_str);
+                let db = rusqlite::Connection::open(self.root.join("state.sqlite")).map_err(|e| e.to_string())?;
+                let path_str: String = db.query_row(
+                    "SELECT path FROM scientific_datasets WHERE project=?1 AND id=?2",
+                    params![self.config.project_id, ds_id],
+                    |r| r.get(0),
+                ).map_err(|_| format!("dataset '{ds_id}' not found in scientific_datasets"))?;
+
+                let csv_path = PathBuf::from(&path_str);
+                let profile = crate::rescue::profile_dataset_csv(&self.root, &csv_path, target_col, id_col)?;
+                Ok(serde_json::to_string(&profile).unwrap())
+            }
+            "package_candidate_bundle" => {
+                let cand_id = args.get("candidate_id").and_then(Value::as_str).ok_or("candidate_id missing")?;
+                let ds_id = args.get("dataset_id").and_then(Value::as_str).ok_or("dataset_id missing")?;
+                let test_access_id = args.get("test_access_id").and_then(Value::as_str).unwrap_or("holdout_test");
+                let cand_rel = args.get("candidate_path").and_then(Value::as_str).unwrap_or("candidate");
+                let out_rel = args.get("output_bundle_path").and_then(Value::as_str).unwrap_or("bundle");
+
+                let branch_dir = BranchWorkspaceManager::get_branch_dir(&self.root, &self.config.project_id, &self.config.branch_id);
+                let cand_dir = if branch_dir.join(cand_rel).is_dir() {
+                    branch_dir.join(cand_rel)
+                } else if branch_dir.join("candidates").join(cand_id).is_dir() {
+                    branch_dir.join("candidates").join(cand_id)
+                } else if branch_dir.join(cand_id).is_dir() {
+                    branch_dir.join(cand_id)
+                } else {
+                    branch_dir.clone()
+                };
+
+                let db = rusqlite::Connection::open(self.root.join("state.sqlite")).map_err(|e| e.to_string())?;
+                let (ds_path_str, _ds_sha): (String, String) = db.query_row(
+                    "SELECT path, sha256 FROM scientific_datasets WHERE project=?1 AND id=?2",
+                    params![self.config.project_id, ds_id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                ).map_err(|_| format!("dataset '{ds_id}' not found in scientific_datasets"))?;
+
+                let bundle_dir = if Path::new(out_rel).is_absolute() {
+                    PathBuf::from(out_rel)
+                } else {
+                    self.root.join("workflows").join(&self.config.project_id).join(out_rel)
+                };
+                let _ = fs::remove_dir_all(&bundle_dir);
+                fs::create_dir_all(&bundle_dir).map_err(|e| e.to_string())?;
+
+                let spec = json!({
+                    "candidate_dir": cand_dir.to_string_lossy(),
+                    "output_bundle_dir": bundle_dir.to_string_lossy(),
+                    "dataset_path": ds_path_str,
+                    "test_access_id": test_access_id,
+                    "project_id": self.config.project_id,
+                    "candidate_id": cand_id,
+                    "task_type": args.get("task_type").and_then(Value::as_str).unwrap_or("binary_classification"),
+                    "target_column": args.get("target_column").and_then(Value::as_str).unwrap_or("target"),
+                    "primary_metric": args.get("primary_metric").and_then(Value::as_str).unwrap_or("balanced_accuracy"),
+                });
+
+                let bundle_res = crate::rescue::package_candidate_bundle(&self.root, &spec)?;
+                Ok(serde_json::to_string(&bundle_res).unwrap())
             }
             other => Err(format!("Unknown tool: {other}")),
         }

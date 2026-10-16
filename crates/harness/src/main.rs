@@ -117,6 +117,24 @@ enum Command {
         #[arg(long, default_value = "primary_metric")] metric: String,
         #[arg(long, default_value = "maximize")] direction: String,
     },
+    ProfileDataset {
+        #[arg(long)] state: PathBuf,
+        #[arg(long)] csv: PathBuf,
+        #[arg(long)] target: Option<String>,
+        #[arg(long)] id_col: Option<String>,
+    },
+    PackageCandidateBundle {
+        #[arg(long)] state: PathBuf,
+        #[arg(long)] candidate_dir: PathBuf,
+        #[arg(long)] bundle_dir: PathBuf,
+        #[arg(long)] dataset: PathBuf,
+        #[arg(long)] test_access_id: String,
+        #[arg(long)] project: String,
+        #[arg(long)] candidate: String,
+        #[arg(long, default_value = "binary_classification")] task_type: String,
+        #[arg(long, default_value = "target")] target: String,
+        #[arg(long, default_value = "balanced_accuracy")] metric: String,
+    },
     #[command(name="__worker",hide=true)] Worker { spec:PathBuf, output:PathBuf },
     Capabilities,
 }
@@ -446,6 +464,27 @@ async fn run()->Result<(),String>{
                 print(empty)
             }
         },
+        Command::ProfileDataset { state, csv, target, id_col } => {
+            let prof = mlrescurix_harness::rescue::profile_dataset_csv(&state, &csv, target.as_deref(), id_col.as_deref())?;
+            print(prof)
+        },
+        Command::PackageCandidateBundle {
+            state, candidate_dir, bundle_dir, dataset, test_access_id, project, candidate, task_type, target, metric
+        } => {
+            let spec = serde_json::json!({
+                "candidate_dir": candidate_dir.to_string_lossy(),
+                "output_bundle_dir": bundle_dir.to_string_lossy(),
+                "dataset_path": dataset.to_string_lossy(),
+                "test_access_id": test_access_id,
+                "project_id": project,
+                "candidate_id": candidate,
+                "task_type": task_type,
+                "target_column": target,
+                "primary_metric": metric,
+            });
+            let receipt = mlrescurix_harness::rescue::package_candidate_bundle(&state, &spec)?;
+            print(receipt)
+        },
         Command::Worker{spec,output}=>{let result=execution::worker(&spec,&output)?;if result==0 {Ok(())} else {std::process::exit(result)}}
         Command::Capabilities=>print(serde_json::json!({
             "phase":"P7",
@@ -492,7 +531,17 @@ async fn run()->Result<(),String>{
                 "p9_adapters":"passed",
                 "p10_candidate_synthesis":"passed",
                 "p10_diagnostic_bridge":"passed",
-                "p10_iteration_loop":"passed"
+                "p10_iteration_loop":"passed",
+                "p10_autonomous_rescue":"passed"
+            },
+            "autonomous_rescue_capabilities":{
+                "closed_loop_orchestration":true,
+                "dataset_profiling":true,
+                "failure_interception_and_repair":true,
+                "hypothesis_driven_mutation":true,
+                "multi_fidelity_screening":true,
+                "pareto_optimization":true,
+                "bundle_certification":true
             },
             "diagnostic_bridge_capabilities":{
                 "cgroup_oom":true,

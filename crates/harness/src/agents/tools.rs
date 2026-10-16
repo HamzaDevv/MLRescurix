@@ -384,6 +384,42 @@ impl ToolRegistry {
                     }),
                 },
             },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "profile_dataset".into(),
+                    description: "Inspect and profile a registered dataset to discover schema, nulls, cardinalities, dtypes, class balance, and inferred task type.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "dataset_id": { "type": "string", "description": "Registered dataset ID" },
+                            "target_column": { "type": "string", "description": "Optional target column name" },
+                            "id_column": { "type": "string", "description": "Optional ID column name" }
+                        },
+                        "required": ["dataset_id"]
+                    }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "package_candidate_bundle".into(),
+                    description: "Package an evaluated candidate into an Apex-certified, self-contained mlrescurix.bundle.v2 delivery bundle with clean dependency isolation.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "candidate_id": { "type": "string", "description": "Candidate identifier" },
+                            "dataset_id": { "type": "string", "description": "Registered dataset ID" },
+                            "test_access_id": { "type": "string", "description": "Authenticated sealed test access gate identifier" },
+                            "candidate_path": { "type": "string", "description": "Relative path to candidate in workspace (default 'candidate')" },
+                            "output_bundle_path": { "type": "string", "description": "Relative output bundle path in workspace (default 'bundle')" },
+                            "task_type": { "type": "string", "description": "Task type (default binary_classification)" },
+                            "target_column": { "type": "string", "description": "Target column name (default target)" }
+                        },
+                        "required": ["candidate_id", "dataset_id", "test_access_id"]
+                    }),
+                },
+            },
             ToolDefinition {tool_type:"function".into(),function:ToolFunction {
                 name:"schedule_pipeline".into(),
                 description:"Queue a bounded feature/calibration/ensemble protocol in a verified scientific Docker environment. The Rust supervisor evaluates development data and verifies generated OOF provenance; this does not finalize or certify delivery.".into(),
