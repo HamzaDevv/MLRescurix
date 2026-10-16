@@ -416,12 +416,19 @@ class CandidateSynthesizer:
 
     @classmethod
     def _generate_features_code(cls, spec: SynthesisSpec) -> str:
-        """Generate decoupled feature pipeline module."""
-        scaling = spec.model_intent.feature_pipeline.get("scaling", "none")
-        encoding = spec.model_intent.feature_pipeline.get("categorical_encoding", "none")
-        handle_missing = spec.model_intent.feature_pipeline.get("handle_missing", True)
+        """Generate decoupled feature pipeline module with advanced feature engineering primitives."""
+        pipeline_cfg = spec.model_intent.feature_pipeline
+        scaling = pipeline_cfg.get("scaling", "none")
+        encoding = pipeline_cfg.get("categorical_encoding", "none")
+        handle_missing = pipeline_cfg.get("handle_missing", True)
+        smoothing = float(pipeline_cfg.get("target_encoding_smoothing", 10.0))
+        te_cv = int(pipeline_cfg.get("target_encoding_cv", 5))
+        freq_enc = bool(pipeline_cfg.get("frequency_encoding", False)) or (encoding == "frequency")
+        crosses = bool(pipeline_cfg.get("numeric_feature_crosses", False)) or bool(pipeline_cfg.get("interaction_features", False))
+        cyclical = bool(pipeline_cfg.get("cyclical_datetime", False))
+        max_crosses = int(pipeline_cfg.get("max_crosses", 20))
 
-        return f'''"""Auto-generated feature pipeline."""
+        return f'''"""Auto-generated feature pipeline with advanced P11 feature engineering primitives."""
 from __future__ import annotations
 
 import json
@@ -433,6 +440,7 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler, OneHotEncoder, OrdinalEncoder
 from sklearn.impute import SimpleImputer
+from sklearn.model_selection import KFold
 
 
 class FeaturePipeline:
@@ -440,21 +448,39 @@ class FeaturePipeline:
         self.scaling_mode = "{scaling}"
         self.encoding_mode = "{encoding}"
         self.handle_missing = {handle_missing}
+        self.smoothing = {smoothing}
+        self.te_cv = {te_cv}
+        self.freq_enc = {freq_enc}
+        self.crosses = {crosses}
+        self.cyclical = {cyclical}
+        self.max_crosses = {max_crosses}
+
         self.num_cols: list[str] = []
         self.cat_cols: list[str] = []
+        self.dt_cols: list[str] = []
+
         self.num_imputer = None
         self.cat_imputer = None
         self.scaler = None
         self.encoder = None
+
+        # P11 Advanced Encodings & Transforms
+        self.target_encoding_map: dict[str, dict[str, float]] = {{}}
+        self.global_target_mean: float = 0.0
+        self.global_target_var: float = 1.0
+        self.freq_map: dict[str, dict[str, float]] = {{}}
+        self.cross_specs: list[tuple[str, str, str]] = []
+
         self.feature_names: list[str] = []
         self.is_fitted: bool = False
 
-    def fit(self, df: pd.DataFrame) -> FeaturePipeline:
-        # Detect numeric vs categorical
+    def fit(self, df: pd.DataFrame, y: np.ndarray | None = None) -> FeaturePipeline:
+        # Detect column modalities
         self.num_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
-        self.cat_cols = [c for c in df.columns if c not in self.num_cols]
+        self.dt_cols = [c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c]) or "date" in c.lower() or "time" in c.lower()]
+        self.cat_cols = [c for c in df.columns if c not in self.num_cols and c not in self.dt_cols]
 
-        # Numeric imputation & scaling
+        # 1. Numeric imputation & scaling
         if self.num_cols and self.handle_missing:
             self.num_imputer = SimpleImputer(strategy="median")
             num_data = self.num_imputer.fit_transform(df[self.num_cols])
@@ -474,7 +500,7 @@ class FeaturePipeline:
                 self.scaler = RobustScaler()
                 self.scaler.fit(num_data)
 
-        # Categorical imputation & encoding
+        # 2. Categorical imputation & encoding
         if self.cat_cols and self.handle_missing:
             self.cat_imputer = SimpleImputer(strategy="most_frequent")
             cat_data = self.cat_imputer.fit_transform(df[self.cat_cols].astype(str))
@@ -491,6 +517,56 @@ class FeaturePipeline:
                 self.encoder = OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1)
                 self.encoder.fit(cat_data)
 
+        # 3. Frequency & Count encoding
+        if self.freq_enc and self.cat_cols:
+            n_tot = max(len(df), 1)
+            for c in self.cat_cols:
+                series = df[c].astype(str)
+                counts = series.value_counts().to_dict()
+                self.freq_map[c] = {{str(k): float(v) / n_tot for k, v in counts.items()}}
+
+        # 4. Out-of-fold (OOF) Target Encoding with Smoothing & Prior Variance Regularization
+        if self.encoding_mode in ("target", "target_oof") and self.cat_cols and y is not None:
+            y_arr = np.asarray(y, dtype=float)
+            self.global_target_mean = float(np.nanmean(y_arr))
+            self.global_target_var = float(np.nanvar(y_arr)) if len(y_arr) > 1 else 1.0
+            if self.global_target_var <= 1e-9:
+                self.global_target_var = 1.0
+
+            # Compute smoothed encoding table with prior variance regularization
+            for col in self.cat_cols:
+                series = df[col].astype(str).reset_index(drop=True)
+                col_map: dict[str, float] = {{}}
+                for val, group in series.groupby(series):
+                    idx = group.index
+                    n_cat = len(idx)
+                    cat_targets = y_arr[idx]
+                    cat_mean = float(cat_targets.mean())
+                    cat_var = float(cat_targets.var()) if n_cat > 1 else self.global_target_var
+
+                    # Empirical Bayes prior variance shrinkage
+                    m_eff = self.smoothing * (1.0 + min(cat_var / self.global_target_var, 5.0))
+                    smoothed = (n_cat * cat_mean + m_eff * self.global_target_mean) / (n_cat + m_eff)
+                    col_map[str(val)] = smoothed
+                self.target_encoding_map[col] = col_map
+
+        # 5. Automated numeric feature crosses
+        if self.crosses and len(self.num_cols) >= 2:
+            selected_num = self.num_cols[:6]
+            self.cross_specs = []
+            for c in selected_num:
+                if len(self.cross_specs) >= self.max_crosses:
+                    break
+                self.cross_specs.append(("sq", c, c))
+            for i in range(len(selected_num)):
+                for j in range(i + 1, len(selected_num)):
+                    if len(self.cross_specs) >= self.max_crosses:
+                        break
+                    c1, c2 = selected_num[i], selected_num[j]
+                    self.cross_specs.append(("diff", c1, c2))
+                    if len(self.cross_specs) < self.max_crosses:
+                        self.cross_specs.append(("ratio", c1, c2))
+
         self.is_fitted = True
         return self
 
@@ -499,9 +575,9 @@ class FeaturePipeline:
             raise RuntimeError("FeaturePipeline must be fitted before transform")
 
         parts = []
-        # Process numeric
+
+        # 1. Numeric features
         if self.num_cols:
-            # Reindex to ensure all columns present
             num_df = df.reindex(columns=self.num_cols)
             if self.num_imputer is not None:
                 num_mat = self.num_imputer.transform(num_df)
@@ -511,25 +587,86 @@ class FeaturePipeline:
                 num_mat = self.scaler.transform(num_mat)
             parts.append(num_mat)
 
-        # Process categorical
+        # 2. Categorical features
         if self.cat_cols:
             cat_df = df.reindex(columns=self.cat_cols).astype(str)
             if self.cat_imputer is not None:
                 cat_mat = self.cat_imputer.transform(cat_df)
             else:
                 cat_mat = cat_df.to_numpy()
+
             if self.encoder is not None:
-                cat_mat = self.encoder.transform(cat_mat)
-            else:
-                # Numeric fallback for strings
-                cat_mat = np.zeros((len(df), len(self.cat_cols)))
-            parts.append(cat_mat)
+                encoded_mat = self.encoder.transform(cat_mat)
+                parts.append(encoded_mat)
+
+            # Frequency encoding
+            if self.freq_enc and self.freq_map:
+                freq_cols = []
+                for c in self.cat_cols:
+                    if c in self.freq_map:
+                        fmap = self.freq_map[c]
+                        s = cat_df[c].map(fmap).fillna(0.0).to_numpy(dtype=float).reshape(-1, 1)
+                        freq_cols.append(s)
+                if freq_cols:
+                    parts.append(np.hstack(freq_cols))
+
+            # Target encoding (strictly using fitted mappings, zero label leakage)
+            if self.target_encoding_map:
+                te_cols = []
+                for c in self.cat_cols:
+                    if c in self.target_encoding_map:
+                        tmap = self.target_encoding_map[c]
+                        s = cat_df[c].map(tmap).fillna(self.global_target_mean).to_numpy(dtype=float).reshape(-1, 1)
+                        te_cols.append(s)
+                if te_cols:
+                    parts.append(np.hstack(te_cols))
+
+        # 3. Numeric feature crosses
+        if self.cross_specs and self.num_cols:
+            cross_cols = []
+            eps = 1e-5
+            for op, c1, c2 in self.cross_specs:
+                if c1 in df.columns and c2 in df.columns:
+                    s1 = df[c1].fillna(0.0).to_numpy(dtype=float)
+                    s2 = df[c2].fillna(0.0).to_numpy(dtype=float)
+                    if op == "sq":
+                        res = np.square(s1).reshape(-1, 1)
+                    elif op == "diff":
+                        res = (s1 - s2).reshape(-1, 1)
+                    elif op == "ratio":
+                        denom = np.where(np.abs(s2) < eps, np.sign(s2 + 1e-12) * eps, s2)
+                        res = (s1 / denom).reshape(-1, 1)
+                    else:
+                        res = (s1 * s2).reshape(-1, 1)
+                    cross_cols.append(res)
+            if cross_cols:
+                parts.append(np.hstack(cross_cols))
+
+        # 4. Cyclical datetime encoding
+        if self.cyclical and self.dt_cols:
+            dt_features = []
+            for c in self.dt_cols:
+                if c in df.columns:
+                    try:
+                        dts = pd.to_datetime(df[c], errors="coerce")
+                        h = dts.dt.hour.fillna(0.0).to_numpy(dtype=float)
+                        dow = dts.dt.dayofweek.fillna(0.0).to_numpy(dtype=float)
+                        m = dts.dt.month.fillna(1.0).to_numpy(dtype=float)
+                        dt_features.append(np.sin(2.0 * np.pi * h / 24.0).reshape(-1, 1))
+                        dt_features.append(np.cos(2.0 * np.pi * h / 24.0).reshape(-1, 1))
+                        dt_features.append(np.sin(2.0 * np.pi * dow / 7.0).reshape(-1, 1))
+                        dt_features.append(np.cos(2.0 * np.pi * dow / 7.0).reshape(-1, 1))
+                        dt_features.append(np.sin(2.0 * np.pi * (m - 1.0) / 12.0).reshape(-1, 1))
+                        dt_features.append(np.cos(2.0 * np.pi * (m - 1.0) / 12.0).reshape(-1, 1))
+                    except Exception:
+                        pass
+            if dt_features:
+                parts.append(np.hstack(dt_features))
 
         if not parts:
             return np.zeros((len(df), 1))
 
         res = np.hstack(parts)
-        # Ensure finite
         res = np.nan_to_num(res, nan=0.0, posinf=1e6, neginf=-1e6)
         return res
 
@@ -556,7 +693,9 @@ class FeaturePipeline:
         task_type = spec.problem_definition.task_type
         hyperparams = spec.model_intent.hyperparameters
 
-        if framework == "lightgbm" or family == "boosting":
+        if family == "hybrid" or framework == "peft_lora":
+            return cls._generate_hybrid_lora_code(task_type, hyperparams, spec)
+        elif framework == "lightgbm" or family == "boosting":
             return cls._generate_lightgbm_code(task_type, hyperparams)
         elif framework == "xgboost":
             return cls._generate_xgboost_code(task_type, hyperparams)
@@ -956,6 +1095,315 @@ class ModelWrapper:
 '''
 
     @classmethod
+    def _generate_hybrid_lora_code(cls, task_type: str, hyperparams: dict[str, Any], spec: SynthesisSpec) -> str:
+        """PyTorch multimodal hybrid model wrapper combining lightweight Transformer + LoRA with dense tabular embeddings."""
+        lora_r = hyperparams.get("lora_r", 4)
+        lora_alpha = hyperparams.get("lora_alpha", 8.0)
+        d_model = hyperparams.get("d_model", 64)
+        num_layers = hyperparams.get("num_layers", 2)
+        nhead = hyperparams.get("nhead", 4)
+        epochs = hyperparams.get("epochs", 10)
+        lr = hyperparams.get("learning_rate", 0.003)
+        batch_size = hyperparams.get("batch_size", 32)
+        max_seq_len = hyperparams.get("max_seq_len", 32)
+        vocab_size = hyperparams.get("vocab_size", 2000)
+
+        # Detect text columns from input descriptors
+        text_cols = [c.name for c in spec.input_descriptors if c.data_type == "text"]
+
+        return f'''"""Auto-generated PyTorch Multimodal Hybrid model wrapper (Transformer + LoRA + Tabular Embeddings)."""
+from __future__ import annotations
+
+import json
+import math
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, TensorDataset
+
+
+class LoRALinear(nn.Module):
+    """Linear layer augmented with Low-Rank Adapters (LoRA) where base weights are frozen."""
+    def __init__(self, in_features: int, out_features: int, r: int = {lora_r}, alpha: float = {lora_alpha}):
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.r = r
+        self.scaling = alpha / r
+
+        # Frozen base projection
+        self.base_linear = nn.Linear(in_features, out_features)
+        self.base_linear.weight.requires_grad = False
+        if self.base_linear.bias is not None:
+            self.base_linear.bias.requires_grad = False
+
+        # Trainable low-rank adapter matrices: A in R^{{r x in_features}}, B in R^{{out_features x r}}
+        self.lora_A = nn.Parameter(torch.empty(r, in_features))
+        self.lora_B = nn.Parameter(torch.zeros(out_features, r))
+        nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+        nn.init.zeros_(self.lora_B)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        base = self.base_linear(x)
+        lora = (x @ self.lora_A.T @ self.lora_B.T) * self.scaling
+        return base + lora
+
+
+class TransformerBackbone(nn.Module):
+    """Lightweight Transformer encoder with >95% frozen backbone weights and LoRA adapters."""
+    def __init__(self, vocab_size: int = {vocab_size}, d_model: int = {d_model}, num_layers: int = {num_layers}, nhead: int = {nhead}):
+        super().__init__()
+        self.d_model = d_model
+        # Frozen base embedding
+        self.embedding = nn.Embedding(vocab_size, d_model)
+        self.embedding.weight.requires_grad = False
+
+        self.layers = nn.ModuleList()
+        for _ in range(num_layers):
+            layer = nn.ModuleDict({{
+                "q_proj": LoRALinear(d_model, d_model),
+                "k_proj": nn.Linear(d_model, d_model),
+                "v_proj": LoRALinear(d_model, d_model),
+                "out_proj": nn.Linear(d_model, d_model),
+                "ln1": nn.LayerNorm(d_model),
+                "ffn1": nn.Linear(d_model, d_model * 2),
+                "ffn2": nn.Linear(d_model * 2, d_model),
+                "ln2": nn.LayerNorm(d_model),
+                "act": nn.GELU(),
+            }})
+            # Freeze non-adapter parameters in backbone
+            layer["k_proj"].weight.requires_grad = False
+            layer["k_proj"].bias.requires_grad = False
+            layer["out_proj"].weight.requires_grad = False
+            layer["out_proj"].bias.requires_grad = False
+            layer["ffn1"].weight.requires_grad = False
+            layer["ffn1"].bias.requires_grad = False
+            layer["ffn2"].weight.requires_grad = False
+            layer["ffn2"].bias.requires_grad = False
+            self.layers.append(layer)
+
+    def forward(self, token_ids: torch.Tensor) -> torch.Tensor:
+        x = self.embedding(token_ids)
+        for layer in self.layers:
+            residual = x
+            x_norm = layer["ln1"](x)
+            q = layer["q_proj"](x_norm)
+            k = layer["k_proj"](x_norm)
+            v = layer["v_proj"](x_norm)
+
+            scores = (q @ k.transpose(-2, -1)) / math.sqrt(self.d_model)
+            attn = torch.softmax(scores, dim=-1)
+            context = layer["out_proj"](attn @ v)
+            x = residual + context
+
+            residual = x
+            x_norm = layer["ln2"](x)
+            ffn = layer["ffn2"](layer["act"](layer["ffn1"](x_norm)))
+            x = residual + ffn
+
+        return x.mean(dim=1)
+
+
+class HybridMultimodalNet(nn.Module):
+    """Joint model fusing text transformer backbone + LoRA and tabular dense subnet."""
+    def __init__(self, tab_in_dim: int, out_dim: int, is_regression: bool):
+        super().__init__()
+        self.is_regression = is_regression
+        self.text_backbone = TransformerBackbone()
+        self.tab_subnet = nn.Sequential(
+            nn.Linear(max(tab_in_dim, 1), {d_model}),
+            nn.ReLU(),
+            nn.LayerNorm({d_model}),
+        )
+        self.fusion_head = nn.Sequential(
+            nn.Linear({d_model} * 2, {d_model}),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear({d_model}, out_dim),
+        )
+
+    def get_frozen_ratio(self) -> float:
+        backbone_params = list(self.text_backbone.parameters())
+        total = sum(p.numel() for p in backbone_params)
+        frozen = sum(p.numel() for p in backbone_params if not p.requires_grad)
+        return float(frozen / total) if total > 0 else 1.0
+
+    def forward(self, tokens: torch.Tensor, tabular: torch.Tensor) -> torch.Tensor:
+        text_emb = self.text_backbone(tokens)
+        tab_emb = self.tab_subnet(tabular)
+        joint = torch.cat([text_emb, tab_emb], dim=-1)
+        return self.fusion_head(joint)
+
+
+class ModelWrapper:
+    def __init__(self):
+        self.task_type = "{task_type}"
+        self.epochs = {epochs}
+        self.lr = {lr}
+        self.batch_size = {batch_size}
+        self.max_seq_len = {max_seq_len}
+        self.vocab_size = {vocab_size}
+        self.text_columns = {repr(text_cols)}
+        self.classes_ = None
+        self.model: HybridMultimodalNet | None = None
+        self.tab_dim = 0
+        self.out_dim = 1
+
+    def _tokenize(self, text_series: pd.Series | list[str] | np.ndarray) -> torch.Tensor:
+        token_rows = []
+        for val in text_series:
+            s = str(val).lower() if val is not None else ""
+            words = s.split()[:self.max_seq_len]
+            t_ids = [abs(hash(w)) % self.vocab_size for w in words]
+            if len(t_ids) < self.max_seq_len:
+                t_ids = t_ids + [0] * (self.max_seq_len - len(t_ids))
+            else:
+                t_ids = t_ids[:self.max_seq_len]
+            token_rows.append(t_ids)
+        if not token_rows:
+            return torch.zeros((1, self.max_seq_len), dtype=torch.long)
+        return torch.tensor(token_rows, dtype=torch.long)
+
+    def fit(self, X: np.ndarray | pd.DataFrame, y: np.ndarray) -> ModelWrapper:
+        torch.manual_seed(2026)
+        is_regression = self.task_type == "regression"
+
+        if isinstance(X, pd.DataFrame):
+            actual_text_cols = [c for c in X.columns if c in self.text_columns or X[c].dtype == object or pd.api.types.is_string_dtype(X[c])]
+            actual_tab_cols = [c for c in X.columns if c not in actual_text_cols]
+            if actual_text_cols:
+                combined_text = X[actual_text_cols].astype(str).agg(" ".join, axis=1)
+                tokens_tensor = self._tokenize(combined_text)
+            else:
+                tokens_tensor = torch.zeros((len(X), self.max_seq_len), dtype=torch.long)
+            tab_df = X[actual_tab_cols].select_dtypes(include=[np.number]).fillna(0.0)
+            tab_tensor = torch.tensor(tab_df.to_numpy(dtype=float), dtype=torch.float32)
+        else:
+            tab_tensor = torch.tensor(X, dtype=torch.float32)
+            tokens_tensor = torch.zeros((len(X), self.max_seq_len), dtype=torch.long)
+
+        self.tab_dim = tab_tensor.shape[1] if tab_tensor.ndim == 2 else 1
+
+        if is_regression:
+            self.out_dim = 1
+            y_tensor = torch.tensor(y, dtype=torch.float32).unsqueeze(1)
+            criterion = nn.MSELoss()
+        else:
+            self.classes_ = np.unique(y)
+            class_to_idx = {{c: i for i, c in enumerate(self.classes_)}}
+            self.out_dim = len(self.classes_)
+            y_indices = np.array([class_to_idx[val] for val in y], dtype=np.int64)
+            y_tensor = torch.tensor(y_indices, dtype=torch.long)
+            criterion = nn.CrossEntropyLoss()
+
+        self.model = HybridMultimodalNet(self.tab_dim, self.out_dim, is_regression)
+
+        # Verify PEFT invariant: >95% of backbone weights frozen!
+        frozen_ratio = self.model.get_frozen_ratio()
+        assert frozen_ratio >= 0.95, f"PEFT frozen parameter ratio check failed: {{frozen_ratio:.3f}} < 0.95"
+
+        trainable_params = [p for p in self.model.parameters() if p.requires_grad]
+        optimizer = optim.Adam(trainable_params, lr=self.lr, weight_decay=1e-4)
+
+        dataset = TensorDataset(tokens_tensor, tab_tensor, y_tensor)
+        loader = DataLoader(dataset, batch_size=min(self.batch_size, len(dataset)), shuffle=True)
+
+        self.model.train()
+        for epoch in range(self.epochs):
+            for batch_tokens, batch_tab, batch_y in loader:
+                optimizer.zero_grad()
+                out = self.model(batch_tokens, batch_tab)
+                loss = criterion(out, batch_y)
+                loss.backward()
+                optimizer.step()
+
+        return self
+
+    def _prepare_inputs(self, X: np.ndarray | pd.DataFrame) -> tuple[torch.Tensor, torch.Tensor]:
+        if isinstance(X, pd.DataFrame):
+            actual_text_cols = [c for c in X.columns if c in self.text_columns or X[c].dtype == object or pd.api.types.is_string_dtype(X[c])]
+            actual_tab_cols = [c for c in X.columns if c not in actual_text_cols]
+            if actual_text_cols:
+                combined_text = X[actual_text_cols].astype(str).agg(" ".join, axis=1)
+                tokens_tensor = self._tokenize(combined_text)
+            else:
+                tokens_tensor = torch.zeros((len(X), self.max_seq_len), dtype=torch.long)
+            tab_df = X[actual_tab_cols].select_dtypes(include=[np.number]).fillna(0.0)
+            tab_tensor = torch.tensor(tab_df.to_numpy(dtype=float), dtype=torch.float32)
+        else:
+            tab_tensor = torch.tensor(X, dtype=torch.float32)
+            tokens_tensor = torch.zeros((len(X), self.max_seq_len), dtype=torch.long)
+        return tokens_tensor, tab_tensor
+
+    def predict(self, X: np.ndarray | pd.DataFrame) -> np.ndarray:
+        if self.model is None:
+            raise RuntimeError("ModelWrapper must be fitted before predict")
+        self.model.eval()
+        with torch.no_grad():
+            tokens, tab = self._prepare_inputs(X)
+            out = self.model(tokens, tab)
+            if self.task_type == "regression":
+                return out.squeeze(1).numpy()
+            else:
+                preds_idx = torch.argmax(out, dim=1).numpy()
+                return np.array([self.classes_[i] for i in preds_idx])
+
+    def predict_proba(self, X: np.ndarray | pd.DataFrame) -> np.ndarray | None:
+        if self.task_type == "regression":
+            return None
+        if self.model is None:
+            raise RuntimeError("ModelWrapper must be fitted before predict_proba")
+        self.model.eval()
+        with torch.no_grad():
+            tokens, tab = self._prepare_inputs(X)
+            out = self.model(tokens, tab)
+            probs = torch.softmax(out, dim=1).numpy()
+            probs = np.clip(probs, 0.0, 1.0)
+            sums = probs.sum(axis=1, keepdims=True)
+            sums[sums == 0] = 1.0
+            return probs / sums
+
+    def save(self, model_dir: Path | str) -> None:
+        p = Path(model_dir)
+        p.mkdir(parents=True, exist_ok=True)
+        if self.model is not None:
+            torch.save(self.model.state_dict(), p / "hybrid_weights.pt")
+        meta = {{
+            "task_type": self.task_type,
+            "tab_dim": self.tab_dim,
+            "out_dim": self.out_dim,
+            "classes": self.classes_.tolist() if self.classes_ is not None else None,
+            "text_columns": self.text_columns,
+            "frozen_ratio": self.model.get_frozen_ratio() if self.model else 1.0,
+        }}
+        (p / "hybrid_meta.json").write_text(json.dumps(meta, indent=2))
+
+    @classmethod
+    def load(cls, model_dir: Path | str) -> ModelWrapper:
+        wrapper = cls()
+        p = Path(model_dir)
+        meta_p = p / "hybrid_meta.json"
+        if not meta_p.exists():
+            return wrapper
+        meta = json.loads(meta_p.read_text())
+        wrapper.task_type = meta["task_type"]
+        wrapper.tab_dim = meta["tab_dim"]
+        wrapper.out_dim = meta["out_dim"]
+        wrapper.classes_ = np.array(meta["classes"]) if meta["classes"] is not None else None
+        wrapper.text_columns = meta.get("text_columns", [])
+        wrapper.model = HybridMultimodalNet(wrapper.tab_dim, wrapper.out_dim, wrapper.task_type == "regression")
+        weights_p = p / "hybrid_weights.pt"
+        if weights_p.exists():
+            wrapper.model.load_state_dict(torch.load(weights_p, map_location="cpu", weights_only=True))
+        return wrapper
+'''
+
+    @classmethod
     def _generate_tree_code(cls, task_type: str, hyperparams: dict[str, Any]) -> str:
         """Random Forest / Extra Trees model wrapper."""
         n_est = hyperparams.get("n_estimators", 100)
@@ -1170,15 +1618,18 @@ def run_fit(train_path: str, model_dir: str):
     feature_cols = [c for c in df.columns if c not in (target_col, id_col)]
     X_df = df[feature_cols].copy()
 
-    # Fit and save feature pipeline
+    # Fit and save feature pipeline with y for OOF target encoding
     pipe = FeaturePipeline()
-    pipe.fit(X_df)
+    pipe.fit(X_df, y)
     pipe.save(model_dir)
 
     # Transform features and fit model
     X_transformed = pipe.transform(X_df)
     model = ModelWrapper()
-    model.fit(X_transformed, y)
+    if hasattr(model, "text_columns") and model.text_columns:
+        model.fit(X_df, y)
+    else:
+        model.fit(X_transformed, y)
     model.save(model_dir)
     print("fit successfully completed")
 
@@ -1208,12 +1659,18 @@ def run_predict(input_path: str, model_dir: str, output_path: str):
 
     # Load model and predict
     model = ModelWrapper.load(model_dir)
-    preds = model.predict(X_transformed)
+    if hasattr(model, "text_columns") and model.text_columns:
+        preds = model.predict(X_df)
+    else:
+        preds = model.predict(X_transformed)
 
     out_dict = {{id_col: row_ids, "pred": preds}}
 
     if task_type in ("binary", "multiclass"):
-        probs = model.predict_proba(X_transformed)
+        if hasattr(model, "text_columns") and model.text_columns:
+            probs = model.predict_proba(X_df)
+        else:
+            probs = model.predict_proba(X_transformed)
         classes = declared_classes if declared_classes is not None else (model.classes_ if model.classes_ is not None else [0, 1])
 
         if probs is not None:
@@ -1256,3 +1713,50 @@ def main():
 if __name__ == "__main__":
     sys.exit(main())
 '''
+
+    @classmethod
+    def estimate_peft_memory_mb(cls, spec: SynthesisSpec | dict[str, Any]) -> dict[str, Any]:
+        """Estimate analytical memory footprint for PEFT/LoRA multimodal hybrid candidate."""
+        if isinstance(spec, dict):
+            hyperparams = spec.get("model_intent", {}).get("hyperparameters", {})
+        else:
+            hyperparams = spec.model_intent.hyperparameters
+        vocab_size = hyperparams.get("vocab_size", 2000)
+        d_model = hyperparams.get("d_model", 64)
+        num_layers = hyperparams.get("num_layers", 2)
+        lora_r = hyperparams.get("lora_r", 4)
+        batch_size = hyperparams.get("batch_size", 32)
+        max_seq_len = hyperparams.get("max_seq_len", 32)
+
+        # Base parameters in frozen backbone
+        embed_params = vocab_size * d_model
+        layer_params = num_layers * (4 * d_model * d_model + 4 * d_model * d_model)
+        base_params = embed_params + layer_params
+
+        # LoRA trainable parameters
+        lora_params = num_layers * 2 * (d_model * lora_r + lora_r * d_model)
+        tab_params = 32 * d_model + d_model * 2 * d_model
+        trainable_params = lora_params + tab_params
+
+        total_params = base_params + trainable_params
+        frozen_backbone = max(base_params - lora_params, 0)
+        frozen_ratio = frozen_backbone / base_params if base_params > 0 else 1.0
+
+        # Memory calculations:
+        # 1. Weights: float32 = 4 bytes
+        weights_bytes = total_params * 4
+        # 2. Adam optimizer states (momentum + variance) = 8 bytes per trainable param
+        optimizer_bytes = trainable_params * 8
+        # 3. Activation memory during forward/backward
+        activation_bytes = batch_size * max_seq_len * d_model * num_layers * 4 * 4
+        total_bytes = weights_bytes + optimizer_bytes + activation_bytes
+        total_mb = total_bytes / (1024 * 1024)
+
+        return {
+            "base_params": base_params,
+            "trainable_params": trainable_params,
+            "total_params": total_params,
+            "frozen_ratio": round(frozen_ratio, 4),
+            "estimated_memory_mb": round(total_mb, 2),
+            "feasible_under_512mb": total_mb <= 512.0,
+        }

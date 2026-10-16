@@ -58,6 +58,7 @@ class SafeTensorsPredictor:
         self.task = self.meta.get("task", "binary_classification")
         self.features = self.meta.get("features", [])
         self.classes = np.array(self.meta.get("classes", [0, 1]))
+        self.decision_threshold = float(self.meta.get("decision_threshold", 0.5))
 
     def predict(self, records: list[dict[str, Any]] | np.ndarray) -> dict[str, Any]:
         """Compute predictions using extracted tensors and NumPy operations."""
@@ -89,12 +90,13 @@ class SafeTensorsPredictor:
                 prob_1 = 1.0 / (1.0 + np.exp(-np.clip(z_flat, -50.0, 50.0)))
                 prob_0 = 1.0 - prob_1
                 probs = np.column_stack([prob_0, prob_1])
+                pred_indices = (prob_1 >= self.decision_threshold).astype(int)
             else:
                 # Multiclass softmax
                 exp_z = np.exp(z - np.max(z, axis=1, keepdims=True))
                 probs = exp_z / np.sum(exp_z, axis=1, keepdims=True)
+                pred_indices = np.argmax(probs, axis=1)
 
-            pred_indices = np.argmax(probs, axis=1)
             preds = self.classes[pred_indices].tolist()
             return {
                 "prediction": preds,
@@ -117,6 +119,10 @@ def export_model(
     features: list[str] | None = None,
     classes: list[Any] | None = None,
     tolerances: dict[str, float] | None = None,
+    decision_threshold: float | None = None,
+    calibration_method: str | None = None,
+    calibration_metrics: dict[str, Any] | None = None,
+    reliability_curves: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Export fitted model into specified formats enforcing strict sandbox boundaries.
 
@@ -146,6 +152,14 @@ def export_model(
         "formats": {},
         "tolerances": declared_tolerances,
     }
+    if decision_threshold is not None:
+        manifest["decision_threshold"] = float(decision_threshold)
+    if calibration_method is not None:
+        manifest["calibration_method"] = str(calibration_method)
+    if calibration_metrics is not None:
+        manifest["calibration_metrics"] = calibration_metrics
+    if reliability_curves is not None:
+        manifest["reliability_curves"] = reliability_curves
 
     # 1. Native Joblib Export
     if "joblib" in formats:
@@ -190,6 +204,7 @@ def export_model(
                 "classes": manifest["classes"],
                 "has_scaler": scaler is not None,
                 "tensors": list(tensors.keys()),
+                "decision_threshold": decision_threshold if decision_threshold is not None else 0.5,
             }
             (out_dir / "safetensors_meta.json").write_text(json.dumps(meta_data, indent=2), encoding="utf-8")
 
@@ -200,7 +215,21 @@ def export_model(
                 "zero_pickle": True,
             }
 
-    # 3. Save export manifest and documented tolerances
+    # 3. Model schema contract serialization
+    model_schema = {
+        "format": "mlrescurix.schema.v2",
+        "task": task,
+        "model_type": type(model).__name__,
+        "features": features or [],
+        "classes": manifest["classes"] if task != "regression" else None,
+        "decision_threshold": decision_threshold if decision_threshold is not None else 0.5,
+        "calibration_method": calibration_method or "none",
+        "calibration_metrics": calibration_metrics or {},
+        "reliability_curves": reliability_curves or {},
+    }
+    (out_dir / "model_schema.json").write_text(json.dumps(model_schema, indent=2), encoding="utf-8")
+
+    # 4. Save export manifest and documented tolerances
     (out_dir / "tolerances.json").write_text(json.dumps(declared_tolerances, indent=2), encoding="utf-8")
     (out_dir / "export_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return manifest

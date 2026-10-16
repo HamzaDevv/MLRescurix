@@ -525,3 +525,45 @@ D46 is implemented in `contracts/v2/autonomous_rescue.schema.json`, `python/src/
      h) Full autonomous end-to-end closed loop running from raw dataset to final delivery bundle under hard resource budgets without manual developer code edits.
 5. **Phase P10.4 Acceptance Gate Closure**:
    - Verified across 5 integration tests in `crates/harness/tests/autonomous_rescue_p10.rs`, 6 unit tests in `python/tests/test_p10_autonomous_rescue.py` (110 total in Python test suite), 24 unit tests in `crates/harness/src/lib.rs`, and 171 tests across full repository regression suites (305 total passed tests, 0 failures). Evidence captured in `docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/`. Phase P10.4 and Phase P10 are closed. M6 remains independently NOT READY.
+
+### Phase P11 Advanced Model Training & Apex Handoff Engine decisions (2026-10-16)
+
+D47 is implemented in `contracts/v2/candidate_synthesis.schema.json`, `contracts/v2/candidate_bundle.schema.json`, `python/src/mlrescurix_worker/scientific/pareto_ensemble.py`, `python/src/mlrescurix_worker/scientific/features.py`, `python/src/mlrescurix_worker/scientific/calibration.py`, `python/src/mlrescurix_worker/scientific/export.py`, `python/src/mlrescurix_worker/scientific/candidate_synthesis.py`, `python/src/mlrescurix_worker/scientific/autonomous_rescue.py`, `python/src/mlrescurix_worker/scientific/ensemble.py`, `python/src/mlrescurix_worker/scientific/cli.py`, `crates/harness/src/assets.rs`, `crates/harness/src/main.rs`, `crates/harness/tests/training_handoff_p11.rs`, and `python/tests/test_p11_training_handoff.py`.
+1. **Multi-Model Pareto Stacking & Blending Engine**:
+   - Implemented `ParetoEnsembleSynthesizer` in `python/src/mlrescurix_worker/scientific/pareto_ensemble.py`.
+   - Queries non-dominated candidate models from the Pareto frontier (`query_pareto_frontier`), collects out-of-fold validation predictions across heterogeneous model families (LightGBM, XGBoost, CatBoost, PyTorch MLP/TabNet), and fits regularized meta-learners via SLSQP bounded Bayesian/constrained blending weights ($\sum w_i = 1$, $w_i \ge 0$) or regularized Ridge/ElasticNet linear meta-estimators.
+   - Generates standalone, self-contained `ensemble/entrypoint.py`, `model.py`, `features.py`, and `manifest.json` that encapsulates all sub-model weights, preprocessing pipelines, and meta-learners for dependency-isolated execution without requiring training infrastructure.
+   - Exposed CLI subcommand `pareto-ensemble` in `cli.py` and embedded in binary assets (`assets.rs`).
+2. **Automated Feature Interaction & Regularized Encoding Primitives**:
+   - Expanded `CandidateSynthesizer` with four leakage-free feature engineering blocks in `python/src/mlrescurix_worker/scientific/features.py`:
+     a) `OutOfFoldTargetEncoder`: Out-of-fold (OOF) target encoding with $m$-estimate smoothing and prior variance regularization for high-cardinality categoricals, guaranteeing zero target leakage to validation and test folds.
+     b) `FrequencyEncoder`: High-cardinality count and frequency ratio encoding with fallback handling for unobserved categories.
+     c) `NumericFeatureCrosses`: Automated pairwise numeric crosses (products, ratios with division stability $\epsilon = 10^{-5}$, differences, polynomial terms).
+     d) `CyclicalDatetimeEncoder`: Sine and cosine periodic transformations for cyclical datetime components (hour of day, day of week, day of month, month of year).
+   - Automated code generation in `_generate_features_code` and `_generate_entrypoint_code` embedding these primitives directly into candidate feature pipelines.
+3. **Post-Training Probability Calibration & Threshold Optimization**:
+   - Implemented post-fit probability calibration using Platt Scaling (Logistic Regression) or Isotonic Regression on held-out validation folds with monotonicity guarantees in `python/src/mlrescurix_worker/scientific/calibration.py`.
+   - Metric computation for Brier score and binned reliability curves (expected calibration error, observed vs predicted probabilities).
+   - Metric-driven decision threshold optimization: grid search over candidate decision thresholds maximizing F1-score, balanced accuracy, or minimizing custom business cost matrices on imbalanced datasets.
+   - Serialization into `manifest.json` and `model_schema.json` under `mlrescurix.bundle.v2` in `export.py` and `autonomous_rescue.py`.
+   - Standalone `inference.py` and `serve.py` automatically load `model_schema.json` and apply the calibrated `decision_threshold` during point prediction.
+4. **Hybrid Multimodal Column Training (PEFT / LoRA Primitives)**:
+   - Added support in `CandidateSynthesizer` for hybrid datasets containing mixed tabular numerical/categorical columns and unstructured text columns.
+   - Synthesizes a joint PyTorch model architecture combining a lightweight pretrained transformer backbone (e.g. ModernBERT or DeBERTa-v3) with low-rank adapters (LoRA / BitFit) where $>95\%$ of backbone parameters are frozen, concatenated with tabular dense embeddings.
+   - Enforces memory caps via analytical memory estimators (`estimate_peft_memory_mb`) and fast Tier 0 proxy screening ($N \le 500$, 15s deadline) before Tier 1 cross-validation.
+5. **Harness Integration, Control Plane, & Invariants**:
+   - Strictly retained `PRAGMA user_version = 10` with zero schema version bump.
+   - Updated `contracts/v2/candidate_synthesis.schema.json` and `contracts/v2/candidate_bundle.schema.json` with Draft 2020-12 schemas for calibration parameters, decision thresholds, and model schema contracts.
+   - Updated `crates/harness/src/main.rs` registering `"p11_training_handoff": "passed"` in `v2_release_gates` and exposing `training_handoff_capabilities`.
+   - Embedded `pareto_ensemble.py` into binary assets via `EMBEDDED_PYTHON_FILES` (`crates/harness/src/assets.rs`).
+   - Kept historical `docs/evidence/m6/` completely untouched.
+6. **Negative Scientific Guards & Verification Gate**:
+   - Comprehensive test suite covering all P11 capabilities:
+     a) Out-of-fold target encoding zero leakage: train/test split feature values remain independent, preventing lookahead leakage.
+     b) Monotonicity and Brier score reduction under Platt scaling and Isotonic probability calibration.
+     c) Metric-driven decision threshold optimization outperforming default 0.5 threshold on imbalanced classification.
+     d) Hybrid PEFT/LoRA memory estimation and $\ge 95\%$ frozen backbone parameter verification.
+     e) Stacked ensemble standalone entrypoint generation with Bayesian blend weight optimization.
+     f) Bundle integrity and tamper detection: tampered `model_schema.json` or untracked candidate files are strictly rejected by `crates/harness/src/bundle.rs`.
+7. **Phase P11 Acceptance Gate Closure**:
+   - Verified across 5 integration tests in `crates/harness/tests/training_handoff_p11.rs`, 10 unit tests in `python/tests/test_p11_training_handoff.py` (120 total in Python test suite), 24 unit tests in `crates/harness/src/lib.rs`, and 176 tests across full repository regression suites (320 total passed tests, 0 failures). Evidence captured in `docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/`. Phase P11 is closed. M6 remains independently NOT READY.

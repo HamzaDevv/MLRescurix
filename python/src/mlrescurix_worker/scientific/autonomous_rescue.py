@@ -416,8 +416,47 @@ def bundle_candidate(
 
     model.fit(X_dev_num, y_dev)
 
+    # Post-fit probability calibration & threshold optimization on dev fold (zero test leakage)
+    calib_method = "none"
+    calib_metrics: dict[str, Any] = {}
+    reliability_curves: dict[str, Any] = {}
+    decision_threshold = 0.5
+
+    if not is_regression and hasattr(model, "predict_proba"):
+        from .calibration import calibrate_probabilities, optimize_decision_threshold
+        dev_probs = model.predict_proba(X_dev_num)
+        classes_list = [int(c) if isinstance(c, (int, np.integer)) else str(c) for c in getattr(model, "classes_", [0, 1])]
+        if len(classes_list) == 2:
+            try:
+                calib_res = calibrate_probabilities(y_dev, dev_probs, method="isotonic", classes=classes_list)
+                calib_method = "isotonic"
+                calib_metrics = {
+                    "brier_before": calib_res["brier_before"],
+                    "brier_after": calib_res["brier_after"],
+                    "brier_delta": calib_res["brier_delta"],
+                }
+                reliability_curves = {
+                    "before": calib_res["reliability_curve_before"],
+                    "after": calib_res["reliability_curve_after"],
+                }
+                thresh_res = optimize_decision_threshold(
+                    y_dev,
+                    calib_res["calibrated_probabilities"],
+                    metric="balanced_accuracy",
+                    pos_class=classes_list[1],
+                )
+                decision_threshold = float(thresh_res["optimal_threshold"])
+            except Exception:
+                pass
+
     # Evaluate on held-out test set
-    test_preds = model.predict(X_test_num)
+    if not is_regression and hasattr(model, "predict_proba") and len(getattr(model, "classes_", [])) == 2:
+        test_p = model.predict_proba(X_test_num)
+        test_pos = test_p[:, 1] if test_p.ndim == 2 else test_p
+        test_preds = np.where(test_pos >= decision_threshold, model.classes_[1], model.classes_[0])
+    else:
+        test_preds = model.predict(X_test_num)
+
     if is_regression:
         test_metric_val = float(root_mean_squared_error(y_test, test_preds))
         metric_name = "rmse"
@@ -449,8 +488,22 @@ def bundle_candidate(
         "task": task_type,
         "prediction_type": "float" if is_regression else "integer",
         "classes": [int(c) for c in getattr(model, "classes_", [])] if not is_regression else None,
+        "decision_threshold": decision_threshold if not is_regression else None,
     }
     (bundle_path / "output_schema.json").write_text(json.dumps(output_schema, indent=2), encoding="utf-8")
+
+    model_schema = {
+        "format": "mlrescurix.schema.v2",
+        "task": task_type,
+        "model_type": type(model).__name__,
+        "features": num_cols,
+        "classes": [int(c) for c in getattr(model, "classes_", [])] if not is_regression else None,
+        "decision_threshold": decision_threshold if not is_regression else 0.5,
+        "calibration_method": calib_method,
+        "calibration_metrics": calib_metrics,
+        "reliability_curves": reliability_curves,
+    }
+    (bundle_path / "model_schema.json").write_text(json.dumps(model_schema, indent=2), encoding="utf-8")
 
     # 3. Scorecard
     dataset_sha = _sha256_file(data_path)
@@ -499,17 +552,25 @@ import pandas as pd
 _DIR = Path(__file__).resolve().parent
 _MODEL = None
 _SCHEMA = None
+_THRESHOLD = 0.5
 
 def _load_model():
-    global _MODEL, _SCHEMA
+    global _MODEL, _SCHEMA, _THRESHOLD
     if _MODEL is None:
         _MODEL = joblib.load(_DIR / "frozen_model.joblib")
         _SCHEMA = json.loads((_DIR / "input_schema.json").read_text(encoding="utf-8"))
-    return _MODEL, _SCHEMA
+        ms_path = _DIR / "model_schema.json"
+        if ms_path.is_file():
+            try:
+                ms = json.loads(ms_path.read_text(encoding="utf-8"))
+                _THRESHOLD = float(ms.get("decision_threshold", 0.5))
+            except Exception:
+                _THRESHOLD = 0.5
+    return _MODEL, _SCHEMA, _THRESHOLD
 
 def predict(records):
     """Generate predictions for a list of input records."""
-    model, schema = _load_model()
+    model, schema, threshold = _load_model()
     features = schema.get("features", [])
     if not isinstance(records, list):
         raise ValueError("records must be a list of dictionaries")
@@ -526,11 +587,19 @@ def predict(records):
 
     df = pd.DataFrame(records)
     X = df[features].fillna(0.0)
-    preds = model.predict(X).tolist()
-    res = {{"prediction": preds}}
+    res = {{}}
     if hasattr(model, "predict_proba"):
-        res["probabilities"] = model.predict_proba(X).tolist()
+        probs = model.predict_proba(X)
+        res["probabilities"] = probs.tolist()
         res["classes"] = [int(c) if isinstance(c, (int, np.integer)) else str(c) for c in model.classes_]
+        if len(res["classes"]) == 2 and threshold is not None:
+            p_pos = probs[:, 1] if probs.ndim == 2 else probs
+            preds_idx = (p_pos >= threshold).astype(int)
+            res["prediction"] = [res["classes"][i] for i in preds_idx]
+        else:
+            res["prediction"] = model.predict(X).tolist()
+    else:
+        res["prediction"] = model.predict(X).tolist()
     return res
 
 if __name__ == "__main__":
@@ -628,11 +697,20 @@ if __name__ == "__main__":
     sample_rows = X_test_num.head(5).to_dict(orient="records")
     (bundle_path / "examples_input.json").write_text(json.dumps(sample_rows, indent=2), encoding="utf-8")
 
-    sample_preds = model.predict(X_test_num.head(5)).tolist()
-    expected_out: dict[str, Any] = {"prediction": sample_preds}
+    sample_df = pd.DataFrame(sample_rows)[num_cols].fillna(0.0)
+    expected_out: dict[str, Any] = {}
     if hasattr(model, "predict_proba"):
-        expected_out["probabilities"] = model.predict_proba(X_test_num.head(5)).tolist()
+        sample_probs = model.predict_proba(sample_df)
+        expected_out["probabilities"] = sample_probs.tolist()
         expected_out["classes"] = [int(c) if isinstance(c, (int, np.integer)) else str(c) for c in model.classes_]
+        if len(expected_out["classes"]) == 2 and decision_threshold is not None:
+            p_pos = sample_probs[:, 1] if sample_probs.ndim == 2 else sample_probs
+            preds_idx = (p_pos >= decision_threshold).astype(int)
+            expected_out["prediction"] = [expected_out["classes"][i] for i in preds_idx]
+        else:
+            expected_out["prediction"] = model.predict(sample_df).tolist()
+    else:
+        expected_out["prediction"] = model.predict(sample_df).tolist()
     (bundle_path / "examples_expected.json").write_text(json.dumps(expected_out, indent=2), encoding="utf-8")
 
     # 10. README.md
@@ -642,6 +720,8 @@ if __name__ == "__main__":
 - Task: {task_type}
 - Primary Metric ({metric_name}): {test_metric_val:.4f}
 - Sealed Test Gate: {test_access_id}
+- Decision Threshold: {decision_threshold:.4f}
+- Calibration Method: {calib_method}
 
 ## Standalone CLI Prediction
 ```sh
@@ -674,6 +754,10 @@ python3 serve.py --port 8080
             "weights_sha256": frozen_model_sha,
             "format": "joblib",
             "tolerances": {"rtol": 1e-5, "atol": 1e-7 if not is_regression else 1e-6},
+            "decision_threshold": decision_threshold if not is_regression else 0.5,
+            "calibration_method": calib_method,
+            "calibration_metrics": calib_metrics,
+            "reliability_curves": reliability_curves,
         },
         "pipeline": {
             "feature_pipeline": "inference.py",
@@ -684,6 +768,7 @@ python3 serve.py --port 8080
             "api": "predict(records)",
             "input_schema": "input_schema.json",
             "output_schema": "output_schema.json",
+            "model_schema": "model_schema.json",
         },
         "dependencies": {
             "training_lock": "training.lock",
@@ -691,6 +776,10 @@ python3 serve.py --port 8080
             "isolated_inference": True,
         },
         "scorecard": {
+            "path": "scorecard.json",
+            "sha256": _sha256_file(bundle_path / "scorecard.json"),
+        },
+        "lineage": {
             "path": "scorecard.json",
             "sha256": _sha256_file(bundle_path / "scorecard.json"),
         },

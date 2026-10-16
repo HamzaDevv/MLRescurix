@@ -61,9 +61,16 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
     3. Rust Harness: Additive idempotent DDL (`crates/harness/src/schema_p10_rescue.sql`) creating `autonomous_rescue_sessions` under `PRAGMA user_version = 10`. Implemented Rust domain models, queries, and CLI process wrappers in `crates/harness/src/rescue.rs`. Registered `profile_dataset` and `package_candidate_bundle` tools in `ToolRegistry` and agent roles. Enhanced `request_finalization` with autonomous candidate bundle packaging and verification gate with safe rollback and two-key gate semantics. Exposed `profile-dataset` and `package-candidate-bundle` CLI subcommands and updated `Capabilities`.
     4. Closed-Loop Verification Gate: Comprehensive integration test suite verifying dataset profiling, injected failure healing, bundle contract integrity, standalone inference and HTTP serve parity, sealed holdout leakage prevention, tamper detection, and RBAC authorization.
     Verified across 5 integration tests in `crates/harness/tests/autonomous_rescue_p10.rs`, 6 unit tests in `python/tests/test_p10_autonomous_rescue.py` (110 total in Python test suite), 24 unit tests in `crates/harness/src/lib.rs`, and 171 tests across full repository regression suites (305 total passed tests, 0 failures). Fresh logs in `docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/`. Phase P10 is closed.
+  - P11 (Advanced Model Training & Apex Handoff Engine and Acceptance Gate) complete and verified:
+    1. Multi-Model Pareto Stacking & Blending Engine: `ParetoEnsembleSynthesizer` in `pareto_ensemble.py` queries non-dominated Pareto frontier models, aggregates OOF validation predictions across diverse families, fits SLSQP constrained Bayesian blend weights or regularized Ridge/ElasticNet meta-learners, and generates standalone entrypoint/manifest contracts for isolated deployment without training infrastructure. Exposed `pareto-ensemble` CLI subcommand.
+    2. Automated Feature Interaction & Regularized Encoding Primitives: `OutOfFoldTargetEncoder` with m-estimate smoothing and prior variance regularization (strictly zero test-fold leakage), `FrequencyEncoder`, `NumericFeatureCrosses` with division stability guard $\epsilon = 10^{-5}$, and `CyclicalDatetimeEncoder` ($\sin/\cos$) in `features.py` embedded directly into candidate synthesis pipelines.
+    3. Post-Training Probability Calibration & Threshold Optimization: Platt scaling and isotonic regression in `calibration.py`, Brier score and reliability curves, metric-driven decision threshold search (F1, balanced accuracy, cost matrix) for imbalanced classification, serialized into `model_schema.json` and `manifest.json` under `mlrescurix.bundle.v2`. Standalone `inference.py` and `serve.py` evaluate against `decision_threshold`.
+    4. Hybrid Multimodal Column Training (PEFT / LoRA): PyTorch tabular and transformer joint architecture with $>95\%$ frozen backbone parameters and analytical memory feasibility bounds estimation (`estimate_peft_memory_mb`).
+    5. Harness Integration, Control Plane, Capabilities, & Invariants: Retained `PRAGMA user_version = 10`, updated Draft 2020-12 schemas in `contracts/v2/`, registered `p11_training_handoff: passed` in `v2_release_gates`, exposed `training_handoff_capabilities`, and embedded `pareto_ensemble.py` into binary assets.
+    Verified across 5 integration tests in `crates/harness/tests/training_handoff_p11.rs`, 10 unit tests in `python/tests/test_p11_training_handoff.py` (120 total in Python test suite), 24 unit tests in `crates/harness/src/lib.rs`, and 176 tests across full repository regression suites (320 total passed tests, 0 failures). Fresh logs in `docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/`. Phase P11 is closed.
 - Release: M6 remains **NOT READY**, as recorded in `docs/m6-completion-status.md`.
-  - Authorization: P10.1, P10.2, P10.3, and P10.4 were completed and verified.
-  - Phase P10 (Autonomous Candidate Synthesis & Iterative Refinement Loop) is fully closed and verified. M6 release gates remain independently open.
+  - Authorization: P10 and P11 were completed and verified.
+  - Phase P11 (Advanced Model Training & Apex Handoff Engine) is fully closed and verified. M6 release gates remain independently open.
 
 | Phase | Status | Evidence / next step |
 | --- | --- | --- |
@@ -78,6 +85,7 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
 | P8 | complete | P8.1–P8.5 and full Phase P8 Acceptance Gate verified across 11 tests in feasibility_p8, 6 tests in test_p8_feasibility.py, and full regression suites (202 total passed tests, 0 failures). Fresh logs in `docs/evidence/v2/p8/20261015-p8-gate-closure/`. M6 remains independently NOT READY. |
 | P9 | complete (P9.1–P9.4) | P9.1 Out-of-Core / Arrow, P9.2 Time-Series, P9.3 Anomaly/Clustering, and P9.4 Frozen-Embedding adapters complete and fully evidenced across 12 tests in adapters_p9, 25 tests in Python adapter suites, and 253 total passed tests across full repository regression suites. Evidence in `docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/`. P9 adapters serve as optional primitives. |
 | P10 | complete | P10.1 Autonomous Candidate Synthesis Engine, P10.2 Structured Diagnostic Feedback Bridge, P10.3 Multi-Fidelity Iteration & Hypothesis Loop, and P10.4 Autonomous End-to-End Model Rescue Gate complete and fully evidenced across 5 tests in autonomous_rescue_p10, 5 tests in iteration_loop_p10, 6 tests in candidate_synthesis_p10, 6 tests in diagnostic_bridge_p10, 26 unit tests in test_p10_*.py, and 305 total passed tests across full repository regression suites. Evidence in `docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/`. Phase P10 is closed. |
+| P11 | complete | Multi-Model Pareto Stacking & Blending Engine, Automated Feature Interaction & Regularized Encoding Primitives, Post-Training Probability Calibration & Threshold Optimization, Hybrid Multimodal Column Training (PEFT/LoRA), and Deterministic Verification Suite complete and fully evidenced across 5 tests in training_handoff_p11, 10 tests in test_p11_training_handoff.py, and 320 total passed tests across full repository regression suites. Evidence in `docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/`. Phase P11 is closed. |
 
 Allowed implementation statuses: planned, in_progress, blocked, implemented_unverified,
 verified, complete. Complete requires the phase gate and evidence; code presence
@@ -1553,6 +1561,101 @@ Budget / compatibility / migration implications:
   - Historical evidence in docs/evidence/m6/ left completely untouched.
 Next small actionable slice:
   - Phase P10 is complete. Await user authorization for subsequent development or release activities.
+```
+
+### Implementation Session 2026-10-16 (P11 Advanced Model Training & Apex Handoff Engine Slice)
+
+```text
+Date / phase / task IDs: 2026-10-16 / P11 / P11 (Advanced Model Training & Apex Handoff Engine)
+User-authorized scope:
+  - Phase P11: Advanced Model Training & Apex Handoff Engine focusing on multi-model Pareto stacking & blending, automated feature interaction & regularized encoding primitives, post-training probability calibration & metric-driven threshold optimization, hybrid multimodal column training (PEFT/LoRA), and deterministic verification suite.
+Starting commit and pre-existing dirty files:
+  - Starting commit: 886f5b2a9435ece344cdd0f6007a2facab073c04
+  - Pre-existing dirty files: None (working tree clean on branch 'main')
+Changes and source paths:
+  - contracts/v2/candidate_synthesis.schema.json: Added hybrid family, peft_lora framework, target_oof/frequency encodings, and feature pipeline configuration flags.
+  - contracts/v2/candidate_bundle.schema.json: Added decision_threshold, calibration_method, calibration_metrics, and reliability_curves to model schema.
+  - python/src/mlrescurix_worker/scientific/pareto_ensemble.py: Authored ParetoEnsembleSynthesizer, SLSQP constrained Bayesian blend weight optimization, and standalone ensemble candidate entrypoint/manifest generator.
+  - python/src/mlrescurix_worker/scientific/features.py: Implemented OutOfFoldTargetEncoder with m-estimate smoothing and prior variance regularization, FrequencyEncoder, NumericFeatureCrosses with epsilon=1e-5 stability guard, and CyclicalDatetimeEncoder.
+  - python/src/mlrescurix_worker/scientific/calibration.py: Implemented Platt scaling and isotonic regression, Brier score calculation, binned reliability curves, and metric-driven decision threshold search (F1, balanced accuracy, cost matrix).
+  - python/src/mlrescurix_worker/scientific/export.py: Added SafeTensorsPredictor calibration and threshold fields, model_schema.json serialization, and inference application.
+  - python/src/mlrescurix_worker/scientific/candidate_synthesis.py: Embedded feature engineering blocks, hybrid PEFT/LoRA code generator with >95% frozen backbone ratio, and analytical memory feasibility estimator.
+  - python/src/mlrescurix_worker/scientific/autonomous_rescue.py: Integrated post-fit calibration, threshold search, model_schema.json serialization, manifest lineage, and standalone thresholded inference into bundle_candidate.
+  - python/src/mlrescurix_worker/scientific/ensemble.py: Re-exported Pareto ensemble primitives and SLSQP blend optimizer.
+  - python/src/mlrescurix_worker/scientific/cli.py: Exposed pareto-ensemble CLI subcommand.
+  - crates/harness/src/assets.rs: Embedded pareto_ensemble.py into EMBEDDED_PYTHON_FILES.
+  - crates/harness/src/main.rs: Registered p11_training_handoff: passed in v2_release_gates and exposed training_handoff_capabilities.
+  - crates/harness/tests/training_handoff_p11.rs: Comprehensive 5-test integration suite for P11 capabilities and negative guards.
+  - python/tests/test_p11_training_handoff.py: Comprehensive 10-test Python unit suite for P11.
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/: Captured 25 evidence log files, capabilities.json, and summary.md.
+  - D47 added to docs/v2/DECISIONS.md (Phase P11 Advanced Model Training & Apex Handoff Engine architecture).
+  - docs/v2/ROADMAP.md and docs/v2/PROGRESS.md updated to reflect complete Phase P11 closure.
+Decisions added or revised:
+  - Decision D47 added to docs/v2/DECISIONS.md.
+Exact verification commands and exit results:
+  - cargo test --locked --test training_handoff_p11 (exit code 0; 5 passed, 0 failed)
+  - PYTHONPATH=python/src pytest python/tests/test_p11_training_handoff.py (exit code 0; 10 passed, 0 failed)
+  - cargo test --locked --test autonomous_rescue_p10 (exit code 0; 5 passed, 0 failed)
+  - PYTHONPATH=python/src pytest python/tests/test_p10_autonomous_rescue.py (exit code 0; 6 passed, 0 failed)
+  - cargo test --locked --test iteration_loop_p10 (exit code 0; 5 passed, 0 failed)
+  - PYTHONPATH=python/src pytest python/tests/test_p10_iteration_loop.py (exit code 0; 6 passed, 0 failed)
+  - cargo test --locked --test diagnostic_bridge_p10 (exit code 0; 6 passed, 0 failed)
+  - PYTHONPATH=python/src pytest python/tests/test_p10_diagnostic_bridge.py (exit code 0; 8 passed, 0 failed)
+  - cargo test --locked --test candidate_synthesis_p10 (exit code 0; 6 passed, 0 failed)
+  - PYTHONPATH=python/src pytest python/tests/test_p10_candidate_synthesis.py (exit code 0; 6 passed, 0 failed)
+  - cargo test --locked --test adapters_p9 (exit code 0; 12 passed, 0 failed)
+  - cargo test --locked --test feasibility_p8 (exit code 0; 11 passed, 0 failed)
+  - cargo test --locked --test release_p7 (exit code 0; 8 passed, 0 failed)
+  - cargo test --locked --test dashboard_p6 (exit code 0; 9 passed, 0 failed)
+  - cargo test --locked --test collaboration_p5 (exit code 0; 11 passed, 0 failed)
+  - cargo test --locked --test candidate_tools_p4 (exit code 0; 9 passed, 0 failed)
+  - cargo test --locked --test resource_broker_p3 -- --test-threads=2 (exit code 0; 13 passed, 0 failed)
+  - cargo test --locked --test artifact_registry_p2 (exit code 0; 14 passed, 0 failed)
+  - cargo test --locked --test agent_m4 (exit code 0; 23 passed, 0 failed)
+  - cargo test --locked --test foundation -- --test-threads=2 (exit code 0; 26 passed, 0 failed)
+  - cargo test --locked --test recovery_cycles -- --test-threads=2 (exit code 0; 8 passed, 2 ignored, 0 failed)
+  - cargo test --locked --test release_m6 (exit code 0; 5 passed, 3 ignored, 0 failed)
+  - cargo test --locked --lib (exit code 0; 24 passed, 2 ignored, 0 failed)
+  - PYTHONPATH=python/src pytest python/tests/ -k "not test_real_container_tmpfs_enospc_never_publishes" (exit code 0; 120 passed, 1 deselected, 0 failed)
+  - Total passed tests: 320 passed, 0 failed across full repository suites.
+Evidence paths plus source/image/schema hashes:
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/capabilities.json
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/test_training_handoff_p11.log
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/test_p11_training_handoff_py.log
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/test_autonomous_rescue_p10.log
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/test_p10_autonomous_rescue_py.log
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/test_iteration_loop_p10.log
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/test_p10_iteration_loop_py.log
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/test_diagnostic_bridge_p10.log
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/test_p10_diagnostic_bridge_py.log
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/test_candidate_synthesis_p10.log
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/test_p10_candidate_synthesis_py.log
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/test_adapters_p9.log
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/test_feasibility_p8.log
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/test_release_p7.log
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/test_dashboard_p6.log
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/test_collaboration_p5.log
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/test_candidate_tools_p4.log
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/test_resource_broker_p3.log
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/test_artifact_registry_p2.log
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/test_agent_m4.log
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/test_foundation.log
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/test_recovery_cycles.log
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/test_release_m6.log
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/test_lib.log
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/test_python_host.log
+  - docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/summary.md
+Implemented but unverified:
+  - None within Phase P11 scope (all P11 deliverables implemented and verified with passing test suites).
+Failure/recovery scenarios still open:
+  - M6 release gates remain independently open (Gate 3, Gate 4, Gate 5).
+Budget / compatibility / migration implications:
+  - Zero schema version bump required (user_version remains 10).
+  - 128 MiB policy ceiling strictly preserved.
+  - M0–M10 compatibility fully preserved across all regression suites (320 passed tests).
+  - Historical evidence in docs/evidence/m6/ left completely untouched.
+Next small actionable slice:
+  - Phase P11 is complete. Await user authorization for subsequent development or release activities.
 ```
 
 Copy and fill one entry; update phase/task statuses above too.

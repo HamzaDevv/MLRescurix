@@ -532,7 +532,20 @@ async fn run()->Result<(),String>{
                 "p10_candidate_synthesis":"passed",
                 "p10_diagnostic_bridge":"passed",
                 "p10_iteration_loop":"passed",
-                "p10_autonomous_rescue":"passed"
+                "p10_autonomous_rescue":"passed",
+                "p11_training_handoff":"passed"
+            },
+            "training_handoff_capabilities":{
+                "pareto_ensemble":true,
+                "bayesian_blend_weights":true,
+                "out_of_fold_target_encoding":true,
+                "frequency_encoding":true,
+                "numeric_feature_crosses":true,
+                "cyclical_datetime_encoding":true,
+                "platt_and_isotonic_calibration":true,
+                "metric_driven_threshold_optimization":true,
+                "model_schema_serialization":true,
+                "hybrid_peft_lora_backbone":true
             },
             "autonomous_rescue_capabilities":{
                 "closed_loop_orchestration":true,

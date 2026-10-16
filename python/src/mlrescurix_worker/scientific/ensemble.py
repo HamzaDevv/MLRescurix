@@ -190,3 +190,12 @@ class BoundedStackingEnsemble:
             out["classes"] = self.classes_
 
         return out
+
+
+# Re-export Phase P11 Multi-Model Pareto Stacking & Blending Engine
+from .pareto_ensemble import (
+    ParetoEnsembleSynthesizer,
+    ParetoEnsembleSpec,
+    SynthesizedParetoEnsemble,
+    optimize_bayesian_blend_weights,
+)

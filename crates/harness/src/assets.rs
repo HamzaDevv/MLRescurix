@@ -40,6 +40,7 @@ pub const EMBEDDED_PYTHON_FILES: &[(&str, &str)] = &[
     ("src/mlrescurix_worker/scientific/features.py", include_str!("../../../python/src/mlrescurix_worker/scientific/features.py")),
     ("src/mlrescurix_worker/scientific/frozen_embeddings.py", include_str!("../../../python/src/mlrescurix_worker/scientific/frozen_embeddings.py")),
     ("src/mlrescurix_worker/scientific/iteration_loop.py", include_str!("../../../python/src/mlrescurix_worker/scientific/iteration_loop.py")),
+    ("src/mlrescurix_worker/scientific/pareto_ensemble.py", include_str!("../../../python/src/mlrescurix_worker/scientific/pareto_ensemble.py")),
     ("src/mlrescurix_worker/scientific/scheduled_pipeline.py", include_str!("../../../python/src/mlrescurix_worker/scientific/scheduled_pipeline.py")),
     ("src/mlrescurix_worker/scientific/serve.py", include_str!("../../../python/src/mlrescurix_worker/scientific/serve.py")),
     ("src/mlrescurix_worker/scientific/time_series.py", include_str!("../../../python/src/mlrescurix_worker/scientific/time_series.py")),

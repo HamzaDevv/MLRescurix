@@ -60,6 +60,9 @@ def main() -> int:
     rescue_cmd = commands.add_parser("rescue-orchestrate")
     rescue_cmd.add_argument("--spec", type=Path, required=True)
     rescue_cmd.add_argument("--output", type=Path, required=False)
+    ens_cmd = commands.add_parser("pareto-ensemble")
+    ens_cmd.add_argument("--spec", type=Path, required=True)
+    ens_cmd.add_argument("--output", type=Path, required=False)
     for name in ("fit-trial", "predict-trial"):
         worker = commands.add_parser(name, help=argparse.SUPPRESS)
         worker.add_argument("--spec", type=Path, required=True)
@@ -217,6 +220,16 @@ def main() -> int:
                 target_column=spec_data.get("target_column", "target"),
                 simulate_failure_mode=spec_data.get("simulate_failure_mode", "shape_mismatch"),
             )
+            if args.output:
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(json.dumps(result, indent=2, sort_keys=True))
+        elif args.command == "pareto-ensemble":
+            from .pareto_ensemble import ParetoEnsembleSynthesizer, ParetoEnsembleSpec
+            spec_data = json.loads(args.spec.read_text())
+            spec = ParetoEnsembleSpec.from_dict(spec_data)
+            synth = ParetoEnsembleSynthesizer(output_root=spec_data.get("output_root"))
+            res = synth.synthesize_ensemble(spec)
+            result = res.to_dict()
             if args.output:
                 args.output.parent.mkdir(parents=True, exist_ok=True)
                 args.output.write_text(json.dumps(result, indent=2, sort_keys=True))

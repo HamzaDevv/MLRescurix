@@ -1,0 +1,13 @@
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.15s
+     Running tests/training_handoff_p11.rs (target/debug/deps/training_handoff_p11-cf8de67850088b30)
+
+running 5 tests
+test p11_1_embedded_assets_contain_all_training_handoff_primitives ... ok
+test p11_3_negative_scientific_guard_tampered_model_schema ... ok
+test p11_2_bundle_v2_with_calibration_and_model_schema_passes_verification ... ok
+test p11_5_negative_scientific_guard_untracked_files_rejected ... ok
+test p11_4_negative_scientific_guard_dependency_isolation_violation ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

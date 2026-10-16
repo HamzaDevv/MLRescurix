@@ -31,19 +31,31 @@ class FeatureTransformSpec:
 
 
 class OutOfFoldTargetEncoder(BaseEstimator, TransformerMixin):
-    """Target encoder fitted strictly out-of-fold on training data to prevent leakage."""
+    """Target encoder fitted strictly out-of-fold on training data with smoothing and prior variance regularization."""
 
-    def __init__(self, categorical_columns: list[str], n_splits: int = 5, smoothing: float = 10.0, seed: int = 2026):
+    def __init__(
+        self,
+        categorical_columns: list[str],
+        n_splits: int = 5,
+        smoothing: float = 10.0,
+        prior_variance_reg: bool = True,
+        seed: int = 2026,
+    ):
         self.categorical_columns = categorical_columns
         self.n_splits = n_splits
         self.smoothing = smoothing
+        self.prior_variance_reg = prior_variance_reg
         self.seed = seed
         self.global_mean_: float = 0.0
+        self.global_var_: float = 1.0
         self.mapping_: dict[str, dict[Any, float]] = {}
 
     def fit(self, X: pd.DataFrame, y: pd.Series | np.ndarray) -> "OutOfFoldTargetEncoder":
         y_arr = np.asarray(y, dtype=float)
         self.global_mean_ = float(np.nanmean(y_arr))
+        self.global_var_ = float(np.nanvar(y_arr)) if len(y_arr) > 1 else 1.0
+        if self.global_var_ <= 1e-9:
+            self.global_var_ = 1.0
         self.mapping_ = {}
 
         for col in self.categorical_columns:
@@ -54,8 +66,17 @@ class OutOfFoldTargetEncoder(BaseEstimator, TransformerMixin):
             for val, group in series.groupby(series):
                 idx = group.index
                 n = len(idx)
-                cat_mean = float(y_arr[idx].mean())
-                smoothed = (n * cat_mean + self.smoothing * self.global_mean_) / (n + self.smoothing)
+                cat_targets = y_arr[idx]
+                cat_mean = float(cat_targets.mean())
+                cat_var = float(cat_targets.var()) if n > 1 else self.global_var_
+
+                # Prior variance regularization: if category variance is high relative to global, increase smoothing
+                if self.prior_variance_reg and self.global_var_ > 0:
+                    m_eff = self.smoothing * (1.0 + min(cat_var / self.global_var_, 5.0))
+                else:
+                    m_eff = self.smoothing
+
+                smoothed = (n * cat_mean + m_eff * self.global_mean_) / (n + m_eff)
                 col_map[val] = smoothed
             self.mapping_[col] = col_map
         return self
@@ -64,6 +85,9 @@ class OutOfFoldTargetEncoder(BaseEstimator, TransformerMixin):
         """Fit with out-of-fold target encoding on training folds to prevent target leakage."""
         y_arr = np.asarray(y, dtype=float)
         self.global_mean_ = float(np.nanmean(y_arr))
+        self.global_var_ = float(np.nanvar(y_arr)) if len(y_arr) > 1 else 1.0
+        if self.global_var_ <= 1e-9:
+            self.global_var_ = 1.0
         self.mapping_ = {}
 
         X_out = X.copy()
@@ -77,15 +101,27 @@ class OutOfFoldTargetEncoder(BaseEstimator, TransformerMixin):
 
             # Compute out-of-fold values
             for train_idx, val_idx in kf.split(X):
-                fold_series = series.iloc[train_idx]
-                fold_mean = float(y_arr[train_idx].mean())
+                fold_series = series.iloc[train_idx].reset_index(drop=True)
+                fold_y = y_arr[train_idx]
+                fold_mean = float(fold_y.mean())
+                fold_var = float(fold_y.var()) if len(fold_y) > 1 else self.global_var_
+                if fold_var <= 1e-9:
+                    fold_var = 1.0
                 oof_encoded[val_idx] = fold_mean
 
                 for val, group in fold_series.groupby(fold_series):
                     idx = group.index
                     n = len(idx)
-                    cat_mean = float(y_arr[idx].mean())
-                    smoothed = (n * cat_mean + self.smoothing * fold_mean) / (n + self.smoothing)
+                    cat_targets = fold_y[idx]
+                    cat_mean = float(cat_targets.mean())
+                    cat_var = float(cat_targets.var()) if n > 1 else fold_var
+
+                    if self.prior_variance_reg and fold_var > 0:
+                        m_eff = self.smoothing * (1.0 + min(cat_var / fold_var, 5.0))
+                    else:
+                        m_eff = self.smoothing
+
+                    smoothed = (n * cat_mean + m_eff * fold_mean) / (n + m_eff)
                     val_mask = (series.iloc[val_idx] == val).to_numpy()
                     oof_encoded[val_idx[val_mask]] = smoothed
 
@@ -94,8 +130,16 @@ class OutOfFoldTargetEncoder(BaseEstimator, TransformerMixin):
             for val, group in series.groupby(series):
                 idx = group.index
                 n = len(idx)
-                cat_mean = float(y_arr[idx].mean())
-                smoothed = (n * cat_mean + self.smoothing * self.global_mean_) / (n + self.smoothing)
+                cat_targets = y_arr[idx]
+                cat_mean = float(cat_targets.mean())
+                cat_var = float(cat_targets.var()) if n > 1 else self.global_var_
+
+                if self.prior_variance_reg and self.global_var_ > 0:
+                    m_eff = self.smoothing * (1.0 + min(cat_var / self.global_var_, 5.0))
+                else:
+                    m_eff = self.smoothing
+
+                smoothed = (n * cat_mean + m_eff * self.global_mean_) / (n + m_eff)
                 col_map[val] = smoothed
             self.mapping_[col] = col_map
             X_out[f"{col}_te"] = oof_encoded
@@ -108,6 +152,149 @@ class OutOfFoldTargetEncoder(BaseEstimator, TransformerMixin):
             if col in X.columns:
                 series = X[col].astype(str)
                 X_out[f"{col}_te"] = series.map(col_map).fillna(self.global_mean_).to_numpy(dtype=float)
+        return X_out
+
+
+class FrequencyEncoder(BaseEstimator, TransformerMixin):
+    """Frequency and count encoding for high-cardinality categorical columns."""
+
+    def __init__(self, categorical_columns: list[str]):
+        self.categorical_columns = categorical_columns
+        self.frequencies_: dict[str, dict[str, float]] = {}
+        self.counts_: dict[str, dict[str, int]] = {}
+        self.default_freq_: dict[str, float] = {}
+
+    def fit(self, X: pd.DataFrame, y: Any = None) -> "FrequencyEncoder":
+        n_rows = len(X)
+        self.frequencies_ = {}
+        self.counts_ = {}
+        self.default_freq_ = {}
+
+        for col in self.categorical_columns:
+            if col not in X.columns:
+                continue
+            series = X[col].astype(str)
+            counts = series.value_counts().to_dict()
+            self.counts_[col] = {str(k): int(v) for k, v in counts.items()}
+            self.frequencies_[col] = {str(k): float(v) / max(n_rows, 1) for k, v in counts.items()}
+            self.default_freq_[col] = 1.0 / max(n_rows, 1) if n_rows > 0 else 0.0
+        return self
+
+    def transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        X_out = X.copy()
+        for col, freq_map in self.frequencies_.items():
+            if col in X.columns:
+                series = X[col].astype(str)
+                default_val = self.default_freq_.get(col, 0.0)
+                X_out[f"{col}_freq"] = series.map(freq_map).fillna(default_val).to_numpy(dtype=float)
+        return X_out
+
+
+class NumericFeatureCrosses(BaseEstimator, TransformerMixin):
+    """Automated numeric feature crosses: ratios, differences, polynomials, and products."""
+
+    def __init__(
+        self,
+        numeric_columns: list[str] | None = None,
+        include_ratios: bool = True,
+        include_differences: bool = True,
+        include_polynomials: bool = True,
+        max_crosses: int = 20,
+    ):
+        self.numeric_columns = numeric_columns
+        self.include_ratios = include_ratios
+        self.include_differences = include_differences
+        self.include_polynomials = include_polynomials
+        self.max_crosses = max_crosses
+        self.cross_specs_: list[tuple[str, str, str]] = []  # (op, col_a, col_b)
+
+    def fit(self, X: pd.DataFrame, y: Any = None) -> "NumericFeatureCrosses":
+        cols = self.numeric_columns or [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
+        selected = cols[:6]  # pick top numeric columns to cross
+        self.cross_specs_ = []
+
+        # 1. Polynomial squares
+        if self.include_polynomials:
+            for c in selected:
+                if len(self.cross_specs_) >= self.max_crosses:
+                    break
+                self.cross_specs_.append(("sq", c, c))
+
+        # 2. Pairwise ratios & differences
+        for i in range(len(selected)):
+            for j in range(i + 1, len(selected)):
+                if len(self.cross_specs_) >= self.max_crosses:
+                    break
+                c1, c2 = selected[i], selected[j]
+                if self.include_differences:
+                    self.cross_specs_.append(("diff", c1, c2))
+                if len(self.cross_specs_) < self.max_crosses and self.include_ratios:
+                    self.cross_specs_.append(("ratio", c1, c2))
+        return self
+
+    def transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        X_out = X.copy()
+        eps = 1e-5
+        for op, c1, c2 in self.cross_specs_:
+            if c1 not in X.columns or c2 not in X.columns:
+                continue
+            s1 = X[c1].to_numpy(dtype=float)
+            s2 = X[c2].to_numpy(dtype=float) if c2 != c1 else s1
+
+            if op == "sq":
+                val = np.square(s1)
+                name = f"{c1}_sq"
+            elif op == "diff":
+                val = s1 - s2
+                name = f"{c1}_minus_{c2}"
+            elif op == "ratio":
+                # Regularized ratio preventing division by zero
+                denom = np.where(np.abs(s2) < eps, np.sign(s2 + 1e-12) * eps, s2)
+                val = s1 / denom
+                name = f"{c1}_div_{c2}"
+            else:
+                val = s1 * s2
+                name = f"{c1}_x_{c2}"
+
+            # Ensure finite
+            val = np.nan_to_num(val, nan=0.0, posinf=1e6, neginf=-1e6)
+            X_out[name] = val
+        return X_out
+
+
+class CyclicalDatetimeEncoder(BaseEstimator, TransformerMixin):
+    """Decomposes datetime columns into continuous sine and cosine periodic representations."""
+
+    def __init__(self, datetime_columns: list[str]):
+        self.datetime_columns = datetime_columns
+
+    def fit(self, X: pd.DataFrame, y: Any = None) -> "CyclicalDatetimeEncoder":
+        return self
+
+    def transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        X_out = X.copy()
+        for col in self.datetime_columns:
+            if col not in X.columns:
+                continue
+            try:
+                dt_series = pd.to_datetime(X[col], errors="coerce")
+            except Exception:
+                continue
+
+            # Hour (0-23, period 24)
+            hour = dt_series.dt.hour.fillna(0.0).to_numpy(dtype=float)
+            X_out[f"{col}_hour_sin"] = np.sin(2.0 * np.pi * hour / 24.0)
+            X_out[f"{col}_hour_cos"] = np.cos(2.0 * np.pi * hour / 24.0)
+
+            # Day of week (0-6, period 7)
+            dow = dt_series.dt.dayofweek.fillna(0.0).to_numpy(dtype=float)
+            X_out[f"{col}_dow_sin"] = np.sin(2.0 * np.pi * dow / 7.0)
+            X_out[f"{col}_dow_cos"] = np.cos(2.0 * np.pi * dow / 7.0)
+
+            # Month (1-12, period 12)
+            month = dt_series.dt.month.fillna(1.0).to_numpy(dtype=float)
+            X_out[f"{col}_month_sin"] = np.sin(2.0 * np.pi * (month - 1.0) / 12.0)
+            X_out[f"{col}_month_cos"] = np.cos(2.0 * np.pi * (month - 1.0) / 12.0)
         return X_out
 
 

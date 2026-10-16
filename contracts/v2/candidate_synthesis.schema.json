@@ -189,11 +189,11 @@
       "properties": {
         "family": {
           "type": "string",
-          "enum": ["boosting", "linear", "tree", "neural", "ensemble", "custom"]
+          "enum": ["boosting", "linear", "tree", "neural", "ensemble", "custom", "hybrid"]
         },
         "framework": {
           "type": "string",
-          "enum": ["lightgbm", "xgboost", "catboost", "pytorch", "scikit-learn", "custom"]
+          "enum": ["lightgbm", "xgboost", "catboost", "pytorch", "scikit-learn", "custom", "peft_lora"]
         },
         "hyperparameters": {
           "type": "object"
@@ -208,7 +208,7 @@
             },
             "categorical_encoding": {
               "type": "string",
-              "enum": ["onehot", "ordinal", "target", "none"],
+              "enum": ["onehot", "ordinal", "target", "frequency", "target_oof", "none"],
               "default": "none"
             },
             "handle_missing": {
@@ -225,6 +225,33 @@
             },
             "feature_selection": {
               "type": ["string", "null"]
+            },
+            "target_encoding_smoothing": {
+              "type": "number",
+              "minimum": 0,
+              "default": 10.0
+            },
+            "target_encoding_cv": {
+              "type": "integer",
+              "minimum": 2,
+              "default": 5
+            },
+            "frequency_encoding": {
+              "type": "boolean",
+              "default": false
+            },
+            "numeric_feature_crosses": {
+              "type": "boolean",
+              "default": false
+            },
+            "cyclical_datetime": {
+              "type": "boolean",
+              "default": false
+            },
+            "max_crosses": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 20
             }
           },
           "additionalProperties": false

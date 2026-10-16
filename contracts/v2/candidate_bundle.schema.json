@@ -55,7 +55,11 @@
             "atol": { "type": "number", "minimum": 0 }
           },
           "additionalProperties": false
-        }
+        },
+        "decision_threshold": { "type": "number", "minimum": 0, "maximum": 1 },
+        "calibration_method": { "type": "string", "enum": ["platt", "isotonic", "sigmoid", "none"] },
+        "calibration_metrics": { "type": "object" },
+        "reliability_curves": { "type": "object" }
       },
       "additionalProperties": false
     },
@@ -75,7 +79,8 @@
         "cli": { "type": "string", "minLength": 1 },
         "api": { "type": "string", "minLength": 1 },
         "input_schema": { "type": "string", "minLength": 1 },
-        "output_schema": { "type": "string", "minLength": 1 }
+        "output_schema": { "type": "string", "minLength": 1 },
+        "model_schema": { "type": "string", "minLength": 1 }
       },
       "additionalProperties": false
     },
