@@ -155,9 +155,10 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
     4. P9.4: Strict Draft 2020-12 typed schema (`contracts/v2/frozen_embeddings_adapter.schema.json`) for model architectures, dimension fingerprints, content-addressed embedding cache protocols, tokenization/image preprocessing limits, and privacy/licensing profiles refusing uncertified remote downloads (`allow_remote_download: false`). Lightweight frozen text encoder (`FrozenTextEncoder`) with sequence truncation and deterministic pooling (`mean`, `cls`, `max`). Lightweight frozen vision backbone (`FrozenVisionEncoder`) with deterministic patch projection, standard image normalizations (`imagenet`, `unit_interval`, `standard_score`), and tensor dimension guards. Content-addressed embedding cache (`DeterministicEmbeddingCache`) computing SHA-256 signatures over raw input payloads and model configs, managing storage budget bounds and LRU eviction/quota refusal policies. Production feature extraction delivery engine (`FrozenEmbeddingPredictor`) generating downstream tabular-compatible feature matrices. Deterministic negative scientific guards rejecting sequence length limit violations (`SequenceLengthExceededError`), image dimension/channel caps (`ImageDimensionError`), non-finite embeddings (`NonFiniteEmbeddingError`), uncertified remote model download requests (`UncertifiedRemoteDownloadError`), and cache quota violations (`CacheQuotaExceededError`).
     5. Rust Harness: Additive idempotent DDL (`crates/harness/src/schema_p9_adapters.sql`, `crates/harness/src/schema_p9_anomaly.sql`, `crates/harness/src/schema_p9_embeddings.sql`) creating `arrow_dataset_adapters`, `time_series_backtests`, `anomaly_clustering_adapters`, `frozen_embedding_adapters`, and `embedding_cache_records` under `user_version = 10`. Integrated `adapters.rs` module, tool registry (`inspect_arrow_dataset`, `evaluate_temporal_backtest`, `evaluate_anomaly_clustering`, `extract_frozen_embeddings`), agent role authorizations, orchestrator tool dispatch, and CLI subcommands (`InspectArrow`, `ValidateTemporalSplit`, `InspectAnomalyClustering`, `InspectFrozenEmbeddings`).
     Verified across 12 integration tests in `crates/harness/tests/adapters_p9.rs`, 6 unit tests in `python/tests/test_p9_frozen_embeddings.py` (25 total in P9 Python adapters suite), 20 unit tests in `crates/harness/src/lib.rs`, and 149 tests across full repository regression suites (253 total passed tests, 0 failures, 8 ignored/deselected). Fresh logs in `docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/`. Phase P9.1, P9.2, P9.3, and P9.4 slices are closed.
+  - Architectural Realignment (D42): Reframed adapters (P9.1–P9.4) as optional deterministic primitives and guardrails rather than prescriptive pipelines. Deprioritized narrow sub-domain adapter scripting (P9.5–P9.9) in favor of Phase P10 (Autonomous Candidate Synthesis & Iterative Refinement Loop).
 - Release: M6 remains **NOT READY**, as recorded in `docs/m6-completion-status.md`.
-  - Authorization: P9.4 (Text & Vision Frozen-Embedding Adapters) was authorized and completed in this session. P9.5+ or other un-authorized slices are NOT begun.
-  - Next recommended slice: Phase P9.5 (Small-Model Fine-Tuning) or subsequent slices when explicitly authorized. M6 release gates remain independently open.
+  - Authorization: P9.4 (Text & Vision Frozen-Embedding Adapters) was completed and committed.
+  - Next recommended slice: Phase P10.1 (Autonomous Candidate Synthesis Engine) to establish the agent-first autonomous synthesis and self-healing loop. M6 release gates remain independently open.
 
 | Phase | Status | Evidence / next step |
 | --- | --- | --- |
@@ -170,7 +171,8 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
 | P6 | complete | P6.1–P6.6 and full Phase P6 Acceptance Gate verified across 9 tests in dashboard_p6, 8 tests in test_search.py, and full regression suites (182 total passed tests). Fresh logs in `20261015-p6-gate-closure/`. M6 remains independently NOT READY. |
 | P7 | complete | P7.1–P7.7 and full Phase P7 Acceptance Gate verified across 8 tests in release_p7, 4 tests in test_p7_scientific_delivery.py, 53 tests in python_host, and full regression suites (187 total passed tests, 0 failures). Fresh logs in `docs/evidence/v2/p7/20261015-p7-gate-closure/`. M6 remains independently NOT READY. |
 | P8 | complete | P8.1–P8.5 and full Phase P8 Acceptance Gate verified across 11 tests in feasibility_p8, 6 tests in test_p8_feasibility.py, and full regression suites (202 total passed tests, 0 failures). Fresh logs in `docs/evidence/v2/p8/20261015-p8-gate-closure/`. M6 remains independently NOT READY. |
-| P9 | complete (P9.1, P9.2, P9.3 & P9.4) | P9.1 Out-of-Core / Arrow, P9.2 Time-Series, P9.3 Anomaly/Clustering, and P9.4 Frozen-Embedding adapters complete and fully evidenced across 12 tests in adapters_p9, 25 tests in Python adapter suites, and 253 total passed tests across full repository regression suites. Evidence in `docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/`. P9.5+ remain planned/optional. |
+| P9 | complete (P9.1–P9.4) | P9.1 Out-of-Core / Arrow, P9.2 Time-Series, P9.3 Anomaly/Clustering, and P9.4 Frozen-Embedding adapters complete and fully evidenced across 12 tests in adapters_p9, 25 tests in Python adapter suites, and 253 total passed tests across full repository regression suites. Evidence in `docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/`. P9 adapters serve as optional primitives. |
+| P10 | planned | Autonomous Candidate Synthesis & Iterative Refinement Loop (P10.1 Candidate Synthesis Engine, P10.2 Diagnostic Feedback Bridge, P10.3 Multi-Fidelity Iteration & Hypothesis Loop, P10.4 Autonomous End-to-End Model Rescue Gate). |
 
 Allowed implementation statuses: planned, in_progress, blocked, implemented_unverified,
 verified, complete. Complete requires the phase gate and evidence; code presence
@@ -2000,13 +2002,27 @@ P9.1 (Out-of-Core / Arrow Data Adapter), P9.2 (Time-Series Forecasting Adapter),
 Verified across 12 integration tests in `crates/harness/tests/adapters_p9.rs`, 6 unit tests in `python/tests/test_p9_frozen_embeddings.py` (25 total in P9 Python adapters suite), 20 unit tests in `crates/harness/src/lib.rs`, and 149 tests across full repository regression suites (253 total passed tests, 0 failures, 8 ignored/deselected). Fresh evidence captured in `docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/`. Phase P9.1, P9.2, P9.3, and P9.4 are closed. M6 remains independently NOT READY.
 
 
+## P10 — Autonomous Candidate Synthesis & Iterative Refinement Loop (Agent-First Pivot)
+
+**Depends on:** P4 (Candidate Sandbox & Tools), P5 (Collaboration & Search), and P9.1–P9.4 (Deterministic Primitives).
+**Outcome:** Shift from building specialized adapter scripts to empowering the autonomous coding agent with full creative freedom to synthesize, execute, debug, and iteratively refine arbitrary machine learning candidates within deterministic harness guardrails.
+
+- P10.1 Autonomous Candidate Synthesis Engine: Agent generates complete, decoupled `candidate/entrypoint.py` and modular source trees from problem specs and data profiles. Explores arbitrary modeling paradigms (LightGBM, XGBoost, CatBoost, PyTorch, bespoke feature engineering, custom ensembling) without hardcoded pipeline constraints.
+- P10.2 Structured Diagnostic Feedback Bridge: When a candidate fails during sandbox execution (e.g. cgroup OOM, non-finite loss, matrix dimension mismatch, class-order discrepancies, or execution deadline timeout), the harness captures and transforms raw tracebacks and resource receipts into bounded, high-signal diagnostic feedback (`DiagnosticReceipt`), enabling the agent to autonomously self-heal and debug its code.
+- P10.3 Multi-Fidelity Iteration & Hypothesis Loop: Agent reviews official scorecards, generates explicit hypotheses with expected metric deltas, performs targeted code mutations across git branch workspaces, and drives multi-turn Pareto optimization against established baseline benchmarks.
+- P10.4 Autonomous End-to-End Model Rescue Gate: Verify the full autonomous lifecycle: agent inspects raw dataset, designs baseline, encounters and self-heals from realistic failure modes (e.g. memory pressure, class imbalance, missing value shifts), and iteratively produces an Apex-certified delivery bundle without manual developer code edits.
+
+**Gate:** Agent successfully synthesizes arbitrary candidates, handles injected failures autonomously via diagnostic receipts, and improves primary validation metrics across iterations under hard cgroup resource leases.
+
+
 ## Recommendation priority
 
 Ship model rescue and transparent evidence first; they distinguish the product
 without needing exotic ML. Next add reproducible environment profiles, better
-diagnostics and compute estimates. Add out-of-core/time-series/frozen embeddings
-before small-LLM/RL ambitions. Benchmark MCTS, warm pools and DB sharding as optional
-optimizations; do not make them prerequisites for a useful tabular coding harness.
+diagnostics and compute estimates. Deprioritize niche scientific adapter scripting
+(P9.5–P9.9); prioritize Phase P10 (Autonomous Candidate Synthesis & Iterative Refinement)
+to establish a true agent-first autonomous harness where the AI designs models freely
+backed by unforgeable, deterministic harness guardrails.
 
 <<<END SOURCE FILE>>>
 
@@ -2058,6 +2074,23 @@ claims remain proposals until deterministic checks accept their evidence.
 “Deterministic” applies to state transitions, input binding, receipts and admission.
 Model training/LLM reasoning may vary; record seeds, environment/device identities
 and numerical tolerances. Identical hashes do not promise cross-device equality.
+
+## Agent-first autonomous harness vs. prescriptive scripts
+
+MLRescurix is an **agent-first autonomous coding and discovery harness**, not a library of rigid AutoML scripts:
+
+1. **Unbounded Agent Synthesis Freedom**:
+   - The autonomous agent is the primary machine learning engineer. It possesses full authority to generate, mutate, and refactor arbitrary Python code (`candidate/entrypoint.py` and modular source trees).
+   - The agent is free to explore arbitrary modeling strategies: bespoke PyTorch/JAX networks, LightGBM/CatBoost ensembles, complex multi-stage feature engineering, custom loss functions, and hybrid pipelines.
+   - The harness must never constrain the agent to a hardcoded menu of algorithms or force candidate models into prescriptive execution pipelines.
+
+2. **Deterministic Primitives, Not Prescriptive Rails**:
+   - Specialized adapters (e.g. out-of-core Arrow chunking, temporal split validation, frozen embedding caches) exist strictly as **optional low-level primitives and guardrails** in the agent's toolbox.
+   - These primitives solve hard mechanical failure modes that LLMs struggle with (such as temporal lookahead leakage, host OOMs, and uncertified remote downloads), but they never dictate candidate model architecture.
+
+3. **The Harness as Secure Operating System and Objective Referee**:
+   - The harness operates as an operating system (cgroup v2 resource limits, container leases, crash recovery, CAS artifact store) and an objective referee (`evaluate_submission`, sealed test sets, cryptographic scorecards).
+   - The harness guarantees that the agent cannot cheat, leak holdout labels, or crash host infrastructure, while leaving the agent completely free to invent, test, and iterate on solutions.
 
 ## Artifact registry
 
@@ -2729,6 +2762,25 @@ D41 is implemented in `contracts/v2/frozen_embeddings_adapter.schema.json`, `pyt
    - Added CLI subcommand `inspect-frozen-embeddings` and updated harness capabilities reporting `"frozen_text_embeddings": true`, `"frozen_vision_embeddings": true`, and `"content_addressed_embedding_cache": true`.
 8. **Phase P9.4 Acceptance Gate Closure**:
    - Verified across 12 integration tests in `crates/harness/tests/adapters_p9.rs`, 6 unit tests in `python/tests/test_p9_frozen_embeddings.py` (25 total in P9 Python adapters suite), 20 unit tests in `crates/harness/src/lib.rs`, and 149 tests across full repository regression suites (253 total passed tests, 0 failures, 8 ignored/deselected). Evidence captured in `docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/`. Phase P9.4 is closed. M6 remains independently NOT READY.
+
+### Architectural Realignment: Agent-First Autonomous Synthesis vs. Prescriptive Scripts (2026-10-16)
+
+D42 is documented in `docs/v2/ARCHITECTURE.md`, `docs/v2/ROADMAP.md`, `docs/v2/PROGRESS.md`, and recorded here:
+1. **Context & Motivation**:
+   - Following completion of Phase P9 slices (P9.1 Arrow, P9.2 Time-Series, P9.3 Anomaly/Clustering, P9.4 Frozen-Embeddings), architectural review identified the critical danger of harness drift: building rigid, fragile Python scripts and prescriptive scikit-learn wrappers for specific ML cases, rather than building an open-ended, agent-first autonomous harness.
+2. **Agent Autonomy & Synthesis Freedom**:
+   - The autonomous agent is the primary machine learning engineer. It possesses full authority to generate, mutate, and refactor arbitrary Python code (`candidate/entrypoint.py` and modular source trees).
+   - The agent is free to explore arbitrary modeling strategies: bespoke PyTorch/JAX networks, LightGBM/CatBoost ensembles, complex multi-stage feature engineering, custom loss functions, and hybrid pipelines.
+   - The harness must never constrain the agent to a hardcoded menu of algorithms or force candidate models into prescriptive execution pipelines.
+3. **Deterministic Primitives, Not Prescriptive Rails**:
+   - Specialized adapters (e.g. out-of-core Arrow chunking, temporal split validation, frozen embedding caches) exist strictly as **optional low-level primitives and guardrails** in the agent's toolbox.
+   - These primitives solve hard mechanical failure modes that LLMs struggle with (such as temporal lookahead leakage, host OOMs, and uncertified remote downloads), but they never dictate candidate model architecture.
+4. **The Harness as Secure Operating System and Objective Referee**:
+   - The harness operates as an operating system (cgroup v2 resource limits, container leases, crash recovery, CAS artifact store) and an objective referee (`evaluate_submission`, sealed test sets, cryptographic scorecards).
+   - The harness guarantees that the agent cannot cheat, leak holdout labels, or crash host infrastructure, while leaving the agent completely free to invent, test, and iterate on solutions.
+5. **Strategic Roadmap Pivot**:
+   - Deprioritize further narrow algorithmic wrapper scripts (P9.5–P9.9).
+   - Pivot focus to **Autonomous Candidate Synthesis, Multi-Fidelity Iteration Loops, and Diagnostic Feedback** (Phase P10), empowering the agent to write, test, debug, and refine its own candidate code in an autonomous closed loop.
 
 <<<END SOURCE FILE>>>
 

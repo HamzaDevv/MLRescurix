@@ -44,6 +44,23 @@ claims remain proposals until deterministic checks accept their evidence.
 Model training/LLM reasoning may vary; record seeds, environment/device identities
 and numerical tolerances. Identical hashes do not promise cross-device equality.
 
+## Agent-first autonomous harness vs. prescriptive scripts
+
+MLRescurix is an **agent-first autonomous coding and discovery harness**, not a library of rigid AutoML scripts:
+
+1. **Unbounded Agent Synthesis Freedom**:
+   - The autonomous agent is the primary machine learning engineer. It possesses full authority to generate, mutate, and refactor arbitrary Python code (`candidate/entrypoint.py` and modular source trees).
+   - The agent is free to explore arbitrary modeling strategies: bespoke PyTorch/JAX networks, LightGBM/CatBoost ensembles, complex multi-stage feature engineering, custom loss functions, and hybrid pipelines.
+   - The harness must never constrain the agent to a hardcoded menu of algorithms or force candidate models into prescriptive execution pipelines.
+
+2. **Deterministic Primitives, Not Prescriptive Rails**:
+   - Specialized adapters (e.g. out-of-core Arrow chunking, temporal split validation, frozen embedding caches) exist strictly as **optional low-level primitives and guardrails** in the agent's toolbox.
+   - These primitives solve hard mechanical failure modes that LLMs struggle with (such as temporal lookahead leakage, host OOMs, and uncertified remote downloads), but they never dictate candidate model architecture.
+
+3. **The Harness as Secure Operating System and Objective Referee**:
+   - The harness operates as an operating system (cgroup v2 resource limits, container leases, crash recovery, CAS artifact store) and an objective referee (`evaluate_submission`, sealed test sets, cryptographic scorecards).
+   - The harness guarantees that the agent cannot cheat, leak holdout labels, or crash host infrastructure, while leaving the agent completely free to invent, test, and iterate on solutions.
+
 ## Artifact registry
 
 Use additive migrations and retain M6 scientific records during transition.

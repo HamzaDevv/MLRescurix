@@ -437,10 +437,24 @@ P9.1 (Out-of-Core / Arrow Data Adapter), P9.2 (Time-Series Forecasting Adapter),
 Verified across 12 integration tests in `crates/harness/tests/adapters_p9.rs`, 6 unit tests in `python/tests/test_p9_frozen_embeddings.py` (25 total in P9 Python adapters suite), 20 unit tests in `crates/harness/src/lib.rs`, and 149 tests across full repository regression suites (253 total passed tests, 0 failures, 8 ignored/deselected). Fresh evidence captured in `docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/`. Phase P9.1, P9.2, P9.3, and P9.4 are closed. M6 remains independently NOT READY.
 
 
+## P10 — Autonomous Candidate Synthesis & Iterative Refinement Loop (Agent-First Pivot)
+
+**Depends on:** P4 (Candidate Sandbox & Tools), P5 (Collaboration & Search), and P9.1–P9.4 (Deterministic Primitives).
+**Outcome:** Shift from building specialized adapter scripts to empowering the autonomous coding agent with full creative freedom to synthesize, execute, debug, and iteratively refine arbitrary machine learning candidates within deterministic harness guardrails.
+
+- P10.1 Autonomous Candidate Synthesis Engine: Agent generates complete, decoupled `candidate/entrypoint.py` and modular source trees from problem specs and data profiles. Explores arbitrary modeling paradigms (LightGBM, XGBoost, CatBoost, PyTorch, bespoke feature engineering, custom ensembling) without hardcoded pipeline constraints.
+- P10.2 Structured Diagnostic Feedback Bridge: When a candidate fails during sandbox execution (e.g. cgroup OOM, non-finite loss, matrix dimension mismatch, class-order discrepancies, or execution deadline timeout), the harness captures and transforms raw tracebacks and resource receipts into bounded, high-signal diagnostic feedback (`DiagnosticReceipt`), enabling the agent to autonomously self-heal and debug its code.
+- P10.3 Multi-Fidelity Iteration & Hypothesis Loop: Agent reviews official scorecards, generates explicit hypotheses with expected metric deltas, performs targeted code mutations across git branch workspaces, and drives multi-turn Pareto optimization against established baseline benchmarks.
+- P10.4 Autonomous End-to-End Model Rescue Gate: Verify the full autonomous lifecycle: agent inspects raw dataset, designs baseline, encounters and self-heals from realistic failure modes (e.g. memory pressure, class imbalance, missing value shifts), and iteratively produces an Apex-certified delivery bundle without manual developer code edits.
+
+**Gate:** Agent successfully synthesizes arbitrary candidates, handles injected failures autonomously via diagnostic receipts, and improves primary validation metrics across iterations under hard cgroup resource leases.
+
+
 ## Recommendation priority
 
 Ship model rescue and transparent evidence first; they distinguish the product
 without needing exotic ML. Next add reproducible environment profiles, better
-diagnostics and compute estimates. Add out-of-core/time-series/frozen embeddings
-before small-LLM/RL ambitions. Benchmark MCTS, warm pools and DB sharding as optional
-optimizations; do not make them prerequisites for a useful tabular coding harness.
+diagnostics and compute estimates. Deprioritize niche scientific adapter scripting
+(P9.5–P9.9); prioritize Phase P10 (Autonomous Candidate Synthesis & Iterative Refinement)
+to establish a true agent-first autonomous harness where the AI designs models freely
+backed by unforgeable, deterministic harness guardrails.

@@ -399,3 +399,22 @@ D41 is implemented in `contracts/v2/frozen_embeddings_adapter.schema.json`, `pyt
    - Added CLI subcommand `inspect-frozen-embeddings` and updated harness capabilities reporting `"frozen_text_embeddings": true`, `"frozen_vision_embeddings": true`, and `"content_addressed_embedding_cache": true`.
 8. **Phase P9.4 Acceptance Gate Closure**:
    - Verified across 12 integration tests in `crates/harness/tests/adapters_p9.rs`, 6 unit tests in `python/tests/test_p9_frozen_embeddings.py` (25 total in P9 Python adapters suite), 20 unit tests in `crates/harness/src/lib.rs`, and 149 tests across full repository regression suites (253 total passed tests, 0 failures, 8 ignored/deselected). Evidence captured in `docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/`. Phase P9.4 is closed. M6 remains independently NOT READY.
+
+### Architectural Realignment: Agent-First Autonomous Synthesis vs. Prescriptive Scripts (2026-10-16)
+
+D42 is documented in `docs/v2/ARCHITECTURE.md`, `docs/v2/ROADMAP.md`, `docs/v2/PROGRESS.md`, and recorded here:
+1. **Context & Motivation**:
+   - Following completion of Phase P9 slices (P9.1 Arrow, P9.2 Time-Series, P9.3 Anomaly/Clustering, P9.4 Frozen-Embeddings), architectural review identified the critical danger of harness drift: building rigid, fragile Python scripts and prescriptive scikit-learn wrappers for specific ML cases, rather than building an open-ended, agent-first autonomous harness.
+2. **Agent Autonomy & Synthesis Freedom**:
+   - The autonomous agent is the primary machine learning engineer. It possesses full authority to generate, mutate, and refactor arbitrary Python code (`candidate/entrypoint.py` and modular source trees).
+   - The agent is free to explore arbitrary modeling strategies: bespoke PyTorch/JAX networks, LightGBM/CatBoost ensembles, complex multi-stage feature engineering, custom loss functions, and hybrid pipelines.
+   - The harness must never constrain the agent to a hardcoded menu of algorithms or force candidate models into prescriptive execution pipelines.
+3. **Deterministic Primitives, Not Prescriptive Rails**:
+   - Specialized adapters (e.g. out-of-core Arrow chunking, temporal split validation, frozen embedding caches) exist strictly as **optional low-level primitives and guardrails** in the agent's toolbox.
+   - These primitives solve hard mechanical failure modes that LLMs struggle with (such as temporal lookahead leakage, host OOMs, and uncertified remote downloads), but they never dictate candidate model architecture.
+4. **The Harness as Secure Operating System and Objective Referee**:
+   - The harness operates as an operating system (cgroup v2 resource limits, container leases, crash recovery, CAS artifact store) and an objective referee (`evaluate_submission`, sealed test sets, cryptographic scorecards).
+   - The harness guarantees that the agent cannot cheat, leak holdout labels, or crash host infrastructure, while leaving the agent completely free to invent, test, and iterate on solutions.
+5. **Strategic Roadmap Pivot**:
+   - Deprioritize further narrow algorithmic wrapper scripts (P9.5–P9.9).
+   - Pivot focus to **Autonomous Candidate Synthesis, Multi-Fidelity Iteration Loops, and Diagnostic Feedback** (Phase P10), empowering the agent to write, test, debug, and refine its own candidate code in an autonomous closed loop.
