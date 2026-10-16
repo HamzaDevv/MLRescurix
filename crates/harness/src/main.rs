@@ -80,6 +80,24 @@ enum Command {
         #[arg(long)] project: String,
         #[arg(long)] adapter: String,
     },
+    SynthesizeCandidate {
+        #[arg(long)] state: PathBuf,
+        #[arg(long)] project: String,
+        #[arg(long)] candidate: String,
+        #[arg(long)] task_type: String,
+        #[arg(long)] target: String,
+        #[arg(long, default_value = "boosting")] family: String,
+        #[arg(long, default_value = "lightgbm")] framework: String,
+        #[arg(long)] path: Option<String>,
+    },
+    InspectDiagnostics {
+        #[arg(long)] state: PathBuf,
+        #[arg(long)] project: String,
+        #[arg(long)] candidate: Option<String>,
+        #[arg(long)] failure_type: Option<String>,
+        #[arg(long)] diagnostic_id: Option<String>,
+        #[arg(long, default_value_t = 10)] limit: usize,
+    },
     #[command(name="__worker",hide=true)] Worker { spec:PathBuf, output:PathBuf },
     Capabilities,
 }
@@ -283,6 +301,87 @@ async fn run()->Result<(),String>{
             mlrescurix_harness::adapters::validate_frozen_embedding_config(&ad)?;
             print(ad)
         },
+        Command::SynthesizeCandidate { state, project, candidate, task_type, target, family, framework, path } => {
+            execution::migrate(&state)?;
+            let branch = format!("b-{candidate}");
+            let dest_path = path.unwrap_or_else(|| "candidate".into());
+            let branch_dir = mlrescurix_harness::agents::workspace::BranchWorkspaceManager::get_branch_dir(&state, &project, &branch);
+            let cand_dir = branch_dir.join(&dest_path);
+            std::fs::create_dir_all(&cand_dir).map_err(|e| e.to_string())?;
+
+            let spec_payload = serde_json::json!({
+                "schema_version": "v2",
+                "synthesis_id": format!("synth-{candidate}"),
+                "candidate_id": candidate,
+                "name": format!("Candidate {candidate}"),
+                "problem_definition": {
+                    "task_type": task_type,
+                    "target_column": target,
+                    "dataset_id": "default",
+                    "id_column": "row_id",
+                },
+                "target_descriptor": {
+                    "name": target,
+                    "task_type": task_type,
+                },
+                "metric_objective": {
+                    "primary_metric": if task_type == "regression" { "rmse" } else { "balanced_accuracy" },
+                    "direction": if task_type == "regression" { "minimize" } else { "maximize" },
+                },
+                "model_intent": {
+                    "family": family,
+                    "framework": framework,
+                    "hyperparameters": {},
+                    "feature_pipeline": {},
+                }
+            });
+
+            let scratch = state.join("workflows").join(&project).join("synth_staging").join(&candidate);
+            std::fs::create_dir_all(&scratch).map_err(|e| e.to_string())?;
+            let spec_file = scratch.join("spec.json");
+            let out_file = scratch.join("out.json");
+            std::fs::write(&spec_file, serde_json::to_string_pretty(&spec_payload).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+
+            let mut cmd = std::process::Command::new("python3");
+            cmd.args([
+                "-m", "mlrescurix_worker.scientific.cli",
+                "candidate-synthesize",
+                "--spec", &spec_file.to_string_lossy(),
+                "--output-dir", &cand_dir.to_string_lossy(),
+                "--output", &out_file.to_string_lossy(),
+            ]);
+            let embedded_py = mlrescurix_harness::assets::ensure_python_root(&state)?;
+            let mut pypaths = vec![embedded_py.join("src").to_string_lossy().to_string()];
+            if let Ok(repo_src) = std::fs::canonicalize(std::path::Path::new("python/src")) {
+                pypaths.push(repo_src.to_string_lossy().to_string());
+            }
+            if let Ok(cur_py) = std::env::var("PYTHONPATH") {
+                if !cur_py.is_empty() { pypaths.push(cur_py); }
+            }
+            cmd.env("PYTHONPATH", pypaths.join(":"));
+            cmd.env("PYTHONDONTWRITEBYTECODE", "1");
+            let out = cmd.output().map_err(|e| e.to_string())?;
+            if !out.status.success() {
+                let _ = std::fs::remove_dir_all(&scratch);
+                return Err(format!("candidate synthesis failed: {}", String::from_utf8_lossy(&out.stderr)));
+            }
+            let res: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&out_file).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+            let _ = std::fs::remove_dir_all(&scratch);
+            print(res)
+        },
+        Command::InspectDiagnostics { state, project, candidate, failure_type, diagnostic_id, limit } => {
+            execution::migrate(&state)?;
+            if let Some(did) = diagnostic_id {
+                let rec = mlrescurix_harness::diagnostics::get_diagnostic_receipt(&state, &project, &did)?;
+                print(rec)
+            } else {
+                let recs = mlrescurix_harness::diagnostics::list_diagnostic_receipts(&state, &project, candidate.as_deref(), failure_type.as_deref(), limit)?;
+                print(serde_json::json!({
+                    "count": recs.len(),
+                    "diagnostics": recs,
+                }))
+            }
+        },
         Command::Worker{spec,output}=>{let result=execution::worker(&spec,&output)?;if result==0 {Ok(())} else {std::process::exit(result)}}
         Command::Capabilities=>print(serde_json::json!({
             "phase":"P7",
@@ -326,7 +425,22 @@ async fn run()->Result<(),String>{
                 "p6_dashboard":"passed",
                 "p7_apex_delivery":"passed",
                 "p8_feasibility":"passed",
-                "p9_adapters":"passed"
+                "p9_adapters":"passed",
+                "p10_candidate_synthesis":"passed",
+                "p10_diagnostic_bridge":"passed"
+            },
+            "diagnostic_bridge_capabilities":{
+                "cgroup_oom":true,
+                "non_finite_loss":true,
+                "shape_mismatch":true,
+                "class_order_mismatch":true,
+                "execution_timeout":true,
+                "missing_dependency":true,
+                "syntax_error":true,
+                "runtime_exception":true,
+                "root_cause_attribution":true,
+                "bounded_traceback_summaries":true,
+                "actionable_remediations":true
             },
             "adapter_capabilities":{
                 "arrow_ipc":true,
@@ -353,6 +467,20 @@ async fn run()->Result<(),String>{
                 "frozen_text_embeddings":true,
                 "frozen_vision_embeddings":true,
                 "content_addressed_embedding_cache":true
+            },
+            "candidate_synthesis_capabilities":{
+                "autonomous_synthesis_engine":true,
+                "decoupled_modular_candidates":true,
+                "candidate_protocol_conformance":true,
+                "arbitrary_model_families":true,
+                "lightgbm_support":true,
+                "xgboost_support":true,
+                "pytorch_support":true,
+                "tree_ensembles_support":true,
+                "linear_baselines_support":true,
+                "custom_pipelines_support":true,
+                "label_isolation_enforced":true,
+                "row_id_alignment_enforced":true
             },
             "feasibility_capabilities":{
                 "hardware_profile":true,

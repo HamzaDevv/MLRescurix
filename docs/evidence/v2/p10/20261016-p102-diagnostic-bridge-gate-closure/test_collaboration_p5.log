@@ -1,0 +1,18 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests/collaboration_p5.rs (target/debug/deps/collaboration_p5-5b6c587f070a5bd0)
+
+running 11 tests
+test test_p5_1_consolidated_roles_and_aliases ... ok
+test test_p5_3_request_accounting_and_context_bounds ... ok
+test test_p5_4_milestone_and_budget_pressure_compaction_preserves_steering_and_evidence ... ok
+test test_p5_3_outbound_filter_and_tool_pairing_validation ... ok
+test test_p5_2_experiment_dag_operations_and_parent_evidence ... ok
+test test_p5_1_branch_workspace_isolation_and_durable_lock_ownership ... ok
+test test_p5_1_task_assignment_and_completion_schemas_and_persistence ... ok
+test test_p5_2_bounded_best_first_and_comparative_search_strategy ... ok
+test test_p5_5_explicit_user_approval_enforcement ... ok
+test test_p5_5_human_and_critic_steering_at_turn_boundaries ... ok
+test test_p5_6_acceptance_gate_full_closure ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.64s
+

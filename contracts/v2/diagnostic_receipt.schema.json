@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:diagnostic-receipt:2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "diagnostic_id",
+    "candidate_id",
+    "stage",
+    "failure_type",
+    "error_message",
+    "root_cause",
+    "traceback_summary",
+    "resource_telemetry",
+    "remediation_suggestions"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "v2"
+    },
+    "diagnostic_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "candidate_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "stage": {
+      "type": "string",
+      "enum": [
+        "fit",
+        "predict",
+        "evaluate",
+        "sandbox_exec",
+        "manifest_validation",
+        "synthesis",
+        "unknown"
+      ]
+    },
+    "failure_type": {
+      "type": "string",
+      "enum": [
+        "cgroup_oom",
+        "non_finite_loss",
+        "shape_mismatch",
+        "class_order_mismatch",
+        "execution_timeout",
+        "missing_dependency",
+        "syntax_error",
+        "runtime_exception"
+      ]
+    },
+    "error_message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "root_cause": {
+      "type": "object",
+      "required": [
+        "file",
+        "line_number",
+        "symbol",
+        "exception_class"
+      ],
+      "properties": {
+        "file": {
+          "type": ["string", "null"],
+          "maxLength": 512
+        },
+        "line_number": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "symbol": {
+          "type": ["string", "null"],
+          "maxLength": 256
+        },
+        "exception_class": {
+          "type": ["string", "null"],
+          "maxLength": 256
+        }
+      },
+      "additionalProperties": false
+    },
+    "traceback_summary": {
+      "type": "string",
+      "maxLength": 8192
+    },
+    "resource_telemetry": {
+      "type": "object",
+      "required": [
+        "exit_code"
+      ],
+      "properties": {
+        "exit_code": {
+          "type": ["integer", "null"]
+        },
+        "peak_rss_bytes": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "memory_limit_bytes": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "wall_elapsed_ms": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "timeout_ms": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "oom_killed": {
+          "type": ["boolean", "null"]
+        }
+      },
+      "additionalProperties": true
+    },
+    "remediation_suggestions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024
+      },
+      "minItems": 1
+    },
+    "context_metadata": {
+      "type": "object"
+    },
+    "created_ms": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

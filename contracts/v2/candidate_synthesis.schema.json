@@ -1,0 +1,341 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:candidate-synthesis:2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "synthesis_id",
+    "candidate_id",
+    "problem_definition",
+    "metric_objective",
+    "model_intent"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "v2"
+    },
+    "synthesis_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "candidate_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-zA-Z0-9_.:-]+$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "problem_definition": {
+      "type": "object",
+      "required": [
+        "task_type",
+        "target_column"
+      ],
+      "properties": {
+        "task_type": {
+          "type": "string",
+          "enum": ["binary", "multiclass", "regression"]
+        },
+        "dataset_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "target_column": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "id_column": {
+          "type": "string",
+          "default": "row_id"
+        },
+        "time_column": {
+          "type": ["string", "null"]
+        },
+        "group_column": {
+          "type": ["string", "null"]
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "input_descriptors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "data_type"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "data_type": {
+            "type": "string",
+            "enum": ["numerical", "categorical", "text", "datetime", "id", "target"]
+          },
+          "nullable": {
+            "type": "boolean",
+            "default": false
+          },
+          "cardinality": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "imputation_strategy": {
+            "type": "string",
+            "enum": ["mean", "median", "mode", "constant", "indicator", "none"],
+            "default": "none"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "target_descriptor": {
+      "type": "object",
+      "required": [
+        "name",
+        "task_type"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "task_type": {
+          "type": "string",
+          "enum": ["binary", "multiclass", "regression"]
+        },
+        "class_order": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": ["string", "integer"]
+          }
+        },
+        "positive_class": {
+          "type": ["string", "integer", "null"]
+        },
+        "min_value": {
+          "type": ["number", "null"]
+        },
+        "max_value": {
+          "type": ["number", "null"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "metric_objective": {
+      "type": "object",
+      "required": [
+        "primary_metric",
+        "direction"
+      ],
+      "properties": {
+        "primary_metric": {
+          "type": "string",
+          "enum": [
+            "balanced_accuracy",
+            "log_loss",
+            "roc_auc",
+            "f1",
+            "accuracy",
+            "mae",
+            "rmse",
+            "r2",
+            "wape",
+            "custom"
+          ]
+        },
+        "direction": {
+          "type": "string",
+          "enum": ["maximize", "minimize"]
+        },
+        "target_threshold": {
+          "type": ["number", "null"]
+        },
+        "secondary_metrics": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "diagnostic_slice_columns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "model_intent": {
+      "type": "object",
+      "required": [
+        "family",
+        "framework"
+      ],
+      "properties": {
+        "family": {
+          "type": "string",
+          "enum": ["boosting", "linear", "tree", "neural", "ensemble", "custom"]
+        },
+        "framework": {
+          "type": "string",
+          "enum": ["lightgbm", "xgboost", "catboost", "pytorch", "scikit-learn", "custom"]
+        },
+        "hyperparameters": {
+          "type": "object"
+        },
+        "feature_pipeline": {
+          "type": "object",
+          "properties": {
+            "scaling": {
+              "type": "string",
+              "enum": ["standard", "minmax", "robust", "none"],
+              "default": "none"
+            },
+            "categorical_encoding": {
+              "type": "string",
+              "enum": ["onehot", "ordinal", "target", "none"],
+              "default": "none"
+            },
+            "handle_missing": {
+              "type": "boolean",
+              "default": true
+            },
+            "polynomial_features": {
+              "type": "boolean",
+              "default": false
+            },
+            "interaction_features": {
+              "type": "boolean",
+              "default": false
+            },
+            "feature_selection": {
+              "type": ["string", "null"]
+            }
+          },
+          "additionalProperties": false
+        },
+        "architecture_description": {
+          "type": "string"
+        },
+        "custom_modules": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "candidate_manifest": {
+      "type": "object",
+      "required": [
+        "candidate_id",
+        "name",
+        "task_type",
+        "entrypoint",
+        "supported_operations"
+      ],
+      "properties": {
+        "candidate_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_.:-]+$"
+        },
+        "name": {
+          "type": "string"
+        },
+        "task_type": {
+          "type": "string",
+          "enum": ["binary", "multiclass", "regression"]
+        },
+        "entrypoint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "supported_operations": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "string"
+          }
+        },
+        "stable_row_keys": {
+          "type": "string",
+          "default": "row_id"
+        },
+        "class_order": {
+          "type": "array",
+          "items": {
+            "type": ["string", "integer"]
+          }
+        },
+        "raw_input_schema": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "type": "string"
+            },
+            "features": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "id": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": true
+        },
+        "source_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "model_metadata": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": true
+    },
+    "generated_files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "relative_path",
+          "sha256",
+          "bytes"
+        ],
+        "properties": {
+          "relative_path": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

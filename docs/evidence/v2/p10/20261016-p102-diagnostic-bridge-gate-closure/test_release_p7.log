@@ -1,0 +1,15 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests/release_p7.rs (target/debug/deps/release_p7-6f0e178b10ebf568)
+
+running 8 tests
+test test_p7_acceptance_gate_full_closure ... ok
+test test_p7_1_executable_candidate_bundle_v2_manifest_and_dependency_isolation ... ok
+test test_p7_3_sealed_holdout_gate_enforcement_and_private_row_leakage_rejection ... ok
+test test_p7_5_installed_standalone_lifecycle_crash_resume_and_db_upgrade ... ok
+test test_p7_7_capability_matrix_and_release_audit_all_gates ... ok
+test test_p7_4_standalone_serving_recipe_health_and_predict ... ok
+test test_p7_2_model_exports_safetensors_and_documented_tolerances ... ok
+test test_p7_6_prospective_matched_benchmarks_and_suboptimal_trial_transparency ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+

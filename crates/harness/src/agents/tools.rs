@@ -281,6 +281,45 @@ impl ToolRegistry {
                     }),
                 },
             },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "synthesize_candidate".into(),
+                    description: "Autonomously synthesize decoupled, protocol-conforming ML candidates (entrypoint.py, model.py, features.py, manifest.json) supporting LightGBM, XGBoost, PyTorch, Trees, Linear, and custom pipelines.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "candidate_id": { "type": "string", "description": "Unique candidate identifier" },
+                            "task_type": { "type": "string", "enum": ["binary", "multiclass", "regression"], "description": "Problem task type" },
+                            "target_column": { "type": "string", "description": "Target column name in dataset" },
+                            "model_family": { "type": "string", "enum": ["boosting", "neural", "tree", "linear", "custom"], "description": "Model architecture family (default boosting)" },
+                            "framework": { "type": "string", "enum": ["lightgbm", "xgboost", "pytorch", "scikit-learn", "custom"], "description": "ML execution framework (default lightgbm)" },
+                            "class_order": { "type": "array", "description": "Ordered class labels for classification" },
+                            "hyperparameters": { "type": "object", "description": "Model hyperparameters" },
+                            "feature_pipeline": { "type": "object", "description": "Feature pipeline configuration (scaling, encoding, missing value handling)" },
+                            "candidate_path": { "type": "string", "description": "Relative destination directory in branch workspace (default 'candidate')" },
+                            "custom_modules": { "type": "object", "description": "Optional dictionary of custom python modules mapping relative path to code string" }
+                        },
+                        "required": ["candidate_id", "task_type", "target_column"]
+                    }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "inspect_diagnostics".into(),
+                    description: "Inspect structured execution diagnostics, root-cause attribution, peak telemetry, and remediation suggestions for candidate failures.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "candidate_id": { "type": "string", "description": "Optional candidate identifier to filter diagnostics" },
+                            "failure_type": { "type": "string", "enum": ["cgroup_oom", "non_finite_loss", "shape_mismatch", "class_order_mismatch", "execution_timeout", "missing_dependency", "syntax_error", "runtime_exception"], "description": "Optional failure classification to filter" },
+                            "diagnostic_id": { "type": "string", "description": "Specific diagnostic receipt ID to retrieve" },
+                            "limit": { "type": "integer", "description": "Maximum receipts to return (default 10)" }
+                        }
+                    }),
+                },
+            },
             ToolDefinition {tool_type:"function".into(),function:ToolFunction {
                 name:"schedule_pipeline".into(),
                 description:"Queue a bounded feature/calibration/ensemble protocol in a verified scientific Docker environment. The Rust supervisor evaluates development data and verifies generated OOF provenance; this does not finalize or certify delivery.".into(),

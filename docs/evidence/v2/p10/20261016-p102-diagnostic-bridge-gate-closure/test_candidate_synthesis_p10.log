@@ -1,0 +1,13 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running tests/candidate_synthesis_p10.rs (target/debug/deps/candidate_synthesis_p10-ad1ddbc14c298c82)
+
+running 6 tests
+test p10_6_rbac_refusal_for_unauthorized_role ... ok
+test p10_1_schema_validation_and_tool_discovery ... ok
+test p10_5_custom_modules_and_integrity_guards ... ok
+test p10_4_synthesize_regression_candidate_and_evaluate_submission ... ok
+test p10_2_synthesize_lightgbm_candidate_and_evaluate_submission ... ok
+test p10_3_synthesize_pytorch_candidate_and_evaluate_submission ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.72s
+

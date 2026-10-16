@@ -1,0 +1,21 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running tests/artifact_registry_p2.rs (target/debug/deps/artifact_registry_p2-d4851db49aa13a29)
+
+running 14 tests
+test p24_artifact_event_rolls_back_with_registry_mutation ... ok
+test p2_test_cas_blob_storage_deduplication_and_permissions ... ok
+test p2_test_directory_manifest_canonicalization_and_symlink_rejection ... ok
+test p26_tombstone_respects_pins_and_selection_history ... ok
+test p23_queries_use_bounded_read_only_pool_and_pin_events ... ok
+test p2_test_migration_v9_to_v10_with_populated_state ... ok
+test p26_successor_and_tombstone_commands_are_revisioned_and_idempotent ... ok
+test p2_test_partial_cas_and_db_commit_reconciliation ... ok
+test p2_test_populated_state_upgrade_preserves_selection_and_final_test_records ... ok
+test p2_test_lineage_annotations_and_apex_selection ... ok
+test p2_test_two_tier_summary_bounds_and_authority ... ok
+test p2_test_event_restart_and_reconnect_consistency ... ok
+test p2_test_protected_references_survive_concurrent_gc ... ok
+test p24_event_retention_tracks_expired_cursor_per_project ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.63s
+

@@ -1,0 +1,16 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests/candidate_tools_p4.rs (target/debug/deps/candidate_tools_p4-2d1556a10d3dcb4b)
+
+running 9 tests
+test p4_1_discover_capabilities_reports_contract_boundaries ... ok
+test p4_3_decoupled_recipes_and_experiment_tree ... ok
+test p4_1_workspace_fs_operations_and_concurrency_fencing ... ok
+test p4_3_split_label_isolation_and_evaluator_authority ... ok
+test p4_1_sandbox_exec_isolation_and_fallback ... ok
+test p4_2_prediction_rejections_and_tamper_fencing ... ok
+test p4_4_validation_query_budget_and_slice_suppression ... ok
+test p4_acceptance_gate_full_closure ... ok
+test p4_2_p4_3_executable_candidate_protocol_and_evaluation ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.32s
+

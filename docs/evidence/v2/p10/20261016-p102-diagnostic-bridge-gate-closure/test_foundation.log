@@ -1,0 +1,33 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running tests/foundation.rs (target/debug/deps/foundation-f44b3b4d15c905f6)
+
+running 26 tests
+test corrupted_checkpoint_and_dangling_references_fail_explicitly ... ok
+test cross_language_fixture_corpus ... ok
+test duplicates_fencing_uncertainty_and_charge_debt ... ok
+test durable_crash_actor ... ok
+test event_and_timer_cursors_replay_and_questions_survive ... ok
+test fake_observations_cannot_publish_official_scores_or_finalize ... ok
+test cleanup_preserves_old_command_idempotency_fences ... ok
+test lifecycle_cli_initializes_fresh_state_and_returns_receipts ... ok
+test m1_fair_queue_and_contract_bounds ... ok
+test m1_deadline_crash_and_project_cancellation_reap_only_owned_workers ... ok
+test m1_managed_python_environment_is_owned_and_leases_block_removal ... ok
+test m1_pause_drains_active_job_and_resume_reopens_queued_admission ... ok
+test m1_restart_reconciles_published_artifact_and_discards_incomplete_stage ... ok
+test m1_process_telemetry_is_optional_and_bounded_to_latest_value ... ok
+test m1_supervisor_death_closes_worker_control_and_keeps_budget_reserved_until_recovery ... ok
+test m1_trusted_worker_publishes_hashed_artifact_and_records_terminal_state ... ok
+test m2_dataset_registration_copies_and_hashes_only_into_owned_state ... ok
+test m2_final_test_access_is_reserved_transactionally_once_per_dataset ... ok
+test m2_restart_reconciles_consumed_final_test_identity ... ok
+test m2_scientific_jobs_are_typed_and_reference_registered_datasets ... ok
+test m6_restart_consumes_interrupted_assessment_without_result ... ok
+test process_crashes_recover_each_commit_boundary ... ok
+test simultaneous_reservations_respect_device_and_project_caps ... ok
+test state_root_is_owned_and_migrations_are_checked ... ok
+test ten_projects_three_branches_reserve_atomically_and_cancel_in_isolation ... ok
+test m1_ten_projects_and_three_branch_jobs_stay_within_two_worker_allocation ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.31s
+

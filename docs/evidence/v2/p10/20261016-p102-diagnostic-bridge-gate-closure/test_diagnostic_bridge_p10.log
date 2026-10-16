@@ -1,0 +1,13 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/diagnostic_bridge_p10.rs (target/debug/deps/diagnostic_bridge_p10-2ef284697b67e487)
+
+running 6 tests
+test p10_2_fault_injection_cgroup_oom_in_sandbox ... ok
+test p10_2_fault_injection_execution_timeout_clamp ... ok
+test p10_2_fault_injection_non_finite_loss_and_shape_mismatch ... ok
+test p10_2_schema_v10_persistence_and_receipt_retrieval ... ok
+test p10_2_inspect_diagnostics_tool_and_discovery ... ok
+test p10_2_fault_injection_candidate_evaluation_runtime_exception ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.43s
+

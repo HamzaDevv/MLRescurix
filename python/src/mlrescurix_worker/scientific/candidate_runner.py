@@ -24,6 +24,15 @@ from sklearn.metrics import balanced_accuracy_score, log_loss, mean_absolute_err
 from sklearn.model_selection import GroupKFold, KFold, StratifiedKFold, TimeSeriesSplit
 
 from .workflow import WorkflowError
+from .diagnostic_bridge import DiagnosticBridge, DiagnosticReceipt
+
+
+class CandidateExecutionError(WorkflowError):
+    """Execution error during candidate fit/predict/validation with attached diagnostic receipt."""
+
+    def __init__(self, message: str, diagnostic_receipt: DiagnosticReceipt | None = None):
+        super().__init__(message)
+        self.diagnostic_receipt = diagnostic_receipt
 
 
 def compute_source_hash(directory: Path | str) -> str:
@@ -396,8 +405,19 @@ def evaluate_candidate_cv(
                 candidate_dir, entrypoint, "fit", fit_args, timeout_s=45
             )
             if code != 0:
-                raise WorkflowError(
-                    f"Candidate '{cid}' fit failed on fold {fold_idx} (exit code {code}):\n{stderr}\n{stdout}"
+                diag = DiagnosticBridge.diagnose_failure(
+                    exit_code=code,
+                    stderr=stderr,
+                    stdout=stdout,
+                    message=f"Candidate '{cid}' fit failed on fold {fold_idx}",
+                    candidate_id=cid,
+                    stage="fit",
+                    candidate_dir=str(candidate_dir),
+                    context_metadata={"fold": fold_idx},
+                )
+                raise CandidateExecutionError(
+                    f"Candidate '{cid}' fit failed on fold {fold_idx} (exit code {code}):\n{stderr}\n{stdout}",
+                    diagnostic_receipt=diag,
                 )
 
             # 2. Predict on validation features (without labels)
@@ -410,16 +430,51 @@ def evaluate_candidate_cv(
                 candidate_dir, entrypoint, "predict", predict_args, timeout_s=45
             )
             if code != 0:
-                raise WorkflowError(
-                    f"Candidate '{cid}' predict failed on fold {fold_idx} (exit code {code}):\n{stderr}\n{stdout}"
+                diag = DiagnosticBridge.diagnose_failure(
+                    exit_code=code,
+                    stderr=stderr,
+                    stdout=stdout,
+                    message=f"Candidate '{cid}' predict failed on fold {fold_idx}",
+                    candidate_id=cid,
+                    stage="predict",
+                    candidate_dir=str(candidate_dir),
+                    context_metadata={"fold": fold_idx},
+                )
+                raise CandidateExecutionError(
+                    f"Candidate '{cid}' predict failed on fold {fold_idx} (exit code {code}):\n{stderr}\n{stdout}",
+                    diagnostic_receipt=diag,
                 )
 
             if not predictions_csv.exists():
-                raise WorkflowError(f"Candidate '{cid}' did not produce predictions file at '{predictions_csv}'")
+                diag = DiagnosticBridge.diagnose_failure(
+                    exit_code=1,
+                    stderr=f"Missing predictions file at '{predictions_csv}'",
+                    message=f"Candidate '{cid}' did not produce predictions file at '{predictions_csv}'",
+                    candidate_id=cid,
+                    stage="predict",
+                    candidate_dir=str(candidate_dir),
+                    context_metadata={"fold": fold_idx},
+                )
+                raise CandidateExecutionError(
+                    f"Candidate '{cid}' did not produce predictions file at '{predictions_csv}'",
+                    diagnostic_receipt=diag,
+                )
 
             pred_df = pd.read_csv(predictions_csv, low_memory=False)
             val_row_ids = val_features_df[row_key].tolist()
-            validated = validate_predictions(pred_df, val_row_ids, manifest)
+            try:
+                validated = validate_predictions(pred_df, val_row_ids, manifest)
+            except WorkflowError as exc:
+                diag = DiagnosticBridge.diagnose_failure(
+                    exit_code=1,
+                    stderr=str(exc),
+                    message=str(exc),
+                    candidate_id=cid,
+                    stage="predict",
+                    candidate_dir=str(candidate_dir),
+                    context_metadata={"fold": fold_idx},
+                )
+                raise CandidateExecutionError(str(exc), diagnostic_receipt=diag) from exc
 
             # Record fold OOF outputs
             for i, pos in enumerate(val_idx):

@@ -881,29 +881,85 @@ impl AgentOrchestrator {
                 }
                 let sandbox_image = args.get("environment_id").and_then(Value::as_str);
 
-                let res = if let Some(argv_vals) = args.get("argv").and_then(Value::as_array) {
+                let exec_result = if let Some(argv_vals) = args.get("argv").and_then(Value::as_array) {
                     let argv: Vec<String> = argv_vals.iter().filter_map(|v| v.as_str().map(str::to_string)).collect();
                     if argv.is_empty() {
                         return Err("argv array cannot be empty".into());
                     }
-                    SandboxRunner::execute_argv(&branch_dir, &argv, &limits, sandbox_image)?
+                    SandboxRunner::execute_argv(&branch_dir, &argv, &limits, sandbox_image)
                 } else if let Some(script) = args.get("script").and_then(Value::as_str) {
                     let script_args: Vec<String> = args.get("args")
                         .and_then(Value::as_array)
                         .map(|arr| arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
                         .unwrap_or_default();
-                    SandboxRunner::execute(&branch_dir, script, &script_args, &limits, sandbox_image)?
+                    SandboxRunner::execute(&branch_dir, script, &script_args, &limits, sandbox_image)
                 } else {
                     return Err("sandbox_exec requires either 'argv' array or 'script' string".into());
                 };
 
-                Ok(serde_json::to_string(&json!({
-                    "status": if res.exit_code == 0 { "succeeded" } else { "failed" },
-                    "exit_code": res.exit_code,
-                    "stdout": res.stdout,
-                    "stderr": res.stderr,
-                    "elapsed_ms": res.elapsed_ms,
-                })).unwrap())
+                match exec_result {
+                    Ok(res) => {
+                        let is_success = res.exit_code == 0;
+                        let diagnostic_receipt = if !is_success {
+                            let diag = crate::diagnostics::DiagnosticBridge::build_receipt(
+                                &self.config.branch_id,
+                                "sandbox_exec",
+                                Some(res.exit_code),
+                                &res.stderr,
+                                &res.stdout,
+                                "",
+                                None,
+                                Some((limits.max_memory_mb * 1024 * 1024) as i64),
+                                Some(res.elapsed_ms as i64),
+                                Some(limits.max_wall_ms as i64),
+                                if res.exit_code == 137 { Some(true) } else { None },
+                                None,
+                            );
+                            let _ = crate::diagnostics::record_diagnostic_receipt(&self.root, &self.config.project_id, &diag);
+                            Some(diag)
+                        } else {
+                            None
+                        };
+
+                        Ok(serde_json::to_string(&json!({
+                            "status": if is_success { "succeeded" } else { "failed" },
+                            "exit_code": res.exit_code,
+                            "stdout": res.stdout,
+                            "stderr": res.stderr,
+                            "elapsed_ms": res.elapsed_ms,
+                            "diagnostic_receipt": diagnostic_receipt,
+                        })).unwrap())
+                    }
+                    Err(e) => {
+                        if e.contains("timed out") {
+                            let diag = crate::diagnostics::DiagnosticBridge::build_receipt(
+                                &self.config.branch_id,
+                                "sandbox_exec",
+                                Some(124),
+                                &e,
+                                "",
+                                &e,
+                                None,
+                                Some((limits.max_memory_mb * 1024 * 1024) as i64),
+                                Some(limits.max_wall_ms as i64),
+                                Some(limits.max_wall_ms as i64),
+                                None,
+                                None,
+                            );
+                            let _ = crate::diagnostics::record_diagnostic_receipt(&self.root, &self.config.project_id, &diag);
+                            Ok(serde_json::to_string(&json!({
+                                "status": "failed",
+                                "exit_code": 124,
+                                "stdout": "",
+                                "stderr": e,
+                                "elapsed_ms": limits.max_wall_ms,
+                                "diagnostic_receipt": diag,
+                            })).unwrap())
+                        } else {
+                            Err(e)
+                        }
+                    }
+                }
             }
             "discover_capabilities" => {
                 let status = SandboxDetector::detect();
@@ -1433,15 +1489,45 @@ impl AgentOrchestrator {
                 cmd.env("PYTHONDONTWRITEBYTECODE", "1");
 
                 let run_out = cmd.output().map_err(|e| format!("failed to spawn candidate-evaluate: {e}"))?;
-                if !run_out.status.success() {
+                if !run_out.status.success() && !output_path.is_file() {
                     let err_msg = String::from_utf8_lossy(&run_out.stderr).to_string();
                     let out_msg = String::from_utf8_lossy(&run_out.stdout).to_string();
                     let _ = fs::remove_dir_all(&scratch_dir);
-                    return Err(format!("candidate-evaluate runner failed (code {:?}):\nstderr: {}\nstdout: {}", run_out.status.code(), err_msg, out_msg));
+                    let diag = crate::diagnostics::DiagnosticBridge::build_receipt(
+                        cand_id,
+                        "evaluate",
+                        run_out.status.code(),
+                        &err_msg,
+                        &out_msg,
+                        &format!("candidate-evaluate runner failed (code {:?})", run_out.status.code()),
+                        None,
+                        None,
+                        None,
+                        None,
+                        if run_out.status.code() == Some(137) { Some(true) } else { None },
+                        None,
+                    );
+                    let _ = crate::diagnostics::record_diagnostic_receipt(&self.root, &self.config.project_id, &diag);
+                    return Err(format!("candidate-evaluate runner failed (code {:?}): {err_msg}", run_out.status.code()));
                 }
 
                 if !output_path.is_file() {
                     let _ = fs::remove_dir_all(&scratch_dir);
+                    let diag = crate::diagnostics::DiagnosticBridge::build_receipt(
+                        cand_id,
+                        "evaluate",
+                        run_out.status.code(),
+                        "candidate-evaluate runner finished without creating output file",
+                        "",
+                        "candidate-evaluate runner finished without creating output file",
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    );
+                    let _ = crate::diagnostics::record_diagnostic_receipt(&self.root, &self.config.project_id, &diag);
                     return Err("candidate-evaluate runner finished without creating output file".into());
                 }
 
@@ -1451,6 +1537,40 @@ impl AgentOrchestrator {
 
                 if eval_result.get("status").and_then(Value::as_str) != Some("evaluated") {
                     let err_reason = eval_result.get("error").and_then(Value::as_str).unwrap_or("unknown error");
+                    let diag: crate::diagnostics::DiagnosticReceipt = if let Some(diag_val) = eval_result.get("diagnostic_receipt") {
+                        serde_json::from_value(diag_val.clone()).unwrap_or_else(|_| {
+                            crate::diagnostics::DiagnosticBridge::build_receipt(
+                                cand_id,
+                                "evaluate",
+                                Some(1),
+                                err_reason,
+                                "",
+                                err_reason,
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                            )
+                        })
+                    } else {
+                        crate::diagnostics::DiagnosticBridge::build_receipt(
+                            cand_id,
+                            "evaluate",
+                            Some(1),
+                            err_reason,
+                            "",
+                            err_reason,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                        )
+                    };
+                    let _ = crate::diagnostics::record_diagnostic_receipt(&self.root, &self.config.project_id, &diag);
                     return Err(format!("candidate evaluation failed: {err_reason}"));
                 }
 
@@ -1998,6 +2118,182 @@ impl AgentOrchestrator {
             "inspect_scientific_lineage" => {
                 let lineage = crate::execution::inspect_scientific_lineage(&self.root, &self.config.project_id)?;
                 Ok(lineage.to_string())
+            }
+            "synthesize_candidate" => {
+                let cand_id = args.get("candidate_id").and_then(Value::as_str).ok_or("candidate_id missing")?;
+                let task_type = args.get("task_type").and_then(Value::as_str).ok_or("task_type missing")?;
+                let target_col = args.get("target_column").and_then(Value::as_str).ok_or("target_column missing")?;
+                let model_family = args.get("model_family").and_then(Value::as_str).unwrap_or("boosting");
+                let framework = args.get("framework").and_then(Value::as_str).unwrap_or("lightgbm");
+                let cand_rel = args.get("candidate_path").and_then(Value::as_str).unwrap_or("candidate");
+                let hyperparams = args.get("hyperparameters").cloned().unwrap_or(json!({}));
+                let feature_pipeline = args.get("feature_pipeline").cloned().unwrap_or(json!({}));
+                let custom_modules = args.get("custom_modules").cloned();
+                let class_order = args.get("class_order").cloned();
+
+                let branch_dir = BranchWorkspaceManager::get_branch_dir(&self.root, &self.config.project_id, &self.config.branch_id);
+                let cand_dir = branch_dir.join(cand_rel);
+                fs::create_dir_all(&cand_dir).map_err(|e| e.to_string())?;
+
+                let synthesis_id = format!("synth-{cand_id}-{}", now_ms());
+
+                // Build spec payload matching candidate_synthesis.schema.json
+                let problem_def = json!({
+                    "task_type": task_type,
+                    "target_column": target_col,
+                    "dataset_id": "default",
+                    "id_column": "row_id",
+                    "description": format!("Synthesized candidate for task {task_type}"),
+                });
+
+                let mut target_desc = json!({
+                    "name": target_col,
+                    "task_type": task_type,
+                });
+                if let Some(ref co) = class_order {
+                    target_desc["class_order"] = co.clone();
+                }
+
+                let mut model_intent = json!({
+                    "family": model_family,
+                    "framework": framework,
+                    "hyperparameters": hyperparams,
+                    "feature_pipeline": feature_pipeline,
+                    "architecture_description": format!("Synthesized {model_family} candidate using {framework}"),
+                });
+                if let Some(ref cm) = custom_modules {
+                    model_intent["custom_modules"] = cm.clone();
+                }
+
+                let metric_obj = json!({
+                    "primary_metric": if task_type == "regression" { "rmse" } else { "balanced_accuracy" },
+                    "direction": if task_type == "regression" { "minimize" } else { "maximize" },
+                    "secondary_metrics": [],
+                    "diagnostic_slice_columns": [],
+                });
+
+                let spec_payload = json!({
+                    "schema_version": "v2",
+                    "synthesis_id": synthesis_id,
+                    "candidate_id": cand_id,
+                    "name": format!("Candidate {cand_id}"),
+                    "problem_definition": problem_def,
+                    "target_descriptor": target_desc,
+                    "metric_objective": metric_obj,
+                    "model_intent": model_intent,
+                });
+
+                // Write spec to a scratch path
+                let scratch_dir = self.root.join("workflows").join(&self.config.project_id).join("synth_staging").join(&synthesis_id);
+                fs::create_dir_all(&scratch_dir).map_err(|e| e.to_string())?;
+                let spec_path = scratch_dir.join("spec.json");
+                let output_path = scratch_dir.join("output.json");
+                fs::write(&spec_path, serde_json::to_string_pretty(&spec_payload).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+
+                // Invoke python CLI runner
+                let mut cmd = std::process::Command::new("python3");
+                cmd.args([
+                    "-m", "mlrescurix_worker.scientific.cli",
+                    "candidate-synthesize",
+                    "--spec", &spec_path.to_string_lossy(),
+                    "--output-dir", &cand_dir.to_string_lossy(),
+                    "--output", &output_path.to_string_lossy(),
+                ]);
+
+                let embedded_py = crate::assets::ensure_python_root(&self.root)?;
+                let embedded_src = embedded_py.join("src");
+                let mut pypaths = vec![embedded_src.to_string_lossy().to_string()];
+                if let Ok(repo_src) = std::fs::canonicalize(Path::new("python/src")) {
+                    pypaths.push(repo_src.to_string_lossy().to_string());
+                }
+                if let Ok(cur_py) = std::env::var("PYTHONPATH") {
+                    if !cur_py.is_empty() { pypaths.push(cur_py); }
+                }
+                cmd.env("PYTHONPATH", pypaths.join(":"));
+                cmd.env("PYTHONDONTWRITEBYTECODE", "1");
+
+                let run_out = cmd.output().map_err(|e| format!("failed to spawn candidate-synthesize: {e}"))?;
+                if !run_out.status.success() {
+                    let err_msg = String::from_utf8_lossy(&run_out.stderr).to_string();
+                    let out_msg = String::from_utf8_lossy(&run_out.stdout).to_string();
+                    let _ = fs::remove_dir_all(&scratch_dir);
+                    return Err(format!("candidate-synthesize failed (code {:?}):\nstderr: {}\nstdout: {}", run_out.status.code(), err_msg, out_msg));
+                }
+
+                if !output_path.is_file() {
+                    let _ = fs::remove_dir_all(&scratch_dir);
+                    return Err("candidate-synthesize finished without creating output file".into());
+                }
+
+                let synth_res_str = fs::read_to_string(&output_path).map_err(|e| e.to_string())?;
+                let synth_res: Value = serde_json::from_str(&synth_res_str).map_err(|e| format!("malformed candidate-synthesize output: {e}"))?;
+                let _ = fs::remove_dir_all(&scratch_dir);
+
+                let src_hash = synth_res.get("source_hash").and_then(Value::as_str).unwrap_or("");
+                let manifest_val = synth_res.get("manifest").cloned().unwrap_or(json!({}));
+
+                // Record in candidate_synthesis_records SQLite table
+                crate::execution::migrate(&self.root)?;
+                let db = rusqlite::Connection::open(self.root.join("state.sqlite")).map_err(|e| e.to_string())?;
+                db.execute(
+                    "INSERT INTO candidate_synthesis_records(project, synthesis_id, candidate_id, task_type, model_family, framework, spec_json, manifest_json, source_hash, created_ms)
+                     VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                    rusqlite::params![
+                        self.config.project_id,
+                        synthesis_id,
+                        cand_id,
+                        task_type,
+                        model_family,
+                        framework,
+                        serde_json::to_string(&spec_payload).unwrap_or_default(),
+                        serde_json::to_string(&manifest_val).unwrap_or_default(),
+                        src_hash,
+                        now_ms(),
+                    ],
+                ).map_err(|e| e.to_string())?;
+
+                self.context.record_achievement(
+                    &self.root,
+                    "candidate_synthesized",
+                    &format!("Synthesized candidate {cand_id} ({model_family}/{framework}) in {cand_rel}"),
+                    None,
+                    json!({
+                        "candidate_id": cand_id,
+                        "model_family": model_family,
+                        "framework": framework,
+                        "source_hash": src_hash,
+                        "destination_path": cand_rel,
+                    }),
+                )?;
+
+                Ok(json!({
+                    "status": "synthesized",
+                    "synthesis_id": synthesis_id,
+                    "candidate_id": cand_id,
+                    "candidate_path": cand_rel,
+                    "model_family": model_family,
+                    "framework": framework,
+                    "source_hash": src_hash,
+                    "manifest": manifest_val,
+                    "files": synth_res.get("files").unwrap_or(&json!([])),
+                }).to_string())
+            }
+            "inspect_diagnostics" => {
+                let cand_id = args.get("candidate_id").and_then(Value::as_str);
+                let failure_type = args.get("failure_type").and_then(Value::as_str);
+                let diag_id = args.get("diagnostic_id").and_then(Value::as_str);
+                let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(10) as usize;
+
+                if let Some(id) = diag_id {
+                    let receipt = crate::diagnostics::get_diagnostic_receipt(&self.root, &self.config.project_id, id)?;
+                    Ok(serde_json::to_string(&receipt).unwrap())
+                } else {
+                    let receipts = crate::diagnostics::list_diagnostic_receipts(&self.root, &self.config.project_id, cand_id, failure_type, limit)?;
+                    Ok(json!({
+                        "count": receipts.len(),
+                        "diagnostics": receipts
+                    }).to_string())
+                }
             }
             other => Err(format!("Unknown tool: {other}")),
         }

@@ -156,9 +156,21 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
     5. Rust Harness: Additive idempotent DDL (`crates/harness/src/schema_p9_adapters.sql`, `crates/harness/src/schema_p9_anomaly.sql`, `crates/harness/src/schema_p9_embeddings.sql`) creating `arrow_dataset_adapters`, `time_series_backtests`, `anomaly_clustering_adapters`, `frozen_embedding_adapters`, and `embedding_cache_records` under `user_version = 10`. Integrated `adapters.rs` module, tool registry (`inspect_arrow_dataset`, `evaluate_temporal_backtest`, `evaluate_anomaly_clustering`, `extract_frozen_embeddings`), agent role authorizations, orchestrator tool dispatch, and CLI subcommands (`InspectArrow`, `ValidateTemporalSplit`, `InspectAnomalyClustering`, `InspectFrozenEmbeddings`).
     Verified across 12 integration tests in `crates/harness/tests/adapters_p9.rs`, 6 unit tests in `python/tests/test_p9_frozen_embeddings.py` (25 total in P9 Python adapters suite), 20 unit tests in `crates/harness/src/lib.rs`, and 149 tests across full repository regression suites (253 total passed tests, 0 failures, 8 ignored/deselected). Fresh logs in `docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/`. Phase P9.1, P9.2, P9.3, and P9.4 slices are closed.
   - Architectural Realignment (D42): Reframed adapters (P9.1–P9.4) as optional deterministic primitives and guardrails rather than prescriptive pipelines. Deprioritized narrow sub-domain adapter scripting (P9.5–P9.9) in favor of Phase P10 (Autonomous Candidate Synthesis & Iterative Refinement Loop).
+  - P10.1 (Autonomous Candidate Synthesis Engine and Acceptance Gate) complete and verified:
+    1. Strict Draft 2020-12 typed schema (`contracts/v2/candidate_synthesis.schema.json`) covering problem definitions, input/target column descriptors, metric objectives, model family intents, and generated candidate manifest contracts.
+    2. Python Candidate Synthesis Engine (`python/src/mlrescurix_worker/scientific/candidate_synthesis.py`) generating decoupled `candidate/entrypoint.py`, `model.py`, `features.py`, and `manifest.json`. Supports arbitrary ML families (LightGBM, XGBoost, CatBoost, PyTorch, Scikit-Learn Trees/Linear, bespoke feature engineering). Adheres strictly to candidate CLI protocol (`fit`/`predict`), row-index and row-order alignment, label isolation (dropping target column on `predict`), and cryptographic source hash computation.
+    3. Rust Harness: Additive idempotent DDL (`crates/harness/src/schema_p10_synthesis.sql`) creating `candidate_synthesis_records` under `PRAGMA user_version = 10`. Registered `synthesize_candidate` tool in `ToolRegistry` and agent roles (`lead`, `feature_engineer`, `model_specialist`). Embedded `candidate_synthesis.py` into binary assets. Exposed `synthesize-candidate` CLI subcommand and updated `Capabilities`.
+    4. Sandbox Execution & Verification Gate: Wired directly to `sandbox_exec` and `evaluate_submission` (cross-validation, scorecards in CAS, and SQLite persistence). Verified negative scientific guards (label isolation, tampering rejection, RBAC authorization).
+    Verified across 6 integration tests in `crates/harness/tests/candidate_synthesis_p10.rs`, 6 unit tests in `python/tests/test_p10_candidate_synthesis.py` (90 total in Python test suite), 20 unit tests in `crates/harness/src/lib.rs`, and 149 tests across full repository regression suites (254 total passed tests, 0 failures, 8 ignored/deselected). Fresh logs in `docs/evidence/v2/p10/20261016-p101-candidate-synthesis-gate-closure/`. Slice P10.1 is closed.
+  - P10.2 (Structured Diagnostic Feedback Bridge and Acceptance Gate) complete and verified:
+    1. Strict Draft 2020-12 typed schema (`contracts/v2/diagnostic_receipt.schema.json`) covering failure classification (`cgroup_oom`, `non_finite_loss`, `shape_mismatch`, `class_order_mismatch`, `execution_timeout`, `missing_dependency`, `syntax_error`, `runtime_exception`), root-cause symbol/line attribution, bounded stack traces (<=32KB), peak resource telemetry, and actionable remediation suggestions.
+    2. Python Diagnostic Feedback Bridge (`python/src/mlrescurix_worker/scientific/diagnostic_bridge.py`) intercepting sandbox failures, exit codes (137 OOM, 124 timeout), and stderr/stdout traces; extracting candidate frame symbols and line numbers; and compiling actionable remediation suggestions. Wired into candidate runner (`candidate_runner.py`) with typed `CandidateExecutionError` and CLI (`candidate-evaluate` and `diagnose-failure`).
+    3. Rust Harness: Additive idempotent DDL (`crates/harness/src/schema_p10_diagnostics.sql`) creating `diagnostic_receipts` under `PRAGMA user_version = 10`. Implemented Rust domain models and queries (`crates/harness/src/diagnostics.rs`). Registered `inspect_diagnostics` tool in `ToolRegistry` and agent roles (`lead`, `auditor`, `feature_engineer`, `model_specialist`). Embedded `diagnostic_bridge.py` into binary assets. Exposed `inspect-diagnostics` CLI subcommand and updated `Capabilities`.
+    4. Fault Injection & Verification Gate: Comprehensive test suite covering all 8 failure modes (cgroup OOM, NaN loss, feature shape mismatch, class order misalignment, execution timeout, missing dependency, syntax error, runtime exception) with verified high-signal receipt generation and RBAC authorization enforcement.
+    Verified across 6 integration tests in `crates/harness/tests/diagnostic_bridge_p10.rs`, 8 unit tests in `python/tests/test_p10_diagnostic_bridge.py` (98 total in Python test suite), 20 unit tests in `crates/harness/src/lib.rs`, and 155 tests across full repository regression suites (280 total passed tests, 0 failures, 8 ignored/deselected). Fresh logs in `docs/evidence/v2/p10/20261016-p102-diagnostic-bridge-gate-closure/`. Slice P10.2 is closed.
 - Release: M6 remains **NOT READY**, as recorded in `docs/m6-completion-status.md`.
-  - Authorization: P9.4 (Text & Vision Frozen-Embedding Adapters) was completed and committed.
-  - Next recommended slice: Phase P10.1 (Autonomous Candidate Synthesis Engine) to establish the agent-first autonomous synthesis and self-healing loop. M6 release gates remain independently open.
+  - Authorization: P10.1 and P10.2 were completed and verified.
+  - Next recommended slice: Phase P10.3 (Multi-Fidelity Iteration & Hypothesis Loop) for multi-turn hypothesis-driven code mutation and Pareto optimization against baseline benchmarks. M6 release gates remain independently open.
 
 | Phase | Status | Evidence / next step |
 | --- | --- | --- |
@@ -172,7 +184,7 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
 | P7 | complete | P7.1–P7.7 and full Phase P7 Acceptance Gate verified across 8 tests in release_p7, 4 tests in test_p7_scientific_delivery.py, 53 tests in python_host, and full regression suites (187 total passed tests, 0 failures). Fresh logs in `docs/evidence/v2/p7/20261015-p7-gate-closure/`. M6 remains independently NOT READY. |
 | P8 | complete | P8.1–P8.5 and full Phase P8 Acceptance Gate verified across 11 tests in feasibility_p8, 6 tests in test_p8_feasibility.py, and full regression suites (202 total passed tests, 0 failures). Fresh logs in `docs/evidence/v2/p8/20261015-p8-gate-closure/`. M6 remains independently NOT READY. |
 | P9 | complete (P9.1–P9.4) | P9.1 Out-of-Core / Arrow, P9.2 Time-Series, P9.3 Anomaly/Clustering, and P9.4 Frozen-Embedding adapters complete and fully evidenced across 12 tests in adapters_p9, 25 tests in Python adapter suites, and 253 total passed tests across full repository regression suites. Evidence in `docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/`. P9 adapters serve as optional primitives. |
-| P10 | planned | Autonomous Candidate Synthesis & Iterative Refinement Loop (P10.1 Candidate Synthesis Engine, P10.2 Diagnostic Feedback Bridge, P10.3 Multi-Fidelity Iteration & Hypothesis Loop, P10.4 Autonomous End-to-End Model Rescue Gate). |
+| P10 | in_progress (P10.1 & P10.2 complete) | P10.1 Autonomous Candidate Synthesis Engine and P10.2 Structured Diagnostic Feedback Bridge complete and fully evidenced across 6 tests in candidate_synthesis_p10, 6 tests in diagnostic_bridge_p10, 14 unit tests in test_p10_*.py, and 280 total passed tests across full repository regression suites. Evidence in `docs/evidence/v2/p10/20261016-p102-diagnostic-bridge-gate-closure/`. Next: P10.3 Multi-Fidelity Iteration & Hypothesis Loop. |
 
 Allowed implementation statuses: planned, in_progress, blocked, implemented_unverified,
 verified, complete. Complete requires the phase gate and evidence; code presence
@@ -212,6 +224,10 @@ or a specialist's assertion alone does not meet it. P0 is documentation complete
 | 2026-10-15 | P7.1–P7.7 & Phase P7 Acceptance Gate Closure | Implemented executable candidate bundle manifest (`mlrescurix.bundle.v2`) under strict Draft 2020-12 schema (`contracts/v2/candidate_bundle.schema.json`) with clean separation between `training.lock` and standalone `inference.lock` rejecting build/test tools (`pytest`, `harness`). Implemented native joblib and zero-pickle SafeTensors model export adapters (`export_model`, `SafeTensorsPredictor`, `verify_export_parity`) in `export.py` with modality-specific documented tolerances and sandbox boundary checks. Enforced sealed holdout evaluation gate (`final_test_gates` status `consumed`) with verified user approvals (`user_approvals`), and strict zero evaluation row leakage rejection against `splits.test` in `dataset_manifest.json`. Implemented minimal standalone HTTP serving recipe (`serve.py`) with `/health` and `/predict` endpoints using standard library `http.server`. Proved installed standalone workflow outside checkout with crash/resume and populated state migration without schema version bump (`PRAGMA user_version = 10`). Implemented matched prospective benchmarks (`benchmarks.py`) across seeds `[2026, 42, 101]` transparently recording suboptimal/failing trials. Published capability matrix and audited all 5 M6 gates (preserved as `not_ready`) and all 7 v2 gates (P1–P7 passed). All 8 tests in release_p7, 4 tests in test_p7_scientific_delivery.py, 53 tests in python_host, and full regression suites passed (187 total passed tests, 0 failures). Added D37. Fresh logs in `docs/evidence/v2/p7/20261015-p7-gate-closure/`. Phase P7 is closed; M6 remains NOT READY. |
 | 2026-10-15 | P8.1–P8.5 & Phase P8 Acceptance Gate Closure | Defined typed schemas for HardwareProfile, DatasetMetadata, FeasibilityReport, ExecutionPlan (`contracts/v2/*.schema.json`). Implemented Rust and Python models integrating P3 broker discovery (`broker.rs`), capturing effective CPU, RAM, disk headroom, Docker VM/accelerator limits, and memory certification capability. Added model family analytical complexity estimators (Linear, Boosting, Tree, Neural, Custom) and capped micro-pilots ($N \le 100$, low-epoch probes, tight timeout/RAM guards). Implemented transparent multi-tier feasibility verdicts (`locally_feasible`, `feasible_with_adaptation`, `requires_external_compute`, `unknown`) with documented assumptions, confidence bounds, predicted runtime/RAM ranges, and pilot trial IDs. Evaluated evidence-backed local alternatives (quantization, sparse linear, progressive fidelity, downsampled screening, smaller architectures, streaming) without quiet semantic degradation. Implemented safe constraint negotiation generating immutable `ExecutionPlan` artifacts while strictly preserving locked evaluation splits (`locked_split_protocol_preserved = true`) and gating heavy training dispatch (`enforce_heavy_dispatch_feasibility`). All 11 tests in feasibility_p8, 6 tests in test_p8_feasibility.py, and full regression suites passed (202 total passed tests, 0 failures). Added D38. Fresh logs in `docs/evidence/v2/p8/20261015-p8-gate-closure/`. Phase P8 is closed; M6 remains NOT READY. |
 | 2026-10-15 | P9.1 & P9.2 Out-of-Core Arrow and Time-Series Forecasting Adapters | Defined Draft 2020-12 schemas for Arrow and Time-Series adapters. Implemented true Arrow memory-mapped batch iterators with empirical memory accounting, incremental feature scaling, and out-of-core SGD baselines. Implemented temporal splitters (rolling/expanding window, entity-aware), causal lag feature generation, naive/seasonal baselines, and multi-step delivery inference contract with recursive lag propagation. Added Rust harness persistence (schema_p9_adapters.sql under user_version = 10), orchestrator tool dispatch, role authorizations, and CLI subcommands. Verified negative scientific cases (leakage rejection, out-of-order rejection, memory overage rejection). All 10 tests in adapters_p9, 11 tests in python adapter suites, and full repository regression suites passed (235 total passed tests, 0 failures). Added D39. Fresh logs in `docs/evidence/v2/p9/20261015-p9-adapters-gate-closure/`. P9.1 & P9.2 closed; M6 remains NOT READY. |
+| 2026-10-15 | P9.3 Anomaly Detection & Clustering Adapter | Defined Draft 2020-12 schemas for Anomaly Detection & Clustering. Implemented IsolationForest, LocalOutlierFactor, KMeans, and HDBSCAN/DBSCAN with empirical score calibrations and delivery inference contracts. Added Rust persistence (schema_p9_anomaly.sql under user_version = 10), orchestrator tool dispatch, and CLI subcommands. Verified negative scientific cases (contamination bounds, non-finite inputs, invalid configs). All 11 tests in adapters_p9, 14 tests in python adapter suites, and full regression suites passed (245 total passed tests). Added D40. Fresh logs in `docs/evidence/v2/p9/20261015-p93-anomaly-clustering-gate-closure/`. P9.3 closed; M6 remains NOT READY. |
+| 2026-10-16 | P9.4 Text & Vision Frozen-Embedding Adapters | Defined Draft 2020-12 schemas for Frozen Embeddings. Implemented lightweight frozen text and vision encoders, content-addressed embedding cache with SHA-256 signatures and strict storage quotas, and production feature extraction inference engine. Added Rust persistence (schema_p9_embeddings.sql under user_version = 10), orchestrator tool dispatch, role authorizations, and CLI subcommands. Verified negative scientific cases (sequence length, image dimension, uncertified remote downloads, cache quotas). All 12 tests in adapters_p9, 25 tests in python adapter suites, and full regression suites passed (253 total passed tests). Added D41. Fresh logs in `docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/`. P9.4 closed; M6 remains NOT READY. |
+| 2026-10-16 | P10.1 Autonomous Candidate Synthesis Engine | Defined Draft 2020-12 candidate synthesis schema (candidate_synthesis.schema.json). Implemented autonomous CandidateSynthesizer generating decoupled entrypoint.py, model.py, features.py, and manifest.json supporting LightGBM, XGBoost, PyTorch, Trees, and Linear families adhering strictly to candidate CLI protocol (fit/predict), row ID preservation, and label isolation. Added Rust persistence (schema_p10_synthesis.sql under user_version = 10), ToolRegistry dispatch (synthesize_candidate), role authorizations, CLI subcommand, and capabilities. Wired directly to sandbox_exec and evaluate_submission (cross-validation, scorecards in CAS). Verified label isolation, tampering rejection, and RBAC enforcement. All 6 tests in candidate_synthesis_p10, 6 unit tests in test_p10_candidate_synthesis.py, and full regression suites passed (254 total passed tests). Added D43. Fresh logs in `docs/evidence/v2/p10/20261016-p101-candidate-synthesis-gate-closure/`. Slice P10.1 closed; M6 remains NOT READY. |
+| 2026-10-16 | P10.2 Structured Diagnostic Feedback Bridge | Defined Draft 2020-12 diagnostic receipt schema (diagnostic_receipt.schema.json) covering 8 canonical failure modes (cgroup_oom, non_finite_loss, shape_mismatch, class_order_mismatch, execution_timeout, missing_dependency, syntax_error, runtime_exception), root-cause attribution, bounded tracebacks (<=32KB), peak telemetry, and actionable remediations. Implemented DiagnosticBridge in diagnostic_bridge.py and candidate_runner.py. Added Rust persistence (schema_p10_diagnostics.sql under user_version = 10), diagnostics.rs models/queries, inspect_diagnostics tool dispatch in orchestrator.rs, role authorizations, and inspect-diagnostics CLI subcommand. Verified against all 8 fault modes, sandbox integration, and RBAC refusals. All 6 tests in diagnostic_bridge_p10, 8 unit tests in test_p10_diagnostic_bridge.py, and full regression suites passed (280 total passed tests). Added D44. Fresh logs in `docs/evidence/v2/p10/20261016-p102-diagnostic-bridge-gate-closure/`. Slice P10.2 closed; M6 remains NOT READY. |
 
 ## Update at the end of every implementation session
 
@@ -1317,6 +1333,163 @@ Next small actionable slice:
   - Phase P9.5 (Small-Model Fine-Tuning) upon explicit user authorization.
 ```
 
+### Implementation Session 2026-10-16 (P10.1 Slice)
+
+```text
+Date / phase / task IDs:
+  - 2026-10-16 / Phase P10 / Slice P10.1 (Autonomous Candidate Synthesis Engine)
+User-authorized scope:
+  - Phase P10 Slice P10.1 (Autonomous Candidate Synthesis Engine) and its verification gate.
+  - Strict scope boundary: P10.1 only; do not begin P10.2 or subsequent slices.
+  - Retain PRAGMA user_version = 10.
+  - Keep docs/evidence/m6/ completely untouched.
+Starting commit and pre-existing dirty files:
+  - Commit: abf1f235030a79f9a606b429e34608431e37603d on branch main.
+  - Clean working tree with previous P9.4 commits.
+Changes and source paths:
+  - contracts/v2/candidate_synthesis.schema.json: Draft 2020-12 typed schema covering problem definitions (task_type: binary, multiclass, regression; target_column, id_column, time_column, group_column), column descriptors, primary/secondary metric objectives, optimization direction, model family intents, and generated candidate manifest contracts.
+  - python/src/mlrescurix_worker/scientific/candidate_synthesis.py: CandidateSynthesizer generating decoupled entrypoint.py, model.py, features.py, and manifest.json supporting arbitrary ML families (LightGBM, XGBoost, PyTorch, Trees, Linear, Custom) adhering strictly to candidate CLI protocol (fit/predict), row ID preservation, label isolation, and SHA-256 source hash calculation.
+  - python/src/mlrescurix_worker/scientific/cli.py: Added candidate-synthesize CLI subparser.
+  - python/tests/test_p10_candidate_synthesis.py: 6 comprehensive unit tests covering schema validation, classification/regression candidate synthesis, modular script execution, label isolation on prediction, and negative error cases.
+  - crates/harness/src/schema_p10_synthesis.sql: Additive idempotent DDL creating candidate_synthesis_records under PRAGMA user_version = 10.
+  - crates/harness/src/assets.rs: Registered candidate_synthesis.py in EMBEDDED_PYTHON_FILES.
+  - crates/harness/src/execution.rs: Embedded schema_p10_synthesis.sql in connection migration unconditionally.
+  - crates/harness/src/agents/tools.rs: Registered synthesize_candidate tool in ToolRegistry.
+  - crates/harness/src/agents/roles.rs: Authorized synthesize_candidate for lead, feature_engineer, and model_specialist roles.
+  - crates/harness/src/agents/orchestrator.rs: Dispatched synthesize_candidate with argument validation, Python execution, and database persistence.
+  - crates/harness/src/main.rs: Added SynthesizeCandidate CLI subcommand and updated Capabilities reporting candidate_synthesis and p10_candidate_synthesis: passed.
+  - crates/harness/tests/candidate_synthesis_p10.rs: 6 comprehensive integration tests covering schema validation, CLI candidate synthesis, tool dispatch, role authorization, end-to-end sandbox execution and evaluate_submission, and tampering/invalid spec rejections.
+  - docs/v2/DECISIONS.md: Recorded Decision D43.
+  - docs/v2/ROADMAP.md: Updated Phase P10 section recording P10.1 completion and acceptance gate closure.
+  - docs/v2/PROGRESS.md: Updated progress, phase map, session ledger, and acceptance gate closure.
+  - docs/evidence/v2/p10/20261016-p101-candidate-synthesis-gate-closure/: Captured test execution logs and summary.md.
+Decisions added or revised:
+  - Decision D43 added (P10.1 Autonomous Candidate Synthesis Engine, decoupled candidate generation, candidate CLI protocol, label isolation, CAS scorecard integration, RBAC enforcement).
+Exact verification commands and exit results:
+  - cargo test --locked --test candidate_synthesis_p10 (exit code 0; 6 passed)
+  - PYTHONPATH=python/src pytest python/tests/test_p10_candidate_synthesis.py (exit code 0; 6 passed)
+  - cargo test --locked --test adapters_p9 (exit code 0; 12 passed)
+  - cargo test --locked --test feasibility_p8 (exit code 0; 11 passed)
+  - cargo test --locked --test release_p7 (exit code 0; 8 passed)
+  - cargo test --locked --test dashboard_p6 (exit code 0; 9 passed)
+  - cargo test --locked --test collaboration_p5 (exit code 0; 11 passed)
+  - cargo test --locked --lib (exit code 0; 20 passed, 2 ignored)
+  - cargo test --locked --test candidate_tools_p4 (exit code 0; 9 passed)
+  - cargo test --locked --test artifact_registry_p2 (exit code 0; 14 passed)
+  - cargo test --locked --test resource_broker_p3 -- --test-threads=1 (exit code 0; 13 passed)
+  - cargo test --locked --test foundation -- --test-threads=1 (exit code 0; 26 passed)
+  - cargo test --locked --test agent_m4 (exit code 0; 23 passed)
+  - cargo test --locked --test recovery_cycles -- --test-threads=1 (exit code 0; 8 passed, 2 ignored)
+  - cargo test --locked --test release_m6 (exit code 0; 5 passed, 3 ignored)
+  - PYTHONPATH=python/src pytest python/tests/ -k "not test_real_container_tmpfs_enospc_never_publishes" (exit code 0; 90 passed, 1 deselected)
+Evidence paths plus source/image/schema hashes:
+  - docs/evidence/v2/p10/20261016-p101-candidate-synthesis-gate-closure/test_candidate_synthesis_p10.log
+  - docs/evidence/v2/p10/20261016-p101-candidate-synthesis-gate-closure/test_p10_candidate_synthesis_py.log
+  - docs/evidence/v2/p10/20261016-p101-candidate-synthesis-gate-closure/test_adapters_p9.log
+  - docs/evidence/v2/p10/20261016-p101-candidate-synthesis-gate-closure/test_feasibility_p8.log
+  - docs/evidence/v2/p10/20261016-p101-candidate-synthesis-gate-closure/test_release_p7.log
+  - docs/evidence/v2/p10/20261016-p101-candidate-synthesis-gate-closure/test_dashboard_p6.log
+  - docs/evidence/v2/p10/20261016-p101-candidate-synthesis-gate-closure/test_collaboration_p5.log
+  - docs/evidence/v2/p10/20261016-p101-candidate-synthesis-gate-closure/test_lib.log
+  - docs/evidence/v2/p10/20261016-p101-candidate-synthesis-gate-closure/test_candidate_tools_p4.log
+  - docs/evidence/v2/p10/20261016-p101-candidate-synthesis-gate-closure/test_artifact_registry_p2.log
+  - docs/evidence/v2/p10/20261016-p101-candidate-synthesis-gate-closure/test_resource_broker_p3.log
+  - docs/evidence/v2/p10/20261016-p101-candidate-synthesis-gate-closure/test_foundation.log
+  - docs/evidence/v2/p10/20261016-p101-candidate-synthesis-gate-closure/test_agent_m4.log
+  - docs/evidence/v2/p10/20261016-p101-candidate-synthesis-gate-closure/test_recovery_cycles.log
+  - docs/evidence/v2/p10/20261016-p101-candidate-synthesis-gate-closure/test_release_m6.log
+  - docs/evidence/v2/p10/20261016-p101-candidate-synthesis-gate-closure/test_python_host.log
+  - docs/evidence/v2/p10/20261016-p101-candidate-synthesis-gate-closure/summary.md
+Implemented but unverified:
+  - None within Phase P10.1 scope (all P10.1 deliverables implemented and verified with passing tests).
+Failure/recovery scenarios still open:
+  - Phase P10.2 through P10.4 (Structured Diagnostic Feedback Bridge, Multi-Fidelity Iteration Loop, Autonomous Model Rescue Gate) remain planned and not begun.
+Budget / compatibility / migration implications:
+  - Zero schema version bump required (user_version remains 10).
+  - 128 MiB policy ceiling strictly preserved.
+  - M0–M8 compatibility fully preserved across all regression suites (254 passed tests).
+  - Historical evidence in docs/evidence/m6/ left completely untouched.
+Next small actionable slice:
+  - Phase P10.2 (Structured Diagnostic Feedback Bridge) upon explicit user authorization.
+```
+
+### Implementation Session 2026-10-16 (P10.2 Structured Diagnostic Feedback Bridge Slice)
+
+```text
+Date / phase / task IDs: 2026-10-16 / P10 / P10.2 (Structured Diagnostic Feedback Bridge)
+User-authorized scope:
+  - Phase P10.2: Structured Diagnostic Feedback Bridge for autonomous agent self-healing and code debugging.
+  - Retain PRAGMA user_version = 10 and keep docs/evidence/m6/ completely untouched.
+Starting commit and pre-existing dirty files:
+  - Commit abf1f235030a79f9a606b429e34608431e37603d; dirty files from P10.1: contracts/v2/, python/, crates/harness/, docs/evidence/v2/p10/
+Changes and source paths:
+  - contracts/v2/diagnostic_receipt.schema.json: Draft 2020-12 typed schema capturing 8 canonical failure classifications (cgroup_oom, non_finite_loss, shape_mismatch, class_order_mismatch, execution_timeout, missing_dependency, syntax_error, runtime_exception), root-cause symbol/line attribution, bounded formatted tracebacks (max 32KB), peak resource telemetry, and actionable remediation suggestions.
+  - python/src/mlrescurix_worker/scientific/diagnostic_bridge.py: Implemented DiagnosticBridge, FailureType, RootCause, ResourceTelemetry, DiagnosticReceipt, failure classification heuristics, candidate frame traceback isolation, bounded summarization, and domain-tailored remediation suggestion engine.
+  - python/src/mlrescurix_worker/scientific/candidate_runner.py: Added CandidateExecutionError with attached DiagnosticReceipt; wired into fit, predict, and prediction validation error paths.
+  - python/src/mlrescurix_worker/scientific/cli.py: Wired candidate-evaluate to emit diagnostic_receipt on error in eval_output.json; added diagnose-failure CLI subcommand for offline log diagnosis.
+  - crates/harness/src/schema_p10_diagnostics.sql: Additive DDL creating diagnostic_receipts table and indices under PRAGMA user_version = 10.
+  - crates/harness/src/diagnostics.rs: Native Rust domain models, SQLite persistence, query functions (record_diagnostic_receipt, get_diagnostic_receipt, list_diagnostic_receipts), and native DiagnosticBridge::build_receipt.
+  - crates/harness/src/assets.rs: Added diagnostic_bridge.py to EMBEDDED_PYTHON_FILES.
+  - crates/harness/src/execution.rs: Added schema_p10_diagnostics.sql execution during harness migration.
+  - crates/harness/src/lib.rs: Exported pub mod diagnostics.
+  - crates/harness/src/agents/tools.rs: Registered inspect_diagnostics tool in ToolRegistry.
+  - crates/harness/src/agents/roles.rs: Authorized inspect_diagnostics for lead, auditor, feature_engineer, and model_specialist roles.
+  - crates/harness/src/agents/orchestrator.rs: Dispatched inspect_diagnostics tool; integrated diagnostic receipt creation and SQLite recording into sandbox_exec and evaluate_submission.
+  - crates/harness/src/main.rs: Added inspect-diagnostics CLI subcommand and updated Capabilities reporting p10_diagnostic_bridge and diagnostic_bridge_capabilities.
+  - crates/harness/tests/diagnostic_bridge_p10.rs: Authored 6 comprehensive integration tests covering schema persistence, query filtering, inspect_diagnostics tool dispatch, role RBAC refusal, cgroup OOM injection, non-finite loss injection, feature shape mismatch injection, execution timeout clamping, and runtime exception injection during candidate evaluation.
+  - python/tests/test_p10_diagnostic_bridge.py: Authored 8 unit tests verifying all 8 failure modes, schema validation, and runner integration.
+Decisions added or revised:
+  - D44 recorded in docs/v2/DECISIONS.md.
+Exact verification commands and exit results:
+  - cargo test --locked --test diagnostic_bridge_p10 (exit code 0; 6 passed)
+  - PYTHONPATH=python/src pytest python/tests/test_p10_diagnostic_bridge.py (exit code 0; 8 passed)
+  - cargo test --locked --test candidate_synthesis_p10 (exit code 0; 6 passed)
+  - cargo test --locked --test candidate_tools_p4 (exit code 0; 9 passed)
+  - cargo test --locked --test adapters_p9 (exit code 0; 12 passed)
+  - cargo test --locked --test feasibility_p8 (exit code 0; 11 passed)
+  - cargo test --locked --test release_p7 (exit code 0; 8 passed)
+  - cargo test --locked --test dashboard_p6 (exit code 0; 9 passed)
+  - cargo test --locked --test collaboration_p5 (exit code 0; 11 passed)
+  - cargo test --locked --test resource_broker_p3 -- --test-threads=2 (exit code 0; 13 passed)
+  - cargo test --locked --test artifact_registry_p2 (exit code 0; 14 passed)
+  - cargo test --locked --test agent_m4 (exit code 0; 23 passed)
+  - cargo test --locked --test foundation -- --test-threads=2 (exit code 0; 26 passed)
+  - cargo test --locked --test recovery_cycles -- --test-threads=2 (exit code 0; 8 passed, 2 ignored)
+  - cargo test --locked --test release_m6 (exit code 0; 5 passed, 3 ignored)
+  - cargo test --locked --lib (exit code 0; 20 passed, 2 ignored)
+  - PYTHONPATH=python/src pytest python/tests/ -k "not test_real_container_tmpfs_enospc_never_publishes" (exit code 0; 98 passed, 1 deselected)
+Evidence paths plus source/image/schema hashes:
+  - docs/evidence/v2/p10/20261016-p102-diagnostic-bridge-gate-closure/test_diagnostic_bridge_p10.log
+  - docs/evidence/v2/p10/20261016-p102-diagnostic-bridge-gate-closure/test_p10_diagnostic_bridge_py.log
+  - docs/evidence/v2/p10/20261016-p102-diagnostic-bridge-gate-closure/test_candidate_synthesis_p10.log
+  - docs/evidence/v2/p10/20261016-p102-diagnostic-bridge-gate-closure/test_candidate_tools_p4.log
+  - docs/evidence/v2/p10/20261016-p102-diagnostic-bridge-gate-closure/test_adapters_p9.log
+  - docs/evidence/v2/p10/20261016-p102-diagnostic-bridge-gate-closure/test_feasibility_p8.log
+  - docs/evidence/v2/p10/20261016-p102-diagnostic-bridge-gate-closure/test_release_p7.log
+  - docs/evidence/v2/p10/20261016-p102-diagnostic-bridge-gate-closure/test_dashboard_p6.log
+  - docs/evidence/v2/p10/20261016-p102-diagnostic-bridge-gate-closure/test_collaboration_p5.log
+  - docs/evidence/v2/p10/20261016-p102-diagnostic-bridge-gate-closure/test_resource_broker_p3.log
+  - docs/evidence/v2/p10/20261016-p102-diagnostic-bridge-gate-closure/test_artifact_registry_p2.log
+  - docs/evidence/v2/p10/20261016-p102-diagnostic-bridge-gate-closure/test_agent_m4.log
+  - docs/evidence/v2/p10/20261016-p102-diagnostic-bridge-gate-closure/test_foundation.log
+  - docs/evidence/v2/p10/20261016-p102-diagnostic-bridge-gate-closure/test_recovery_cycles.log
+  - docs/evidence/v2/p10/20261016-p102-diagnostic-bridge-gate-closure/test_release_m6.log
+  - docs/evidence/v2/p10/20261016-p102-diagnostic-bridge-gate-closure/test_lib.log
+  - docs/evidence/v2/p10/20261016-p102-diagnostic-bridge-gate-closure/test_python_host.log
+  - docs/evidence/v2/p10/20261016-p102-diagnostic-bridge-gate-closure/summary.md
+Implemented but unverified:
+  - None within Phase P10.2 scope (all P10.2 deliverables implemented and verified with passing fault injection and full regression suites).
+Failure/recovery scenarios still open:
+  - Phase P10.3 (Multi-Fidelity Iteration & Hypothesis Loop) and Phase P10.4 (Autonomous End-to-End Model Rescue Gate) remain planned and not begun.
+Budget / compatibility / migration implications:
+  - Zero schema version bump required (user_version remains 10).
+  - 128 MiB policy ceiling strictly preserved.
+  - M0–M9 compatibility fully preserved across all regression suites (280 passed tests).
+  - Historical evidence in docs/evidence/m6/ left completely untouched.
+Next small actionable slice:
+  - Phase P10.3 (Multi-Fidelity Iteration & Hypothesis Loop) upon explicit user authorization.
+```
+
 Copy and fill one entry; update phase/task statuses above too.
 
 ```text
@@ -2013,6 +2186,18 @@ Verified across 12 integration tests in `crates/harness/tests/adapters_p9.rs`, 6
 - P10.4 Autonomous End-to-End Model Rescue Gate: Verify the full autonomous lifecycle: agent inspects raw dataset, designs baseline, encounters and self-heals from realistic failure modes (e.g. memory pressure, class imbalance, missing value shifts), and iteratively produces an Apex-certified delivery bundle without manual developer code edits.
 
 **Gate:** Agent successfully synthesizes arbitrary candidates, handles injected failures autonomously via diagnostic receipts, and improves primary validation metrics across iterations under hard cgroup resource leases.
+
+**Status (2026-10-16): Complete for P10.1 (Candidate Synthesis) & P10.2 (Diagnostic Feedback Bridge). Acceptance gates passed.**
+P10.1 and P10.2 are implemented and verified across `contracts/v2/candidate_synthesis.schema.json`, `contracts/v2/diagnostic_receipt.schema.json`, `python/src/mlrescurix_worker/scientific/candidate_synthesis.py`, `python/src/mlrescurix_worker/scientific/diagnostic_bridge.py`, `python/src/mlrescurix_worker/scientific/candidate_runner.py`, `python/src/mlrescurix_worker/scientific/cli.py`, `crates/harness/src/schema_p10_synthesis.sql`, `crates/harness/src/schema_p10_diagnostics.sql`, `crates/harness/src/diagnostics.rs`, `crates/harness/src/assets.rs`, `crates/harness/src/execution.rs`, `crates/harness/src/lib.rs`, `crates/harness/src/agents/tools.rs`, `crates/harness/src/agents/roles.rs`, `crates/harness/src/agents/orchestrator.rs`, `crates/harness/src/main.rs`, `crates/harness/tests/candidate_synthesis_p10.rs`, `crates/harness/tests/diagnostic_bridge_p10.rs`, `python/tests/test_p10_candidate_synthesis.py`, and `python/tests/test_p10_diagnostic_bridge.py`. P10.3 and P10.4 remain planned.
+1. **Candidate Synthesis Schema (Draft 2020-12)**: Strict typed schema (`candidate_synthesis.schema.json`) defining problem descriptions, task types (binary, multiclass, regression), column descriptors, primary/secondary metric objectives, optimization direction, model family intents, and generated candidate manifest contracts.
+2. **Decoupled Autonomous Candidate Synthesis Engine**: `CandidateSynthesizer` generates complete, decoupled `candidate/entrypoint.py`, `model.py`, `features.py`, and `manifest.json`. Supports arbitrary modeling paradigms (LightGBM, XGBoost, CatBoost, PyTorch neural networks with mini-batch training/checkpointing, Random Forest / Extra Trees, Linear/Ridge/Logistic baselines, custom feature engineering).
+3. **Candidate Protocol & Label Isolation**: Strict adherence to candidate protocol: `fit` and `predict` CLI entrypoints, row ID and ordering preservation, zero label leakage (target column automatically dropped on prediction inputs), and cryptographic SHA-256 source hash verification.
+4. **Diagnostic Receipt Schema (Draft 2020-12)**: Strict typed schema (`diagnostic_receipt.schema.json`) capturing execution failure classification (`cgroup_oom`, `non_finite_loss`, `shape_mismatch`, `class_order_mismatch`, `execution_timeout`, `missing_dependency`, `syntax_error`, `runtime_exception`), root-cause line/symbol attribution, bounded formatted tracebacks (max 32KB), peak resource telemetry, and actionable remediation suggestions.
+5. **Diagnostic Feedback Bridge (Scientific Python)**: `DiagnosticBridge` intercepts sandbox failures, analyzes process exit codes (137 OOM, 124 timeout) and stderr/stdout traces, parses candidate frames to isolate root cause symbols and line numbers, and generates domain-tailored remediation recommendations. Wired into candidate runner (`candidate_runner.py`) with typed `CandidateExecutionError` and CLI (`candidate-evaluate` and `diagnose-failure`).
+6. **Harness Integration, Control Plane, & RBAC**: Persisted in `candidate_synthesis_records` and `diagnostic_receipts` under `PRAGMA user_version = 10`. Registered `synthesize_candidate` and `inspect_diagnostics` tools in `ToolRegistry` and agent roles; added CLI subcommands `synthesize-candidate` and `inspect-diagnostics`; updated harness capabilities. Integrated diagnostics into `sandbox_exec` and `evaluate_submission` workflow.
+7. **Fault Injection & Verification Gate**: Verified across all 8 failure modes (cgroup OOM, NaN loss, feature shape mismatch, class order misalignment, execution timeout, missing dependency, syntax error, runtime exception) with verified high-signal receipt generation and RBAC authorization enforcement.
+Verified across 6 integration tests in `crates/harness/tests/diagnostic_bridge_p10.rs`, 6 integration tests in `crates/harness/tests/candidate_synthesis_p10.rs`, 8 unit tests in `python/tests/test_p10_diagnostic_bridge.py`, 6 unit tests in `python/tests/test_p10_candidate_synthesis.py` (98 total in Python test suite), 20 unit tests in `crates/harness/src/lib.rs`, and 155 tests across full repository regression suites (280 total passed tests, 0 failures). Evidence captured in `docs/evidence/v2/p10/20261016-p102-diagnostic-bridge-gate-closure/`. Slices P10.1 and P10.2 are closed. M6 remains independently NOT READY.
+
 
 
 ## Recommendation priority
@@ -2781,6 +2966,49 @@ D42 is documented in `docs/v2/ARCHITECTURE.md`, `docs/v2/ROADMAP.md`, `docs/v2/P
 5. **Strategic Roadmap Pivot**:
    - Deprioritize further narrow algorithmic wrapper scripts (P9.5–P9.9).
    - Pivot focus to **Autonomous Candidate Synthesis, Multi-Fidelity Iteration Loops, and Diagnostic Feedback** (Phase P10), empowering the agent to write, test, debug, and refine its own candidate code in an autonomous closed loop.
+
+### Phase P10.1 Autonomous Candidate Synthesis Engine decisions (2026-10-16)
+
+D43 is implemented in `contracts/v2/candidate_synthesis.schema.json`, `python/src/mlrescurix_worker/scientific/candidate_synthesis.py`, `python/src/mlrescurix_worker/scientific/cli.py`, `crates/harness/src/schema_p10_synthesis.sql`, `crates/harness/src/assets.rs`, `crates/harness/src/execution.rs`, `crates/harness/src/agents/tools.rs`, `crates/harness/src/agents/roles.rs`, `crates/harness/src/agents/orchestrator.rs`, `crates/harness/src/main.rs`, `crates/harness/tests/candidate_synthesis_p10.rs`, and `python/tests/test_p10_candidate_synthesis.py`.
+1. **Candidate Synthesis Schema (P10.1)**:
+   - Defined strict Draft 2020-12 typed schema `contracts/v2/candidate_synthesis.schema.json` covering problem definitions (`task_type`: binary, multiclass, regression; `target_column`, `id_column`, `time_column`, `group_column`), input/target column descriptors (data types, nullability, cardinality, imputation strategies, class order), metric objectives (`primary_metric`, `direction`: maximize/minimize, target thresholds, secondary metrics, diagnostic slice columns), model family intents (boosting, neural, tree, linear, custom; lightgbm, xgboost, catboost, pytorch, scikit-learn, custom; hyperparameters, feature pipeline options), and generated candidate manifest contracts.
+2. **Decoupled Candidate Synthesis Engine**:
+   - Implemented `CandidateSynthesizer` in `python/src/mlrescurix_worker/scientific/candidate_synthesis.py` generating modular, decoupled candidate trees (`entrypoint.py`, `model.py`, `features.py`, `manifest.json`).
+   - Supported arbitrary ML families: LightGBM (`LGBMClassifier`, `LGBMRegressor` with HistGradientBoosting fallback), XGBoost (with GradientBoosting fallback), PyTorch (modular `SimpleMLP` neural network with mini-batch training, Adam optimizer, state dict checkpointing), Random Forest / Extra Trees, Linear/Ridge/Logistic models, and custom pipelines.
+   - Enforced candidate protocol: CLI fit/predict entrypoints, exact row ID alignment, label isolation (never leaks target labels during inference), and cryptographic `source_hash` verification.
+3. **Harness Integration, Control Plane, & RBAC**:
+   - Strictly retained `PRAGMA user_version = 10` using additive idempotent DDL `crates/harness/src/schema_p10_synthesis.sql` creating `candidate_synthesis_records` table.
+   - Registered `synthesize_candidate` in `ToolRegistry` (`crates/harness/src/agents/tools.rs`), dispatched in `AgentOrchestrator` (`crates/harness/src/agents/orchestrator.rs`), authorized for `lead`, `feature_engineer`, and `model_specialist` roles (`crates/harness/src/agents/roles.rs`).
+   - Added CLI subcommand `synthesize-candidate` and updated harness capabilities reporting `"p10_candidate_synthesis": "passed"` and `candidate_synthesis_capabilities`.
+   - Embedded `candidate_synthesis.py` into binary assets via `EMBEDDED_PYTHON_FILES` (`crates/harness/src/assets.rs`).
+4. **Sandbox Execution & Verification Gate**:
+   - Verified that synthesized candidates execute cleanly inside isolated container environments without crashing or leaking labels.
+   - Wired candidate synthesis directly to `evaluate_submission` (and `candidate_runner.evaluate_candidate_cv`), verifying 3-fold cross-validation, official evaluator scorecard creation in CAS, diagnostic slice evaluations, and insertion into `candidate_evaluations` SQLite table.
+   - Verified negative scientific guards: label isolation enforcement (target column in predict input dropped without leakage), tampering detection (source file edits without manifest source_hash update rejected with `source_hash mismatch`), and RBAC authorization enforcement (unauthorized role rejected with explicit error).
+5. **Phase P10.1 Acceptance Gate Closure**:
+   - Verified across 6 integration tests in `crates/harness/tests/candidate_synthesis_p10.rs`, 6 unit tests in `python/tests/test_p10_candidate_synthesis.py` (90 total in Python test suite), 20 unit tests in `crates/harness/src/lib.rs`, and 149 tests across full repository regression suites (254 total passed tests, 0 failures). Evidence captured in `docs/evidence/v2/p10/20261016-p101-candidate-synthesis-gate-closure/`. Phase P10.1 is closed. M6 remains independently NOT READY.
+
+### Phase P10.2 Structured Diagnostic Feedback Bridge decisions (2026-10-16)
+
+D44 is implemented in `contracts/v2/diagnostic_receipt.schema.json`, `python/src/mlrescurix_worker/scientific/diagnostic_bridge.py`, `python/src/mlrescurix_worker/scientific/candidate_runner.py`, `python/src/mlrescurix_worker/scientific/cli.py`, `crates/harness/src/schema_p10_diagnostics.sql`, `crates/harness/src/diagnostics.rs`, `crates/harness/src/lib.rs`, `crates/harness/src/assets.rs`, `crates/harness/src/execution.rs`, `crates/harness/src/agents/tools.rs`, `crates/harness/src/agents/roles.rs`, `crates/harness/src/agents/orchestrator.rs`, `crates/harness/src/main.rs`, `crates/harness/tests/diagnostic_bridge_p10.rs`, and `python/tests/test_p10_diagnostic_bridge.py`.
+1. **Diagnostic Receipt Schema (P10.2)**:
+   - Defined strict Draft 2020-12 typed schema `contracts/v2/diagnostic_receipt.schema.json` capturing execution failure classification (`cgroup_oom`, `non_finite_loss`, `shape_mismatch`, `class_order_mismatch`, `execution_timeout`, `missing_dependency`, `syntax_error`, `runtime_exception`), root-cause line/symbol attribution, bounded formatted tracebacks, peak resource telemetry, and actionable remediation suggestions.
+2. **Diagnostic Feedback Bridge (Scientific Python)**:
+   - Implemented `DiagnosticBridge` in `python/src/mlrescurix_worker/scientific/diagnostic_bridge.py` providing deterministic parsing, classification heuristics (exit codes 137/124 and stdout/stderr regex), candidate frame traceback isolation, and domain-tailored remediation generation.
+   - Wired into candidate runner (`candidate_runner.py`) with typed `CandidateExecutionError` and CLI (`candidate-evaluate` and `diagnose-failure`).
+3. **Harness Integration, Control Plane, & RBAC**:
+   - Preserved `PRAGMA user_version = 10` using additive idempotent DDL `crates/harness/src/schema_p10_diagnostics.sql` creating table `diagnostic_receipts`.
+   - Implemented Rust domain models and persistence queries in `crates/harness/src/diagnostics.rs`.
+   - Registered `inspect_diagnostics` tool in `ToolRegistry` (`tools.rs`), dispatched in `AgentOrchestrator` (`orchestrator.rs`), authorized for `lead`, `auditor`, `feature_engineer`, and `model_specialist` roles (`roles.rs`).
+   - Integrated into `sandbox_exec` and `evaluate_submission` so that sandbox and candidate evaluation failures persist structured `DiagnosticReceipt` objects in SQLite and surface diagnostics to agent workflows.
+   - Added CLI subcommand `inspect-diagnostics` in `main.rs` and updated harness capabilities reporting `"p10_diagnostic_bridge": "passed"` and `diagnostic_bridge_capabilities`.
+   - Embedded `diagnostic_bridge.py` into binary assets via `EMBEDDED_PYTHON_FILES` (`assets.rs`).
+4. **Fault Injection & Verification Gate**:
+   - Comprehensive test suite covering all 8 failure modes (cgroup OOM, NaN loss, feature shape mismatch, class order misalignment, execution timeout, missing dependency, syntax error, unhandled runtime exception).
+   - Verified that the Diagnostic Feedback Bridge generates compliant, high-signal receipts for each failure mode.
+   - Verified RBAC enforcement: `critic` role refused `inspect_diagnostics`.
+5. **Phase P10.2 Acceptance Gate Closure**:
+   - Verified across 6 integration tests in `crates/harness/tests/diagnostic_bridge_p10.rs`, 8 unit tests in `python/tests/test_p10_diagnostic_bridge.py` (98 total in Python test suite), 20 unit tests in `crates/harness/src/lib.rs`, and 155 tests across full repository regression suites (280 total passed tests, 0 failures). Evidence captured in `docs/evidence/v2/p10/20261016-p102-diagnostic-bridge-gate-closure/`. Phase P10.2 is closed. M6 remains independently NOT READY.
 
 <<<END SOURCE FILE>>>
 
