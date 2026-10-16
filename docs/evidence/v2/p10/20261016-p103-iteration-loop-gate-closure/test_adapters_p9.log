@@ -1,0 +1,20 @@
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.89s
+     Running tests/adapters_p9.rs (target/debug/deps/adapters_p9-6f4cb170c95a2b07)
+
+running 12 tests
+test test_p9_2_temporal_split_out_of_order_rejection ... ok
+test test_p9_2_temporal_split_integrity_and_leakage_rejection ... ok
+test test_p9_1_arrow_adapter_memory_cap_enforcement ... ok
+test test_p9_3_anomaly_clustering_adapter_models_and_json_roundtrip ... ok
+test test_p9_2_time_series_adapter_schema_models_and_json_roundtrip ... ok
+test test_p9_4_frozen_embeddings_adapter_models_and_json_roundtrip ... ok
+test test_p9_1_arrow_adapter_schema_models_and_json_roundtrip ... ok
+test test_p9_2_time_series_db_persistence_and_query ... ok
+test test_p9_1_arrow_adapter_db_persistence_and_query ... ok
+test test_p9_acceptance_gate_full_closure ... ok
+test test_p9_orchestrator_tool_dispatch_arrow_and_time_series ... ok
+test test_p9_cli_commands_and_capabilities ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.92s
+

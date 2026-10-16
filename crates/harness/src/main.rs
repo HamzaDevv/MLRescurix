@@ -98,6 +98,25 @@ enum Command {
         #[arg(long)] diagnostic_id: Option<String>,
         #[arg(long, default_value_t = 10)] limit: usize,
     },
+    ProposeHypothesis {
+        #[arg(long)] state: PathBuf,
+        #[arg(long)] project: String,
+        #[arg(long)] candidate: String,
+        #[arg(long)] mutation: String,
+        #[arg(long)] statement: String,
+        #[arg(long)] parent: Option<String>,
+        #[arg(long, default_value = "balanced_accuracy")] metric: String,
+        #[arg(long, default_value = "maximize")] direction: String,
+        #[arg(long)] target: Option<f64>,
+        #[arg(long, default_value_t = 0.005)] min_improvement: f64,
+    },
+    QueryParetoFrontier {
+        #[arg(long)] state: PathBuf,
+        #[arg(long)] project: String,
+        #[arg(long)] frontier_id: Option<String>,
+        #[arg(long, default_value = "primary_metric")] metric: String,
+        #[arg(long, default_value = "maximize")] direction: String,
+    },
     #[command(name="__worker",hide=true)] Worker { spec:PathBuf, output:PathBuf },
     Capabilities,
 }
@@ -382,6 +401,51 @@ async fn run()->Result<(),String>{
                 }))
             }
         },
+        Command::ProposeHypothesis { state, project, candidate, mutation, statement, parent, metric, direction, target, min_improvement } => {
+            execution::migrate(&state)?;
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis().min(i64::MAX as u128) as i64;
+            let hyp_id = format!("hyp-{candidate}-{now}");
+            let hyp = mlrescurix_harness::iteration::IterationHypothesis {
+                schema_version: "v2".into(),
+                hypothesis_id: hyp_id,
+                candidate_id: candidate,
+                parent_candidate_id: parent,
+                mutation_type: mutation,
+                hypothesis_statement: statement,
+                rationale: None,
+                expected_metric_delta: mlrescurix_harness::iteration::ExpectedMetricDelta {
+                    metric,
+                    direction,
+                    target_threshold: target,
+                    minimum_improvement: min_improvement,
+                },
+                multi_fidelity_budget: mlrescurix_harness::iteration::MultiFidelityBudget::default(),
+                outcome: Some(mlrescurix_harness::iteration::HypothesisOutcome {
+                    status: "pending".into(),
+                    baseline_metric: None,
+                    proxy_metric_observed: None,
+                    full_metric_observed: None,
+                    metric_delta: None,
+                    reason: None,
+                    settled_at_ms: None,
+                }),
+                created_ms: now,
+            };
+            mlrescurix_harness::iteration::record_hypothesis(&state, &project, &hyp)?;
+            print(hyp)
+        },
+        Command::QueryParetoFrontier { state, project, frontier_id, metric, direction } => {
+            execution::migrate(&state)?;
+            if let Some(fid) = frontier_id {
+                let frontier = mlrescurix_harness::iteration::get_pareto_frontier(&state, &project, &fid)?;
+                print(frontier)
+            } else if let Ok(Some(latest)) = mlrescurix_harness::iteration::get_latest_pareto_frontier(&state, &project) {
+                print(latest)
+            } else {
+                let empty = mlrescurix_harness::iteration::compute_pareto_frontier(&[], &metric, &direction, &project, None);
+                print(empty)
+            }
+        },
         Command::Worker{spec,output}=>{let result=execution::worker(&spec,&output)?;if result==0 {Ok(())} else {std::process::exit(result)}}
         Command::Capabilities=>print(serde_json::json!({
             "phase":"P7",
@@ -427,7 +491,8 @@ async fn run()->Result<(),String>{
                 "p8_feasibility":"passed",
                 "p9_adapters":"passed",
                 "p10_candidate_synthesis":"passed",
-                "p10_diagnostic_bridge":"passed"
+                "p10_diagnostic_bridge":"passed",
+                "p10_iteration_loop":"passed"
             },
             "diagnostic_bridge_capabilities":{
                 "cgroup_oom":true,
@@ -481,6 +546,15 @@ async fn run()->Result<(),String>{
                 "custom_pipelines_support":true,
                 "label_isolation_enforced":true,
                 "row_id_alignment_enforced":true
+            },
+            "iteration_loop_capabilities":{
+                "progressive_multi_fidelity":true,
+                "tier_0_proxy_screening":true,
+                "tier_1_full_cross_validation":true,
+                "early_discard_non_viable":true,
+                "hypothesis_settlement":true,
+                "multi_objective_pareto_tracking":true,
+                "non_dominated_frontier":true
             },
             "feasibility_capabilities":{
                 "hardware_profile":true,

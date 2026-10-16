@@ -43,6 +43,12 @@ def main() -> int:
     diag_cmd.add_argument("--candidate", type=str, default="candidate")
     diag_cmd.add_argument("--stage", type=str, default="evaluate")
     diag_cmd.add_argument("--output", type=Path, required=False)
+    iter_screen = commands.add_parser("iteration-screen")
+    iter_screen.add_argument("--spec", type=Path, required=True)
+    iter_screen.add_argument("--output", type=Path, required=True)
+    pareto_cmd = commands.add_parser("pareto-frontier")
+    pareto_cmd.add_argument("--spec", type=Path, required=True)
+    pareto_cmd.add_argument("--output", type=Path, required=True)
     for name in ("fit-trial", "predict-trial"):
         worker = commands.add_parser(name, help=argparse.SUPPRESS)
         worker.add_argument("--spec", type=Path, required=True)
@@ -121,6 +127,48 @@ def main() -> int:
             if args.output:
                 args.output.parent.mkdir(parents=True, exist_ok=True)
                 args.output.write_text(json.dumps(result, indent=2, sort_keys=True))
+        elif args.command == "iteration-screen":
+            from .iteration_loop import MultiFidelityIterationEngine
+            spec_data = json.loads(args.spec.read_text())
+            dataset_path = Path(spec_data["dataset_path"])
+            candidate_dir = Path(spec_data["candidate_dir"])
+            manifest = spec_data.get("manifest")
+            if manifest is None:
+                manifest = json.loads((candidate_dir / "manifest.json").read_text())
+            hypothesis = spec_data.get("hypothesis")
+            baseline_score = spec_data.get("baseline_score")
+            skip_proxy = spec_data.get("skip_proxy", False)
+            folds = spec_data.get("folds", 3)
+            seed = spec_data.get("seed", 2026)
+            result = MultiFidelityIterationEngine.run_multi_fidelity_iteration(
+                dataset_csv=dataset_path,
+                manifest=manifest,
+                candidate_dir=candidate_dir,
+                hypothesis_spec=hypothesis,
+                baseline_score=baseline_score,
+                skip_proxy=skip_proxy,
+                folds=folds,
+                seed=seed,
+            )
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(json.dumps(result, indent=2, sort_keys=True))
+        elif args.command == "pareto-frontier":
+            from .iteration_loop import MultiFidelityIterationEngine
+            spec_data = json.loads(args.spec.read_text())
+            records = spec_data["records"]
+            primary_metric = spec_data.get("primary_metric_name", "primary_metric")
+            direction = spec_data.get("optimization_direction", spec_data.get("direction", "maximize"))
+            project_id = spec_data.get("project_id", "default")
+            frontier_id = spec_data.get("frontier_id")
+            result = MultiFidelityIterationEngine.compute_pareto_frontier(
+                records=records,
+                primary_metric_name=primary_metric,
+                direction=direction,
+                project_id=project_id,
+                frontier_id=frontier_id,
+            )
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(json.dumps(result, indent=2, sort_keys=True))
         elif args.command == "fit-trial":
             result = fit_trial_worker(args.spec, args.output)
         else:

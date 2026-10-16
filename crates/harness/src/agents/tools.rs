@@ -320,6 +320,70 @@ impl ToolRegistry {
                     }),
                 },
             },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "propose_hypothesis".into(),
+                    description: "Propose an explicit iteration hypothesis for candidate mutation (feature_engineering, hyperparameter_tuning, architecture_change, ensembling) with expected metric deltas and multi-fidelity budgets.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "hypothesis_id": { "type": "string", "description": "Optional unique hypothesis ID" },
+                            "candidate_id": { "type": "string", "description": "Target candidate identifier being mutated/evaluated" },
+                            "parent_candidate_id": { "type": "string", "description": "Optional baseline parent candidate identifier" },
+                            "mutation_type": { "type": "string", "enum": ["feature_engineering", "hyperparameter_tuning", "architecture_change", "ensembling"], "description": "Type of mutation applied" },
+                            "hypothesis_statement": { "type": "string", "description": "Falsifiable hypothesis statement describing expected behavior" },
+                            "rationale": { "type": "string", "description": "Engineering or domain rationale" },
+                            "metric": { "type": "string", "description": "Evaluation metric to verify (default balanced_accuracy)" },
+                            "direction": { "type": "string", "enum": ["maximize", "minimize"], "description": "Metric optimization direction (default maximize)" },
+                            "target_threshold": { "type": "number", "description": "Optional target absolute threshold" },
+                            "minimum_improvement": { "type": "number", "description": "Minimum expected improvement delta (default 0.005)" },
+                            "proxy_max_samples": { "type": "integer", "description": "Max samples for Tier 0 fast screen (default 500)" },
+                            "screening_threshold": { "type": "number", "description": "Threshold score for Tier 0 admission" },
+                            "full_folds": { "type": "integer", "description": "Number of folds for Tier 1 full CV (default 3)" }
+                        },
+                        "required": ["candidate_id", "mutation_type", "hypothesis_statement"]
+                    }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "screen_candidate_fidelity".into(),
+                    description: "Execute progressive multi-fidelity screening (Tier 0 fast proxy screen N <= 500, Tier 1 full CV) and settle iteration hypothesis with Pareto coordinates.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "candidate_id": { "type": "string", "description": "Candidate identifier" },
+                            "dataset_id": { "type": "string", "description": "Registered dataset ID" },
+                            "hypothesis_id": { "type": "string", "description": "Optional hypothesis ID to link and settle" },
+                            "candidate_path": { "type": "string", "description": "Relative path to candidate in branch workspace (default 'candidate')" },
+                            "baseline_score": { "type": "number", "description": "Optional baseline metric score to compare against" },
+                            "tier": { "type": "string", "enum": ["proxy", "full", "progressive"], "description": "Screening tier to execute (default progressive)" },
+                            "screening_threshold": { "type": "number", "description": "Optional threshold for Tier 0 proxy pass" },
+                            "folds": { "type": "integer", "description": "CV folds for Tier 1 (default 3)" },
+                            "seed": { "type": "integer", "description": "Random seed (default 2026)" }
+                        },
+                        "required": ["candidate_id", "dataset_id"]
+                    }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "query_pareto_frontier".into(),
+                    description: "Compute and query non-dominated Pareto frontier balancing validation performance against execution latency ms and peak memory bytes.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "primary_metric": { "type": "string", "description": "Primary metric name (default primary_metric)" },
+                            "direction": { "type": "string", "enum": ["maximize", "minimize"], "description": "Optimization direction (default maximize)" },
+                            "candidate_ids": { "type": "array", "items": { "type": "string" }, "description": "Optional list of candidate IDs to evaluate on frontier" },
+                            "frontier_id": { "type": "string", "description": "Optional frontier snapshot ID" }
+                        }
+                    }),
+                },
+            },
             ToolDefinition {tool_type:"function".into(),function:ToolFunction {
                 name:"schedule_pipeline".into(),
                 description:"Queue a bounded feature/calibration/ensemble protocol in a verified scientific Docker environment. The Rust supervisor evaluates development data and verifies generated OOF provenance; this does not finalize or certify delivery.".into(),

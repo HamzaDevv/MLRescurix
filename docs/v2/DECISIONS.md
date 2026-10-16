@@ -462,3 +462,32 @@ D44 is implemented in `contracts/v2/diagnostic_receipt.schema.json`, `python/src
 5. **Phase P10.2 Acceptance Gate Closure**:
    - Verified across 6 integration tests in `crates/harness/tests/diagnostic_bridge_p10.rs`, 8 unit tests in `python/tests/test_p10_diagnostic_bridge.py` (98 total in Python test suite), 20 unit tests in `crates/harness/src/lib.rs`, and 155 tests across full repository regression suites (280 total passed tests, 0 failures). Evidence captured in `docs/evidence/v2/p10/20261016-p102-diagnostic-bridge-gate-closure/`. Phase P10.2 is closed. M6 remains independently NOT READY.
 
+### Phase P10.3 Multi-Fidelity Iteration & Hypothesis Loop decisions (2026-10-16)
+
+D45 is implemented in `contracts/v2/iteration_hypothesis.schema.json`, `contracts/v2/pareto_frontier.schema.json`, `python/src/mlrescurix_worker/scientific/iteration_loop.py`, `python/src/mlrescurix_worker/scientific/cli.py`, `crates/harness/src/schema_p10_iteration.sql`, `crates/harness/src/iteration.rs`, `crates/harness/src/lib.rs`, `crates/harness/src/assets.rs`, `crates/harness/src/execution.rs`, `crates/harness/src/agents/tools.rs`, `crates/harness/src/agents/roles.rs`, `crates/harness/src/agents/orchestrator.rs`, `crates/harness/src/main.rs`, `crates/harness/tests/iteration_loop_p10.rs`, and `python/tests/test_p10_iteration_loop.py`.
+1. **Iteration Hypothesis & Pareto Frontier Schemas (P10.3)**:
+   - Defined strict Draft 2020-12 typed schema `contracts/v2/iteration_hypothesis.schema.json` capturing hypothesis statements, parent candidate lineage, mutation types (`feature_engineering`, `hyperparameter_tuning`, `architecture_change`, `ensembling`), expected directional metric deltas, multi-fidelity budgets (proxy vs full CV tiers), and structured hypothesis settlements (`pending`, `confirmed`, `refuted`, `inconclusive`).
+   - Defined strict Draft 2020-12 typed schema `contracts/v2/pareto_frontier.schema.json` capturing multi-objective Pareto coordinates (validation score, latency ms, peak memory bytes), domination statuses (`non_dominated`, `dominated`), and dominated-by references.
+2. **Multi-Fidelity Iteration Engine (Scientific Python)**:
+   - Implemented `MultiFidelityIterationEngine` in `python/src/mlrescurix_worker/scientific/iteration_loop.py`:
+     a) **Tier 0 Proxy Screening**: Fast subsampled screening ($N \le 500$, stratified/temporal slice) evaluating candidate viability within 15s. Discards non-viable mutations early if score fails `screening_threshold`, preventing compute waste on full cross-validation.
+     b) **Progressive Multi-Fidelity Iteration**: Automatically routes admitted candidates from Tier 0 to Tier 1 full $k$-fold cross-validation.
+     c) **Deterministic Hypothesis Settlement**: Compares full CV metrics against baseline score and target threshold. Settles status into `confirmed` (meets target with improvement $\ge \text{minimum\_improvement}$), `refuted` (performance degraded or failed proxy threshold), or `inconclusive`.
+     d) **Multi-Objective Pareto Frontier Tracking**: $O(N^2)$ non-dominated sorting across the 3-tuple (primary metric, wall-clock latency ms, peak RSS memory bytes).
+   - Exposed CLI subcommands `iteration-screen` and `pareto-frontier` in `python/src/mlrescurix_worker/scientific/cli.py`.
+3. **Harness Integration, Control Plane, & RBAC**:
+   - Strictly retained `PRAGMA user_version = 10` using additive idempotent DDL `crates/harness/src/schema_p10_iteration.sql` creating `iteration_hypotheses` and `pareto_frontier_records` tables.
+   - Implemented native Rust domain models, query APIs, and native Pareto calculator in `crates/harness/src/iteration.rs` (`record_hypothesis`, `get_hypothesis`, `list_hypotheses`, `settle_hypothesis`, `record_pareto_frontier`, `get_latest_pareto_frontier`, `get_pareto_frontier`, `compute_pareto_frontier`).
+   - Registered tools `propose_hypothesis`, `screen_candidate_fidelity`, and `query_pareto_frontier` in `ToolRegistry` (`tools.rs`), dispatched in `AgentOrchestrator` (`orchestrator.rs`), authorized for `lead`, `feature_engineer`, and `model_specialist` roles (`roles.rs`).
+   - Added CLI subcommands `propose-hypothesis` and `query-pareto-frontier` in `main.rs` and updated harness capabilities reporting `"p10_iteration_loop": "passed"` and `iteration_loop_capabilities`.
+   - Embedded `iteration_loop.py` into binary assets via `EMBEDDED_PYTHON_FILES` (`assets.rs`).
+4. **Multi-Turn Refinement & Verification Gate**:
+   - Comprehensive test suite covering multi-turn refinement loop:
+     a) Proposing hypothesis with expected metric delta and multi-fidelity budgets.
+     b) Fast screening tier rejection (early discard terminating before full CV).
+     c) Fast screening tier admission followed by full 3-fold cross-validation, official scorecard generation, and candidate evaluation insertion.
+     d) Hypothesis settlement (`confirmed` vs `refuted` vs `inconclusive`).
+     e) Multi-objective Pareto frontier tracking across candidate iterations.
+     f) RBAC authorization enforcement: unauthorized roles (`critic`, `auditor`) strictly refused.
+5. **Phase P10.3 Acceptance Gate Closure**:
+   - Verified across 5 integration tests in `crates/harness/tests/iteration_loop_p10.rs`, 6 unit tests in `python/tests/test_p10_iteration_loop.py` (104 total in Python test suite), 24 unit tests in `crates/harness/src/lib.rs`, and 166 tests across full repository regression suites (294 total passed tests, 0 failures). Evidence captured in `docs/evidence/v2/p10/20261016-p103-iteration-loop-gate-closure/`. Phase P10.3 is closed. M6 remains independently NOT READY.

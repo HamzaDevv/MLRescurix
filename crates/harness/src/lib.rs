@@ -18,3 +18,4 @@ pub mod server;
 pub mod feasibility;
 pub mod adapters;
 pub mod diagnostics;
+pub mod iteration;

@@ -1,0 +1,12 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests/iteration_loop_p10.rs (target/debug/deps/iteration_loop_p10-9859e57971f7a4d7)
+
+running 5 tests
+test p10_3_rbac_authorization_enforcement ... ok
+test p10_3_tool_discovery_and_propose_hypothesis ... ok
+test p10_3_schema_v10_persistence_and_pareto_tracking ... ok
+test p10_3_proxy_screening_tier_early_discard ... ok
+test p10_3_proxy_admission_full_cv_and_pareto_frontier ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.60s
+

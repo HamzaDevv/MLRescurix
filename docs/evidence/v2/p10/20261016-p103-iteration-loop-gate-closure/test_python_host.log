@@ -1,0 +1,49 @@
+/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/pytest_asyncio/plugin.py:208: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the fixture caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to function scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+============================= test session starts ==============================
+platform darwin -- Python 3.13.3, pytest-8.3.4, pluggy-1.6.0
+rootdir: /Users/hamza/Developer/Imp_Projects/MLRescurix/python
+configfile: pyproject.toml
+plugins: asyncio-0.24.0, langsmith-0.4.1, anyio-4.14.2
+asyncio: mode=Mode.STRICT, default_loop_scope=None
+collected 105 items / 1 deselected / 104 selected
+
+python/tests/test_candidate_runner.py .....                              [  4%]
+python/tests/test_custom_agent.py ..                                     [  6%]
+python/tests/test_custom_evaluation_review.py ....                       [ 10%]
+python/tests/test_m5_review.py .....                                     [ 15%]
+python/tests/test_m5_scientific.py .......                               [ 22%]
+python/tests/test_m6_bundle.py ......                                    [ 27%]
+python/tests/test_p10_candidate_synthesis.py ......                      [ 33%]
+python/tests/test_p10_diagnostic_bridge.py ........                      [ 41%]
+python/tests/test_p10_iteration_loop.py ......                           [ 47%]
+python/tests/test_p7_scientific_delivery.py ....                         [ 50%]
+python/tests/test_p8_feasibility.py ......                               [ 56%]
+python/tests/test_p9_anomaly_clustering.py ........                      [ 64%]
+python/tests/test_p9_arrow_adapter.py .....                              [ 69%]
+python/tests/test_p9_frozen_embeddings.py ......                         [ 75%]
+python/tests/test_p9_time_series.py ......                               [ 80%]
+python/tests/test_protocol.py ...                                        [ 83%]
+python/tests/test_scheduled_pipeline.py .                                [ 84%]
+python/tests/test_scientific_workflow.py ........                        [ 92%]
+python/tests/test_search.py ........                                     [100%]
+
+=============================== warnings summary ===============================
+tests/test_candidate_runner.py::test_diagnostic_slices_min_support_suppression
+tests/test_candidate_runner.py::test_diagnostic_slices_min_support_suppression
+  /Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/sklearn/metrics/_classification.py:620: UserWarning: A single label was found in 'y_true' and 'y_pred'. For the confusion matrix to have the correct shape, use the 'labels' parameter to pass all known labels.
+    warnings.warn(
+
+tests/test_m5_scientific.py::M5ScientificTests::test_split_aware_feature_pipeline
+  /Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/sklearn/preprocessing/_discretization.py:304: FutureWarning: The current default behavior, quantile_method='linear', will be changed to quantile_method='averaged_inverted_cdf' in scikit-learn version 1.9 to naturally support sample weight equivalence properties by default. Pass quantile_method='averaged_inverted_cdf' explicitly to silence this warning.
+    warnings.warn(
+
+tests/test_p7_scientific_delivery.py::TestP7ScientificDelivery::test_model_export_safetensors_and_tolerances
+tests/test_p7_scientific_delivery.py::TestP7ScientificDelivery::test_model_export_safetensors_and_tolerances
+  /Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/sklearn/utils/validation.py:2684: UserWarning: X has feature names, but LogisticRegression was fitted without feature names
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========== 104 passed, 1 deselected, 5 warnings in 62.79s (0:01:02) ===========

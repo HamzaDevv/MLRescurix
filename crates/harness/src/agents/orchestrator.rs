@@ -2295,6 +2295,267 @@ impl AgentOrchestrator {
                     }).to_string())
                 }
             }
+            "propose_hypothesis" => {
+                let cand_id = args.get("candidate_id").and_then(Value::as_str).ok_or("candidate_id missing")?;
+                let mut_type = args.get("mutation_type").and_then(Value::as_str).ok_or("mutation_type missing")?;
+                let hyp_stmt = args.get("hypothesis_statement").and_then(Value::as_str).ok_or("hypothesis_statement missing")?;
+                let parent_id = args.get("parent_candidate_id").and_then(Value::as_str);
+                let hyp_id = args.get("hypothesis_id").and_then(Value::as_str)
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| format!("hyp-{cand_id}-{}", now_ms()));
+                let rationale = args.get("rationale").and_then(Value::as_str);
+                let metric = args.get("metric").and_then(Value::as_str).unwrap_or("balanced_accuracy");
+                let direction = args.get("direction").and_then(Value::as_str).unwrap_or("maximize");
+                let target_threshold = args.get("target_threshold").and_then(Value::as_f64);
+                let min_improvement = args.get("minimum_improvement").and_then(Value::as_f64).unwrap_or(0.005);
+                let proxy_samples = args.get("proxy_max_samples").and_then(Value::as_u64).unwrap_or(500) as usize;
+                let screen_thresh = args.get("screening_threshold").and_then(Value::as_f64);
+                let full_folds = args.get("full_folds").and_then(Value::as_u64).unwrap_or(3) as usize;
+
+                let hyp = crate::iteration::IterationHypothesis {
+                    schema_version: "v2".into(),
+                    hypothesis_id: hyp_id,
+                    candidate_id: cand_id.to_string(),
+                    parent_candidate_id: parent_id.map(|s| s.to_string()),
+                    mutation_type: mut_type.to_string(),
+                    hypothesis_statement: hyp_stmt.to_string(),
+                    rationale: rationale.map(|s| s.to_string()),
+                    expected_metric_delta: crate::iteration::ExpectedMetricDelta {
+                        metric: metric.to_string(),
+                        direction: direction.to_string(),
+                        target_threshold,
+                        minimum_improvement: min_improvement,
+                    },
+                    multi_fidelity_budget: crate::iteration::MultiFidelityBudget {
+                        proxy_tier: crate::iteration::ProxyTierBudget {
+                            max_samples: proxy_samples,
+                            fidelity_level: None,
+                            screening_threshold: screen_thresh,
+                            timeout_ms: Some(15000),
+                        },
+                        full_tier: crate::iteration::FullTierBudget {
+                            folds: full_folds,
+                            seed: Some(2026),
+                            timeout_ms: Some(45000),
+                        },
+                    },
+                    outcome: Some(crate::iteration::HypothesisOutcome {
+                        status: "pending".into(),
+                        baseline_metric: None,
+                        proxy_metric_observed: None,
+                        full_metric_observed: None,
+                        metric_delta: None,
+                        reason: None,
+                        settled_at_ms: None,
+                    }),
+                    created_ms: now_ms(),
+                };
+
+                crate::iteration::record_hypothesis(&self.root, &self.config.project_id, &hyp)?;
+                Ok(serde_json::to_string(&hyp).unwrap())
+            }
+            "screen_candidate_fidelity" => {
+                let cand_id = args.get("candidate_id").and_then(Value::as_str).ok_or("candidate_id missing")?;
+                let ds_id = args.get("dataset_id").and_then(Value::as_str).ok_or("dataset_id missing")?;
+                let hyp_id = args.get("hypothesis_id").and_then(Value::as_str);
+                let cand_rel = args.get("candidate_path").and_then(Value::as_str).unwrap_or("candidate");
+                let baseline_score = args.get("baseline_score").and_then(Value::as_f64);
+                let tier = args.get("tier").and_then(Value::as_str).unwrap_or("progressive");
+                let screen_thresh = args.get("screening_threshold").and_then(Value::as_f64);
+                let folds = args.get("folds").and_then(Value::as_u64).unwrap_or(3) as usize;
+                let seed = args.get("seed").and_then(Value::as_u64).unwrap_or(2026);
+
+                let branch_dir = BranchWorkspaceManager::get_branch_dir(&self.root, &self.config.project_id, &self.config.branch_id);
+                let cand_dir = if branch_dir.join(cand_rel).is_dir() {
+                    branch_dir.join(cand_rel)
+                } else if branch_dir.join("candidates").join(cand_id).is_dir() {
+                    branch_dir.join("candidates").join(cand_id)
+                } else if branch_dir.join(cand_id).is_dir() {
+                    branch_dir.join(cand_id)
+                } else {
+                    branch_dir.clone()
+                };
+
+                let manifest_path = cand_dir.join("manifest.json");
+                if !manifest_path.is_file() {
+                    return Err(format!("candidate manifest not found at '{}'", manifest_path.display()));
+                }
+                let manifest_content = fs::read_to_string(&manifest_path).map_err(|e| e.to_string())?;
+                let manifest: Value = serde_json::from_str(&manifest_content).map_err(|e| format!("invalid manifest json: {e}"))?;
+
+                // Resolve dataset path from scientific_datasets
+                crate::execution::migrate(&self.root)?;
+                let db = rusqlite::Connection::open(self.root.join("state.sqlite")).map_err(|e| e.to_string())?;
+                let (ds_path_str, _ds_sha): (String, String) = db.query_row(
+                    "SELECT path, sha256 FROM scientific_datasets WHERE project=?1 AND id=?2",
+                    params![self.config.project_id, ds_id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                ).map_err(|_| format!("dataset '{ds_id}' not found in scientific_datasets"))?;
+
+                let ds_path = PathBuf::from(&ds_path_str);
+                if !ds_path.is_file() {
+                    return Err(format!("dataset file not found at path '{ds_path_str}'"));
+                }
+
+                // Check for hypothesis
+                let mut hyp_obj: Option<crate::iteration::IterationHypothesis> = if let Some(hid) = hyp_id {
+                    crate::iteration::get_hypothesis(&self.root, &self.config.project_id, hid).ok()
+                } else {
+                    crate::iteration::list_hypotheses(&self.root, &self.config.project_id, Some(cand_id), None, 1).ok().and_then(|mut l| l.pop())
+                };
+
+                if let Some(ref mut h) = hyp_obj {
+                    if let Some(st) = screen_thresh {
+                        h.multi_fidelity_budget.proxy_tier.screening_threshold = Some(st);
+                    }
+                }
+
+                let now = now_ms();
+                let screen_id = format!("screen-{cand_id}-{now}");
+                let scratch_dir = self.root.join("workflows").join(&self.config.project_id).join("screen_staging").join(&screen_id);
+                fs::create_dir_all(&scratch_dir).map_err(|e| e.to_string())?;
+
+                let spec_path = scratch_dir.join("spec.json");
+                let out_path = scratch_dir.join("out.json");
+
+                let spec_payload = json!({
+                    "dataset_path": ds_path.to_string_lossy(),
+                    "candidate_dir": cand_dir.to_string_lossy(),
+                    "manifest": manifest,
+                    "hypothesis": hyp_obj,
+                    "baseline_score": baseline_score,
+                    "skip_proxy": tier == "full",
+                    "folds": folds,
+                    "seed": seed,
+                });
+
+                fs::write(&spec_path, serde_json::to_string_pretty(&spec_payload).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+
+                let mut cmd = std::process::Command::new("python3");
+                cmd.args([
+                    "-m", "mlrescurix_worker.scientific.cli",
+                    "iteration-screen",
+                    "--spec", &spec_path.to_string_lossy(),
+                    "--output", &out_path.to_string_lossy(),
+                ]);
+                let embedded_py = crate::assets::ensure_python_root(&self.root)?;
+                let embedded_src = embedded_py.join("src");
+                let mut pypaths = vec![embedded_src.to_string_lossy().to_string()];
+                if let Ok(repo_src) = std::fs::canonicalize(Path::new("python/src")) {
+                    pypaths.push(repo_src.to_string_lossy().to_string());
+                }
+                if let Ok(cur_py) = std::env::var("PYTHONPATH") {
+                    if !cur_py.is_empty() { pypaths.push(cur_py); }
+                }
+                cmd.env("PYTHONPATH", pypaths.join(":"));
+                cmd.env("PYTHONDONTWRITEBYTECODE", "1");
+
+                let run_out = cmd.output().map_err(|e| format!("failed to spawn iteration-screen: {e}"))?;
+                if !run_out.status.success() && !out_path.is_file() {
+                    let err_msg = String::from_utf8_lossy(&run_out.stderr).to_string();
+                    let _ = fs::remove_dir_all(&scratch_dir);
+                    return Err(format!("iteration-screen runner failed: {err_msg}"));
+                }
+
+                let out_val: Value = serde_json::from_str(&fs::read_to_string(&out_path).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+                let _ = fs::remove_dir_all(&scratch_dir);
+
+                // Update settled hypothesis in SQLite if present
+                if let Some(settled_h) = out_val.get("hypothesis").and_then(|v| serde_json::from_value::<crate::iteration::IterationHypothesis>(v.clone()).ok()) {
+                    let _ = crate::iteration::record_hypothesis(&self.root, &self.config.project_id, &settled_h);
+                }
+
+                // If Tier 1 full evaluation completed, store candidate evaluation & update Pareto record
+                if let Some(full_eval) = out_val.get("full_evaluation") {
+                    if full_eval.get("status").and_then(Value::as_str) == Some("evaluated") {
+                        let primary_metric = full_eval.get("primary_metric").and_then(Value::as_f64);
+                        let latency_ms = full_eval.get("latency_ms").and_then(Value::as_f64).unwrap_or(0.0);
+                        let peak_mem = full_eval.get("peak_memory_bytes").and_then(Value::as_i64).unwrap_or(0);
+                        let scorecard_hash = full_eval.get("scorecard_hash").and_then(Value::as_str).unwrap_or("");
+                        let metrics_json = serde_json::to_string(full_eval.get("metrics").unwrap_or(&json!({}))).unwrap_or_default();
+                        let slices_json = serde_json::to_string(full_eval.get("diagnostic_slices").unwrap_or(&json!([]))).unwrap_or_default();
+
+                        let eval_id = format!("eval-{cand_id}-{now}");
+                        let _ = db.execute(
+                            "INSERT INTO candidate_evaluations(project, evaluation_id, candidate_id, dataset_id, environment_id, source_hash, status, folds, seed, primary_metric, metrics_json, slices_json, scorecard_hash, created_ms)
+                             VALUES(?1, ?2, ?3, ?4, 'scientific', ?5, 'evaluated', ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                             ON CONFLICT(project, evaluation_id) DO UPDATE SET primary_metric = excluded.primary_metric",
+                            params![
+                                self.config.project_id,
+                                eval_id,
+                                cand_id,
+                                ds_id,
+                                manifest.get("source_hash").and_then(Value::as_str).unwrap_or(""),
+                                folds as i64,
+                                seed as i64,
+                                primary_metric,
+                                metrics_json,
+                                slices_json,
+                                scorecard_hash,
+                                now,
+                            ],
+                        );
+
+                        // If primary_metric is available, update Pareto frontier
+                        if let Some(score) = primary_metric {
+                            let pareto_rec = crate::iteration::ParetoRecord {
+                                candidate_id: cand_id.to_string(),
+                                parent_candidate_id: hyp_obj.as_ref().and_then(|h| h.parent_candidate_id.clone()),
+                                validation_score: score,
+                                latency_ms,
+                                peak_memory_bytes: peak_mem,
+                                domination_status: "non_dominated".into(),
+                                dominated_by: vec![],
+                                metadata: Some(json!({"dataset_id": ds_id, "scorecard_hash": scorecard_hash})),
+                            };
+                            let mut existing_records = vec![pareto_rec];
+                            if let Ok(Some(existing_frontier)) = crate::iteration::get_latest_pareto_frontier(&self.root, &self.config.project_id) {
+                                for r in existing_frontier.records {
+                                    if r.candidate_id != cand_id {
+                                        existing_records.push(r);
+                                    }
+                                }
+                            }
+                            let direction = hyp_obj.as_ref()
+                                .map(|h| h.expected_metric_delta.direction.as_str())
+                                .unwrap_or("maximize");
+                            let new_frontier = crate::iteration::compute_pareto_frontier(
+                                &existing_records,
+                                "primary_metric",
+                                direction,
+                                &self.config.project_id,
+                                None,
+                            );
+                            let _ = crate::iteration::record_pareto_frontier(&self.root, &self.config.project_id, &new_frontier);
+                        }
+                    }
+                }
+
+                Ok(serde_json::to_string(&out_val).unwrap())
+            }
+            "query_pareto_frontier" => {
+                let primary_metric = args.get("primary_metric").and_then(Value::as_str).unwrap_or("primary_metric");
+                let direction = args.get("direction").and_then(Value::as_str).unwrap_or("maximize");
+                let frontier_id = args.get("frontier_id").and_then(Value::as_str);
+
+                if let Some(fid) = frontier_id {
+                    let frontier = crate::iteration::get_pareto_frontier(&self.root, &self.config.project_id, fid)?;
+                    return Ok(serde_json::to_string(&frontier).unwrap());
+                }
+
+                if let Ok(Some(latest)) = crate::iteration::get_latest_pareto_frontier(&self.root, &self.config.project_id) {
+                    return Ok(serde_json::to_string(&latest).unwrap());
+                }
+
+                let empty_frontier = crate::iteration::compute_pareto_frontier(
+                    &[],
+                    primary_metric,
+                    direction,
+                    &self.config.project_id,
+                    None,
+                );
+                Ok(serde_json::to_string(&empty_frontier).unwrap())
+            }
             other => Err(format!("Unknown tool: {other}")),
         }
     }
