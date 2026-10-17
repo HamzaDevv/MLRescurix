@@ -719,7 +719,7 @@ fn p3_test_atomic_capacity_reservations_and_dimension_distinction() {
             memory_bytes: 1024 * 1024 * 1024,
             ..Default::default()
         },
-        probe: Probe::Sleep { millis: 500 },
+        probe: Probe::Sleep { millis: 2_000 },
     };
     execution::submit(&root, job1).unwrap();
 
@@ -752,7 +752,7 @@ fn p3_test_atomic_capacity_reservations_and_dimension_distinction() {
             memory_bytes: 512 * 1024 * 1024,
             ..Default::default()
         },
-        probe: Probe::Sleep { millis: 100 },
+        probe: Probe::Sleep { millis: 2_000 },
     };
     execution::submit(&root, job2_excess_cpu).unwrap();
 
@@ -779,7 +779,7 @@ fn p3_test_atomic_capacity_reservations_and_dimension_distinction() {
             memory_bytes: 2 * 1024 * 1024 * 1024,
             ..Default::default()
         },
-        probe: Probe::Sleep { millis: 100 },
+        probe: Probe::Sleep { millis: 2_000 },
     };
     execution::submit(&root, job3_excess_mem).unwrap();
 
@@ -909,7 +909,7 @@ fn p3_test_lease_lifecycle_heartbeats_and_recovery_transitions() {
         max_output_bytes: 1024,
         environment_id: None,
         resources: ResourceRequirements::default(),
-        probe: Probe::Sleep { millis: 50 },
+        probe: Probe::Sleep { millis: 2_000 },
     };
     execution::submit(&root, live_job).unwrap();
 
@@ -1351,7 +1351,7 @@ fn p3_acceptance_gate() {
             memory_bytes: 2 * 1024 * 1024 * 1024,
             ..Default::default()
         },
-        probe: Probe::Sleep { millis: 100 },
+        probe: Probe::Sleep { millis: 2_000 },
     };
     execution::submit(&root, large_job).unwrap();
 

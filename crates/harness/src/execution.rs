@@ -15,6 +15,7 @@ const OWNER_MARKER: &str = "mlrescurix-owned-v1\n";
 static STOP: AtomicBool = AtomicBool::new(false);
 #[path = "execution_resources.rs"]
 pub mod resources;
+pub use crate::pool::{WarmWorkerPool, WarmPoolConfig, WarmPoolMode, WarmTaskSpec, WarmTaskResult, CgroupReceipt};
 extern "C" fn stop_signal(_:libc::c_int){STOP.store(true,Ordering::Relaxed);}
 
 #[derive(Debug,Clone,Serialize,Deserialize,PartialEq)]

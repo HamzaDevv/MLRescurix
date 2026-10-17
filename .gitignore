@@ -6,6 +6,7 @@
 /target/
 /build/
 /dist/
+/python/build/
 /docker/scientific/wheels/
 /docker/scientific/worker/
 *.egg-info/

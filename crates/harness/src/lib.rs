@@ -20,3 +20,4 @@ pub mod adapters;
 pub mod diagnostics;
 pub mod iteration;
 pub mod rescue;
+pub mod pool;

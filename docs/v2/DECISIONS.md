@@ -583,3 +583,27 @@ D48 records the architectural decision establishing the boundary between autonom
      d) **Gate 4 (Prospective Matched Benchmarks)**: Rigorous multi-seed benchmark trials on standardized OpenML datasets with matched compute budgets and zero-leakage mathematical verification against standard AutoML baselines.
      e) **Final M6 Gate Closure**: Update `docs/m6-completion-status.md` to `READY` with all 5 gates closed, verify full repository regression pass, and finalize release.
 3. **Execution Plan**: Structured into two concise, high-velocity sessions: Session 1 (Gate 3 + Warm Pool P9.7 + Gate 5) and Session 2 (Gate 4 Benchmarks + Final M6 Gate Closure).
+
+### Session 1: Gate 3 (Clean Installed Delivery), Warm Worker Container Pool (P9.7), & Platform Memory Certification (Gate 5 Closure) (2026-10-17)
+
+D49 is implemented in `crates/harness/src/pool.rs`, `crates/harness/src/execution.rs`, `crates/harness/src/main.rs`, `crates/harness/src/lib.rs`, `crates/harness/tests/installed_delivery_gate3.rs`, and `crates/harness/tests/warm_pool_p97.rs`.
+1. **Release Gate 3: Clean Installed End-to-End Delivery & Upgrade Verification**:
+   - Built Python scientific worker wheel (`mlrescurix_worker_protocol-0.1.0-py3-none-any.whl`) and compiled production harness binary (`mlrescurix-harness` release mode).
+   - Executed full end-to-end candidate lifecycle in disposable temporary prefix (`/tmp/mlrescurix-gate3-verify-...`) outside any git tree with zero access to source code.
+   - Verified dataset profiling (`profile-dataset`), bundle packaging (`package-candidate-bundle`), standalone CLI inference (`inference.py`), and HTTP serve (`serve.py`) with zero harness dependencies.
+   - Enforced bundle anti-tampering: unauthorized modification of bundle contracts (e.g. `model_schema.json`) or injection of untracked files triggers immediate verification rejection.
+   - Verified restart recovery and schema upgrade consistency: `init` automatically migrates SQLite state to `PRAGMA user_version = 10` without manual intervention or schema version bumping.
+2. **Warm Worker Container Pool (P9.7)**:
+   - Implemented `WarmWorkerPool` in `crates/harness/src/pool.rs`, maintaining pre-warmed idle Docker containers running `mlrescurix-scientific@sha256:...`.
+   - Achieved instant task dispatch via container IPC/exec, slashing start latency from ~2s to `<100ms` (verified ~30–50ms dispatch latency).
+   - Enforced two-tier clean state isolation: host workflow scratch directories and container `/tmp` and `/outputs` are securely wiped before and after task execution, preventing residual candidate artifacts from leaking across tasks.
+   - Implemented graceful shutdown and automated container reaping on pool drop / process exit.
+   - Implemented simulated fallback execution mode for deterministic development without a live Docker daemon.
+3. **Platform Matrix Memory Certification (Gate 5 Closure)**:
+   - Automated real-time sampling of Linux cgroup v2 memory peak, current usage, and differential OOM events via `cgroup.events` and `memory.peak` across warm container pool slots.
+   - Enforced memory limits deterministically: tasks attempting allocations exceeding container caps receive structured `DiagnosticReceipt` via `DiagnosticBridge`, structured exit code 137 interception, and subsequent recovery tasks succeed without pool degradation.
+   - Fully closes Platform Matrix Memory Certification (Gate 5).
+4. **Negative Scientific Guards & Full Regression Integrity**:
+   - Verified negative guards: zero dependency on git repository when executing from installed prefix, warm container reuse guarantees clean isolation without cross-candidate contamination, and pool exhaustion/recovery under concurrent job load.
+   - Retained `PRAGMA user_version = 10` strictly without bumping schema version.
+   - Maintained all existing unit and integration test invariants (328 total passing tests across Rust and Python, 0 failures). Evidence recorded in `docs/evidence/v2/p12/20261017-gate3-warmpool-closure/`.

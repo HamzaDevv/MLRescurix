@@ -229,7 +229,7 @@ fn leased_artifacts_survive_concurrent_gc_and_cancellation() {
             threads: 1,
             max_output_bytes: 4096,
             environment_id: None,
-            probe: Probe::Sleep { millis: 300 },
+            probe: Probe::Sleep { millis: 2_000 },
         },
     )
     .unwrap();

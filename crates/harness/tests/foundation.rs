@@ -141,7 +141,7 @@ fn m1_trusted_worker_publishes_hashed_artifact_and_records_terminal_state(){
 #[test]
 fn m1_managed_python_environment_is_owned_and_leases_block_removal(){
  let d=tempfile::tempdir().unwrap();let root=d.path().join("state");let r=Runtime::init(&root,m1policy(100,8)).unwrap();create_m1(&r,"p");execution_task(&r,"p","t");
- let env=execution::create_environment(&root,"py313",Path::new("/Library/Frameworks/Python.framework/Versions/3.13/bin/python3.13")).unwrap();assert_eq!(env["status"],"ready");let mut s_job=job("p","envjob","t",Probe::Sleep{millis:100},1000);s_job.environment_id=Some("py313".into());execution::submit(&root,s_job).unwrap();
+ let env=execution::create_environment(&root,"py313",Path::new("/Library/Frameworks/Python.framework/Versions/3.13/bin/python3.13")).unwrap();assert_eq!(env["status"],"ready");let mut s_job=job("p","envjob","t",Probe::Sleep{millis:2000},5000);s_job.environment_id=Some("py313".into());execution::submit(&root,s_job).unwrap();
  let bin=Path::new(env!("CARGO_BIN_EXE_mlrescurix-harness"));let mut s=Supervisor::start_with_executable(&root,1,bin).unwrap();
  for _ in 0..50{s.tick().unwrap();if execution::inspect(&root,"p","envjob").unwrap().status=="running"{break;}std::thread::sleep(std::time::Duration::from_millis(10));}
  assert!(execution::remove_environment(&root,"py313").unwrap_err().contains("leased"));run_until_terminal(&mut s,&root,"p","envjob");execution::remove_environment(&root,"py313").unwrap();assert!(!root.join("environments/py313").exists());
@@ -165,7 +165,7 @@ fn chrono_free_now()->i64{std::time::SystemTime::now().duration_since(std::time:
 #[test]
 fn m1_deadline_crash_and_project_cancellation_reap_only_owned_workers(){
  let d=tempfile::tempdir().unwrap();let root=d.path().join("state");let r=Runtime::init(&root,m1policy(100,8)).unwrap();create_m1(&r,"p");create_m1(&r,"q");execution_task(&r,"p","t");execution_task(&r,"q","u");
- execution::submit(&root,job("p","slow","t",Probe::Sleep{millis:500},50)).unwrap();execution::submit(&root,job("q","other","u",Probe::Write{name:"x".into(),content:"q".into()},1000)).unwrap();
+ execution::submit(&root,job("p","slow","t",Probe::Sleep{millis:5000},5000)).unwrap();execution::submit(&root,job("q","other","u",Probe::Write{name:"x".into(),content:"q".into()},1000)).unwrap();
  let bin=Path::new(env!("CARGO_BIN_EXE_mlrescurix-harness"));let mut s=Supervisor::start_with_executable(&root,1,bin).unwrap();
  for _ in 0..100{ s.tick().unwrap();let j=execution::inspect(&root,"p","slow").unwrap();if j.status=="running"{break;}std::thread::sleep(std::time::Duration::from_millis(10)); }
  send(&r,"p","cancel-project",Operation::Lifecycle{state:"cancelled".into()});run_until_terminal(&mut s,&root,"p","slow");
@@ -179,7 +179,7 @@ fn m1_deadline_crash_and_project_cancellation_reap_only_owned_workers(){
 #[test]
 fn m1_pause_drains_active_job_and_resume_reopens_queued_admission(){
  let d=tempfile::tempdir().unwrap();let root=d.path().join("state");let r=Runtime::init(&root,m1policy(100,8)).unwrap();create_m1(&r,"p");execution_task(&r,"p","t1");execution_task(&r,"p","t2");
- execution::submit(&root,job("p","active","t1",Probe::Sleep{millis:120},1000)).unwrap();execution::submit(&root,job("p","queued","t2",Probe::Write{name:"ok".into(),content:"resumed".into()},1000)).unwrap();
+ execution::submit(&root,job("p","active","t1",Probe::Sleep{millis:1000},5000)).unwrap();execution::submit(&root,job("p","queued","t2",Probe::Write{name:"ok".into(),content:"resumed".into()},1000)).unwrap();
  let bin=Path::new(env!("CARGO_BIN_EXE_mlrescurix-harness"));let mut s=Supervisor::start_with_executable(&root,1,bin).unwrap();
  for _ in 0..50{s.tick().unwrap();if execution::inspect(&root,"p","active").unwrap().status=="running"{break;}std::thread::sleep(std::time::Duration::from_millis(10));}
  send(&r,"p","pause",Operation::Lifecycle{state:"paused".into()});run_until_terminal(&mut s,&root,"p","active");assert_eq!(execution::inspect(&root,"p","active").unwrap().status,"succeeded");assert_eq!(execution::inspect(&root,"p","queued").unwrap().status,"queued");

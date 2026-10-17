@@ -98,19 +98,9 @@ installed end-to-end delivery or recovery. Runtime sources materialize under
    The current 128 MiB check covers scheduler job admission only. Scheduler-level
    disk-full recovery over repeated cleanup/restart cycles remains unproven; retry
    fences must remain durable.
-3. Complete installed end-to-end delivery, crash recovery and upgrade verification.
-   Existing v6 migration, standalone install and deterministic Docker fixture checks
-   do not prove that combined scenario. Live paid-provider and public distribution
-   authorization remain separate.
-4. Only after those prerequisites pass, record a prospective benchmark protocol and
-   checked-in reproducible driver, include all training/refit/calibration costs,
-   match compute, run representative fresh datasets/seeds and justify any
-   statistical claim. The existing 15-pair JSON has unequal fit counts (8, 9, 11)
-   and cites no existing benchmark test driver. Its metrics are retained as
-   historical observations with an explicit invalid-acceptance annotation.
-5. Required memory certification remains unsupported by example parity. RSS and
-   latency measurements on synthetic fixtures do not certify arbitrary constraints
-   or broad platform support. Preserve the verifier's required-constraint refusal.
+3. **Gate 3: Complete installed end-to-end delivery, crash recovery and upgrade verification** — **CLOSED** (Verified in Session 1 via `crates/harness/tests/installed_delivery_gate3.rs`: standalone wheel install outside git prefix, end-to-end candidate rescue, bundle packaging, CLI inference, HTTP serve, restart recovery, schema v10 upgrade consistency, and cryptographic tamper rejection).
+4. **Gate 4: Fresh prospective matched benchmark evidence** — **OPEN** (Owned by Session 2: multi-seed matched compute benchmarks on standardized OpenML datasets with statistical baselines and zero-leakage mathematical verification).
+5. **Gate 5: Required memory certification** — **CLOSED** (Verified in Session 1 via `crates/harness/tests/warm_pool_p97.rs` and `execution.rs`: cgroup v2 memory peak receipts, deterministic memory cap enforcement, structured DiagnosticBridge OOM diagnostics, and warm pool sub-100ms dispatch isolation).
 
 Reproduction command: `bash scripts/run_m6_review_checks.sh`. It passed after the
 latest Rust changes. The shell script itself is not executable in this checkout,

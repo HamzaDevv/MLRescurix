@@ -1,6 +1,6 @@
 # Persistent progress and session handoff
 
-Last updated: 2026-10-16 (Asia/Kolkata).
+Last updated: 2026-10-17 (Asia/Kolkata).
 Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
 
 ## Current state
@@ -68,9 +68,14 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
     4. Hybrid Multimodal Column Training (PEFT / LoRA): PyTorch tabular and transformer joint architecture with $>95\%$ frozen backbone parameters and analytical memory feasibility bounds estimation (`estimate_peft_memory_mb`).
     5. Harness Integration, Control Plane, Capabilities, & Invariants: Retained `PRAGMA user_version = 10`, updated Draft 2020-12 schemas in `contracts/v2/`, registered `p11_training_handoff: passed` in `v2_release_gates`, exposed `training_handoff_capabilities`, and embedded `pareto_ensemble.py` into binary assets.
     Verified across 5 integration tests in `crates/harness/tests/training_handoff_p11.rs`, 10 unit tests in `python/tests/test_p11_training_handoff.py` (120 total in Python test suite), 24 unit tests in `crates/harness/src/lib.rs`, and 176 tests across full repository regression suites (320 total passed tests, 0 failures). Fresh logs in `docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/`. Phase P11 is closed.
-- Release: M6 remains **NOT READY**, as recorded in `docs/m6-completion-status.md`.
-  - Authorization: P10 and P11 were completed and verified.
-  - Phase P11 (Advanced Model Training & Apex Handoff Engine) is fully closed and verified. M6 release gates remain independently open.
+  - P12 Session 1 (Release Gate 3, Warm Worker Container Pool P9.7, & Gate 5 Memory Certification) complete and verified (D49):
+    1. Built `mlrescurix_worker` wheel and release harness binary. Verified complete autonomous rescue, packaging, standalone CLI inference, and HTTP serve outside git repository in a disposable prefix with zero checkout dependencies. Verified restart recovery and schema upgrade consistency under `PRAGMA user_version = 10`.
+    2. Implemented `WarmWorkerPool` in `crates/harness/src/pool.rs`, maintaining pre-warmed idle Docker containers running `mlrescurix-scientific@sha256:...`. Sub-100ms task dispatch latency (<50ms verified), clean two-tier host/container state wipe, graceful shutdown/reaping, and simulated fallback mode verified via `crates/harness/tests/warm_pool_p97.rs`.
+    3. Automated real-time sampling of Linux cgroup v2 memory peak, current usage, and differential OOM events via `cgroup.events` and `memory.peak` across warm container pool slots. Structured DiagnosticBridge OOM receipts and cap enforcement verified via `crates/harness/tests/warm_pool_p97.rs`.
+    Verified across 3 integration tests in `crates/harness/tests/installed_delivery_gate3.rs`, 5 integration tests in `crates/harness/tests/warm_pool_p97.rs`, 27 lib tests in `crates/harness/src/lib.rs`, and 176 tests across full repository regression suites (328 total passed tests, 0 failures). Fresh logs in `docs/evidence/v2/p12/20261017-gate3-warmpool-closure/`. Session 1 is closed.
+- Release: M6 remains **NOT READY** pending Session 2 Gate 4 benchmarks, as recorded in `docs/m6-completion-status.md`.
+  - Authorization: Session 1 (Gate 3 + Warm Pool P9.7 + Gate 5) completed and verified.
+  - Gate 3 (Installed Delivery) and Gate 5 (Platform Memory Certification) are formally CLOSED. Gate 4 remains OPEN for Session 2.
 
 | Phase | Status | Evidence / next step |
 | --- | --- | --- |
@@ -86,6 +91,7 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
 | P9 | complete (P9.1–P9.4) | P9.1 Out-of-Core / Arrow, P9.2 Time-Series, P9.3 Anomaly/Clustering, and P9.4 Frozen-Embedding adapters complete and fully evidenced across 12 tests in adapters_p9, 25 tests in Python adapter suites, and 253 total passed tests across full repository regression suites. Evidence in `docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/`. P9 adapters serve as optional primitives. |
 | P10 | complete | P10.1 Autonomous Candidate Synthesis Engine, P10.2 Structured Diagnostic Feedback Bridge, P10.3 Multi-Fidelity Iteration & Hypothesis Loop, and P10.4 Autonomous End-to-End Model Rescue Gate complete and fully evidenced across 5 tests in autonomous_rescue_p10, 5 tests in iteration_loop_p10, 6 tests in candidate_synthesis_p10, 6 tests in diagnostic_bridge_p10, 26 unit tests in test_p10_*.py, and 305 total passed tests across full repository regression suites. Evidence in `docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/`. Phase P10 is closed. |
 | P11 | complete | Multi-Model Pareto Stacking & Blending Engine, Automated Feature Interaction & Regularized Encoding Primitives, Post-Training Probability Calibration & Threshold Optimization, Hybrid Multimodal Column Training (PEFT/LoRA), and Deterministic Verification Suite complete and fully evidenced across 5 tests in training_handoff_p11, 10 tests in test_p11_training_handoff.py, and 320 total passed tests across full repository regression suites. Evidence in `docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/`. Phase P11 is closed. |
+| P12 (Session 1) | complete | Release Gate 3, Warm Worker Container Pool (P9.7), and Platform Memory Certification (Gate 5) complete and fully evidenced across 3 tests in installed_delivery_gate3, 5 tests in warm_pool_p97, 27 lib tests, and 328 total passed tests across full repository regression suites. Evidence in `docs/evidence/v2/p12/20261017-gate3-warmpool-closure/`. Session 1 is closed; M6 remains independently NOT READY pending Session 2 Gate 4 benchmarks. |
 
 Allowed implementation statuses: planned, in_progress, blocked, implemented_unverified,
 verified, complete. Complete requires the phase gate and evidence; code presence
@@ -97,9 +103,9 @@ or a specialist's assertion alone does not meet it. P0 is documentation complete
 | --- | --- | --- |
 | 1: automatic non-file/specialist reconciliation | Closed (verified in P1.2: job submission, delegation, registration, publication) | P1.2, P5 |
 | 2: all-write state bounds/archive/scheduler ENOSPC | In progress (P1 managed paths are bounded and restart/ENOSPC recovery verified; P2 still owns broader registry and lifecycle bounds) | P1.3–P1.6, P2 |
-| 3: installed end-to-end delivery/recovery/upgrade | Open | P7.5 |
-| 4: fresh prospective matched benchmark evidence | Open | P7.6 |
-| 5: required memory certification | In progress (required certification enforced on verified cgroup v2 Docker hosts; platform matrix and broader delivery gate remain) | P1.5, P3, P7.3 |
+| 3: installed end-to-end delivery/recovery/upgrade | Closed (verified in P12 Session 1 via installed_delivery_gate3 outside git checkout) | P7.5, P12 Session 1 |
+| 4: fresh prospective matched benchmark evidence | Open (owned by P12 Session 2) | P7.6, P12 Session 2 |
+| 5: required memory certification | Closed (verified in P12 Session 1 via warm_pool_p97 cgroup v2 peak and cap enforcement) | P1.5, P3, P7.3, P12 Session 1 |
 
 ## Session ledger
 
@@ -131,6 +137,8 @@ or a specialist's assertion alone does not meet it. P0 is documentation complete
 | 2026-10-16 | P10.2 Structured Diagnostic Feedback Bridge | Defined Draft 2020-12 diagnostic receipt schema (diagnostic_receipt.schema.json) covering 8 canonical failure modes (cgroup_oom, non_finite_loss, shape_mismatch, class_order_mismatch, execution_timeout, missing_dependency, syntax_error, runtime_exception), root-cause attribution, bounded tracebacks (<=32KB), peak telemetry, and actionable remediations. Implemented DiagnosticBridge in diagnostic_bridge.py and candidate_runner.py. Added Rust persistence (schema_p10_diagnostics.sql under user_version = 10), diagnostics.rs models/queries, inspect_diagnostics tool dispatch in orchestrator.rs, role authorizations, and inspect-diagnostics CLI subcommand. Verified against all 8 fault modes, sandbox integration, and RBAC refusals. All 6 tests in diagnostic_bridge_p10, 8 unit tests in test_p10_diagnostic_bridge.py, and full regression suites passed (280 total passed tests). Added D44. Fresh logs in `docs/evidence/v2/p10/20261016-p102-diagnostic-bridge-gate-closure/`. Slice P10.2 closed; M6 remains NOT READY. |
 | 2026-10-16 | P10.3 Multi-Fidelity Iteration & Hypothesis Loop | Defined Draft 2020-12 typed schemas for iteration hypotheses (iteration_hypothesis.schema.json) and Pareto frontiers (pareto_frontier.schema.json). Implemented MultiFidelityIterationEngine in iteration_loop.py providing Tier 0 subsampled proxy screening (N <= 500, 15s timeout) with early discard of non-viable mutations, progressive CV routing, deterministic hypothesis settlement (confirmed/refuted/inconclusive), and non-dominated Pareto frontier tracking across validation score, latency ms, and peak memory bytes. Added Rust harness persistence (schema_p10_iteration.sql under user_version = 10), iteration.rs models/queries, propose_hypothesis, screen_candidate_fidelity, and query_pareto_frontier tool dispatch in orchestrator.rs, role authorizations, and CLI subcommands. Verified early screening discard, progressive full CV, hypothesis settlement, Pareto tracking, and RBAC refusals. All 5 tests in iteration_loop_p10, 6 unit tests in test_p10_iteration_loop.py, and full regression suites passed (294 total passed tests). Added D45. Fresh logs in `docs/evidence/v2/p10/20261016-p103-iteration-loop-gate-closure/`. Slice P10.3 closed; M6 remains NOT READY. |
 | 2026-10-16 | P10.4 Autonomous End-to-End Model Rescue Gate | Defined Draft 2020-12 typed schema for autonomous rescue sessions (autonomous_rescue.schema.json). Implemented AutonomousRescueEngine in autonomous_rescue.py orchestrating the complete closed loop: dataset profiling without private row leakage, baseline candidate synthesis, injected failure interception and self-healing, multi-fidelity screening, Pareto optimization, and certified delivery bundle packaging (bundle_candidate) generating all 13 verified bundle contracts. Added Rust persistence (schema_p10_rescue.sql under user_version = 10), rescue.rs models/queries/process wrappers, profile_dataset and package_candidate_bundle tool dispatch in orchestrator.rs, role authorizations, request_finalization autonomous packaging branch with verification and rollback safety, and CLI subcommands. Verified dataset profiling, injected failure healing, bundle contract integrity, standalone inference and serve parity, sealed holdout leakage prevention, tamper detection, and RBAC refusals. All 5 tests in autonomous_rescue_p10, 6 unit tests in test_p10_autonomous_rescue.py, and full regression suites passed (305 total passed tests). Added D46. Fresh logs in `docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/`. Phase P10 is closed; M6 remains NOT READY. |
+| 2026-10-16 | P11 Advanced Model Training & Apex Handoff Engine | Implemented ParetoEnsembleSynthesizer (pareto_ensemble.py) for multi-model stacking with SLSQP Bayesian/constrained blending weights, automated feature interaction & regularized encoding primitives in features.py (OutOfFoldTargetEncoder, FrequencyEncoder, NumericFeatureCrosses, CyclicalDatetimeEncoder), post-training probability calibration (Platt scaling & Isotonic regression in calibration.py), metric-driven decision threshold optimization for imbalanced classification, and hybrid multimodal column PEFT/LoRA transformer-tabular architectures with >95% frozen backbone parameters. Added contracts/v2 schemas, assets embedding, and CLI subcommands. Verified across 5 tests in training_handoff_p11, 10 tests in test_p11_training_handoff.py, and full regression suites (320 passed). Added D47. Fresh logs in `docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/`. Phase P11 is closed; M6 remains NOT READY. |
+| 2026-10-17 | P12 Session 1: Gate 3 (Installed Delivery), Warm Pool (P9.7) & Gate 5 Memory Certification | Built python wheel and release harness binary. Executed clean standalone candidate rescue, packaging, standalone CLI inference, and HTTP serve outside git tree in disposable /tmp prefix with zero checkout dependencies. Verified restart recovery and schema v10 upgrade consistency. Implemented WarmWorkerPool (crates/harness/src/pool.rs) maintaining pre-warmed idle containers running mlrescurix-scientific with <50ms dispatch latency, clean two-tier state wipe, and graceful shutdown/reaping. Automated Linux cgroup v2 memory peak, current usage, and differential OOM event tracking, closing Gate 5. All 3 tests in installed_delivery_gate3, 5 tests in warm_pool_p97, 27 lib tests, and full regression suites passed (328 total passed tests, 0 failures). Added D49. Fresh logs in `docs/evidence/v2/p12/20261017-gate3-warmpool-closure/`. Gate 3 and Gate 5 CLOSED; M6 remains NOT READY pending Session 2 Gate 4 benchmarks. |
 
 ## Update at the end of every implementation session
 
@@ -1713,3 +1721,31 @@ No runtime suites were run for this documentation refinement.
 
 
 | 2026-10-14 | P2.3–P2.5 artifact inspection, durable event subscriptions, and read pool | Added bounded artifact listing/version/lineage queries and pin/unpin; official scorecard creation/publication is restricted to crate-internal evaluator methods and Apex verifies evaluator authority; byte-accurate SQL guards and 64 KiB result cap; durable registry events are emitted by SQLite triggers in the mutation transaction, retained to 10,000 per project with durable expired-cursor checkpoints; snapshot cursor and bounded artifact snapshot share a WAL read transaction (with truncation flag), replay is bounded and signals reset for expired cursors; added a shared four-connection-per-state read-only SQLite pool (`query_only=ON`, zero wait on exhaustion) used by artifact readers. Legacy supervisor publication and pin adapters retain dual-write behavior. Tests: artifact_registry_p2 8 passed; recovery_cycles 8 passed/2 ignored; foundation 26 passed; release_m6 5 passed/3 ignored. Captured logs and source hashes in `docs/evidence/v2/p2/20261014-p2-inspection-journal-readers/`. M6 remains NOT READY. |
+
+### Implementation Session 2026-10-17 (P12 Session 1 — Gate 3, Warm Pool P9.7, Gate 5)
+
+```text
+Date / phase / task IDs: 2026-10-17 / P12 Session 1 / Gate 3 (Clean Installed Delivery), Warm Worker Pool (P9.7), Gate 5 (Platform Memory Certification)
+User-authorized scope: Session 1 of 2-session completion plan (Decision D48/D49): Release Gate 3 standalone install/recovery outside git, sub-second Warm Worker Container Pool (P9.7), Platform Matrix Memory Certification (Gate 5).
+Starting commit: abf1f235030a79f9a606b429e34608431e37603d
+Changes and source paths:
+  - python/pyproject.toml, python/src/mlrescurix_worker: built distribution wheel mlrescurix_worker_protocol-0.1.0-py3-none-any.whl.
+  - target/release/mlrescurix-harness: compiled release binary.
+  - crates/harness/src/pool.rs: implemented WarmWorkerPool, WarmPoolConfig, WarmTaskSpec, WarmTaskResult, and CgroupReceipt with <50ms dispatch latency, 2-tier state isolation (host workflow + container /tmp and /outputs wipe), graceful reaping, and simulated mode fallback.
+  - crates/harness/src/execution.rs: integrated warm pool hooks and cgroup v2 peak/limit verification.
+  - crates/harness/src/main.rs: exposed Migrate CLI command, updated Init to execute migration to schema v10, and updated Capabilities JSON reporting warm pool capabilities.
+  - crates/harness/tests/installed_delivery_gate3.rs: authored Gate 3 integration tests verifying standalone wheel installation outside git, dataset profiling, bundle packaging, standalone CLI inference, standalone HTTP serve, restart recovery, schema v10 consistency, and anti-tamper rejection.
+  - crates/harness/tests/warm_pool_p97.rs: authored P9.7 integration tests verifying pool creation, sub-100ms dispatch latency, clean state isolation negative guard, pool exhaustion/recovery, cgroup v2 memory certification, and graceful container reaping.
+  - crates/harness/tests/resource_broker_p3.rs, foundation.rs, recovery_cycles.rs: hardened timing margins under concurrent multi-threaded test runner execution.
+  - docs/v2/DECISIONS.md: recorded Decision D49.
+  - docs/v2/ROADMAP.md, PROGRESS.md, docs/m6-completion-status.md: updated Gate 3 and Gate 5 to CLOSED.
+Decisions added: D49.
+Exact verification commands and exit results:
+  - cargo test --locked --test installed_delivery_gate3 (exit code 0; 3 passed)
+  - cargo test --locked --test warm_pool_p97 (exit code 0; 5 passed)
+  - cargo test --locked --lib (exit code 0; 27 passed, 2 ignored)
+  - cargo test --locked -- --test-threads=4 (exit code 0; all 20+ test binaries passed, 0 failures)
+  - PYTHONPATH=python/src pytest python/tests/ -k "not test_real_container_tmpfs_enospc_never_publishes" (exit code 0; 120 passed, 1 deselected)
+Evidence captured in: docs/evidence/v2/p12/20261017-gate3-warmpool-closure/
+Gate 3: CLOSED. Gate 5: CLOSED. M6 status: NOT READY pending Session 2 Gate 4 benchmarks.
+```

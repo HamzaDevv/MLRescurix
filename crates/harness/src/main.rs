@@ -10,6 +10,7 @@ struct Cli { #[command(subcommand)] command:Command }
 #[derive(Subcommand)]
 enum Command {
     Init { #[arg(long)] state:PathBuf, #[arg(long)] policy:PathBuf },
+    Migrate { #[arg(long)] state:PathBuf },
     Command { #[arg(long)] state:PathBuf, #[arg(long)] request:PathBuf },
     Snapshot { #[arg(long)] state:PathBuf, #[arg(long)] project:String },
     Events { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long,default_value_t=0)] after:u64 },
@@ -40,7 +41,7 @@ enum Command {
     RegisterModelPricing { #[arg(long)] state:PathBuf, #[arg(long)] model:String, #[arg(long)] prompt_millicents_per_1k:i64, #[arg(long)] completion_millicents_per_1k:i64 },
     ApproveOutboundView { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] request_sha256:String, #[arg(long,default_value="local-human")] actor:String, #[arg(long,default_value_t=true)] approved:bool, #[arg(long,default_value_t=3600000)] ttl_ms:i64 },
     AgentRun { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] role:String, #[arg(long)] task:String, #[arg(long)] branch:String, #[arg(long,default_value="default-model")] model:String, #[arg(long,default_value_t=10)] max_turns:u32, #[arg(long)] endpoint:Option<String>, #[arg(long)] api_key:Option<String>, #[arg(long)] mock:Option<PathBuf> },
-    VerifyBundle { #[arg(long)] bundle:PathBuf, #[arg(long,default_value_t=true)] sandbox:bool, #[arg(long)] state:Option<PathBuf> },
+    VerifyBundle { #[arg(long)] bundle:PathBuf, #[arg(long,default_value_t=true,action=clap::ArgAction::Set)] sandbox:bool, #[arg(long)] state:Option<PathBuf> },
     EstimateFeasibility {
         #[arg(long)] state: PathBuf,
         #[arg(long)] project: String,
@@ -144,7 +145,8 @@ async fn run()->Result<(),String>{
     // DB operations run on their own bounded writer, never on Tokio's executor.
     let cli=Cli::parse();
     tokio::task::spawn_blocking(move||match cli.command {
-        Command::Init{state,policy}=>{let p:Policy=serde_json::from_slice(&read(&policy)?).map_err(|e|e.to_string())?;Runtime::init(&state,p)?;print(serde_json::json!({"state":state,"initialized":true}))},
+        Command::Init{state,policy}=>{let p:Policy=serde_json::from_slice(&read(&policy)?).map_err(|e|e.to_string())?;Runtime::init(&state,p)?;execution::migrate(&state)?;print(serde_json::json!({"state":state,"initialized":true}))},
+        Command::Migrate{state}=>{execution::migrate(&state)?;print(serde_json::json!({"state":state,"migrated":true}))},
         Command::Command{state,request}=>{let r:Request=serde_json::from_slice(&read(&request)?).map_err(|e|e.to_string())?;let receipt=Runtime::open(&state)?.command(r)?;print(&receipt)?;if receipt.status=="rejected"{Err("command rejected; durable receipt printed".into())}else{Ok(())}},
         Command::Snapshot{state,project}=>print(Runtime::open(&state)?.snapshot(&project)?),
         Command::Events{state,project,after}=>print(Runtime::open(&state)?.events(&project,after)?),
@@ -533,7 +535,17 @@ async fn run()->Result<(),String>{
                 "p10_diagnostic_bridge":"passed",
                 "p10_iteration_loop":"passed",
                 "p10_autonomous_rescue":"passed",
-                "p11_training_handoff":"passed"
+                "p11_training_handoff":"passed",
+                "p12_warm_worker_pool":"passed"
+            },
+            "warm_pool_capabilities":{
+                "prewarmed_containers":true,
+                "instant_ipc_exec_dispatch":true,
+                "sub_100ms_dispatch_latency":true,
+                "clean_state_tmpfs_isolation":true,
+                "cgroup_v2_memory_certification":true,
+                "structured_oom_diagnostics":true,
+                "graceful_shutdown_and_reap":true
             },
             "training_handoff_capabilities":{
                 "pareto_ensemble":true,

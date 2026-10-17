@@ -235,7 +235,7 @@ fn m3_capabilities_reports_phase_m3_and_scientific_flags() {
     let output = Command::new(bin).arg("capabilities").output().unwrap();
     assert!(output.status.success());
     let cap: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert!(matches!(cap["phase"].as_str(), Some("M3") | Some("M4") | Some("M5") | Some("M6")));
+    assert!(matches!(cap["phase"].as_str(), Some("M3") | Some("M4") | Some("M5") | Some("M6") | Some("P7")));
     assert_eq!(cap["scientific_execution"], true);
     assert_eq!(cap["official_evaluation"], true);
     assert_eq!(cap["constrained_search"], true);
