@@ -567,3 +567,19 @@ D47 is implemented in `contracts/v2/candidate_synthesis.schema.json`, `contracts
      f) Bundle integrity and tamper detection: tampered `model_schema.json` or untracked candidate files are strictly rejected by `crates/harness/src/bundle.rs`.
 7. **Phase P11 Acceptance Gate Closure**:
    - Verified across 5 integration tests in `crates/harness/tests/training_handoff_p11.rs`, 10 unit tests in `python/tests/test_p11_training_handoff.py` (120 total in Python test suite), 24 unit tests in `crates/harness/src/lib.rs`, and 176 tests across full repository regression suites (320 total passed tests, 0 failures). Evidence captured in `docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/`. Phase P11 is closed. M6 remains independently NOT READY.
+
+### Final Release Strategy & Scope Boundary Decisions (2026-10-17)
+
+D48 records the architectural decision establishing the boundary between autonomous model rescue/handoff and downstream cloud serving infrastructure, and ratifies the 2-session completion plan for MLRescurix.
+1. **Core Scope Boundary**:
+   - MLRescurix is strictly an Autonomous Machine Learning Rescue & Engineering Engine. Its formal output boundary is the self-contained, mathematically verified `mlrescurix.bundle.v2` distribution package.
+   - Downstream enterprise cloud serving concerns (e.g. Prometheus cluster metrics, OpenTelemetry distributed tracing, live canary/shadow reverse proxies, service meshes) belong to production serving and deployment layers (e.g. Triton, Seldon, Kubernetes Istio/Envoy, AWS SageMaker, Datadog), not inside the offline autonomous modeling harness.
+   - Baking mock cloud telemetry into MLRescurix would inflate codebase complexity and maintenance overhead without improving model rescue intelligence, feature engineering power, or local developer experience.
+2. **Prioritization of Local Developer Excellence & Execution Speed**:
+   - Focus engineering exclusively on high-impact developer and model verification capabilities:
+     a) **Gate 3 (Clean Standalone Packaging & Delivery)**: Package `mlrescurix_worker` wheel and release harness binary; verify complete autonomous rescue, packaging, and inference outside the source repository in a clean prefix with zero git dependencies.
+     b) **Warm Worker Container Pool (P9.7)**: Pre-warmed container worker pool with fast IPC/tmpfs wipe, reducing task dispatch latency from ~2s to <100ms for rapid local iteration.
+     c) **Gate 5 (Platform Memory Certification)**: Complete cgroup v2 memory certification verification across runtime containers.
+     d) **Gate 4 (Prospective Matched Benchmarks)**: Rigorous multi-seed benchmark trials on standardized OpenML datasets with matched compute budgets and zero-leakage mathematical verification against standard AutoML baselines.
+     e) **Final M6 Gate Closure**: Update `docs/m6-completion-status.md` to `READY` with all 5 gates closed, verify full repository regression pass, and finalize release.
+3. **Execution Plan**: Structured into two concise, high-velocity sessions: Session 1 (Gate 3 + Warm Pool P9.7 + Gate 5) and Session 2 (Gate 4 Benchmarks + Final M6 Gate Closure).

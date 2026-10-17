@@ -487,6 +487,20 @@ P11 is implemented and verified across `contracts/v2/candidate_synthesis.schema.
 Verified across 5 integration tests in `crates/harness/tests/training_handoff_p11.rs`, 10 unit tests in `python/tests/test_p11_training_handoff.py` (120 total in Python test suite), 24 unit tests in `crates/harness/src/lib.rs`, and 176 tests across full repository regression suites (320 total passed tests, 0 failures). Evidence captured in `docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/`. Phase P11 is closed. M6 remains independently NOT READY.
 
 
+## Final 2-Session Release Strategy: Standalone Delivery, Warm Pool & Benchmark Closure
+
+**Outcome:** Complete all remaining open release gates (Gate 3, Gate 5, Gate 4) and close M6 release prerequisites through a lean 2-session execution plan focused strictly on local developer excellence, sub-second execution latency, standalone distribution portability, and prospective benchmark evidence (Decision D48).
+
+- **Scope Boundary (Decision D48)**: Explicitly exclude enterprise cloud serving telemetry (Prometheus exporters, OpenTelemetry distributed tracing) and live traffic routing meshes (canary/shadow reverse proxies). These belong to downstream production serving layers, not the offline autonomous model rescue harness.
+- **Session 1 (P12.1 — Standalone Delivery, Warm Worker Pool & Platform Certification)**:
+  1. *Release Gate 3*: Build `mlrescurix_worker` wheel and release harness binary; verify complete autonomous rescue, packaging, and inference outside the source repository in a clean prefix (`/tmp/...`) with zero git dependencies.
+  2. *Warm Worker Pool (P9.7)*: Implement pre-warmed container worker pool with fast IPC/tmpfs wipe, reducing task dispatch latency from ~2s to <100ms for rapid local iteration.
+  3. *Gate 5 Platform Memory Certification*: Validate cgroup v2 memory peak receipts across warm container pool tasks under enforced memory limits.
+- **Session 2 (P12.2 — Prospective Matched Benchmarks & Final M6 Release Certification)**:
+  1. *Release Gate 4*: Run reproducible, matched-compute AutoML benchmark trials against standard baselines (LightGBM, standard ensembles) on standardized OpenML datasets with verifiable scorecards and zero leakage.
+  2. *Final M6 Release Closure*: Update `docs/m6-completion-status.md` to `READY` with all 5 gates closed, complete full regression sweeps, and finalize repository distribution.
+
+
 
 ## Recommendation priority
 
@@ -494,5 +508,5 @@ Ship model rescue and transparent evidence first; they distinguish the product
 without needing exotic ML. Next add reproducible environment profiles, better
 diagnostics and compute estimates. Deprioritize niche scientific adapter scripting
 (P9.5–P9.9); prioritize Phase P10 (Autonomous Candidate Synthesis & Iterative Refinement)
-to establish a true agent-first autonomous harness where the AI designs models freely
-backed by unforgeable, deterministic harness guardrails.
+and Phase P11 (Advanced Model Training & Apex Handoff Engine). Execute the final 2-session
+strategy (Gate 3, Warm Pool P9.7, Gate 5, Gate 4) to bring M6 to full READY release.

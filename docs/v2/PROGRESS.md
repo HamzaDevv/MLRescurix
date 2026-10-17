@@ -1655,7 +1655,7 @@ Budget / compatibility / migration implications:
   - M0–M10 compatibility fully preserved across all regression suites (320 passed tests).
   - Historical evidence in docs/evidence/m6/ left completely untouched.
 Next small actionable slice:
-  - Phase P11 is complete. Await user authorization for subsequent development or release activities.
+  - Phase P11 is complete. Session 1 of the Final 2-Session Strategy: Gate 3 (Clean Standalone Packaging & Delivery), P9.7 Warm Worker Container Pool (<100ms dispatch), and Gate 5 Platform Memory Certification (Decision D48).
 ```
 
 Copy and fill one entry; update phase/task statuses above too.
