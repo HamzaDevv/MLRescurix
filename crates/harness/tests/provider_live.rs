@@ -154,6 +154,9 @@ fn test_live_openrouter_deepseek_call_and_accounting() {
     };
 
     let mut orch = AgentOrchestrator::new(&root, config, Arc::new(adapter)).unwrap();
+    let staged = orch.stage_outbound_view("policy-auditor").unwrap();
+    let digest = staged["request_sha256"].as_str().unwrap().to_string();
+    mlrescurix_harness::agents::gateway::approve_outbound_view(&root, "p-live", &digest, "policy-auditor", true, 600_000).unwrap();
     let turn_res = orch.step().expect("Orchestrator step must succeed with live provider");
     assert_eq!(turn_res.turn_index, 1);
     assert!(turn_res.assistant_content.is_some());
