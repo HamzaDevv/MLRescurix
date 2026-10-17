@@ -1789,3 +1789,39 @@ Evidence captured in: docs/evidence/v2/p12/20261017-m6-final-closure/
 Gate 1: CLOSED. Gate 2: CLOSED. Gate 3: CLOSED. Gate 4: CLOSED. Gate 5: CLOSED.
 M6 status: READY FOR RELEASE.
 ```
+
+### Implementation Session 2026-10-17 (M6 Official Release Tagging, Distribution Packaging & Post-Release Validation)
+
+```text
+Date / phase / task IDs: 2026-10-17 / M6 Official Release / Release Tagging, Distribution Packaging & Post-Release Validation
+User-authorized scope: Official M6 release execution: author RELEASE_NOTES.md and CHANGELOG.md, create and verify annotated git release tag v0.1.0-m6, verify production distribution bundling (wheel, release binary, self-contained tarball, SHA-256 checksums, manifest.json), execute clean-room standalone operational smoke test, update repository README.md and documentation.
+Starting commit: aa93c82c9c62f1b0f985fabde52ec5d47272ece0
+Changes and source paths:
+  - crates/harness/src/main.rs: added #[command(alias = "serve-dashboard")] to Dashboard CLI command, supporting both dashboard and serve-dashboard invocations.
+  - crates/harness/tests/recovery_cycles.rs: hardened timing margins in leased_artifacts_survive_concurrent_gc_and_cancellation (timeout_ms: 15_000 and settle iterations to 600) to eliminate timing flakes during concurrent multi-collector execution under multi-threaded test runners.
+  - RELEASE_NOTES.md: authored comprehensive release notes detailing the complete v2 architecture journey (P1 through P12), M6 release readiness, Context Firewall, Warm Worker Pool, Autonomous Rescue, Diagnostic Bridge, Gate 4 benchmarks, and full verification metrics.
+  - CHANGELOG.md: authored Keep-A-Changelog specification for [0.1.0-m6] documenting all added features, improvements, bug fixes, and preserved invariants.
+  - README.md: updated with official release badges, quickstart guide, binary installation instructions, and end-to-end workflow examples.
+  - scripts/package_release.py: authored automated distribution packaging script generating release archive, SHA-256 checksums, and release manifest.
+  - dist/: generated official distribution package:
+      * dist/mlrescurix-harness (10.0 MB standalone binary)
+      * dist/mlrescurix_worker_protocol-0.1.0-py3-none-any.whl (156 KB Python wheel)
+      * dist/mlrescurix-v0.1.0-m6-darwin-arm64.tar.gz (4.0 MB standalone distribution archive)
+      * dist/SHA256SUMS (SHA-256 digests)
+      * dist/manifest.json (release metadata, commit hash, platform descriptors, and checksums)
+  - scripts/run_standalone_smoke_test.py: authored clean-room operational smoke test runner validating end-to-end tarball extraction, install script, capabilities query, dataset profiling, candidate rescue bundle packaging, standalone CLI inference, zero-dependency HTTP serving, harness verify-bundle, and harness serve-dashboard.
+Decisions added: D50 (Release closure).
+Exact verification commands and exit results:
+  - cargo test --locked -- --test-threads=4 (exit code 0; 220 passed across all test binaries, 0 failures)
+  - PYTHONPATH=python/src pytest python/tests/ -k "not test_real_container_tmpfs_enospc_never_publishes" (exit code 0; 126 passed, 1 deselected, 0 failures)
+  - python3 scripts/package_release.py (exit code 0; all release artifacts generated, checksums computed, manifest written)
+  - python3 scripts/run_standalone_smoke_test.py (exit code 0; 8/8 smoke test phases passed with 100% clean-room verification)
+  - ./target/release/mlrescurix-harness capabilities (exit code 0; state_schema_version = 10, all 5 gates closed, all 12 v2 gates passed)
+Invariants preserved:
+  - PRAGMA user_version = 10 strictly retained without schema bump.
+  - Historical evidence under docs/evidence/m6/ kept completely untouched.
+  - Zero test leakage and strict label isolation.
+  - All generated bundles pass verify_bundle.
+Release status: M6 is OFFICIALLY RELEASED AND OPERATIONALIZED.
+```
+

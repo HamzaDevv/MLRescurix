@@ -33,6 +33,7 @@ enum Command {
     ArchiveArtifacts { #[arg(long)] state:PathBuf, #[arg(long)] project:Option<String> },
     SetProjectWeight { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] weight:u8 },
     RegisterDataset { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] id:String, #[arg(long)] csv:PathBuf },
+    #[command(alias = "serve-dashboard")]
     Dashboard { #[arg(long)] state:PathBuf, #[arg(long,default_value_t=8765)] port:u16, #[arg(long)] token:Option<String>, #[arg(long,default_value_t=false)] legacy:bool },
     Approve { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] candidate:String, #[arg(long)] binding_sha256:String, #[arg(long)] rationale:String },
     CriticAudit { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] candidate:String, #[arg(long)] binding_sha256:String, #[arg(long)] actor:String, #[arg(long,default_value_t=true)] approved:bool, #[arg(long)] rationale:String },

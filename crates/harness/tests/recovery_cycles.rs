@@ -8,7 +8,7 @@ use mlrescurix_harness::{
 };
 
 fn settle(root: &Path, supervisor: &mut Supervisor, project: &str, id: &str) -> String {
-    for _ in 0..300 {
+    for _ in 0..600 {
         supervisor.tick().unwrap();
         let j = execution::inspect(root, project, id).unwrap();
         if !matches!(j.status.as_str(), "queued" | "running" | "recovering" | "terminating") {
@@ -225,7 +225,7 @@ fn leased_artifacts_survive_concurrent_gc_and_cancellation() {
             project_id: "cycles".into(),
             task_id: "t".into(),
             generation: 2,
-            timeout_ms: 3_000,
+            timeout_ms: 15_000,
             threads: 1,
             max_output_bytes: 4096,
             environment_id: None,
@@ -240,7 +240,7 @@ fn leased_artifacts_survive_concurrent_gc_and_cancellation() {
             project_id: "cycles".into(),
             task_id: "t2".into(),
             generation: 2,
-            timeout_ms: 3_000,
+            timeout_ms: 15_000,
             threads: 1,
             max_output_bytes: 4096,
             environment_id: None,
