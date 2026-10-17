@@ -1,0 +1,12 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/benchmarks_gate4.rs (target/debug/deps/benchmarks_gate4-843a3721f8db3c17)
+
+running 5 tests
+test test_gate4_benchmark_bundle_delivery_verification ... ok
+test test_gate4_rejection_of_non_generalizing_overfit_candidates ... ok
+test test_gate4_sealed_holdout_zero_leakage_and_single_use_guard ... ok
+test test_gate4_matched_compute_and_memory_budget_enforcement ... ok
+test test_gate4_multi_seed_benchmarks_on_standard_openml_datasets ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.58s
+

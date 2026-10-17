@@ -607,3 +607,25 @@ D49 is implemented in `crates/harness/src/pool.rs`, `crates/harness/src/executio
    - Verified negative guards: zero dependency on git repository when executing from installed prefix, warm container reuse guarantees clean isolation without cross-candidate contamination, and pool exhaustion/recovery under concurrent job load.
    - Retained `PRAGMA user_version = 10` strictly without bumping schema version.
    - Maintained all existing unit and integration test invariants (328 total passing tests across Rust and Python, 0 failures). Evidence recorded in `docs/evidence/v2/p12/20261017-gate3-warmpool-closure/`.
+
+### Session 2: Release Gate 4 (Prospective Matched Benchmarks) & Final M6 Release Closure (2026-10-17)
+
+D50 is implemented in `contracts/v2/benchmark_report.schema.json`, `python/src/mlrescurix_worker/scientific/benchmarks.py`, `python/src/mlrescurix_worker/scientific/cli.py`, `crates/harness/src/assets.rs`, `crates/harness/src/main.rs`, `crates/harness/tests/benchmarks_gate4.rs`, and `python/tests/test_gate4_benchmarks.py`.
+1. **Release Gate 4: Prospective Matched Benchmarks Architecture**:
+   - Defined strict Draft 2020-12 typed schema `contracts/v2/benchmark_report.schema.json` capturing benchmark suite configurations, dataset descriptors, multi-seed partitions, matched compute/memory budgets, strategy results, transparent trial scorecards, and single-use sealed test holdout evaluations.
+   - Implemented standardized OpenML dataset loaders and deterministic high-fidelity generators in `python/src/mlrescurix_worker/scientific/benchmarks.py` supporting `credit-g` (OpenML 31), `blood-transfusion` (OpenML 1464), `diabetes` (OpenML 37), and `california-housing` (regression) with offline air-gapped repeatability.
+2. **Matched Compute and Memory Budgets against Standard Baselines**:
+   - Matched trial ceilings (`trials_attempted`), thread caps (`max_threads`), wall-clock timeouts (`wall_budget_ms`), and memory caps (`max_memory_mb`) fairly across standard baselines (`default_lightgbm`, `random_forest`, `hist_gradient_boosting`, `logistic_ridge`) and candidate search strategies (`random`, `search`, `agent`).
+   - Integrated `tracemalloc` peak memory accounting across all candidate evaluations. Tasks violating memory budgets are intercepted and categorized as `status: failed_constraint` with memory limit violation diagnostics rather than crashing host infrastructure.
+3. **Single-Use Sealed Holdout & Zero Test Leakage**:
+   - Partitioned datasets into development and holdout splits with verified row ID disjointness (`dev_ids.isdisjoint(test_ids)`).
+   - Encapsulated holdouts in `SealedHoldout` with cryptographic SHA-256 verification and single-use evaluation semantics. Attempted repeat access or premature inspection is deterministically rejected with `SealedTestLeakageError`.
+4. **Negative Scientific Guards & Overfit Candidate Rejection**:
+   - Implemented generalization gap tracking (`train_score - val_score`). Overfitting candidates exceeding generalization gap thresholds are tagged as `status: rejected_overfit` and transparently preserved in scorecards rather than erroneously promoted.
+   - Suboptimal and failing trials (divergent solvers, memory overages, edge cases) are preserved alongside winning candidates with full error messages without synthetic inflation.
+5. **Final M6 Release Closure & Full Regression Invariants**:
+   - All five historical M6 release gates (Gate 1 Specialist Reconciliation, Gate 2 State Bounds & ENOSPC, Gate 3 Clean Installed Delivery, Gate 4 Prospective Matched Benchmarks, Gate 5 Platform Memory Certification) are formally closed and verified.
+   - Retained `PRAGMA user_version = 10` strictly without bumping the schema version.
+   - Preserved `docs/evidence/m6/` completely untouched.
+   - Updated `docs/m6-completion-status.md` from `NOT READY` to `READY`.
+   - Verified across 5 integration tests in `crates/harness/tests/benchmarks_gate4.rs`, 6 unit tests in `python/tests/test_gate4_benchmarks.py` (126 total in Python test suite), 27 lib tests in `crates/harness/src/lib.rs`, and full repository regression sweeps. Evidence recorded in `docs/evidence/v2/p12/20261017-m6-final-closure/`.

@@ -1,0 +1,12 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/warm_pool_p97.rs (target/debug/deps/warm_pool_p97-9f1cca0f75e1c51c)
+
+running 5 tests
+test test_cgroup_v2_memory_certification_and_diagnostic_bridge_oom ... ok
+test test_warm_worker_clean_state_isolation_negative_guard ... ok
+test test_warm_worker_graceful_shutdown_and_reaping ... ok
+test test_warm_worker_pool_creation_and_sub_100ms_dispatch ... ok
+test test_warm_worker_pool_exhaustion_and_recovery_negative_guard ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.87s
+

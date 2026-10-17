@@ -63,6 +63,9 @@ def main() -> int:
     ens_cmd = commands.add_parser("pareto-ensemble")
     ens_cmd.add_argument("--spec", type=Path, required=True)
     ens_cmd.add_argument("--output", type=Path, required=False)
+    bench_cmd = commands.add_parser("prospective-benchmark")
+    bench_cmd.add_argument("--spec", type=Path, required=True)
+    bench_cmd.add_argument("--output", type=Path, required=False)
     for name in ("fit-trial", "predict-trial"):
         worker = commands.add_parser(name, help=argparse.SUPPRESS)
         worker.add_argument("--spec", type=Path, required=True)
@@ -233,6 +236,26 @@ def main() -> int:
             if args.output:
                 args.output.parent.mkdir(parents=True, exist_ok=True)
                 args.output.write_text(json.dumps(result, indent=2, sort_keys=True))
+        elif args.command == "prospective-benchmark":
+            from .benchmarks import run_prospective_benchmark, save_benchmark_report
+            spec_data = json.loads(args.spec.read_text())
+            report = run_prospective_benchmark(
+                task=spec_data.get("task", "binary_classification"),
+                metric=spec_data.get("metric", "balanced_accuracy"),
+                direction=spec_data.get("direction", "maximize"),
+                seeds=spec_data.get("seeds"),
+                max_trials_per_strategy=spec_data.get("max_trials_per_strategy", 6),
+                wall_budget_ms=spec_data.get("wall_budget_ms", 15000.0),
+                dataset_name=spec_data.get("dataset_name", "synthetic"),
+                max_memory_mb=spec_data.get("max_memory_mb", 512.0),
+                max_threads=spec_data.get("max_threads", 2),
+                baselines=spec_data.get("baselines"),
+                include_failing_trial=spec_data.get("include_failing_trial", True),
+                offline_only=spec_data.get("offline_only", True),
+            )
+            if args.output:
+                save_benchmark_report(report, args.output)
+            result = json.loads(json.dumps(report, default=lambda o: getattr(o, "__dict__", str(o))))
         elif args.command == "fit-trial":
             result = fit_trial_worker(args.spec, args.output)
         else:

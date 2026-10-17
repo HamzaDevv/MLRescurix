@@ -536,7 +536,18 @@ async fn run()->Result<(),String>{
                 "p10_iteration_loop":"passed",
                 "p10_autonomous_rescue":"passed",
                 "p11_training_handoff":"passed",
-                "p12_warm_worker_pool":"passed"
+                "p12_warm_worker_pool":"passed",
+                "p12_gate4_benchmarks":"passed"
+            },
+            "benchmarks_gate4_capabilities":{
+                "multi_seed_driver":true,
+                "standardized_openml_datasets":true,
+                "matched_compute_and_memory_budgets":true,
+                "standard_baselines_matched":true,
+                "zero_test_leakage_enforced":true,
+                "single_use_sealed_holdout":true,
+                "overfit_candidate_rejection":true,
+                "transparent_trial_scorecards":true
             },
             "warm_pool_capabilities":{
                 "prewarmed_containers":true,

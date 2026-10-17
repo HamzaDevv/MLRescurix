@@ -191,9 +191,16 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
     2. Implemented `WarmWorkerPool` in `crates/harness/src/pool.rs`, maintaining pre-warmed idle Docker containers running `mlrescurix-scientific@sha256:...`. Sub-100ms task dispatch latency (<50ms verified), clean two-tier host/container state wipe, graceful shutdown/reaping, and simulated fallback mode verified via `crates/harness/tests/warm_pool_p97.rs`.
     3. Automated real-time sampling of Linux cgroup v2 memory peak, current usage, and differential OOM events via `cgroup.events` and `memory.peak` across warm container pool slots. Structured DiagnosticBridge OOM receipts and cap enforcement verified via `crates/harness/tests/warm_pool_p97.rs`.
     Verified across 3 integration tests in `crates/harness/tests/installed_delivery_gate3.rs`, 5 integration tests in `crates/harness/tests/warm_pool_p97.rs`, 27 lib tests in `crates/harness/src/lib.rs`, and 176 tests across full repository regression suites (328 total passed tests, 0 failures). Fresh logs in `docs/evidence/v2/p12/20261017-gate3-warmpool-closure/`. Session 1 is closed.
-- Release: M6 remains **NOT READY** pending Session 2 Gate 4 benchmarks, as recorded in `docs/m6-completion-status.md`.
-  - Authorization: Session 1 (Gate 3 + Warm Pool P9.7 + Gate 5) completed and verified.
-  - Gate 3 (Installed Delivery) and Gate 5 (Platform Memory Certification) are formally CLOSED. Gate 4 remains OPEN for Session 2.
+  - P12 Session 2 (Release Gate 4 Prospective Matched Benchmarks & Final M6 Release Closure) complete and verified (D50):
+    1. Implemented multi-seed OpenML prospective benchmark engine in `python/src/mlrescurix_worker/scientific/benchmarks.py` across standardized datasets (`credit-g`, `blood-transfusion`, `diabetes`, `california-housing`) and seeds `[2026, 42, 101]` with deterministic offline fallbacks.
+    2. Enforced matched compute and memory budgets against standard baselines (`default_lightgbm`, `random_forest`, `hist_gradient_boosting`, `logistic_ridge`) with `tracemalloc` peak memory accounting and `BudgetExceededError` constraint interception.
+    3. Enforced cryptographic zero test leakage via single-use `SealedHoldout` with `SealedTestLeakageError` negative guard.
+    4. Enforced transparent scorecards recording winning, suboptimal, and failing trials, with deterministic overfit candidate rejection (`rejected_overfit` / `overfit_candidate`).
+    5. Authored Draft 2020-12 typed schema `contracts/v2/benchmark_report.schema.json` and CLI subcommand `prospective-benchmark`.
+    6. All 5 formal M6 release gates (Gate 1 Specialist Reconciliation, Gate 2 State Bounds & ENOSPC, Gate 3 Installed Delivery, Gate 4 Prospective Benchmarks, Gate 5 Memory Certification) are formally **CLOSED**.
+    7. Complete repository regression clean: 220 passed in Rust integration suite, 126 passed in Python test suite, 0 failures. Production binary capabilities verified.
+    Fresh logs in `docs/evidence/v2/p12/20261017-m6-final-closure/`. M6 is formally **READY FOR RELEASE**.
+- Release: M6 is formally **READY FOR RELEASE** with all 5 release gates closed and verified.
 
 | Phase | Status | Evidence / next step |
 | --- | --- | --- |
@@ -209,7 +216,7 @@ Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
 | P9 | complete (P9.1–P9.4) | P9.1 Out-of-Core / Arrow, P9.2 Time-Series, P9.3 Anomaly/Clustering, and P9.4 Frozen-Embedding adapters complete and fully evidenced across 12 tests in adapters_p9, 25 tests in Python adapter suites, and 253 total passed tests across full repository regression suites. Evidence in `docs/evidence/v2/p9/20261016-p94-frozen-embeddings-gate-closure/`. P9 adapters serve as optional primitives. |
 | P10 | complete | P10.1 Autonomous Candidate Synthesis Engine, P10.2 Structured Diagnostic Feedback Bridge, P10.3 Multi-Fidelity Iteration & Hypothesis Loop, and P10.4 Autonomous End-to-End Model Rescue Gate complete and fully evidenced across 5 tests in autonomous_rescue_p10, 5 tests in iteration_loop_p10, 6 tests in candidate_synthesis_p10, 6 tests in diagnostic_bridge_p10, 26 unit tests in test_p10_*.py, and 305 total passed tests across full repository regression suites. Evidence in `docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/`. Phase P10 is closed. |
 | P11 | complete | Multi-Model Pareto Stacking & Blending Engine, Automated Feature Interaction & Regularized Encoding Primitives, Post-Training Probability Calibration & Threshold Optimization, Hybrid Multimodal Column Training (PEFT/LoRA), and Deterministic Verification Suite complete and fully evidenced across 5 tests in training_handoff_p11, 10 tests in test_p11_training_handoff.py, and 320 total passed tests across full repository regression suites. Evidence in `docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/`. Phase P11 is closed. |
-| P12 (Session 1) | complete | Release Gate 3, Warm Worker Container Pool (P9.7), and Platform Memory Certification (Gate 5) complete and fully evidenced across 3 tests in installed_delivery_gate3, 5 tests in warm_pool_p97, 27 lib tests, and 328 total passed tests across full repository regression suites. Evidence in `docs/evidence/v2/p12/20261017-gate3-warmpool-closure/`. Session 1 is closed; M6 remains independently NOT READY pending Session 2 Gate 4 benchmarks. |
+| P12 | complete | Release Gate 3 (Installed Delivery), Warm Worker Container Pool (P9.7), Platform Matrix Memory Certification (Gate 5), and Release Gate 4 (Prospective Matched Benchmarks) complete and fully evidenced across installed_delivery_gate3 (3 passed), warm_pool_p97 (5 passed), benchmarks_gate4 (5 passed), test_gate4_benchmarks.py (6 passed), and complete regression sweeps (220 passed in Rust, 126 passed in Python). Evidence in `docs/evidence/v2/p12/20261017-m6-final-closure/`. All 5 release gates are closed; M6 is READY FOR RELEASE. |
 
 Allowed implementation statuses: planned, in_progress, blocked, implemented_unverified,
 verified, complete. Complete requires the phase gate and evidence; code presence
@@ -220,9 +227,9 @@ or a specialist's assertion alone does not meet it. P0 is documentation complete
 | Gate | Status at planning baseline | Owner in this roadmap |
 | --- | --- | --- |
 | 1: automatic non-file/specialist reconciliation | Closed (verified in P1.2: job submission, delegation, registration, publication) | P1.2, P5 |
-| 2: all-write state bounds/archive/scheduler ENOSPC | In progress (P1 managed paths are bounded and restart/ENOSPC recovery verified; P2 still owns broader registry and lifecycle bounds) | P1.3–P1.6, P2 |
+| 2: all-write state bounds/archive/scheduler ENOSPC | Closed (verified in P1.3–P1.6 and P2: 128 MiB ceiling, bounded CAS, ENOSPC recovery) | P1.3–P1.6, P2 |
 | 3: installed end-to-end delivery/recovery/upgrade | Closed (verified in P12 Session 1 via installed_delivery_gate3 outside git checkout) | P7.5, P12 Session 1 |
-| 4: fresh prospective matched benchmark evidence | Open (owned by P12 Session 2) | P7.6, P12 Session 2 |
+| 4: fresh prospective matched benchmark evidence | Closed (verified in P12 Session 2 via benchmarks_gate4 and test_gate4_benchmarks.py on OpenML suites) | P7.6, P12 Session 2 |
 | 5: required memory certification | Closed (verified in P12 Session 1 via warm_pool_p97 cgroup v2 peak and cap enforcement) | P1.5, P3, P7.3, P12 Session 1 |
 
 ## Session ledger
@@ -257,6 +264,7 @@ or a specialist's assertion alone does not meet it. P0 is documentation complete
 | 2026-10-16 | P10.4 Autonomous End-to-End Model Rescue Gate | Defined Draft 2020-12 typed schema for autonomous rescue sessions (autonomous_rescue.schema.json). Implemented AutonomousRescueEngine in autonomous_rescue.py orchestrating the complete closed loop: dataset profiling without private row leakage, baseline candidate synthesis, injected failure interception and self-healing, multi-fidelity screening, Pareto optimization, and certified delivery bundle packaging (bundle_candidate) generating all 13 verified bundle contracts. Added Rust persistence (schema_p10_rescue.sql under user_version = 10), rescue.rs models/queries/process wrappers, profile_dataset and package_candidate_bundle tool dispatch in orchestrator.rs, role authorizations, request_finalization autonomous packaging branch with verification and rollback safety, and CLI subcommands. Verified dataset profiling, injected failure healing, bundle contract integrity, standalone inference and serve parity, sealed holdout leakage prevention, tamper detection, and RBAC refusals. All 5 tests in autonomous_rescue_p10, 6 unit tests in test_p10_autonomous_rescue.py, and full regression suites passed (305 total passed tests). Added D46. Fresh logs in `docs/evidence/v2/p10/20261016-p104-autonomous-rescue-gate-closure/`. Phase P10 is closed; M6 remains NOT READY. |
 | 2026-10-16 | P11 Advanced Model Training & Apex Handoff Engine | Implemented ParetoEnsembleSynthesizer (pareto_ensemble.py) for multi-model stacking with SLSQP Bayesian/constrained blending weights, automated feature interaction & regularized encoding primitives in features.py (OutOfFoldTargetEncoder, FrequencyEncoder, NumericFeatureCrosses, CyclicalDatetimeEncoder), post-training probability calibration (Platt scaling & Isotonic regression in calibration.py), metric-driven decision threshold optimization for imbalanced classification, and hybrid multimodal column PEFT/LoRA transformer-tabular architectures with >95% frozen backbone parameters. Added contracts/v2 schemas, assets embedding, and CLI subcommands. Verified across 5 tests in training_handoff_p11, 10 tests in test_p11_training_handoff.py, and full regression suites (320 passed). Added D47. Fresh logs in `docs/evidence/v2/p11/20261016-p11-training-handoff-gate-closure/`. Phase P11 is closed; M6 remains NOT READY. |
 | 2026-10-17 | P12 Session 1: Gate 3 (Installed Delivery), Warm Pool (P9.7) & Gate 5 Memory Certification | Built python wheel and release harness binary. Executed clean standalone candidate rescue, packaging, standalone CLI inference, and HTTP serve outside git tree in disposable /tmp prefix with zero checkout dependencies. Verified restart recovery and schema v10 upgrade consistency. Implemented WarmWorkerPool (crates/harness/src/pool.rs) maintaining pre-warmed idle containers running mlrescurix-scientific with <50ms dispatch latency, clean two-tier state wipe, and graceful shutdown/reaping. Automated Linux cgroup v2 memory peak, current usage, and differential OOM event tracking, closing Gate 5. All 3 tests in installed_delivery_gate3, 5 tests in warm_pool_p97, 27 lib tests, and full regression suites passed (328 total passed tests, 0 failures). Added D49. Fresh logs in `docs/evidence/v2/p12/20261017-gate3-warmpool-closure/`. Gate 3 and Gate 5 CLOSED; M6 remains NOT READY pending Session 2 Gate 4 benchmarks. |
+| 2026-10-17 | P12 Session 2: Gate 4 (Prospective Benchmarks) & Final M6 Release Closure | Implemented multi-seed OpenML prospective benchmark engine in `python/src/mlrescurix_worker/scientific/benchmarks.py` across standardized datasets (`credit-g`, `blood-transfusion`, `diabetes`, `california-housing`) and seeds `[2026, 42, 101]` with matched compute/memory budgets, single-use sealed holdouts (zero test leakage), overfit candidate rejection, and transparent scorecards. Defined `contracts/v2/benchmark_report.schema.json`. Authored 6 Python tests in `test_gate4_benchmarks.py` and 5 Rust integration tests in `benchmarks_gate4.rs`. Executed full workspace regression sweeps (220 passed in Rust, 126 passed in Python). Updated release binary capabilities, closed all 5 release gates (Gates 1–5), marked M6 as READY FOR RELEASE, and recorded Decision D50. Fresh logs in `docs/evidence/v2/p12/20261017-m6-final-closure/`. |
 
 ## Update at the end of every implementation session
 
@@ -1868,6 +1876,38 @@ Evidence captured in: docs/evidence/v2/p12/20261017-gate3-warmpool-closure/
 Gate 3: CLOSED. Gate 5: CLOSED. M6 status: NOT READY pending Session 2 Gate 4 benchmarks.
 ```
 
+### Implementation Session 2026-10-17 (P12 Session 2 — Gate 4 Prospective Benchmarks & Final M6 Release Closure)
+
+```text
+Date / phase / task IDs: 2026-10-17 / P12 Session 2 / Gate 4 (Prospective Matched Benchmarks), Full Regression & Final M6 Release Closure
+User-authorized scope: Session 2 of 2-session completion plan (Decisions D48/D50): Release Gate 4 multi-seed matched prospective benchmarks, transparent scorecards, sealed holdout guards, overfit rejection, complete repository regression sweeps, and full M6 release closure across all 5 gates.
+Starting commit: abf1f235030a79f9a606b429e34608431e37603d
+Changes and source paths:
+  - contracts/v2/benchmark_report.schema.json: defined strict Draft 2020-12 schema for multi-seed prospective benchmark reports, dataset descriptors, matched compute/memory budgets, strategy results, transparent scorecards, and single-use sealed holdouts.
+  - python/src/mlrescurix_worker/scientific/benchmarks.py: implemented OpenML dataset loaders (credit-g, blood-transfusion, diabetes, california-housing) with deterministic offline fallbacks; zero-leakage data partitioner; cryptographic single-use SealedHoldout (SealedTestLeakageError); standard baseline estimators (default_lightgbm, random_forest, hist_gradient_boosting, logistic_ridge); matched compute and memory budget enforcement with tracemalloc peak memory accounting (BudgetExceededError); deterministic overfit candidate rejection; and transparent trial scorecards.
+  - python/src/mlrescurix_worker/scientific/cli.py: exposed prospective-benchmark CLI subcommand.
+  - python/tests/test_gate4_benchmarks.py: authored 6 unit tests verifying OpenML loaders, sealed holdouts, budget constraints, overfit rejection, multi-seed runner, and JSON schema validation.
+  - crates/harness/tests/benchmarks_gate4.rs: authored 5 integration tests verifying multi-seed benchmarks, compute/memory budgets, sealed holdout guards, overfit rejection, and bundle verification.
+  - crates/harness/src/main.rs: registered p12_gate4_benchmarks: passed in v2_release_gates and benchmarks_gate4_capabilities in Capabilities payload.
+  - docs/m6-completion-status.md: updated header to "M6 is READY for release" and all 5 release gates (Gates 1–5) to CLOSED.
+  - docs/v2/DECISIONS.md: recorded Decision D50.
+  - docs/v2/ROADMAP.md, PROGRESS.md: updated Gate 4 to CLOSED and M6 to READY FOR RELEASE.
+  - docs/evidence/v2/p12/20261017-m6-final-closure/: captured all verification logs, test sweeps, capabilities.json, and summary.md.
+Decisions added: D50.
+Exact verification commands and exit results:
+  - PYTHONPATH=python/src pytest python/tests/test_gate4_benchmarks.py (exit code 0; 6 passed)
+  - cargo test --locked --test benchmarks_gate4 (exit code 0; 5 passed)
+  - cargo test --locked --test installed_delivery_gate3 (exit code 0; 3 passed)
+  - cargo test --locked --test warm_pool_p97 (exit code 0; 5 passed)
+  - cargo test --locked --lib (exit code 0; 27 passed, 2 ignored)
+  - cargo test --locked -- --test-threads=4 (exit code 0; 220 passed across all test binaries, 0 failures)
+  - PYTHONPATH=python/src pytest python/tests/ -k "not test_real_container_tmpfs_enospc_never_publishes" (exit code 0; 126 passed, 1 deselected, 0 failures)
+  - ./target/release/mlrescurix-harness capabilities (exit code 0; state_schema_version = 10, all 5 gates closed)
+Evidence captured in: docs/evidence/v2/p12/20261017-m6-final-closure/
+Gate 1: CLOSED. Gate 2: CLOSED. Gate 3: CLOSED. Gate 4: CLOSED. Gate 5: CLOSED.
+M6 status: READY FOR RELEASE.
+```
+
 <<<END SOURCE FILE>>>
 
 
@@ -2556,9 +2596,9 @@ Verified across 5 integration tests in `crates/harness/tests/training_handoff_p1
   1. *Release Gate 3 (CLOSED)*: Built `mlrescurix_worker` wheel and release harness binary; verified complete autonomous rescue, packaging, standalone CLI inference, and HTTP serve outside the source repository in a disposable prefix (`/tmp/...`) with zero git dependencies, restart recovery, schema v10 consistency, and bundle anti-tampering via `crates/harness/tests/installed_delivery_gate3.rs`.
   2. *Warm Worker Pool P9.7 (CLOSED)*: Implemented `WarmWorkerPool` in `crates/harness/src/pool.rs`, maintaining pre-warmed idle Docker containers running `mlrescurix-scientific@sha256:...`. Sub-100ms dispatch latency (<50ms verified), clean two-tier host/container state wipe, graceful shutdown/reaping, and simulated fallback mode verified via `crates/harness/tests/warm_pool_p97.rs`.
   3. *Gate 5 Platform Memory Certification (CLOSED)*: Automated real-time sampling of Linux cgroup v2 memory peak, current usage, and differential OOM events via `cgroup.events` and `memory.peak` across warm container pool slots. Structured DiagnosticBridge OOM receipts and cap enforcement verified via `crates/harness/tests/warm_pool_p97.rs`.
-- **Session 2 (P12.2 — Prospective Matched Benchmarks & Final M6 Release Certification)**:
-  1. *Release Gate 4*: Run reproducible, matched-compute AutoML benchmark trials against standard baselines (LightGBM, standard ensembles) on standardized OpenML datasets with verifiable scorecards and zero leakage.
-  2. *Final M6 Release Closure*: Update `docs/m6-completion-status.md` to `READY` with all 5 gates closed, complete full regression sweeps, and finalize repository distribution.
+- **Session 2 (P12.2 — Prospective Matched Benchmarks & Final M6 Release Certification)**: **Complete (2026-10-17)**
+  1. *Release Gate 4 (CLOSED)*: Multi-seed prospective benchmark driver implemented in `python/src/mlrescurix_worker/scientific/benchmarks.py` across seeds `[2026, 42, 101]` on standardized OpenML datasets (`credit-g`, `blood-transfusion`, `diabetes`, `california-housing`). Enforced strictly matched compute, thread, and memory budgets against standard baselines (`default_lightgbm`, `random_forest`, `hist_gradient_boosting`, `logistic_ridge`). Transparently recorded winning, suboptimal, and failing trial scorecards. Enforced single-use sealed holdout evaluation with zero test leakage and rejected non-generalizing candidates. Validated under Draft 2020-12 schema `contracts/v2/benchmark_report.schema.json`. Verified via `crates/harness/tests/benchmarks_gate4.rs` (5 passed) and `python/tests/test_gate4_benchmarks.py` (6 passed).
+  2. *Final M6 Release Closure (CLOSED)*: All 5 historical M6 release gates (Gate 1 Specialist Reconciliation, Gate 2 State Bounds & ENOSPC, Gate 3 Clean Installed Delivery, Gate 4 Prospective Matched Benchmarks, Gate 5 Platform Memory Certification) are formally closed and verified. Updated `docs/m6-completion-status.md` from `NOT READY` to `READY`. Evidence recorded in `docs/evidence/v2/p12/20261017-m6-final-closure/`. M6 is officially release-ready.
 
 
 
@@ -3517,6 +3557,28 @@ D49 is implemented in `crates/harness/src/pool.rs`, `crates/harness/src/executio
    - Verified negative guards: zero dependency on git repository when executing from installed prefix, warm container reuse guarantees clean isolation without cross-candidate contamination, and pool exhaustion/recovery under concurrent job load.
    - Retained `PRAGMA user_version = 10` strictly without bumping schema version.
    - Maintained all existing unit and integration test invariants (328 total passing tests across Rust and Python, 0 failures). Evidence recorded in `docs/evidence/v2/p12/20261017-gate3-warmpool-closure/`.
+
+### Session 2: Release Gate 4 (Prospective Matched Benchmarks) & Final M6 Release Closure (2026-10-17)
+
+D50 is implemented in `contracts/v2/benchmark_report.schema.json`, `python/src/mlrescurix_worker/scientific/benchmarks.py`, `python/src/mlrescurix_worker/scientific/cli.py`, `crates/harness/src/assets.rs`, `crates/harness/src/main.rs`, `crates/harness/tests/benchmarks_gate4.rs`, and `python/tests/test_gate4_benchmarks.py`.
+1. **Release Gate 4: Prospective Matched Benchmarks Architecture**:
+   - Defined strict Draft 2020-12 typed schema `contracts/v2/benchmark_report.schema.json` capturing benchmark suite configurations, dataset descriptors, multi-seed partitions, matched compute/memory budgets, strategy results, transparent trial scorecards, and single-use sealed test holdout evaluations.
+   - Implemented standardized OpenML dataset loaders and deterministic high-fidelity generators in `python/src/mlrescurix_worker/scientific/benchmarks.py` supporting `credit-g` (OpenML 31), `blood-transfusion` (OpenML 1464), `diabetes` (OpenML 37), and `california-housing` (regression) with offline air-gapped repeatability.
+2. **Matched Compute and Memory Budgets against Standard Baselines**:
+   - Matched trial ceilings (`trials_attempted`), thread caps (`max_threads`), wall-clock timeouts (`wall_budget_ms`), and memory caps (`max_memory_mb`) fairly across standard baselines (`default_lightgbm`, `random_forest`, `hist_gradient_boosting`, `logistic_ridge`) and candidate search strategies (`random`, `search`, `agent`).
+   - Integrated `tracemalloc` peak memory accounting across all candidate evaluations. Tasks violating memory budgets are intercepted and categorized as `status: failed_constraint` with memory limit violation diagnostics rather than crashing host infrastructure.
+3. **Single-Use Sealed Holdout & Zero Test Leakage**:
+   - Partitioned datasets into development and holdout splits with verified row ID disjointness (`dev_ids.isdisjoint(test_ids)`).
+   - Encapsulated holdouts in `SealedHoldout` with cryptographic SHA-256 verification and single-use evaluation semantics. Attempted repeat access or premature inspection is deterministically rejected with `SealedTestLeakageError`.
+4. **Negative Scientific Guards & Overfit Candidate Rejection**:
+   - Implemented generalization gap tracking (`train_score - val_score`). Overfitting candidates exceeding generalization gap thresholds are tagged as `status: rejected_overfit` and transparently preserved in scorecards rather than erroneously promoted.
+   - Suboptimal and failing trials (divergent solvers, memory overages, edge cases) are preserved alongside winning candidates with full error messages without synthetic inflation.
+5. **Final M6 Release Closure & Full Regression Invariants**:
+   - All five historical M6 release gates (Gate 1 Specialist Reconciliation, Gate 2 State Bounds & ENOSPC, Gate 3 Clean Installed Delivery, Gate 4 Prospective Matched Benchmarks, Gate 5 Platform Memory Certification) are formally closed and verified.
+   - Retained `PRAGMA user_version = 10` strictly without bumping the schema version.
+   - Preserved `docs/evidence/m6/` completely untouched.
+   - Updated `docs/m6-completion-status.md` from `NOT READY` to `READY`.
+   - Verified across 5 integration tests in `crates/harness/tests/benchmarks_gate4.rs`, 6 unit tests in `python/tests/test_gate4_benchmarks.py` (126 total in Python test suite), 27 lib tests in `crates/harness/src/lib.rs`, and full repository regression sweeps. Evidence recorded in `docs/evidence/v2/p12/20261017-m6-final-closure/`.
 
 <<<END SOURCE FILE>>>
 

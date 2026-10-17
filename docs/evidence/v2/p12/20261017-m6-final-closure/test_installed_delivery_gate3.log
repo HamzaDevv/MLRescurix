@@ -1,0 +1,40 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running tests/installed_delivery_gate3.rs (target/debug/deps/installed_delivery_gate3-e5d9479c171343c3)
+
+running 3 tests
+Processing /Users/hamza/Developer/Imp_Projects/MLRescurix/python/dist/mlrescurix_worker_protocol-0.1.0-py3-none-any.whl
+Processing /Users/hamza/Developer/Imp_Projects/MLRescurix/python/dist/mlrescurix_worker_protocol-0.1.0-py3-none-any.whl
+Processing /Users/hamza/Developer/Imp_Projects/MLRescurix/python/dist/mlrescurix_worker_protocol-0.1.0-py3-none-any.whl
+Installing collected packages: mlrescurix-worker-protocol
+Installing collected packages: mlrescurix-worker-protocol
+Installing collected packages: mlrescurix-worker-protocol
+Successfully installed mlrescurix-worker-protocol-0.1.0
+Successfully installed mlrescurix-worker-protocol-0.1.0
+Successfully installed mlrescurix-worker-protocol-0.1.0
+
+[notice] A new release of pip is available: 25.0.1 -> 26.2.1
+[notice] To update, run: python3.13 -m pip install --upgrade pip
+
+[notice] A new release of pip is available: 25.0.1 -> 26.2.1
+[notice] To update, run: python3.13 -m pip install --upgrade pip
+
+[notice] A new release of pip is available: 25.0.1 -> 26.2.1
+[notice] To update, run: python3.13 -m pip install --upgrade pip
+{
+  "initialized": true,
+  "state": "/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/mlrescurix-gate3-verify-14160-1792220966287768000-3/state"
+}
+{
+  "initialized": true,
+  "state": "/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/mlrescurix-gate3-verify-14160-1792220966287763000-2/state"
+}
+{
+  "initialized": true,
+  "state": "/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/mlrescurix-gate3-verify-14160-1792220966287763000-1/state"
+}
+test test_installed_restart_recovery_and_schema_upgrade_consistency ... ok
+test test_installed_tamper_detection_negative_guard ... ok
+test test_clean_installed_delivery_outside_git_repository ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.08s
+
