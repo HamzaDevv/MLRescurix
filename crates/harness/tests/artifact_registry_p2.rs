@@ -95,7 +95,7 @@ fn p2_test_migration_v9_to_v10_with_populated_state() {
 
     let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
     let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-    assert_eq!(version, 10);
+    assert!(version >= 10, "PRAGMA user_version must be at least 10, got {version}");
 
     let fk_violations: Vec<String> = db.prepare("PRAGMA foreign_key_check").unwrap()
         .query_map([], |r| Ok(format!("{}:{}", r.get::<_, String>(0)?, r.get::<_, String>(2)?)))
@@ -123,7 +123,7 @@ fn p2_test_migration_v9_to_v10_with_populated_state() {
     execution::migrate(&root).unwrap();
     let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
     let version_after: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-    assert_eq!(version_after, 10);
+    assert!(version_after >= 10, "PRAGMA user_version must be at least 10, got {version_after}");
 }
 
 #[test]
@@ -586,7 +586,7 @@ fn p2_test_populated_state_upgrade_preserves_selection_and_final_test_records() 
 
     let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
     let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-    assert_eq!(version, 10);
+    assert!(version >= 10, "PRAGMA user_version must be at least 10, got {version}");
 
     // Verify ZERO foreign key violations
     let fk_violations: Vec<String> = db.prepare("PRAGMA foreign_key_check").unwrap()
@@ -638,7 +638,7 @@ fn p2_test_populated_state_upgrade_preserves_selection_and_final_test_records() 
     execution::migrate(&root).unwrap();
     let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
     let version2: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-    assert_eq!(version2, 10);
+    assert!(version2 >= 10, "PRAGMA user_version must be at least 10, got {version2}");
 }
 
 #[test]

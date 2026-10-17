@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:error-forensics:2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "forensics_id",
+    "candidate_id",
+    "model_family",
+    "cv_scores",
+    "mean_cv_score",
+    "train_val_gap",
+    "worst_slices",
+    "feature_importance_gini",
+    "top_features_by_importance",
+    "timestamp_ms"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "v2"
+    },
+    "forensics_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "candidate_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "model_family": {
+      "type": "string"
+    },
+    "cv_scores": {
+      "type": "array",
+      "items": { "type": "number" }
+    },
+    "mean_cv_score": {
+      "type": "number"
+    },
+    "train_val_gap": {
+      "type": "number"
+    },
+    "worst_slices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["slice_rule", "sample_count", "slice_error_rate", "global_error_rate", "lift"],
+        "properties": {
+          "slice_rule": { "type": "string" },
+          "sample_count": { "type": "integer", "minimum": 0 },
+          "slice_error_rate": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+          "global_error_rate": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+          "lift": { "type": "number" }
+        }
+      }
+    },
+    "feature_importance_gini": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "top_features_by_importance": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["feature", "importance"],
+        "properties": {
+          "feature": { "type": "string" },
+          "importance": { "type": "number" },
+          "origin": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "confusion_or_residual_summary": {
+      "type": "object"
+    },
+    "timestamp_ms": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

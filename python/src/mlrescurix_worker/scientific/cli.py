@@ -54,6 +54,12 @@ def main() -> int:
     prof_cmd.add_argument("--target", type=str, required=False)
     prof_cmd.add_argument("--id-col", type=str, required=False)
     prof_cmd.add_argument("--output", type=Path, required=False)
+    eda_cmd = commands.add_parser("eda-forensics")
+    eda_cmd.add_argument("--dataset", type=Path, required=True)
+    eda_cmd.add_argument("--target", type=str, required=False)
+    eda_cmd.add_argument("--problem-statement", type=str, required=False)
+    eda_cmd.add_argument("--output-dir", type=Path, default=Path(".m2/artifacts/eda"))
+    eda_cmd.add_argument("--output", type=Path, required=False)
     pkg_bundle = commands.add_parser("candidate-package-bundle")
     pkg_bundle.add_argument("--spec", type=Path, required=True)
     pkg_bundle.add_argument("--output", type=Path, required=False)
@@ -190,6 +196,19 @@ def main() -> int:
             from .autonomous_rescue import profile_dataset
             prof = profile_dataset(args.csv, target_column=args.target, id_column=args.id_col)
             result = prof.to_dict()
+            if args.output:
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(json.dumps(result, indent=2, sort_keys=True))
+        elif args.command == "eda-forensics":
+            from .eda_agent import eda_forensics_suite
+            dossier = eda_forensics_suite(
+                args.dataset,
+                problem_statement=args.problem_statement,
+                explicit_target=args.target,
+                output_dir=args.output_dir,
+                dataset_id=args.dataset.stem,
+            )
+            result = dossier.to_dict()
             if args.output:
                 args.output.parent.mkdir(parents=True, exist_ok=True)
                 args.output.write_text(json.dumps(result, indent=2, sort_keys=True))

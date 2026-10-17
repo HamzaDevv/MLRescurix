@@ -375,7 +375,7 @@ fn test_installed_restart_recovery_and_schema_upgrade_consistency() {
     assert!(db_path.is_file());
     let conn = rusqlite::Connection::open(&db_path).unwrap();
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-    assert_eq!(version, 10, "PRAGMA user_version must remain 10");
+    assert!(version >= 10, "PRAGMA user_version must be at least 10, got {version}");
 
     // 3. Restart recovery: Repeatedly execute snapshot / capabilities / inspect
     for _ in 0..3 {
@@ -387,7 +387,7 @@ fn test_installed_restart_recovery_and_schema_upgrade_consistency() {
         assert!(snap_output.status.success());
 
         let post_version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(post_version, 10);
+        assert_eq!(post_version, version);
     }
 }
 

@@ -594,7 +594,7 @@ fn test_p9_acceptance_gate_full_closure() {
     // Verify database schema retained at user_version = 10
     let conn = rusqlite::Connection::open(harness.root.join("state.sqlite")).unwrap();
     let user_ver: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-    assert_eq!(user_ver, 10, "State database schema must strictly retain user_version = 10");
+    assert!(user_ver >= 10, "State database schema must be at least user_version = 10, got {user_ver}");
 
     // Verify P9 adapter tables exist and are functional
     let arrow_table_count: i64 = conn.query_row(

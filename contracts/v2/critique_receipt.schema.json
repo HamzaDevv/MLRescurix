@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:critique-receipt:2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "critique_id",
+    "candidate_id",
+    "epoch",
+    "status",
+    "blocking_flaws",
+    "audit_checks",
+    "timestamp_ms"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "v2"
+    },
+    "critique_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "candidate_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "epoch": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "status": {
+      "type": "string",
+      "enum": ["APPROVED", "VETO"]
+    },
+    "blocking_flaws": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "soft_warnings": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "audit_checks": {
+      "type": "object",
+      "properties": {
+        "target_memorization": {
+          "type": "object",
+          "properties": {
+            "passed": { "type": "boolean" },
+            "train_metric": { "type": "number" },
+            "val_metric": { "type": "number" },
+            "gap": { "type": "number" },
+            "max_allowed_gap": { "type": "number" },
+            "dominant_feature": { "type": ["string", "null"] },
+            "dominant_gain_ratio": { "type": ["number", "null"] }
+          }
+        },
+        "unexploited_signals": {
+          "type": "object",
+          "properties": {
+            "passed": { "type": "boolean" },
+            "dropped_signals": { "type": "array", "items": { "type": "string" } },
+            "details": { "type": ["string", "null"] }
+          }
+        },
+        "model_diversity": {
+          "type": "object",
+          "properties": {
+            "passed": { "type": "boolean" },
+            "distinct_families_evaluated": { "type": "integer" },
+            "families": { "type": "array", "items": { "type": "string" } },
+            "min_required": { "type": "integer" }
+          }
+        },
+        "topology_and_imbalance": {
+          "type": "object",
+          "properties": {
+            "passed": { "type": "boolean" },
+            "cv_scheme_used": { "type": "string" },
+            "required_cv_scheme": { "type": "string" },
+            "score_floor_met": { "type": "boolean" },
+            "score": { "type": "number" }
+          }
+        }
+      }
+    },
+    "error_slice_hypotheses": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "reviewer_notes": {
+      "type": "string",
+      "maxLength": 8192
+    },
+    "timestamp_ms": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

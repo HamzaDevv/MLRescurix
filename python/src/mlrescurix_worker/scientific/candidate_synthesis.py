@@ -478,7 +478,12 @@ class FeaturePipeline:
         # Detect column modalities
         self.num_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
         self.dt_cols = [c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c]) or "date" in c.lower() or "time" in c.lower()]
-        self.cat_cols = [c for c in df.columns if c not in self.num_cols and c not in self.dt_cols]
+        n_rows = max(len(df), 1)
+        self.cat_cols = [
+            c for c in df.columns
+            if c not in self.num_cols and c not in self.dt_cols
+            and (df[c].nunique(dropna=True) <= max(10, min(100, int(0.5 * n_rows))))
+        ]
 
         # 1. Numeric imputation & scaling
         if self.num_cols and self.handle_missing:

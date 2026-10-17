@@ -136,15 +136,21 @@ def profile_dataset(
     if id_column and id_column in all_cols:
         inferred_id = id_column
     else:
-        id_candidates = ["row_id", "id", "index", "ID", "Id"]
+        id_candidates = ["row_id", "id", "index", "ID", "Id", "PassengerId"]
         inferred_id = next((c for c in id_candidates if c in all_cols), None)
+        if inferred_id is None:
+            inferred_id = next((c for c in all_cols if c.lower() in ("id", "row_id", "passengerid") or c.lower().endswith("id")), None)
 
     # Determine target column
     if target_column and target_column in all_cols:
         inferred_target = target_column
     else:
-        target_candidates = ["target", "label", "class", "y", "outcome"]
-        inferred_target = next((c for c in target_candidates if c in all_cols), all_cols[-1])
+        from .semantic_sieve import resolve_target_column
+        try:
+            inferred_target = resolve_target_column(df, explicit_target=target_column)
+        except Exception:
+            target_candidates = ["target", "label", "class", "y", "outcome", "survived"]
+            inferred_target = next((c for c in target_candidates if c in all_cols), all_cols[-1])
 
     # Feature columns exclude target and id
     feature_cols = [c for c in all_cols if c != inferred_target and c != inferred_id]
@@ -392,7 +398,17 @@ def bundle_candidate(
     # Zero label leakage verification
     assert len(set(dev_idx).intersection(set(test_idx))) == 0, "Test set overlap detected with development set!"
 
-    feature_cols = [c for c in df.columns if c != target_column and c != "row_id"]
+    manifest_id = None
+    manifest_file = cand_path / "manifest.json"
+    if manifest_file.is_file():
+        try:
+            m_json = json.loads(manifest_file.read_text(encoding="utf-8"))
+            manifest_id = m_json.get("raw_input_schema", {}).get("id") or m_json.get("stable_row_keys")
+        except Exception:
+            pass
+    id_candidates = [manifest_id, "row_id", "id", "PassengerId", "index", "ID", "Id"]
+    id_cols = {c for c in id_candidates if c and c in df.columns}
+    feature_cols = [c for c in df.columns if c != target_column and c not in id_cols]
 
     # Fit candidate model on dev set
     X_dev = dev_df[feature_cols].copy()
@@ -582,7 +598,7 @@ def predict(records):
             if f not in r:
                 raise ValueError(f"Missing required feature: '{{f}}'")
         for k in r:
-            if k not in features and k != "row_id":
+            if k not in features and k != "row_id" and k not in {repr(list(id_cols))}:
                 raise ValueError(f"Unexpected extra feature: '{{k}}'")
 
     df = pd.DataFrame(records)

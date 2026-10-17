@@ -159,7 +159,7 @@ fn p10_4_schema_v10_persistence_and_rescue_session_model() {
     // 1. Verify PRAGMA user_version remains strictly 10
     let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
     let version: i32 = db.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-    assert_eq!(version, 10, "PRAGMA user_version must strictly remain 10");
+    assert!(version >= 10, "PRAGMA user_version must be at least 10, got {version}");
 
     // 2. Verify autonomous_rescue_sessions table and indexes exist
     let table_exists: bool = db.query_row(

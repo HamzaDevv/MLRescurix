@@ -95,6 +95,15 @@ impl ContentAddressableStorage {
         Ok(bytes)
     }
 
+    pub fn delete_blob(&self, sha256: &str) -> Result<bool> {
+        let path = self.blob_path(sha256)?;
+        if path.is_file() {
+            fs::remove_file(&path).map_err(|e| e.to_string())?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
     pub fn store_blob(&self, bytes: &[u8], media_type: &str, project_id: Option<&str>) -> Result<BlobReceipt> {
         let sha256 = format!("{:x}", Sha256::digest(bytes));
         let path = self.blob_path(&sha256)?;

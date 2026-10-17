@@ -64,7 +64,7 @@ pub fn connect(root:&Path)->Result<Connection>{
     sql(c.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;"))?;
     loop {
         let version:i64=sql(c.query_row("PRAGMA user_version",[],|r|r.get(0)))?;
-        if version==10 { break; }
+        if version==11 { break; }
         if version==6 { sql(c.execute_batch("PRAGMA foreign_keys=OFF;"))?; }
         let tx=sql(c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate))?;
         let confirmed:i64=sql(tx.query_row("PRAGMA user_version",[],|r|r.get(0)))?;
@@ -79,6 +79,10 @@ pub fn connect(root:&Path)->Result<Connection>{
             7=>sql(tx.execute_batch(include_str!("schema_m6_completion.sql")))?,
             8=>sql(tx.execute_batch(include_str!("schema_m6_recovery.sql")))?,
             9=>sql(tx.execute_batch(include_str!("schema_m7_artifacts.sql")))?,
+            10=>{
+                sql(tx.execute_batch(include_str!("schema_p11_reflexive.sql")))?;
+                sql(tx.execute_batch("PRAGMA user_version = 11;"))?;
+            }
             _=>return Err(format!("unsupported database migration version {version}")),
         }
         let violation: bool = sql(tx.query_row("SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)", [], |r| r.get(0)))?;
@@ -98,6 +102,7 @@ pub fn connect(root:&Path)->Result<Connection>{
     sql(c.execute_batch(include_str!("schema_p10_diagnostics.sql")))?;
     sql(c.execute_batch(include_str!("schema_p10_iteration.sql")))?;
     sql(c.execute_batch(include_str!("schema_p10_rescue.sql")))?;
+    sql(c.execute_batch(include_str!("schema_p11_reflexive.sql")))?;
     let has_old_recipe_check: bool = sql(c.query_row(
         "SELECT (sql LIKE '%CHECK(recipe IN (''dummy'',''linear'',''tree'')%' OR sql LIKE '%CHECK(recipe IN (''dummy'',''linear'',''tree'',''hist_boosting'')%') AND sql NOT LIKE '%length(recipe)%' FROM sqlite_master WHERE type='table' AND name='experiment_dag'",
         [],
@@ -1111,7 +1116,43 @@ pub fn collect_artifacts(root:&Path)->Result<u64>{
         reclaimed = reclaimed.saturating_add(n);
     }
 
+    // 5. Evict rejected Tier-0 scratch artifacts from CAS to enforce the 128 MiB ceiling
+    let rejected_shas: Vec<(String, String, String)> = {
+        let stmt = c.prepare(
+            "SELECT a.project, a.artifact_id, av.blob_sha256 FROM artifacts a
+             JOIN artifact_versions av ON a.project = av.project AND a.artifact_id = av.artifact_id
+             WHERE a.pinned = 0 AND (
+                 a.kind IN ('run_log', 'diagnostic_spec') OR a.artifact_id LIKE 'scratch_%' OR a.artifact_id LIKE 'tier0_%'
+             ) AND (
+                 a.project IN (SELECT project FROM iteration_hypotheses WHERE status = 'rejected')
+                 OR a.project IN (SELECT project FROM feature_ablations WHERE status = 'REJECTED')
+             )"
+        ).ok();
+        if let Some(mut s) = stmt {
+            s.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                .ok()
+                .map(|iter| iter.flatten().collect())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        }
+    };
+    for (_p, _art_id, sha) in &rejected_shas {
+        let _ = cas.delete_blob(sha);
+    }
+
     let tx = sql(c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate))?;
+
+    for (p, art_id, _sha) in &rejected_shas {
+        let _ = tx.execute(
+            "DELETE FROM artifact_versions WHERE project = ?1 AND artifact_id = ?2",
+            params![p, art_id],
+        );
+        let _ = tx.execute(
+            "DELETE FROM artifacts WHERE project = ?1 AND artifact_id = ?2 AND pinned = 0",
+            params![p, art_id],
+        );
+    }
 
     // Record tombstones for collected artifacts before deleting from managed_artifacts
     for (p, j) in &rows {

@@ -560,9 +560,9 @@ fn test_p7_5_installed_standalone_lifecycle_crash_resume_and_db_upgrade() {
     // 4. Upgrade populated state database: run execution::migrate()
     execution::migrate(&state_root).unwrap();
 
-    // Verify PRAGMA user_version remains 10
+    // Verify PRAGMA user_version is at least 10
     let user_ver: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-    assert_eq!(user_ver, 10, "Schema user_version must remain 10");
+    assert!(user_ver >= 10, "Schema user_version must be at least 10, got {user_ver}");
 
     // Verify historical consumed gates and user approvals remain intact
     let hist_status: String = db.query_row(

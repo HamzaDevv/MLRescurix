@@ -91,10 +91,14 @@ class MultiFidelityIterationEngine:
         if len(df) == 0:
             raise WorkflowError("dataset is empty")
 
-        target_col = "target"
+        target_col = manifest.get("raw_input_schema", {}).get("target") or manifest.get("target_column") or "target"
         if target_col not in df.columns:
-            target_candidates = [c for c in df.columns if c not in ("row_id", "id", "timestamp")]
-            target_col = target_candidates[-1] if target_candidates else df.columns[-1]
+            from .semantic_sieve import resolve_target_column
+            try:
+                target_col = resolve_target_column(df)
+            except Exception:
+                target_candidates = [c for c in df.columns if c not in ("row_id", "id", "timestamp")]
+                target_col = target_candidates[-1] if target_candidates else df.columns[-1]
 
         # Subsample if N > max_samples
         n_samples = min(len(df), max(10, max_samples))

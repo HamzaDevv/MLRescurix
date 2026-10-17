@@ -137,7 +137,7 @@ fn p10_2_schema_v10_persistence_and_receipt_retrieval() {
     // Verify PRAGMA user_version remains 10
     let db = rusqlite::Connection::open(td.path().join("state.sqlite")).unwrap();
     let version: i32 = db.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-    assert_eq!(version, 10, "PRAGMA user_version must remain exactly 10");
+    assert!(version >= 10, "PRAGMA user_version must be at least 10, got {version}");
 
     // Record receipts for various failure modes
     let r1 = DiagnosticBridge::build_receipt(

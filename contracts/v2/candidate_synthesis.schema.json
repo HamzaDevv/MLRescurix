@@ -189,11 +189,11 @@
       "properties": {
         "family": {
           "type": "string",
-          "enum": ["boosting", "linear", "tree", "neural", "ensemble", "custom", "hybrid"]
+          "enum": ["boosting", "linear", "tree", "neural", "ensemble", "custom", "hybrid", "catboost", "lgbm", "xgboost", "hist_gbdt", "penalized_linear", "neural_tabular"]
         },
         "framework": {
           "type": "string",
-          "enum": ["lightgbm", "xgboost", "catboost", "pytorch", "scikit-learn", "custom", "peft_lora"]
+          "enum": ["lightgbm", "xgboost", "catboost", "pytorch", "scikit-learn", "custom", "peft_lora", "native"]
         },
         "hyperparameters": {
           "type": "object"
@@ -208,12 +208,28 @@
             },
             "categorical_encoding": {
               "type": "string",
-              "enum": ["onehot", "ordinal", "target", "frequency", "target_oof", "none"],
+              "enum": ["onehot", "ordinal", "target", "frequency", "target_oof", "nested_oof_empirical_bayes", "quasi_id_decompose", "short_text_embed", "none"],
               "default": "none"
             },
             "handle_missing": {
               "type": "boolean",
               "default": true
+            },
+            "quasi_id_decomposition": {
+              "type": "boolean",
+              "default": false
+            },
+            "short_text_embedding": {
+              "type": "boolean",
+              "default": false
+            },
+            "informative_missingness": {
+              "type": "boolean",
+              "default": true
+            },
+            "mi_gated_interactions": {
+              "type": "boolean",
+              "default": false
             },
             "polynomial_features": {
               "type": "boolean",

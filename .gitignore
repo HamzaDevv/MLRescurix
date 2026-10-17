@@ -18,6 +18,7 @@ __pycache__/
 
 # Runtime state, databases, environments, and artifacts
 /.mlrescurix-state/
+/.m2/
 *.sqlite
 *.sqlite3
 *.sqlite-wal
