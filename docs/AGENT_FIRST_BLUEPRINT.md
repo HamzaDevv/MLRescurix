@@ -288,12 +288,12 @@ def run_agent_first_loop(
 
 Execute implementation in the following order, running `cargo test` and `pytest` after each phase:
 
-- [ ] **Step 1 (Schemas & Storage):** Create `dataset_topology.schema.json`, `research_ledger.schema.json`, `critique_receipt.schema.json`, and `error_forensics.schema.json` in `contracts/v2/`. Migrate `crates/harness/src/storage.rs` to `user_version = 11`.
-- [ ] **Step 2 (Sanitizer, Semantic Sieve & M2-EDA):** Implement `dirty_sanitizer.py`, `semantic_sieve.py`, and `eda_agent.py`.
+- [x] **Step 1 (Schemas & Storage):** Create `dataset_topology.schema.json`, `research_ledger.schema.json`, `critique_receipt.schema.json`, and `error_forensics.schema.json` in `contracts/v2/`. Migrate `crates/harness/src/storage.rs` to `user_version = 11`.
+- [x] **Step 2 (Sanitizer, Semantic Sieve & M2-EDA):** Implement `dirty_sanitizer.py`, `semantic_sieve.py`, and `eda_agent.py`.
   - *Verification Test:* Run `profile-dataset` on `titanic.csv` and a synthetic dirty dataset (`"$1,200"`, `"15%"`, `"-999"`, shuffled target column index). Assert `Survived` is chosen as target (never `Embarked`), `PassengerId` is classified as `DROP_SURROGATE_ID`, `Name` as `SHORT_TEXT_EMBED`, `Ticket` and `Cabin` as `QUASI_ID_DECOMPOSE`, and `EdaDossier` size is $< 4\text{ KB}$.
-- [ ] **Step 3 (Leakage-Proof Primitives & M2-FE Ablation Engine):** Implement `primitives.py` (`NestedOOFEmpiricalBayesEncoder`, `QuasiIdDecomposer`, `LightweightTextEmbedder`, `InformativeMissingnessAndInteractions`) and `fe_ablation.py`.
+- [x] **Step 3 (Leakage-Proof Primitives & M2-FE Ablation Engine):** Implement `primitives.py` (`NestedOOFEmpiricalBayesEncoder`, `QuasiIdDecomposer`, `LightweightTextEmbedder`, `InformativeMissingnessAndInteractions`) and `fe_ablation.py`.
   - *Verification Test:* Feed a column of 100% unique random strings into `NestedOOFEmpiricalBayesEncoder` + `LightGBM`. Assert validation balanced accuracy does NOT collapse to `0.5000` and train-val gap remains $< 0.05$.
-- [ ] **Step 4 (Topology-Aware CV, Multi-Paradigm Zoo & Error Forensics):** Implement `model_zoo.py`, `ErrorForensicsAnalyzer`, and upgrade `candidate_runner.py` & `iteration_loop.py` with `StratifiedGroupKFold`, `PurgedTimeSeriesSplit`, and Tier-0 Minimum-Minority Stratified Subsampling.
+- [x] **Step 4 (Topology-Aware CV, Multi-Paradigm Zoo & Error Forensics):** Implement `model_zoo.py`, `ErrorForensicsAnalyzer`, and upgrade `candidate_runner.py` & `iteration_loop.py` with `StratifiedGroupKFold`, `PurgedTimeSeriesSplit`, and Tier-0 Minimum-Minority Stratified Subsampling.
   - *Verification Test:* Test Tier-0 sampling on a synthetic dataset with $0.1\%$ positive rate ($N = 50,000$). Assert Tier-0 sample ($N = 500$) contains $\ge 25$ positive instances and completes in $< 15\text{s}$.
 - [ ] **Step 5 (M2-Critic, M1 Reflexive Loop & Bundle V2 Parity):** Implement `critic_engine.py`, wire the reflexive loop in `autonomous_rescue.py` and `crates/harness/src/agents/`, and update `verify.rs`.
   - *End-to-End Acceptance Test:* Run full autonomous rescue on `titanic.csv`. Assert:

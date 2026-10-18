@@ -21,10 +21,15 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from sklearn.metrics import balanced_accuracy_score, log_loss, mean_absolute_error, mean_squared_error
-from sklearn.model_selection import GroupKFold, KFold, StratifiedKFold, TimeSeriesSplit
+from sklearn.model_selection import GroupKFold, KFold, StratifiedGroupKFold, StratifiedKFold, TimeSeriesSplit
 
 from .workflow import WorkflowError
 from .diagnostic_bridge import DiagnosticBridge, DiagnosticReceipt
+try:
+    from .fe_ablation import PurgedTimeSeriesSplit, build_cv_splitter
+except ImportError:
+    PurgedTimeSeriesSplit = None  # type: ignore
+    build_cv_splitter = None  # type: ignore
 
 
 class CandidateExecutionError(WorkflowError):
@@ -314,15 +319,16 @@ def evaluate_diagnostic_slices(
 
 
 def evaluate_candidate_cv(
-    dataset_csv: Path,
+    dataset_csv: Path | str,
     manifest: dict[str, Any],
-    candidate_dir: Path,
+    candidate_dir: Path | str,
     folds: int = 3,
     seed: int = 2026,
     diagnostic_slices: list[str] | None = None,
     split_policy: str = "stratified",
     group_column: str | None = None,
     time_column: str | None = None,
+    topology: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute harness-managed fold-isolated cross validation on an executable candidate.
 
@@ -354,13 +360,43 @@ def evaluate_candidate_cv(
     # Determine validation query minimum slice support: max(20, 5% of dataset rows)
     min_slice_support = max(20, int(math.floor(0.05 * len(df))))
 
-    # Select splitter based on split policy
-    if split_policy == "grouped" and group_column and group_column in df.columns:
-        splitter = GroupKFold(n_splits=folds)
-        splits = list(splitter.split(df, y, groups=df[group_column]))
+    # Select splitter based on topology or split policy
+    if topology is not None and build_cv_splitter is not None:
+        splitter, top_group_col, top_time_col = build_cv_splitter(topology, df=df, random_state=seed)
+        if top_time_col and top_time_col in df.columns:
+            df = df.sort_values(by=top_time_col).reset_index(drop=True)
+            all_row_ids = df[row_key].tolist()
+            y = df[target_col].to_numpy()
+            splits = list(splitter.split(df))
+        elif top_group_col and top_group_col in df.columns:
+            if isinstance(splitter, (StratifiedGroupKFold, GroupKFold)):
+                try:
+                    splits = list(splitter.split(df, y, groups=df[top_group_col]))
+                except Exception:
+                    splits = list(GroupKFold(n_splits=folds).split(df, y, groups=df[top_group_col]))
+            else:
+                splits = list(splitter.split(df, y))
+        else:
+            if isinstance(splitter, (StratifiedKFold, StratifiedGroupKFold)):
+                splits = list(splitter.split(df, y))
+            else:
+                splits = list(splitter.split(df))
+    elif split_policy == "grouped" and group_column and group_column in df.columns:
+        if task_type in ("binary", "multiclass"):
+            splitter = StratifiedGroupKFold(n_splits=folds, shuffle=True, random_state=seed)
+            try:
+                splits = list(splitter.split(df, y, groups=df[group_column]))
+            except Exception:
+                splitter = GroupKFold(n_splits=folds)
+                splits = list(splitter.split(df, y, groups=df[group_column]))
+        else:
+            splitter = GroupKFold(n_splits=folds)
+            splits = list(splitter.split(df, y, groups=df[group_column]))
     elif split_policy == "chronological" and time_column and time_column in df.columns:
         df = df.sort_values(by=time_column).reset_index(drop=True)
-        splitter = TimeSeriesSplit(n_splits=folds)
+        all_row_ids = df[row_key].tolist()
+        y = df[target_col].to_numpy()
+        splitter = PurgedTimeSeriesSplit(n_splits=folds, embargo_pct=0.02)
         splits = list(splitter.split(df))
     elif task_type in ("binary", "multiclass"):
         splitter = StratifiedKFold(n_splits=folds, shuffle=True, random_state=seed)

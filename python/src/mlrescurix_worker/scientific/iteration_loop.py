@@ -63,8 +63,165 @@ class ProxyScreenReceipt:
         return asdict(self)
 
 
+def sample_topology_aware_tier0(
+    df: pd.DataFrame,
+    target_col: str,
+    task_type: str = "binary",
+    topology: Optional[dict[str, Any]] = None,
+    max_samples: int = 500,
+    random_state: int = 2026,
+) -> tuple[pd.DataFrame, np.ndarray, dict[str, Any]]:
+    """Topology-Preserving Tier-0 Proxy Sampler (N <= 500, <= 15s).
+
+    Adheres to blueprint section 6.2:
+    1. Temporal Tail Slicing: For time-series datasets, take the most recent contiguous rows.
+    2. Group-Preserving Sampling: Sample whole `entity_group_col` clusters rather than individual rows.
+    3. Rare-Event Floor (Minimum-Minority Stratified Subsampling):
+       If minority class prevalence p_min yields < 30 minority samples in 500 rows,
+       retain up to min(N_minority, 100) minority samples, sample 400 majority samples,
+       and compute sample_weight / prior-adjustment offset so probabilities remain calibrated.
+    """
+    n_total = len(df)
+    if n_total <= max_samples:
+        weights = np.ones(n_total, dtype=float)
+        df_out = df.copy()
+        df_out["__sample_weight__"] = weights
+        return df_out, weights, {"strategy": "full_dataset", "samples": n_total}
+
+    # 1. Temporal Tail Slicing
+    temporal_col = None
+    if topology is not None:
+        temporal_col = topology.get("temporal_col")
+        cv_scheme = topology.get("cv_scheme")
+        if not temporal_col and cv_scheme == "purged_time_series_split":
+            classifs = topology.get("column_classifications", {})
+            for c, role in classifs.items():
+                if role == "TEMPORAL_AXIS" and c in df.columns:
+                    temporal_col = c
+                    break
+
+    if temporal_col and temporal_col in df.columns:
+        df_sorted = df.sort_values(by=temporal_col).reset_index(drop=True)
+        n_take = min(n_total, max_samples)
+        df_sample = df_sorted.tail(n_take).copy().reset_index(drop=True)
+        weights = np.ones(len(df_sample), dtype=float)
+        df_sample["__sample_weight__"] = weights
+        return df_sample, weights, {
+            "strategy": "temporal_tail_slice",
+            "temporal_col": temporal_col,
+            "samples": len(df_sample),
+        }
+
+    # 2. Group-Preserving Sampling
+    group_col = None
+    if topology is not None:
+        group_col = topology.get("entity_group_col")
+
+    if group_col and group_col in df.columns and df[group_col].nunique() > 1:
+        rng = np.random.RandomState(random_state)
+        unique_groups = df[group_col].dropna().unique()
+        rng.shuffle(unique_groups)
+        group_counts = df[group_col].value_counts().to_dict()
+
+        selected_groups = []
+        total_rows = 0
+        for g in unique_groups:
+            cnt = group_counts[g]
+            if total_rows + cnt <= max_samples or len(selected_groups) == 0:
+                selected_groups.append(g)
+                total_rows += cnt
+            if total_rows >= max_samples:
+                break
+
+        df_sample = df[df[group_col].isin(selected_groups)].copy().reset_index(drop=True)
+        weights = np.ones(len(df_sample), dtype=float)
+        df_sample["__sample_weight__"] = weights
+        return df_sample, weights, {
+            "strategy": "group_preserving",
+            "group_col": group_col,
+            "groups_count": len(selected_groups),
+            "samples": len(df_sample),
+        }
+
+    # 3. Rare-Event Floor (Minimum-Minority Stratified Subsampling)
+    is_classification = "classification" in task_type or task_type in ("binary", "multiclass")
+    if is_classification and target_col in df.columns and df[target_col].nunique() > 1:
+        class_counts = df[target_col].value_counts().to_dict()
+        min_class = min(class_counts, key=class_counts.get)
+        n_minority = class_counts[min_class]
+        p_min = n_minority / n_total
+        expected_minority = max_samples * p_min
+
+        if expected_minority < 30:
+            # Rare-Event Floor Activated!
+            # Retain up to min(N_minority, 100) minority samples
+            k_minority = min(n_minority, 100)
+            minority_indices = df[df[target_col] == min_class].index.to_numpy()
+            majority_indices = df[df[target_col] != min_class].index.to_numpy()
+
+            k_majority = min(len(majority_indices), 400)
+
+            rng = np.random.RandomState(random_state)
+            sampled_minority_idx = rng.choice(minority_indices, size=k_minority, replace=False)
+            sampled_majority_idx = rng.choice(majority_indices, size=k_majority, replace=False)
+
+            combined_idx = np.concatenate([sampled_minority_idx, sampled_majority_idx])
+            rng.shuffle(combined_idx)
+
+            df_sample = df.loc[combined_idx].copy().reset_index(drop=True)
+            n_sampled = len(df_sample)
+
+            # Prior-adjusted sample weights for calibrated probabilities
+            p_pos = n_minority / n_total
+            p_neg = (n_total - n_minority) / n_total
+            q_pos = k_minority / n_sampled
+            q_neg = k_majority / n_sampled
+
+            w_pos = p_pos / q_pos if q_pos > 0 else 1.0
+            w_neg = p_neg / q_neg if q_neg > 0 else 1.0
+
+            weights = np.where(df_sample[target_col] == min_class, w_pos, w_neg).astype(float)
+            df_sample["__sample_weight__"] = weights
+
+            return df_sample, weights, {
+                "strategy": "rare_event_floor",
+                "minority_class": min_class,
+                "minority_sampled": k_minority,
+                "majority_sampled": k_majority,
+                "expected_minority": expected_minority,
+                "p_min": p_min,
+                "samples": n_sampled,
+            }
+        else:
+            # Standard stratified subsampling
+            try:
+                df_sample, _ = train_test_split(
+                    df, train_size=max_samples, stratify=df[target_col], random_state=random_state
+                )
+                df_sample = df_sample.reset_index(drop=True)
+                weights = np.ones(len(df_sample), dtype=float)
+                df_sample["__sample_weight__"] = weights
+                return df_sample, weights, {
+                    "strategy": "standard_stratified",
+                    "samples": len(df_sample),
+                }
+            except Exception:
+                pass
+
+    # 4. Standard uniform random subsampling fallback
+    df_sample = df.sample(n=min(n_total, max_samples), random_state=random_state).reset_index(drop=True)
+    weights = np.ones(len(df_sample), dtype=float)
+    df_sample["__sample_weight__"] = weights
+    return df_sample, weights, {
+        "strategy": "random_subsample",
+        "samples": len(df_sample),
+    }
+
+
 class MultiFidelityIterationEngine:
     """Multi-fidelity iteration, progressive screening, hypothesis settlement, and Pareto tracking."""
+
+    sample_tier0 = staticmethod(sample_topology_aware_tier0)
 
     @staticmethod
     def run_proxy_screen(
@@ -76,6 +233,7 @@ class MultiFidelityIterationEngine:
         direction: str = "maximize",
         seed: int = 2026,
         timeout_s: int = 30,
+        topology: dict[str, Any] | None = None,
     ) -> ProxyScreenReceipt:
         """Execute Tier 0 fast subsampled proxy screening (N <= max_samples).
 
@@ -100,22 +258,17 @@ class MultiFidelityIterationEngine:
                 target_candidates = [c for c in df.columns if c not in ("row_id", "id", "timestamp")]
                 target_col = target_candidates[-1] if target_candidates else df.columns[-1]
 
-        # Subsample if N > max_samples
-        n_samples = min(len(df), max(10, max_samples))
-        if len(df) > n_samples:
-            if task_type in ("binary", "multiclass") and df[target_col].nunique() > 1:
-                try:
-                    df_sample, _ = train_test_split(
-                        df, train_size=n_samples, stratify=df[target_col], random_state=seed
-                    )
-                except Exception:
-                    df_sample = df.sample(n=n_samples, random_state=seed)
-            else:
-                df_sample = df.sample(n=n_samples, random_state=seed)
-        else:
-            df_sample = df.copy()
+        # Topology-aware Tier-0 subsampling
+        df_sample, sample_weights, sample_meta = sample_topology_aware_tier0(
+            df=df,
+            target_col=target_col,
+            task_type=task_type,
+            topology=topology,
+            max_samples=max_samples,
+            random_state=seed,
+        )
 
-        # Split 80/20 train/val for proxy screen
+        # Split 75/25 train/val for proxy screen
         if task_type in ("binary", "multiclass") and df_sample[target_col].nunique() > 1:
             try:
                 train_df, val_df = train_test_split(
@@ -139,7 +292,7 @@ class MultiFidelityIterationEngine:
 
             train_df.to_csv(train_csv, index=False)
             # Label isolation: validation features MUST NOT contain the target!
-            val_features_df = val_df.drop(columns=[target_col]).copy()
+            val_features_df = val_df.drop(columns=[target_col, "__sample_weight__"], errors="ignore").copy()
             val_features_df.to_csv(val_features_csv, index=False)
 
             # 1. Fit proxy model
