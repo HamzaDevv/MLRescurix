@@ -176,6 +176,72 @@ impl AgentOrchestrator {
         self.apply_steering(&full_directive, "critic:agent")
     }
 
+    /// Inspect CritiqueReceipt from critic_audit, and on VETO inject versioned GuidanceContract
+    /// directives at turn boundary for the target worker task without interrupting the worker's inner loop.
+    pub fn handle_critique_receipt(
+        &mut self,
+        critique_receipt: &Value,
+        target_worker_task_id: Option<&str>,
+    ) -> Result<Option<crate::agents::task_contract::GuidanceContract>> {
+        let status = critique_receipt
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+
+        if status != "VETO" {
+            return Ok(None);
+        }
+
+        let blocking_flaws: Vec<String> = critique_receipt
+            .get("blocking_flaws")
+            .and_then(Value::as_array)
+            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+            .unwrap_or_default();
+
+        let error_slice_hypotheses: Vec<String> = critique_receipt
+            .get("error_slice_hypotheses")
+            .and_then(Value::as_array)
+            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+            .unwrap_or_default();
+
+        let target_task = target_worker_task_id.unwrap_or(&self.config.task_id);
+        let next_epoch = (self.context.handoff_version + 1) as u64;
+        let contract_id = format!("guidance-{}-ep{}", self.config.project_id, next_epoch);
+
+        let mut directive_text = format!(
+            "[M1 BOSS GUIDANCE CONTRACT - Epoch v{} Boundary Steering]:\n\
+             Adversarial M2-Critic VETO issued for candidate.\n\
+             Blocking Flaws:\n- {}\n",
+            next_epoch,
+            if blocking_flaws.is_empty() {
+                "None specified".to_string()
+            } else {
+                blocking_flaws.join("\n- ")
+            }
+        );
+        if !error_slice_hypotheses.is_empty() {
+            directive_text.push_str(&format!(
+                "\nRecommended Actions & Residual Hypotheses:\n- {}\n",
+                error_slice_hypotheses.join("\n- ")
+            ));
+        }
+
+        let guidance = crate::agents::task_contract::GuidanceContract::new(
+            contract_id,
+            &self.config.project_id,
+            target_task,
+            next_epoch,
+            "m1_boss",
+            directive_text,
+            blocking_flaws,
+            error_slice_hypotheses,
+        );
+
+        crate::agents::task_contract::record_guidance_contract(&self.root, &guidance)?;
+
+        Ok(Some(guidance))
+    }
+
     /// Reconcile any unresolved provider turns (`awaiting_response`, `outcome_unknown`, `response_received`, `executing_tools`)
     /// and orphaned M0 actions safely across process restarts without blind replay or duplicate tool execution.
     pub fn reconcile(&mut self) -> Result<Value> {
@@ -523,9 +589,30 @@ impl AgentOrchestrator {
             return Ok(TurnExecutionResult { turn_index: self.current_turn + 1, tool_calls_executed: 0, assistant_content: None, stopped: true, stop_reason: Some("research_closed".into()) });
         }
 
-        // Drain and apply any pending steering directives at turn boundary
+        // Drain and apply pending steering directives at turn boundary with Attempt Epoch Fencing
         if let Ok(pending) = super::task_contract::get_pending_steering_directives(&self.root, &self.config.project_id, &self.config.task_id) {
+            let current_epoch = self.context.handoff_version as u64;
             for dir in pending {
+                if dir.epoch < current_epoch {
+                    // Attempt Epoch Fencing: Deterministically reject stale directives from prior epochs
+                    let _ = super::task_contract::mark_steering_directive_applied(&self.root, &self.config.project_id, &dir.directive_id);
+                    let _ = self.context.record_achievement(
+                        &self.root,
+                        "epoch_fencing_stale_directive_rejected",
+                        &format!(
+                            "Stale steering directive '{}' from epoch {} rejected under epoch fencing (current worker epoch {})",
+                            dir.directive_id, dir.epoch, current_epoch
+                        ),
+                        None,
+                        json!({
+                            "directive_id": dir.directive_id,
+                            "directive_epoch": dir.epoch,
+                            "current_epoch": current_epoch,
+                            "action": "rejected_stale_epoch",
+                        }),
+                    );
+                    continue;
+                }
                 self.context.apply_steering_with_actor(&self.root, &dir.directive, &dir.actor)?;
                 let _ = super::task_contract::mark_steering_directive_applied(&self.root, &self.config.project_id, &dir.directive_id);
             }
@@ -2800,6 +2887,242 @@ impl AgentOrchestrator {
 
                 let bundle_res = crate::rescue::package_candidate_bundle(&self.root, &spec)?;
                 Ok(serde_json::to_string(&bundle_res).unwrap())
+            }
+            "eda_forensics" => {
+                let ds_arg = args.get("dataset_path").and_then(Value::as_str).ok_or("dataset_path missing")?;
+                let target_col = args.get("target_column").and_then(Value::as_str);
+                let problem_stmt = args.get("problem_statement").and_then(Value::as_str);
+                let out_dir_arg = args.get("output_dir").and_then(Value::as_str);
+
+                let db_path = self.root.join("state.sqlite");
+                crate::execution::migrate(&self.root)?;
+                let ds_path = if let Ok(conn) = rusqlite::Connection::open(&db_path) {
+                    let path_from_db: rusqlite::Result<String> = conn.query_row(
+                        "SELECT path FROM scientific_datasets WHERE project=?1 AND id=?2",
+                        params![self.config.project_id, ds_arg],
+                        |r| r.get(0),
+                    );
+                    if let Ok(p) = path_from_db {
+                        PathBuf::from(p)
+                    } else {
+                        let candidate = PathBuf::from(ds_arg);
+                        if candidate.is_file() {
+                            candidate
+                        } else {
+                            self.root.join(ds_arg)
+                        }
+                    }
+                } else {
+                    PathBuf::from(ds_arg)
+                };
+
+                let output_dir = out_dir_arg.map(PathBuf::from);
+                let dossier = crate::rescue::eda_forensics(
+                    &self.root,
+                    &ds_path,
+                    target_col,
+                    problem_stmt,
+                    output_dir.as_deref(),
+                    Some(&db_path),
+                    Some(&self.config.project_id),
+                )?;
+
+                self.context.record_achievement(
+                    &self.root,
+                    "eda_forensics_completed",
+                    &format!("Executed M2-EDA forensics on dataset {}", ds_path.display()),
+                    None,
+                    json!({
+                        "dataset": ds_arg,
+                        "topology_locked": dossier.get("topology").is_some(),
+                    }),
+                )?;
+
+                Ok(serde_json::to_string(&dossier).unwrap())
+            }
+            "ablation_sprint" => {
+                let ds_arg = args.get("dataset_path").and_then(Value::as_str).ok_or("dataset_path missing")?;
+                let db_path = self.root.join("state.sqlite");
+                crate::execution::migrate(&self.root)?;
+
+                let ds_path = if let Ok(conn) = rusqlite::Connection::open(&db_path) {
+                    let path_from_db: rusqlite::Result<String> = conn.query_row(
+                        "SELECT path FROM scientific_datasets WHERE project=?1 AND id=?2",
+                        params![self.config.project_id, ds_arg],
+                        |r| r.get(0),
+                    );
+                    if let Ok(p) = path_from_db {
+                        p
+                    } else {
+                        ds_arg.to_string()
+                    }
+                } else {
+                    ds_arg.to_string()
+                };
+
+                let mut spec = args.clone();
+                if let Some(obj) = spec.as_object_mut() {
+                    obj.insert("dataset_path".to_string(), json!(ds_path));
+                    obj.insert("project_id".to_string(), json!(self.config.project_id));
+                    obj.insert("db_path".to_string(), json!(db_path.to_string_lossy()));
+                    if !obj.contains_key("session_id") {
+                        obj.insert("session_id".to_string(), json!(self.config.task_id));
+                    }
+                }
+
+                let receipt = crate::rescue::ablation_sprint(&self.root, &spec)?;
+                self.context.record_achievement(
+                    &self.root,
+                    "ablation_sprint_evaluated",
+                    &format!("Feature ablation sprint settled with status {:?}", receipt.get("status")),
+                    None,
+                    receipt.clone(),
+                )?;
+
+                Ok(serde_json::to_string(&receipt).unwrap())
+            }
+            "model_portfolio_eval" => {
+                let ds_arg = args.get("dataset_path").and_then(Value::as_str).ok_or("dataset_path missing")?;
+                let db_path = self.root.join("state.sqlite");
+                crate::execution::migrate(&self.root)?;
+
+                let ds_path = if let Ok(conn) = rusqlite::Connection::open(&db_path) {
+                    let path_from_db: rusqlite::Result<String> = conn.query_row(
+                        "SELECT path FROM scientific_datasets WHERE project=?1 AND id=?2",
+                        params![self.config.project_id, ds_arg],
+                        |r| r.get(0),
+                    );
+                    if let Ok(p) = path_from_db {
+                        p
+                    } else {
+                        ds_arg.to_string()
+                    }
+                } else {
+                    ds_arg.to_string()
+                };
+
+                let mut spec = args.clone();
+                if let Some(obj) = spec.as_object_mut() {
+                    obj.insert("dataset_path".to_string(), json!(ds_path));
+                    obj.insert("project_id".to_string(), json!(self.config.project_id));
+                    obj.insert("db_path".to_string(), json!(db_path.to_string_lossy()));
+                }
+
+                let portfolio = crate::rescue::model_portfolio_eval(&self.root, &spec)?;
+                self.context.record_achievement(
+                    &self.root,
+                    "model_portfolio_evaluated",
+                    "Evaluated diverse multi-paradigm model portfolio with surrogate tree error forensics",
+                    None,
+                    json!({"families": portfolio.get("families_evaluated")}),
+                )?;
+
+                Ok(serde_json::to_string(&portfolio).unwrap())
+            }
+            "critic_audit" => {
+                let db_path = self.root.join("state.sqlite");
+                crate::execution::migrate(&self.root)?;
+
+                let candidate_val = if let Some(c) = args.get("candidate") {
+                    c.clone()
+                } else if let Some(c_path) = args.get("candidate_path").and_then(Value::as_str) {
+                    let path = PathBuf::from(c_path);
+                    let content = fs::read_to_string(&path).map_err(|e| format!("Candidate file not found at '{}': {e}", path.display()))?;
+                    serde_json::from_str(&content).map_err(|e| format!("Invalid candidate JSON: {e}"))?
+                } else {
+                    return Err("critic_audit requires 'candidate' object or 'candidate_path'".into());
+                };
+
+                let topology_val = if let Some(t) = args.get("topology") {
+                    t.clone()
+                } else if let Some(t_path) = args.get("topology_path").and_then(Value::as_str) {
+                    let path = PathBuf::from(t_path);
+                    let content = fs::read_to_string(&path).map_err(|e| format!("Topology file not found at '{}': {e}", path.display()))?;
+                    serde_json::from_str(&content).map_err(|e| format!("Invalid topology JSON: {e}"))?
+                } else {
+                    return Err("critic_audit requires 'topology' object or 'topology_path'".into());
+                };
+
+                let forensics_val = args.get("error_forensics");
+                let dossier_val = args.get("eda_dossier");
+                let epoch = args.get("epoch").and_then(Value::as_i64).unwrap_or(1);
+                let session_id = args.get("session_id").and_then(Value::as_str).unwrap_or(&self.config.task_id);
+
+                let critique = crate::rescue::critic_audit(
+                    &self.root,
+                    &candidate_val,
+                    &topology_val,
+                    forensics_val,
+                    dossier_val,
+                    Some(&db_path),
+                    Some(&self.config.project_id),
+                    Some(session_id),
+                    Some(epoch),
+                )?;
+
+                let status = critique.get("status").and_then(Value::as_str).unwrap_or("");
+                self.context.record_achievement(
+                    &self.root,
+                    "critic_audit_completed",
+                    &format!("Adversarial Critic Audit verdict: {status}"),
+                    None,
+                    critique.clone(),
+                )?;
+
+                // M1 Boss Turn-Boundary Steering: On VETO, formulate GuidanceContract and record directive
+                if status == "VETO" {
+                    let _ = self.handle_critique_receipt(&critique, None);
+                }
+
+                Ok(serde_json::to_string(&critique).unwrap())
+            }
+            "reflexive_orchestrate" => {
+                let ds_arg = args.get("dataset_path").and_then(Value::as_str).ok_or("dataset_path missing")?;
+                let db_path = self.root.join("state.sqlite");
+                crate::execution::migrate(&self.root)?;
+
+                let ds_path = if let Ok(conn) = rusqlite::Connection::open(&db_path) {
+                    let path_from_db: rusqlite::Result<String> = conn.query_row(
+                        "SELECT path FROM scientific_datasets WHERE project=?1 AND id=?2",
+                        params![self.config.project_id, ds_arg],
+                        |r| r.get(0),
+                    );
+                    if let Ok(p) = path_from_db {
+                        p
+                    } else {
+                        ds_arg.to_string()
+                    }
+                } else {
+                    ds_arg.to_string()
+                };
+
+                let mut spec = args.clone();
+                if let Some(obj) = spec.as_object_mut() {
+                    obj.insert("dataset_path".to_string(), json!(ds_path));
+                    obj.insert("project_id".to_string(), json!(self.config.project_id));
+                    obj.insert("db_path".to_string(), json!(db_path.to_string_lossy()));
+                    if !obj.contains_key("session_id") {
+                        obj.insert("session_id".to_string(), json!(self.config.task_id));
+                    }
+                    if !obj.contains_key("bundle_output_dir") {
+                        let b_dir = self.root.join("workflows").join(&self.config.project_id).join("bundle");
+                        obj.insert("bundle_output_dir".to_string(), json!(b_dir.to_string_lossy()));
+                    }
+                }
+
+                let result = crate::rescue::reflexive_orchestrate(&self.root, &spec)?;
+                self.context.record_achievement(
+                    &self.root,
+                    "reflexive_loop_completed",
+                    "Completed Phase 5 multi-epoch reflexive orchestration loop with SQLite v11 sync",
+                    None,
+                    json!({
+                        "apex_candidate_id": result.get("apex_candidate_id"),
+                        "status": result.get("status"),
+                    }),
+                )?;
+
+                Ok(serde_json::to_string(&result).unwrap())
             }
             other => Err(format!("Unknown tool: {other}")),
         }

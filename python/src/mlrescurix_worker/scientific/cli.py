@@ -60,6 +60,8 @@ def main() -> int:
     eda_cmd.add_argument("--problem-statement", type=str, required=False)
     eda_cmd.add_argument("--output-dir", type=Path, default=Path(".m2/artifacts/eda"))
     eda_cmd.add_argument("--output", type=Path, required=False)
+    eda_cmd.add_argument("--db-path", type=Path, required=False)
+    eda_cmd.add_argument("--project-id", type=str, default="default")
     pkg_bundle = commands.add_parser("candidate-package-bundle")
     pkg_bundle.add_argument("--spec", type=Path, required=True)
     pkg_bundle.add_argument("--output", type=Path, required=False)
@@ -72,12 +74,22 @@ def main() -> int:
     bench_cmd = commands.add_parser("prospective-benchmark")
     bench_cmd.add_argument("--spec", type=Path, required=True)
     bench_cmd.add_argument("--output", type=Path, required=False)
+    ablation_cmd = commands.add_parser("ablation-sprint")
+    ablation_cmd.add_argument("--spec", type=Path, required=True)
+    ablation_cmd.add_argument("--output", type=Path, required=False)
+    portfolio_cmd = commands.add_parser("model-portfolio-eval")
+    portfolio_cmd.add_argument("--spec", type=Path, required=True)
+    portfolio_cmd.add_argument("--output", type=Path, required=False)
     critic_cmd = commands.add_parser("critic-audit")
     critic_cmd.add_argument("--candidate", type=Path, required=True)
     critic_cmd.add_argument("--topology", type=Path, required=True)
     critic_cmd.add_argument("--forensics", type=Path, required=False)
     critic_cmd.add_argument("--dossier", type=Path, required=False)
     critic_cmd.add_argument("--output", type=Path, required=False)
+    critic_cmd.add_argument("--db-path", type=Path, required=False)
+    critic_cmd.add_argument("--project-id", type=str, default="default")
+    critic_cmd.add_argument("--session-id", type=str, default="session_001")
+    critic_cmd.add_argument("--epoch", type=int, default=1)
     reflexive_cmd = commands.add_parser("reflexive-orchestrate")
     reflexive_cmd.add_argument("--spec", type=Path, required=True)
     reflexive_cmd.add_argument("--output", type=Path, required=False)
@@ -217,7 +229,16 @@ def main() -> int:
                 output_dir=args.output_dir,
                 dataset_id=args.dataset.stem,
             )
+            if getattr(args, "db_path", None) and args.db_path:
+                from .autonomous_rescue import persist_dataset_topology_contract
+                persist_dataset_topology_contract(
+                    db_path=args.db_path,
+                    contract=dossier.topology.to_dict() if hasattr(dossier.topology, "to_dict") else dossier.topology,
+                    project_id=getattr(args, "project_id", "default"),
+                    dataset_id=args.dataset.stem,
+                )
             result = dossier.to_dict()
+            result["status"] = "completed"
             if args.output:
                 args.output.parent.mkdir(parents=True, exist_ok=True)
                 args.output.write_text(json.dumps(result, indent=2, sort_keys=True))
@@ -284,6 +305,118 @@ def main() -> int:
             if args.output:
                 save_benchmark_report(report, args.output)
             result = json.loads(json.dumps(report, default=lambda o: getattr(o, "__dict__", str(o))))
+        elif args.command == "ablation-sprint":
+            import pandas as pd
+            from .fe_ablation import ablate_feature_hypothesis, build_cv_splitter
+            from .autonomous_rescue import persist_feature_ablation
+            spec_data = json.loads(args.spec.read_text(encoding="utf-8"))
+            dataset_path = Path(spec_data["dataset_path"])
+            topology = spec_data.get("topology")
+            if not topology and spec_data.get("topology_path"):
+                topology = json.loads(Path(spec_data["topology_path"]).read_text(encoding="utf-8"))
+            if not topology:
+                from .dirty_sanitizer import sanitize_dataframe
+                from .semantic_sieve import analyze_and_lock_topology
+                df_raw = pd.read_csv(dataset_path)
+                san_res = sanitize_dataframe(df_raw)
+                clean_df = san_res.df
+                coercions = san_res.coercions
+                target_col = spec_data.get("target_column")
+                topology = analyze_and_lock_topology(clean_df, explicit_target=target_col, coercions=coercions)
+            cand_fe = spec_data.get("candidate_features_py")
+            base_fe = spec_data.get("base_features_py")
+            hyp_id = spec_data.get("hypothesis_id", "hyp_ablation_sprint")
+            db_path = spec_data.get("db_path")
+            project_id = spec_data.get("project_id", "default")
+            session_id = spec_data.get("session_id", "session_001")
+            epoch = spec_data.get("epoch", 1)
+
+            receipt = ablate_feature_hypothesis(
+                hypothesis_id=hyp_id,
+                candidate_features_py=cand_fe,
+                base_features_py=base_fe,
+                topology=topology,
+                dataset_path=dataset_path,
+                session_id=session_id,
+                project_id=project_id,
+                epoch=epoch,
+            )
+            if db_path:
+                persist_feature_ablation(
+                    db_path=db_path,
+                    ablation=receipt,
+                    project_id=project_id,
+                    session_id=session_id,
+                    epoch=epoch,
+                )
+            result = receipt
+            if args.output:
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(json.dumps(result, indent=2, sort_keys=True, default=str), encoding="utf-8")
+        elif args.command == "model-portfolio-eval":
+            import numpy as np
+            import pandas as pd
+            from .fe_ablation import build_cv_splitter
+            from .model_zoo import train_and_diagnose_portfolio, HAS_LIGHTGBM, HAS_CATBOOST
+            spec_data = json.loads(args.spec.read_text(encoding="utf-8"))
+            dataset_path = Path(spec_data["dataset_path"])
+            topology = spec_data.get("topology")
+            if not topology and spec_data.get("topology_path"):
+                topology = json.loads(Path(spec_data["topology_path"]).read_text(encoding="utf-8"))
+            df = pd.read_csv(dataset_path)
+            target_col = spec_data.get("target_column") or (topology.get("target_column") if topology else None)
+            if not target_col:
+                from .semantic_sieve import resolve_target
+                target_col = resolve_target(df)
+            task_type = spec_data.get("task_type") or (topology.get("task_type") if topology else "binary_classification")
+            if not topology:
+                topology = {"target_column": target_col, "task_type": task_type, "cv_scheme": "stratified_kfold", "cv_splits": 5}
+
+            splitter, group_col, _ = build_cv_splitter(topology, df=df)
+            y = df[target_col].to_numpy()
+            feature_cols = [c for c in df.columns if c != target_col and c not in topology.get("id_columns", [])]
+            X = df[feature_cols].select_dtypes(include=[np.number]).fillna(0.0)
+            if X.shape[1] == 0:
+                X = pd.DataFrame({"dummy": np.ones(len(df))})
+
+            families = spec_data.get("families")
+            if not families:
+                families = ["lgbm" if HAS_LIGHTGBM else "hist_gbdt", "catboost" if HAS_CATBOOST else "hist_gbdt", "penalized_linear"]
+            families = list(dict.fromkeys(families))
+
+            groups = df[group_col].to_numpy() if group_col and group_col in df.columns else None
+            portfolio_res = train_and_diagnose_portfolio(
+                families=families,
+                X=X,
+                y=y,
+                cv_splitter=splitter,
+                task_type=task_type,
+                groups=groups,
+                feature_names=list(X.columns),
+            )
+
+            portfolio_dict = {}
+            for fam, res in portfolio_res.items():
+                portfolio_dict[fam] = {
+                    "family": res.family,
+                    "effective_family": res.effective_family,
+                    "mean_cv_score": res.mean_cv_score,
+                    "mean_train_score": res.mean_train_score,
+                    "train_val_gap": res.train_val_gap,
+                    "cv_scores": res.cv_scores,
+                    "train_scores": res.train_scores,
+                    "feature_importances": res.feature_importances.tolist() if hasattr(res.feature_importances, "tolist") else list(res.feature_importances),
+                    "feature_names": res.feature_names,
+                    "worst_slices": [s.to_dict() for s in getattr(res, "worst_slices", [])] if hasattr(res, "worst_slices") else [],
+                }
+            result = {
+                "status": "evaluated",
+                "families_evaluated": list(portfolio_dict.keys()),
+                "portfolio": portfolio_dict,
+            }
+            if args.output:
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(json.dumps(result, indent=2, sort_keys=True, default=str), encoding="utf-8")
         elif args.command == "critic-audit":
             from .critic_engine import critic_audit_candidate
             cand_data = json.loads(args.candidate.read_text(encoding="utf-8"))
@@ -295,6 +428,10 @@ def main() -> int:
                 topology=topo_data,
                 error_forensics=forensics_data,
                 eda_dossier=dossier_data,
+                db_path=getattr(args, "db_path", None),
+                project_id=getattr(args, "project_id", "default"),
+                session_id=getattr(args, "session_id", "session_001"),
+                epoch=getattr(args, "epoch", 1),
             )
             result = critique.to_dict()
             if args.output:

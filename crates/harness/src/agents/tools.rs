@@ -736,6 +736,101 @@ impl ToolRegistry {
                     parameters: json!({ "type": "object", "properties": {} }),
                 },
             },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "eda_forensics".into(),
+                    description: "Executes eda_forensics_suite in container/host with Context Firewall markdown summaries and SVG diagnostic artifacts.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "dataset_path": { "type": "string", "description": "Path to dataset file or registered dataset ID" },
+                            "target_column": { "type": "string", "description": "Optional explicit target column name" },
+                            "problem_statement": { "type": "string", "description": "Optional natural language problem statement for semantic target resolution" },
+                            "output_dir": { "type": "string", "description": "Optional destination directory for diagnostic SVG artifacts (default: .m2/artifacts/eda)" }
+                        },
+                        "required": ["dataset_path"]
+                    }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "ablation_sprint".into(),
+                    description: "Executes paired in-fold feature ablations (fe_ablation.py) with delta CV and train-val gap gating.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "dataset_path": { "type": "string", "description": "Path to dataset file or registered dataset ID" },
+                            "topology_path": { "type": "string", "description": "Optional path to dataset_topology.json" },
+                            "topology": { "type": "object", "description": "Optional dataset topology dictionary" },
+                            "candidate_features_py": { "type": "string", "description": "Candidate feature specification (code or callable)" },
+                            "base_features_py": { "type": "string", "description": "Optional baseline feature specification" },
+                            "hypothesis_id": { "type": "string", "description": "Unique hypothesis identifier" },
+                            "epoch": { "type": "integer", "description": "Current research epoch (default 1)" }
+                        },
+                        "required": ["dataset_path"]
+                    }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "model_portfolio_eval".into(),
+                    description: "Dispatches multi-paradigm evaluations (train_and_diagnose_portfolio) and surrogate decision-tree error forensics.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "dataset_path": { "type": "string", "description": "Path to dataset file or registered dataset ID" },
+                            "topology_path": { "type": "string", "description": "Optional path to dataset_topology.json" },
+                            "topology": { "type": "object", "description": "Optional dataset topology dictionary" },
+                            "families": { "type": "array", "items": { "type": "string" }, "description": "Model families to evaluate (e.g. lgbm, catboost, penalized_linear)" },
+                            "target_column": { "type": "string", "description": "Optional target column name" },
+                            "task_type": { "type": "string", "description": "Optional task type (default binary_classification)" }
+                        },
+                        "required": ["dataset_path"]
+                    }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "critic_audit".into(),
+                    description: "Dispatches adversarial candidate audits (critic_audit_candidate) returning CritiqueReceipt with Hard Assertions 1-4.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "candidate": { "type": "object", "description": "Candidate metadata or evaluation metrics object" },
+                            "topology": { "type": "object", "description": "Dataset topology contract object" },
+                            "candidate_path": { "type": "string", "description": "Optional path to candidate JSON file" },
+                            "topology_path": { "type": "string", "description": "Optional path to topology JSON file" },
+                            "error_forensics": { "type": "object", "description": "Optional error forensics report object" },
+                            "eda_dossier": { "type": "object", "description": "Optional EDA dossier object" },
+                            "candidate_id": { "type": "string", "description": "Optional candidate identifier" },
+                            "epoch": { "type": "integer", "description": "Optional research epoch" }
+                        }
+                    }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "reflexive_orchestrate".into(),
+                    description: "Dispatches full multi-epoch reflexive loops with SQLite v11 synchronization.".into(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "dataset_path": { "type": "string", "description": "Path to dataset file or registered dataset ID" },
+                            "target_column": { "type": "string", "description": "Optional explicit target column name" },
+                            "max_epochs": { "type": "integer", "description": "Maximum reflexive epochs (default 2)" },
+                            "inject_naive_first_epoch": { "type": "boolean", "description": "Whether to inject a naive candidate in epoch 1 to trigger critic veto (default false)" },
+                            "bundle_output_dir": { "type": "string", "description": "Optional output directory for mlrescurix.bundle.v2" },
+                            "session_id": { "type": "string", "description": "Optional research session identifier" }
+                        },
+                        "required": ["dataset_path"]
+                    }),
+                },
+            },
         ]
     }
 

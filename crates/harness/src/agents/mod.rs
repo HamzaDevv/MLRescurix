@@ -22,7 +22,7 @@ pub use orchestrator::{AgentOrchestrator, OrchestratorConfig, TurnExecutionResul
 pub use recovery::BranchLock;
 pub use task_contract::{
     check_user_approval, get_pending_steering_directives, get_task_assignment, get_task_completion,
-    mark_steering_directive_applied, record_steering_directive, record_task_assignment,
-    record_task_completion, register_user_approval, SteeringDirectiveRecord, TaskAssignment, TaskCompletionReceipt,
+    mark_steering_directive_applied, record_guidance_contract, record_steering_directive, record_task_assignment,
+    record_task_completion, register_user_approval, GuidanceContract, SteeringDirectiveRecord, TaskAssignment, TaskCompletionReceipt,
     TaskLimits,
 };

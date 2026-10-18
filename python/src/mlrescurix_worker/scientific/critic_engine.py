@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 import time
 import uuid
@@ -47,14 +48,17 @@ def get_critique_receipt_schema() -> Dict[str, Any]:
     """Load and cache contracts/v2/critique_receipt.schema.json."""
     global _CACHED_SCHEMA
     if _CACHED_SCHEMA is None:
-        p = SCHEMA_PATH
-        if not p.is_file():
-            for parent in Path(__file__).resolve().parents:
-                cand = parent / "contracts" / "v2" / "critique_receipt.schema.json"
-                if cand.is_file():
-                    p = cand
-                    break
-        if not p.is_file():
+        candidates = [
+            SCHEMA_PATH,
+            Path.cwd() / SCHEMA_PATH,
+        ]
+        if "MLRESCURIX_REPO_ROOT" in os.environ:
+            candidates.append(Path(os.environ["MLRESCURIX_REPO_ROOT"]) / SCHEMA_PATH)
+        for parent in list(Path.cwd().parents) + list(Path(__file__).resolve().parents):
+            candidates.append(parent / SCHEMA_PATH)
+
+        p = next((c for c in candidates if c.is_file()), None)
+        if p is None:
             raise FileNotFoundError(f"critique_receipt.schema.json not found at {SCHEMA_PATH}")
         with open(p, "r", encoding="utf-8") as f:
             _CACHED_SCHEMA = json.load(f)
@@ -230,10 +234,17 @@ class CriticEngine:
                 candidate_id = candidate.get("candidate_id") if isinstance(candidate, dict) else getattr(candidate, "candidate_id", "cand_apex")
             if eval_result is None:
                 eval_result = candidate
-            if features_used is None:
-                features_used = candidate.get("features") if isinstance(candidate, dict) else getattr(candidate, "features", None)
-            if distinct_families_evaluated is None and isinstance(candidate, dict) and "submodels" in candidate:
-                distinct_families_evaluated = candidate["submodels"]
+            if features_used is None and isinstance(candidate, dict):
+                features_used = candidate.get("features") or candidate.get("features_used")
+            if distinct_families_evaluated is None and isinstance(candidate, dict):
+                distinct_families_evaluated = (
+                    candidate.get("distinct_families_evaluated")
+                    or candidate.get("evaluated_model_families")
+                    or candidate.get("tier1_families")
+                    or candidate.get("submodels")
+                )
+            if cv_scheme_used is None and isinstance(candidate, dict):
+                cv_scheme_used = candidate.get("cv_scheme") or candidate.get("cv_scheme_used")
 
         candidate_id = candidate_id or "candidate"
         if error_forensics is not None and forensics_report is None:
@@ -565,6 +576,35 @@ class CriticEngine:
         return receipt
 
 
+def _ensure_project_in_db(cur: sqlite3.Cursor, project_id: str) -> None:
+    """Ensure project exists in projects table adhering to schema whether standalone or harness."""
+    cur.execute("PRAGMA table_info(projects)")
+    cols = {r[1] for r in cur.fetchall()}
+    if not cols:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS projects (
+                id TEXT PRIMARY KEY,
+                revision INTEGER DEFAULT 0,
+                spec_revision INTEGER DEFAULT 0,
+                intent_revision INTEGER DEFAULT 0,
+                intent TEXT DEFAULT '',
+                finalization_id TEXT UNIQUE DEFAULT '',
+                state TEXT DEFAULT 'active',
+                policy TEXT DEFAULT '{}'
+            )
+            """
+        )
+        cur.execute("INSERT OR IGNORE INTO projects (id, finalization_id) VALUES (?, ?)", (project_id, f"fin-{project_id}"))
+    elif "name" in cols:
+        cur.execute("INSERT OR IGNORE INTO projects (id, name, created_ms) VALUES (?, ?, ?)", (project_id, project_id, int(time.time() * 1000)))
+    else:
+        cur.execute(
+            "INSERT OR IGNORE INTO projects (id, revision, spec_revision, intent_revision, intent, finalization_id, state, policy) VALUES (?, 0, 0, 0, '', ?, 'active', '{}')",
+            (project_id, f"fin-{project_id}"),
+        )
+
+
 def record_critique_receipt_in_db(
     receipt: Union[CritiqueReceipt, Dict[str, Any], str, Path],
     db_path: Optional[Union[str, Path, CritiqueReceipt, Dict[str, Any]]] = None,
@@ -582,20 +622,7 @@ def record_critique_receipt_in_db(
     conn = sqlite3.connect(p)
     try:
         cur = conn.cursor()
-        # Ensure projects table exists if foreign keys are active
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS projects (
-                id TEXT PRIMARY KEY,
-                name TEXT,
-                created_ms INTEGER
-            )
-            """
-        )
-        cur.execute(
-            "INSERT OR IGNORE INTO projects (id, name, created_ms) VALUES (?, ?, ?)",
-            (project_id, project_id, int(time.time() * 1000)),
-        )
+        _ensure_project_in_db(cur, project_id)
 
         # Ensure critique_receipts table exists
         cur.execute(

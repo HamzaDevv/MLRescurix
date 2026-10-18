@@ -365,3 +365,297 @@ pub fn package_candidate_bundle(root: &Path, spec_payload: &Value) -> Result<Val
 
     Ok(res)
 }
+
+fn base_scientific_cmd(root: &Path, subcommand: &str) -> Result<Command> {
+    let embedded_py = crate::assets::ensure_python_root(root)?;
+    let embedded_src = embedded_py.join("src");
+    let mut pypaths = vec![embedded_src.to_string_lossy().to_string()];
+    if let Ok(repo_src) = fs::canonicalize(Path::new("python/src")) {
+        pypaths.push(repo_src.to_string_lossy().to_string());
+    }
+    if let Ok(cur_py) = std::env::var("PYTHONPATH") {
+        if !cur_py.is_empty() {
+            pypaths.push(cur_py);
+        }
+    }
+
+    let mut cmd = Command::new("python3");
+    if let Ok(cur_dir) = std::env::current_dir() {
+        let repo_root = if cur_dir.ends_with("crates/harness") {
+            cur_dir.parent().unwrap_or(&cur_dir).to_path_buf()
+        } else {
+            cur_dir
+        };
+        cmd.current_dir(&repo_root);
+        cmd.env("MLRESCURIX_REPO_ROOT", &repo_root);
+    }
+    cmd.args([
+        "-m",
+        "mlrescurix_worker.scientific.cli",
+        subcommand,
+    ]);
+    cmd.env("PYTHONPATH", pypaths.join(":"));
+    cmd.env("PYTHONDONTWRITEBYTECODE", "1");
+    Ok(cmd)
+}
+
+/// Execute M2-EDA exploratory forensics via `eda-forensics`.
+pub fn eda_forensics(
+    root: &Path,
+    dataset_path: &Path,
+    target_col: Option<&str>,
+    problem_statement: Option<&str>,
+    output_dir: Option<&Path>,
+    db_path: Option<&Path>,
+    project_id: Option<&str>,
+) -> Result<Value> {
+    if !dataset_path.is_file() {
+        return Err(format!("Dataset file not found: {}", dataset_path.display()));
+    }
+    let now = now_ms();
+    let project = project_id.unwrap_or("default");
+    let scratch_dir = root
+        .join("workflows")
+        .join(project)
+        .join("eda_staging")
+        .join(format!("eda-{now}"));
+    fs::create_dir_all(&scratch_dir).map_err(|e| e.to_string())?;
+
+    let out_path = scratch_dir.join("output.json");
+    let mut cmd = base_scientific_cmd(root, "eda-forensics")?;
+    cmd.args(["--dataset", &dataset_path.to_string_lossy()]);
+    if let Some(t) = target_col {
+        cmd.args(["--target", t]);
+    }
+    if let Some(p) = problem_statement {
+        cmd.args(["--problem-statement", p]);
+    }
+    let art_dir = output_dir
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| root.join(".m2").join("artifacts").join("eda"));
+    cmd.args(["--output-dir", &art_dir.to_string_lossy()]);
+    cmd.args(["--output", &out_path.to_string_lossy()]);
+    if let Some(db) = db_path {
+        cmd.args(["--db-path", &db.to_string_lossy()]);
+    }
+    cmd.args(["--project-id", project]);
+
+    let output = cmd.output().map_err(|e| format!("Failed to spawn python eda-forensics: {e}"))?;
+    if !output.status.success() && !out_path.is_file() {
+        let err_msg = if !output.stderr.is_empty() {
+            String::from_utf8_lossy(&output.stderr).to_string()
+        } else {
+            String::from_utf8_lossy(&output.stdout).to_string()
+        };
+        let _ = fs::remove_dir_all(&scratch_dir);
+        return Err(format!("eda-forensics failed: {err_msg}"));
+    }
+
+    let out_str = fs::read_to_string(&out_path).map_err(|e| e.to_string())?;
+    let res: Value = serde_json::from_str(&out_str).map_err(|e| e.to_string())?;
+    let _ = fs::remove_dir_all(&scratch_dir);
+    Ok(res)
+}
+
+/// Execute M2-FE paired feature ablation sprint via `ablation-sprint`.
+pub fn ablation_sprint(root: &Path, spec_payload: &Value) -> Result<Value> {
+    let now = now_ms();
+    let project = spec_payload.get("project_id").and_then(Value::as_str).unwrap_or("default");
+    let scratch_dir = root
+        .join("workflows")
+        .join(project)
+        .join("ablation_staging")
+        .join(format!("abl-{now}"));
+    fs::create_dir_all(&scratch_dir).map_err(|e| e.to_string())?;
+
+    let spec_path = scratch_dir.join("spec.json");
+    let out_path = scratch_dir.join("output.json");
+    fs::write(&spec_path, serde_json::to_string_pretty(spec_payload).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+
+    let mut cmd = base_scientific_cmd(root, "ablation-sprint")?;
+    cmd.args([
+        "--spec",
+        &spec_path.to_string_lossy(),
+        "--output",
+        &out_path.to_string_lossy(),
+    ]);
+
+    let output = cmd.output().map_err(|e| format!("Failed to spawn python ablation-sprint: {e}"))?;
+    if !output.status.success() && !out_path.is_file() {
+        let err_msg = if !output.stderr.is_empty() {
+            String::from_utf8_lossy(&output.stderr).to_string()
+        } else {
+            String::from_utf8_lossy(&output.stdout).to_string()
+        };
+        let _ = fs::remove_dir_all(&scratch_dir);
+        return Err(format!("ablation-sprint failed: {err_msg}"));
+    }
+
+    let out_str = fs::read_to_string(&out_path).map_err(|e| e.to_string())?;
+    let res: Value = serde_json::from_str(&out_str).map_err(|e| e.to_string())?;
+    let _ = fs::remove_dir_all(&scratch_dir);
+    Ok(res)
+}
+
+/// Execute M2-Model multi-paradigm evaluation and error forensics via `model-portfolio-eval`.
+pub fn model_portfolio_eval(root: &Path, spec_payload: &Value) -> Result<Value> {
+    let now = now_ms();
+    let project = spec_payload.get("project_id").and_then(Value::as_str).unwrap_or("default");
+    let scratch_dir = root
+        .join("workflows")
+        .join(project)
+        .join("portfolio_staging")
+        .join(format!("port-{now}"));
+    fs::create_dir_all(&scratch_dir).map_err(|e| e.to_string())?;
+
+    let spec_path = scratch_dir.join("spec.json");
+    let out_path = scratch_dir.join("output.json");
+    fs::write(&spec_path, serde_json::to_string_pretty(spec_payload).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+
+    let mut cmd = base_scientific_cmd(root, "model-portfolio-eval")?;
+    cmd.args([
+        "--spec",
+        &spec_path.to_string_lossy(),
+        "--output",
+        &out_path.to_string_lossy(),
+    ]);
+
+    let output = cmd.output().map_err(|e| format!("Failed to spawn python model-portfolio-eval: {e}"))?;
+    if !output.status.success() && !out_path.is_file() {
+        let err_msg = if !output.stderr.is_empty() {
+            String::from_utf8_lossy(&output.stderr).to_string()
+        } else {
+            String::from_utf8_lossy(&output.stdout).to_string()
+        };
+        let _ = fs::remove_dir_all(&scratch_dir);
+        return Err(format!("model-portfolio-eval failed: {err_msg}"));
+    }
+
+    let out_str = fs::read_to_string(&out_path).map_err(|e| e.to_string())?;
+    let res: Value = serde_json::from_str(&out_str).map_err(|e| e.to_string())?;
+    let _ = fs::remove_dir_all(&scratch_dir);
+    Ok(res)
+}
+
+/// Execute M2-Critic adversarial audit via `critic-audit`.
+pub fn critic_audit(
+    root: &Path,
+    candidate_val: &Value,
+    topology_val: &Value,
+    forensics_val: Option<&Value>,
+    dossier_val: Option<&Value>,
+    db_path: Option<&Path>,
+    project_id: Option<&str>,
+    session_id: Option<&str>,
+    epoch: Option<i64>,
+) -> Result<Value> {
+    let now = now_ms();
+    let project = project_id.unwrap_or("default");
+    let scratch_dir = root
+        .join("workflows")
+        .join(project)
+        .join("critic_staging")
+        .join(format!("crit-{now}"));
+    fs::create_dir_all(&scratch_dir).map_err(|e| e.to_string())?;
+
+    let cand_path = scratch_dir.join("candidate.json");
+    let topo_path = scratch_dir.join("topology.json");
+    fs::write(&cand_path, serde_json::to_string_pretty(candidate_val).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+    fs::write(&topo_path, serde_json::to_string_pretty(topology_val).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+
+    let mut cmd = base_scientific_cmd(root, "critic-audit")?;
+    cmd.args([
+        "--candidate",
+        &cand_path.to_string_lossy(),
+        "--topology",
+        &topo_path.to_string_lossy(),
+    ]);
+
+    if let Some(f_val) = forensics_val {
+        let f_path = scratch_dir.join("forensics.json");
+        fs::write(&f_path, serde_json::to_string_pretty(f_val).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+        cmd.args(["--forensics", &f_path.to_string_lossy()]);
+    }
+    if let Some(d_val) = dossier_val {
+        let d_path = scratch_dir.join("dossier.json");
+        fs::write(&d_path, serde_json::to_string_pretty(d_val).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+        cmd.args(["--dossier", &d_path.to_string_lossy()]);
+    }
+
+    let out_path = scratch_dir.join("output.json");
+    cmd.args(["--output", &out_path.to_string_lossy()]);
+    if let Some(db) = db_path {
+        cmd.args(["--db-path", &db.to_string_lossy()]);
+    }
+    cmd.args(["--project-id", project]);
+    if let Some(sess) = session_id {
+        cmd.args(["--session-id", sess]);
+    }
+    if let Some(ep) = epoch {
+        cmd.args(["--epoch", &ep.to_string()]);
+    }
+
+    let output = cmd.output().map_err(|e| format!("Failed to spawn python critic-audit: {e}"))?;
+    if !output.status.success() && !out_path.is_file() {
+        let err_msg = if !output.stderr.is_empty() {
+            String::from_utf8_lossy(&output.stderr).to_string()
+        } else {
+            String::from_utf8_lossy(&output.stdout).to_string()
+        };
+        let _ = fs::remove_dir_all(&scratch_dir);
+        return Err(format!("critic-audit failed: {err_msg}"));
+    }
+
+    let out_str = fs::read_to_string(&out_path).map_err(|e| e.to_string())?;
+    let res: Value = serde_json::from_str(&out_str).map_err(|e| e.to_string())?;
+    let _ = fs::remove_dir_all(&scratch_dir);
+    Ok(res)
+}
+
+/// Execute M1 reflexive loop via `reflexive-orchestrate`.
+pub fn reflexive_orchestrate(root: &Path, spec_payload: &Value) -> Result<Value> {
+    let now = now_ms();
+    let project = spec_payload.get("project_id").and_then(Value::as_str).unwrap_or("default");
+    let scratch_dir = root
+        .join("workflows")
+        .join(project)
+        .join("reflexive_staging")
+        .join(format!("reflx-{now}"));
+    fs::create_dir_all(&scratch_dir).map_err(|e| e.to_string())?;
+
+    let spec_path = scratch_dir.join("spec.json");
+    let out_path = scratch_dir.join("output.json");
+    fs::write(&spec_path, serde_json::to_string_pretty(spec_payload).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+
+    let mut cmd = base_scientific_cmd(root, "reflexive-orchestrate")?;
+    cmd.args([
+        "--spec",
+        &spec_path.to_string_lossy(),
+        "--output",
+        &out_path.to_string_lossy(),
+    ]);
+
+    let output = cmd.output().map_err(|e| format!("Failed to spawn python reflexive-orchestrate: {e}"))?;
+    if !output.status.success() && !out_path.is_file() {
+        let err_msg = if !output.stderr.is_empty() {
+            String::from_utf8_lossy(&output.stderr).to_string()
+        } else {
+            String::from_utf8_lossy(&output.stdout).to_string()
+        };
+        let _ = fs::remove_dir_all(&scratch_dir);
+        return Err(format!("reflexive-orchestrate failed: {err_msg}"));
+    }
+
+    let out_str = fs::read_to_string(&out_path).map_err(|e| e.to_string())?;
+    let res: Value = serde_json::from_str(&out_str).map_err(|e| e.to_string())?;
+    let _ = fs::remove_dir_all(&scratch_dir);
+    Ok(res)
+}
+

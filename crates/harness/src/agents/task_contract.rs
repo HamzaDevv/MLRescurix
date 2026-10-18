@@ -372,6 +372,57 @@ pub fn record_steering_directive(
     Ok(())
 }
 
+/// Versioned Guidance Contract for dynamic turn-boundary steering
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GuidanceContract {
+    pub contract_id: String,
+    pub session_id: String,
+    pub target_task_id: String,
+    pub epoch: u64,
+    pub actor: String,
+    pub directive: String,
+    pub veto_reasons: Vec<String>,
+    pub recommended_actions: Vec<String>,
+    pub created_ms: i64,
+}
+
+impl GuidanceContract {
+    pub fn new(
+        contract_id: impl Into<String>,
+        session_id: impl Into<String>,
+        target_task_id: impl Into<String>,
+        epoch: u64,
+        actor: impl Into<String>,
+        directive: impl Into<String>,
+        veto_reasons: Vec<String>,
+        recommended_actions: Vec<String>,
+    ) -> Self {
+        Self {
+            contract_id: contract_id.into(),
+            session_id: session_id.into(),
+            target_task_id: target_task_id.into(),
+            epoch,
+            actor: actor.into(),
+            directive: directive.into(),
+            veto_reasons,
+            recommended_actions,
+            created_ms: now_ms(),
+        }
+    }
+}
+
+pub fn record_guidance_contract(root: &Path, guidance: &GuidanceContract) -> Result<()> {
+    record_steering_directive(
+        root,
+        &guidance.session_id,
+        &guidance.contract_id,
+        &guidance.target_task_id,
+        &guidance.actor,
+        guidance.epoch,
+        &guidance.directive,
+    )
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SteeringDirectiveRecord {
     pub directive_id: String,

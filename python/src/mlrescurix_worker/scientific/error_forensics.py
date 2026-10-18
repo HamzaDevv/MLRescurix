@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 import uuid
 from dataclasses import asdict, dataclass
@@ -35,15 +36,17 @@ def get_error_forensics_schema() -> Dict[str, Any]:
     """Load and cache contracts/v2/error_forensics.schema.json."""
     global _CACHED_SCHEMA
     if _CACHED_SCHEMA is None:
-        p = SCHEMA_PATH
-        if not p.is_file():
-            # Search parent directories
-            for parent in Path(__file__).resolve().parents:
-                cand = parent / "contracts" / "v2" / "error_forensics.schema.json"
-                if cand.is_file():
-                    p = cand
-                    break
-        if not p.is_file():
+        candidates = [
+            SCHEMA_PATH,
+            Path.cwd() / SCHEMA_PATH,
+        ]
+        if "MLRESCURIX_REPO_ROOT" in os.environ:
+            candidates.append(Path(os.environ["MLRESCURIX_REPO_ROOT"]) / SCHEMA_PATH)
+        for parent in list(Path.cwd().parents) + list(Path(__file__).resolve().parents):
+            candidates.append(parent / SCHEMA_PATH)
+
+        p = next((c for c in candidates if c.is_file()), None)
+        if p is None:
             raise FileNotFoundError(f"error_forensics.schema.json not found at {SCHEMA_PATH}")
         with open(p, "r", encoding="utf-8") as f:
             _CACHED_SCHEMA = json.load(f)

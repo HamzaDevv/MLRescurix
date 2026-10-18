@@ -18,6 +18,7 @@ import json
 import math
 import os
 import shutil
+import tempfile
 import time
 import sqlite3
 import uuid
@@ -58,8 +59,23 @@ from .pipeline import (
 from .workflow import WorkflowError
 
 
-ROOT_DIR = Path(__file__).resolve().parents[4]
-AUTONOMOUS_RESCUE_SCHEMA_PATH = ROOT_DIR / "contracts/v2/autonomous_rescue.schema.json"
+ROOT_DIR = Path(__file__).resolve().parents[4] if len(Path(__file__).resolve().parents) > 4 else Path.cwd()
+
+def _resolve_schema_path(rel_path: str) -> Path:
+    candidates = [
+        Path(rel_path),
+        Path.cwd() / rel_path,
+    ]
+    if "MLRESCURIX_REPO_ROOT" in os.environ:
+        candidates.append(Path(os.environ["MLRESCURIX_REPO_ROOT"]) / rel_path)
+    for parent in list(Path.cwd().parents) + list(Path(__file__).resolve().parents):
+        candidates.append(parent / rel_path)
+    for c in candidates:
+        if c.is_file():
+            return c
+    return ROOT_DIR / rel_path
+
+AUTONOMOUS_RESCUE_SCHEMA_PATH = _resolve_schema_path("contracts/v2/autonomous_rescue.schema.json")
 
 
 class AutonomousRescueError(WorkflowError):
@@ -919,6 +935,35 @@ python3 serve.py --port 8080
 # SQLite Persistence Helpers for Phase 5 Reflexive Loop (user_version = 11)
 # =============================================================================
 
+def _ensure_project_in_db(cur: sqlite3.Cursor, project_id: str) -> None:
+    """Ensure project exists in projects table adhering to schema whether standalone or harness."""
+    cur.execute("PRAGMA table_info(projects)")
+    cols = {r[1] for r in cur.fetchall()}
+    if not cols:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS projects (
+                id TEXT PRIMARY KEY,
+                revision INTEGER DEFAULT 0,
+                spec_revision INTEGER DEFAULT 0,
+                intent_revision INTEGER DEFAULT 0,
+                intent TEXT DEFAULT '',
+                finalization_id TEXT UNIQUE DEFAULT '',
+                state TEXT DEFAULT 'active',
+                policy TEXT DEFAULT '{}'
+            )
+            """
+        )
+        cur.execute("INSERT OR IGNORE INTO projects (id, finalization_id) VALUES (?, ?)", (project_id, f"fin-{project_id}"))
+    elif "name" in cols:
+        cur.execute("INSERT OR IGNORE INTO projects (id, name, created_ms) VALUES (?, ?, ?)", (project_id, project_id, int(time.time() * 1000)))
+    else:
+        cur.execute(
+            "INSERT OR IGNORE INTO projects (id, revision, spec_revision, intent_revision, intent, finalization_id, state, policy) VALUES (?, 0, 0, 0, '', ?, 'active', '{}')",
+            (project_id, f"fin-{project_id}"),
+        )
+
+
 def persist_dataset_topology_contract(
     db_path: Union[str, Path],
     contract: Dict[str, Any],
@@ -929,8 +974,7 @@ def persist_dataset_topology_contract(
     conn = sqlite3.connect(Path(db_path))
     try:
         cur = conn.cursor()
-        cur.execute("CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT, created_ms INTEGER)")
-        cur.execute("INSERT OR IGNORE INTO projects (id, name, created_ms) VALUES (?, ?, ?)", (project_id, project_id, int(time.time() * 1000)))
+        _ensure_project_in_db(cur, project_id)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS dataset_topology_contracts (
                 project TEXT NOT NULL REFERENCES projects(id),
@@ -987,6 +1031,9 @@ def persist_dataset_topology_contract(
         conn.close()
 
 
+lock_dataset_topology_contract = persist_dataset_topology_contract
+
+
 def persist_research_ledger_epoch(
     db_path: Union[str, Path],
     epoch_record: Dict[str, Any],
@@ -1000,8 +1047,7 @@ def persist_research_ledger_epoch(
     conn = sqlite3.connect(Path(db_path))
     try:
         cur = conn.cursor()
-        cur.execute("CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT, created_ms INTEGER)")
-        cur.execute("INSERT OR IGNORE INTO projects (id, name, created_ms) VALUES (?, ?, ?)", (project_id, project_id, int(time.time() * 1000)))
+        _ensure_project_in_db(cur, project_id)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS research_ledger_epochs (
                 project TEXT NOT NULL REFERENCES projects(id),
@@ -1065,8 +1111,7 @@ def persist_feature_ablation(
     conn = sqlite3.connect(Path(db_path))
     try:
         cur = conn.cursor()
-        cur.execute("CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT, created_ms INTEGER)")
-        cur.execute("INSERT OR IGNORE INTO projects (id, name, created_ms) VALUES (?, ?, ?)", (project_id, project_id, int(time.time() * 1000)))
+        _ensure_project_in_db(cur, project_id)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS feature_ablations (
                 project TEXT NOT NULL REFERENCES projects(id),
@@ -1662,6 +1707,9 @@ class AutonomousRescueEngine:
                     error_forensics=base_forensics,
                     evaluated_model_families=["lgbm"],
                     db_path=db_path,
+                    project_id=project_id,
+                    session_id=session_id,
+                    epoch=1,
                 )
                 assert critique.status == "VETO", f"Expected Critic VETO on naive candidate, got {critique.status}"
 
@@ -1839,6 +1887,9 @@ class AutonomousRescueEngine:
                 error_forensics=ensemble_forensics,
                 evaluated_model_families=families,
                 db_path=db_path,
+                project_id=project_id,
+                session_id=session_id,
+                epoch=epoch,
             )
 
             # Record epoch in ledger and state.sqlite

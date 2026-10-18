@@ -378,6 +378,7 @@ impl AgentContextManager {
         // Durably record steering directive
         let directive_id = format!("steer-{}", &hash_str(&format!("{}:{}:{}:{}", self.task_id, self.handoff_version, actor, directive))[..16]);
         let _ = super::task_contract::record_steering_directive(root, &self.project_id, &directive_id, &self.task_id, actor, self.handoff_version as u64, directive);
+        let _ = super::task_contract::mark_steering_directive_applied(root, &self.project_id, &directive_id);
         self.current_steering = Some(directive.to_string());
 
         // Inject steering guidance at turn boundary
