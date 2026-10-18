@@ -295,7 +295,7 @@ Execute implementation in the following order, running `cargo test` and `pytest`
   - *Verification Test:* Feed a column of 100% unique random strings into `NestedOOFEmpiricalBayesEncoder` + `LightGBM`. Assert validation balanced accuracy does NOT collapse to `0.5000` and train-val gap remains $< 0.05$.
 - [x] **Step 4 (Topology-Aware CV, Multi-Paradigm Zoo & Error Forensics):** Implement `model_zoo.py`, `ErrorForensicsAnalyzer`, and upgrade `candidate_runner.py` & `iteration_loop.py` with `StratifiedGroupKFold`, `PurgedTimeSeriesSplit`, and Tier-0 Minimum-Minority Stratified Subsampling.
   - *Verification Test:* Test Tier-0 sampling on a synthetic dataset with $0.1\%$ positive rate ($N = 50,000$). Assert Tier-0 sample ($N = 500$) contains $\ge 25$ positive instances and completes in $< 15\text{s}$.
-- [ ] **Step 5 (M2-Critic, M1 Reflexive Loop & Bundle V2 Parity):** Implement `critic_engine.py`, wire the reflexive loop in `autonomous_rescue.py` and `crates/harness/src/agents/`, and update `verify.rs`.
+- [x] **Step 5 (M2-Critic, M1 Reflexive Loop & Bundle V2 Parity):** Implement `critic_engine.py`, wire the reflexive loop in `autonomous_rescue.py` and `crates/harness/src/agents/`, and update `verify.rs`.
   - *End-to-End Acceptance Test:* Run full autonomous rescue on `titanic.csv`. Assert:
     1. M2-EDA locks `Survived` as target and extracts `Name` honorifics + `Ticket` group features.
     2. If a naive candidate is injected in Epoch 1, `M2-Critic` issues a `VETO` (`CritiqueReceipt`) and M1 self-corrects in Epoch 2.

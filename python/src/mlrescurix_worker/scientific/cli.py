@@ -72,6 +72,15 @@ def main() -> int:
     bench_cmd = commands.add_parser("prospective-benchmark")
     bench_cmd.add_argument("--spec", type=Path, required=True)
     bench_cmd.add_argument("--output", type=Path, required=False)
+    critic_cmd = commands.add_parser("critic-audit")
+    critic_cmd.add_argument("--candidate", type=Path, required=True)
+    critic_cmd.add_argument("--topology", type=Path, required=True)
+    critic_cmd.add_argument("--forensics", type=Path, required=False)
+    critic_cmd.add_argument("--dossier", type=Path, required=False)
+    critic_cmd.add_argument("--output", type=Path, required=False)
+    reflexive_cmd = commands.add_parser("reflexive-orchestrate")
+    reflexive_cmd.add_argument("--spec", type=Path, required=True)
+    reflexive_cmd.add_argument("--output", type=Path, required=False)
     for name in ("fit-trial", "predict-trial"):
         worker = commands.add_parser(name, help=argparse.SUPPRESS)
         worker.add_argument("--spec", type=Path, required=True)
@@ -275,6 +284,45 @@ def main() -> int:
             if args.output:
                 save_benchmark_report(report, args.output)
             result = json.loads(json.dumps(report, default=lambda o: getattr(o, "__dict__", str(o))))
+        elif args.command == "critic-audit":
+            from .critic_engine import critic_audit_candidate
+            cand_data = json.loads(args.candidate.read_text(encoding="utf-8"))
+            topo_data = json.loads(args.topology.read_text(encoding="utf-8"))
+            forensics_data = json.loads(args.forensics.read_text(encoding="utf-8")) if args.forensics and args.forensics.is_file() else None
+            dossier_data = json.loads(args.dossier.read_text(encoding="utf-8")) if args.dossier and args.dossier.is_file() else None
+            critique = critic_audit_candidate(
+                candidate=cand_data,
+                topology=topo_data,
+                error_forensics=forensics_data,
+                eda_dossier=dossier_data,
+            )
+            result = critique.to_dict()
+            if args.output:
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(json.dumps(result, indent=2, sort_keys=True), encoding="utf-8")
+        elif args.command == "reflexive-orchestrate":
+            from .autonomous_rescue import AutonomousRescueEngine
+            spec_data = json.loads(args.spec.read_text(encoding="utf-8"))
+            engine = AutonomousRescueEngine(
+                workspace_root=spec_data.get("workspace_root"),
+                project_id=spec_data.get("project_id", "default"),
+                session_id=spec_data.get("session_id", "session_001"),
+                spec=spec_data,
+            )
+            result = engine.execute_reflexive_loop(
+                dataset_path=spec_data["dataset_path"],
+                target_column=spec_data.get("target_column"),
+                max_epochs=spec_data.get("max_epochs", 2),
+                db_path=spec_data.get("db_path"),
+                inject_naive_first_epoch=spec_data.get("inject_naive_first_epoch", False),
+                bundle_output_dir=spec_data.get("bundle_output_dir"),
+                project_id=spec_data.get("project_id", "default"),
+                session_id=spec_data.get("session_id", "session_001"),
+            )
+            if args.output:
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                clean_result = {k: v for k, v in result.items() if k != "pipeline"}
+                args.output.write_text(json.dumps(clean_result, indent=2, sort_keys=True, default=str), encoding="utf-8")
         elif args.command == "fit-trial":
             result = fit_trial_worker(args.spec, args.output)
         else:
