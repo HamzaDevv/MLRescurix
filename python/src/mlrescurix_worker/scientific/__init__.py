@@ -2,3 +2,5 @@
 
 from .critic_engine import CriticEngine, CritiqueReceipt, critic_audit_candidate
 from .pipeline import FullInferencePipeline
+from .autonomous_loop import AutonomousAgentLoop, ProcessTreeSampler, get_controller_rss_bytes
+

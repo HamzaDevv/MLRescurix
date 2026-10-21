@@ -1,0 +1,107 @@
+{
+  "format": "mlrescurix.bundle.v2",
+  "project_id": "k5_store_sales_campaign",
+  "candidate_id": "base_lgbm",
+  "model": {
+    "weights_path": "frozen_model.joblib",
+    "weights_sha256": "ae9cbad606df847d67d3a891dbd497acab567bc01c5b6c57b8737b3e8848deda",
+    "format": "joblib",
+    "tolerances": {
+      "rtol": 1e-05,
+      "atol": 1e-06
+    },
+    "decision_threshold": 0.5,
+    "calibration_method": "none",
+    "calibration_metrics": {},
+    "reliability_curves": {}
+  },
+  "pipeline": {
+    "feature_pipeline": "inference.py",
+    "entrypoint": "inference.py"
+  },
+  "contracts": {
+    "cli": "python3 inference.py --input <path> --output <path>",
+    "api": "predict(records)",
+    "input_schema": "input_schema.json",
+    "output_schema": "output_schema.json",
+    "model_schema": "model_schema.json"
+  },
+  "dependencies": {
+    "training_lock": "training.lock",
+    "inference_lock": "inference.lock",
+    "isolated_inference": true
+  },
+  "scorecard": {
+    "path": "scorecard.json",
+    "sha256": "ff30653c5341b9c5d28a395c07d06e1cee19bcc3be9caddfd43d239a0193438b"
+  },
+  "lineage": {
+    "path": "scorecard.json",
+    "sha256": "ff30653c5341b9c5d28a395c07d06e1cee19bcc3be9caddfd43d239a0193438b"
+  },
+  "resource_measurements": {
+    "cold_load_ms": 12.0,
+    "warm_p50_ms": 2.1,
+    "warm_p95_ms": 3.8,
+    "peak_rss_kb": 25000,
+    "package_bytes": 10624
+  },
+  "files": {
+    "README.md": {
+      "bytes": 414,
+      "sha256": "40dc0e05625954935515e2239ce56ca7642d08da79fa1fd7eb63e4a3789bb9b1"
+    },
+    "examples_expected.json": {
+      "bytes": 143,
+      "sha256": "483ca75ac7bff92c42f3f8b51a44094357917def904bd6b267d49fffb393a5a9"
+    },
+    "examples_input.json": {
+      "bytes": 1239,
+      "sha256": "5577c26ad519726d928c0ceacf422be60146fe5a46dba503d863b1e227d7b4ab"
+    },
+    "final.json": {
+      "bytes": 204,
+      "sha256": "1f7829cb4f36a1df775ca8d1f9d4de1019afcf21e771084f8e5b4b8ae3e2126b"
+    },
+    "frozen_model.joblib": {
+      "bytes": 889,
+      "sha256": "ae9cbad606df847d67d3a891dbd497acab567bc01c5b6c57b8737b3e8848deda"
+    },
+    "inference.lock": {
+      "bytes": 80,
+      "sha256": "f8435fef33f322805488706d7235382716a3764562cdeaa6d709af1430427cae"
+    },
+    "inference.py": {
+      "bytes": 3816,
+      "sha256": "6126c0a1c84a40776e6f1a6be7bc080e9582dcf94502ec55b5a420c1b55cf1ff"
+    },
+    "input_schema.json": {
+      "bytes": 282,
+      "sha256": "f6659519d1f19a0f0034368ea212d9824342abeff438a572700cc7be33cbaefe"
+    },
+    "model_schema.json": {
+      "bytes": 313,
+      "sha256": "651fd1f1f650dc8b7b58dfdeaa3111cec70b59d156e809d0528da65fa655cbec"
+    },
+    "output_schema.json": {
+      "bytes": 141,
+      "sha256": "52d0a5b52fee1d5d38c9b46d63a7eaf494c2ec765f93db53e07b8782ee91dd03"
+    },
+    "scorecard.json": {
+      "bytes": 605,
+      "sha256": "ff30653c5341b9c5d28a395c07d06e1cee19bcc3be9caddfd43d239a0193438b"
+    },
+    "serve.py": {
+      "bytes": 2094,
+      "sha256": "188a4192d0f3abc0753c9bb929323875da17000be473e92f412f907fdf321b97"
+    },
+    "training.lock": {
+      "bytes": 94,
+      "sha256": "e8cf0440f5989bc36839b88b0f8561e7756eec3ece120757473ff6e099ce3d76"
+    },
+    "verification.json": {
+      "bytes": 310,
+      "sha256": "02e1637a5f3eb033890eb45af0d02202e312faffdd64ae61c96811e3a6b8fc27"
+    }
+  }
+}

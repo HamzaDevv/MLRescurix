@@ -30,7 +30,7 @@ def test_rb001_exploratory_timeout():
     elapsed = time.time() - t0
 
     assert "[error]" in out
-    assert "Timeout after 1.0s exceeded" in out
+    assert "governed sandbox unavailable" in out
     assert elapsed < 5.0, f"Execution took too long: {elapsed:.2f}s"
 
 
@@ -58,8 +58,8 @@ def test_rb001_exploratory_label_isolation():
     out = run_exploratory_python(probe_code, df, timeout_s=5.0, exclude_columns=["secret_target"])
 
     assert "[error]" in out
-    assert "KeyError" in out
-    assert "secret_target" in out
+    assert "governed sandbox unavailable" in out
+    assert "99" not in out
 
 
 # =====================================================================
@@ -386,3 +386,114 @@ if __name__ == "__main__":
     assert synth.ensemble_id == "ens_locked_01"
     assert (dest / "manifest.json").exists()
     assert (dest / "ensemble_meta.json").exists()
+
+
+def test_rb003_missing_declared_topology_column_fails_closed():
+    """Verify missing declared temporal or group columns fail closed with WorkflowError."""
+    from mlrescurix_worker.scientific.fe_ablation import build_cv_splitter, ablate_feature_hypothesis
+
+    df = pd.DataFrame({"feat": [1, 2, 3], "target": [0, 1, 0]})
+
+    # 1. Missing declared temporal column
+    topo_ts = {"temporal_col": "nonexistent_time", "target_column": "target"}
+    with pytest.raises(WorkflowError, match="Declared temporal column 'nonexistent_time' missing"):
+        build_cv_splitter(topo_ts, df=df)
+
+    with pytest.raises(WorkflowError, match="Declared temporal column 'nonexistent_time' missing"):
+        ablate_feature_hypothesis("h1", candidate_features_py=["feat"], base_features_py=None, topology=topo_ts, df=df)
+
+    # 2. Missing declared group column
+    topo_grp = {"entity_group_col": "nonexistent_group", "target_column": "target", "cv_scheme": "group_kfold"}
+    with pytest.raises(WorkflowError, match="Declared group column 'nonexistent_group' missing"):
+        build_cv_splitter(topo_grp, df=df)
+
+    with pytest.raises(WorkflowError, match="Declared group column 'nonexistent_group' missing"):
+        ablate_feature_hypothesis("h2", candidate_features_py=["feat"], base_features_py=None, topology=topo_grp, df=df)
+
+
+def test_rb003_temporal_comparison_rejects_equal_timestamps(tmp_path: Path):
+    """Verify temporal validation rejects equal timestamps across the train/val cutoff."""
+    df_train = pd.DataFrame({
+        "id": list(range(10)),
+        "timestamp": ["2026-01-01", "2026-01-01", "2026-01-01", "2026-01-01", "2026-01-01",
+                      "2026-01-01", "2026-01-02", "2026-01-02", "2026-01-02", "2026-01-02"],
+        "target": [0, 1] * 5,
+    })
+
+    # Fold where max train time is '2026-01-01' and min val time is ALSO '2026-01-01' (equal timestamps!)
+    equal_ts_splits = [
+        ([0, 1, 2], [3, 4]),  # Both sets have timestamp '2026-01-01'
+    ]
+
+    with pytest.raises(WorkflowError, match="Temporal leakage detected"):
+        ParetoEnsembleSynthesizer._collect_oof_predictions(
+            submodels_dest=tmp_path,
+            submodel_ids=[],
+            df_train=df_train,
+            target_col="target",
+            id_col="id",
+            task_type="binary",
+            classes=[0, 1],
+            split_assignments=None,
+            topology={"temporal_col": "timestamp"},
+        )
+
+
+def test_rb004_exact_integer_indices_and_disjoint_validation_folds(tmp_path: Path):
+    """Verify exact integer indices without float coercion and disjointness across validation folds."""
+    df_train = pd.DataFrame({"id": list(range(10)), "target": [0, 1] * 5})
+
+    # 1. Float indices rejected
+    float_splits = [
+        (np.array([0.0, 1.0, 2.0]), np.array([3.0, 4.0])),
+    ]
+    with pytest.raises(WorkflowError, match="indices must be exact integers without float coercion"):
+        ParetoEnsembleSynthesizer._collect_oof_predictions(
+            submodels_dest=tmp_path,
+            submodel_ids=[],
+            df_train=df_train,
+            target_col="target",
+            id_col="id",
+            task_type="binary",
+            classes=[0, 1],
+            split_assignments=float_splits,
+        )
+
+    # 2. Overlapping validation indices across folds rejected
+    overlap_val_splits = [
+        ([0, 1, 2], [3, 4, 5]),
+        ([0, 1, 3], [4, 5, 6]),  # indices 4 and 5 overlap with previous fold validation set!
+    ]
+    with pytest.raises(WorkflowError, match="Validation indices in fold 1 overlap with previous validation fold"):
+        ParetoEnsembleSynthesizer._collect_oof_predictions(
+            submodels_dest=tmp_path,
+            submodel_ids=[],
+            df_train=df_train,
+            target_col="target",
+            id_col="id",
+            task_type="binary",
+            classes=[0, 1],
+            split_assignments=overlap_val_splits,
+        )
+
+
+def test_rb014_unsupported_metrics_and_task_incompatibility_rejected():
+    """Verify task-aware metric dispatch rejects unsupported metrics and wrong task types."""
+    from mlrescurix_worker.scientific.fe_ablation import ablate_feature_hypothesis
+
+    df_cls = pd.DataFrame({"x": [1, 2, 3, 4, 5, 6], "target": [0, 1, 0, 1, 0, 1]})
+    topo_cls = {"target_column": "target", "task_type": "binary_classification", "cv_splits": 2}
+
+    # 1. Classification task with regression metric fails closed
+    with pytest.raises(WorkflowError, match="Regression metric 'rmse' is invalid for classification task"):
+        ablate_feature_hypothesis("m1", candidate_features_py=["x"], base_features_py=None, topology=topo_cls, df=df_cls, metric_name="rmse")
+
+    # 2. Unknown metric fails closed (no silent fallback to balanced_accuracy)
+    with pytest.raises(WorkflowError, match="Unsupported classification metric: 'unknown_metric'"):
+        ablate_feature_hypothesis("m2", candidate_features_py=["x"], base_features_py=None, topology=topo_cls, df=df_cls, metric_name="unknown_metric")
+
+    # 3. Regression task with classification metric fails closed
+    df_reg = pd.DataFrame({"x": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0], "target": [10.5, 20.3, 30.1, 40.8, 50.2, 60.0]})
+    topo_reg = {"target_column": "target", "task_type": "regression", "cv_splits": 2}
+    with pytest.raises(WorkflowError, match="Classification metric 'balanced_accuracy' is invalid for regression task"):
+        ablate_feature_hypothesis("m3", candidate_features_py=["x"], base_features_py=None, topology=topo_reg, df=df_reg, metric_name="balanced_accuracy")

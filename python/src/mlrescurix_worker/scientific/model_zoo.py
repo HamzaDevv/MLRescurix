@@ -427,18 +427,20 @@ def create_estimator(
         if HAS_CATBOOST:
             if is_classification:
                 est = CatBoostClassifier(
-                    iterations=kwargs.get("iterations", 300),
+                    iterations=kwargs.get("iterations", 150),
                     learning_rate=kwargs.get("learning_rate", 0.05),
-                    depth=kwargs.get("depth", 6),
+                    depth=kwargs.get("depth", 5),
+                    l2_leaf_reg=kwargs.get("l2_leaf_reg", 3.0),
                     random_seed=random_state,
                     verbose=0,
                     thread_count=1,
                 )
             else:
                 est = CatBoostRegressor(
-                    iterations=kwargs.get("iterations", 300),
+                    iterations=kwargs.get("iterations", 150),
                     learning_rate=kwargs.get("learning_rate", 0.05),
-                    depth=kwargs.get("depth", 6),
+                    depth=kwargs.get("depth", 5),
+                    l2_leaf_reg=kwargs.get("l2_leaf_reg", 3.0),
                     random_seed=random_state,
                     verbose=0,
                     thread_count=1,
@@ -450,20 +452,30 @@ def create_estimator(
                 effective_family = "lgbm"
                 if is_classification:
                     est = LGBMClassifier(
-                        n_estimators=kwargs.get("n_estimators", 300),
+                        n_estimators=kwargs.get("n_estimators", 100),
                         learning_rate=kwargs.get("learning_rate", 0.05),
+                        max_depth=kwargs.get("max_depth", 5),
+                        min_child_samples=kwargs.get("min_child_samples", 20),
+                        reg_alpha=kwargs.get("reg_alpha", 0.5),
+                        reg_lambda=kwargs.get("reg_lambda", 2.0),
                         colsample_bytree=0.8,
                         subsample=0.8,
+                        subsample_freq=1,
                         random_state=random_state,
                         verbose=-1,
                         n_jobs=1,
                     )
                 else:
                     est = LGBMRegressor(
-                        n_estimators=kwargs.get("n_estimators", 300),
+                        n_estimators=kwargs.get("n_estimators", 100),
                         learning_rate=kwargs.get("learning_rate", 0.05),
+                        max_depth=kwargs.get("max_depth", 5),
+                        min_child_samples=kwargs.get("min_child_samples", 20),
+                        reg_alpha=kwargs.get("reg_alpha", 0.5),
+                        reg_lambda=kwargs.get("reg_lambda", 2.0),
                         colsample_bytree=0.8,
                         subsample=0.8,
+                        subsample_freq=1,
                         random_state=random_state,
                         verbose=-1,
                         n_jobs=1,
@@ -472,14 +484,20 @@ def create_estimator(
                 effective_family = "hist_gbdt"
                 if is_classification:
                     est = HistGradientBoostingClassifier(
-                        max_iter=kwargs.get("max_iter", 300),
+                        max_iter=kwargs.get("max_iter", 100),
                         learning_rate=kwargs.get("learning_rate", 0.05),
+                        max_depth=kwargs.get("max_depth", 5),
+                        min_samples_leaf=kwargs.get("min_samples_leaf", 20),
+                        l2_regularization=kwargs.get("l2_regularization", 2.0),
                         random_state=random_state,
                     )
                 else:
                     est = HistGradientBoostingRegressor(
-                        max_iter=kwargs.get("max_iter", 300),
+                        max_iter=kwargs.get("max_iter", 100),
                         learning_rate=kwargs.get("learning_rate", 0.05),
+                        max_depth=kwargs.get("max_depth", 5),
+                        min_samples_leaf=kwargs.get("min_samples_leaf", 20),
+                        l2_regularization=kwargs.get("l2_regularization", 2.0),
                         random_state=random_state,
                     )
 
@@ -487,20 +505,30 @@ def create_estimator(
         if HAS_LIGHTGBM:
             if is_classification:
                 est = LGBMClassifier(
-                    n_estimators=kwargs.get("n_estimators", 300),
+                    n_estimators=kwargs.get("n_estimators", 100),
                     learning_rate=kwargs.get("learning_rate", 0.05),
+                    max_depth=kwargs.get("max_depth", 5),
+                    min_child_samples=kwargs.get("min_child_samples", 20),
+                    reg_alpha=kwargs.get("reg_alpha", 0.5),
+                    reg_lambda=kwargs.get("reg_lambda", 2.0),
                     colsample_bytree=kwargs.get("colsample_bytree", 0.8),
                     subsample=kwargs.get("subsample", 0.8),
+                    subsample_freq=1,
                     random_state=random_state,
                     verbose=-1,
                     n_jobs=1,
                 )
             else:
                 est = LGBMRegressor(
-                    n_estimators=kwargs.get("n_estimators", 300),
+                    n_estimators=kwargs.get("n_estimators", 100),
                     learning_rate=kwargs.get("learning_rate", 0.05),
+                    max_depth=kwargs.get("max_depth", 5),
+                    min_child_samples=kwargs.get("min_child_samples", 20),
+                    reg_alpha=kwargs.get("reg_alpha", 0.5),
+                    reg_lambda=kwargs.get("reg_lambda", 2.0),
                     colsample_bytree=kwargs.get("colsample_bytree", 0.8),
                     subsample=kwargs.get("subsample", 0.8),
+                    subsample_freq=1,
                     random_state=random_state,
                     verbose=-1,
                     n_jobs=1,
@@ -511,14 +539,20 @@ def create_estimator(
             logger.info("LightGBM not installed; falling back to HistGBDT.")
             if is_classification:
                 est = HistGradientBoostingClassifier(
-                    max_iter=kwargs.get("max_iter", 300),
+                    max_iter=kwargs.get("max_iter", 100),
                     learning_rate=kwargs.get("learning_rate", 0.05),
+                    max_depth=kwargs.get("max_depth", 5),
+                    min_samples_leaf=kwargs.get("min_samples_leaf", 20),
+                    l2_regularization=kwargs.get("l2_regularization", 2.0),
                     random_state=random_state,
                 )
             else:
                 est = HistGradientBoostingRegressor(
-                    max_iter=kwargs.get("max_iter", 300),
+                    max_iter=kwargs.get("max_iter", 100),
                     learning_rate=kwargs.get("learning_rate", 0.05),
+                    max_depth=kwargs.get("max_depth", 5),
+                    min_samples_leaf=kwargs.get("min_samples_leaf", 20),
+                    l2_regularization=kwargs.get("l2_regularization", 2.0),
                     random_state=random_state,
                 )
 
@@ -526,26 +560,26 @@ def create_estimator(
         if HAS_XGBOOST:
             if is_classification:
                 est = XGBClassifier(
-                    n_estimators=kwargs.get("n_estimators", 300),
+                    n_estimators=kwargs.get("n_estimators", 150),
                     learning_rate=kwargs.get("learning_rate", 0.05),
-                    max_depth=kwargs.get("max_depth", 6),
+                    max_depth=kwargs.get("max_depth", 5),
                     subsample=kwargs.get("subsample", 0.8),
                     colsample_bytree=kwargs.get("colsample_bytree", 0.8),
-                    reg_alpha=kwargs.get("reg_alpha", 0.1),
-                    reg_lambda=kwargs.get("reg_lambda", 1.0),
+                    reg_alpha=kwargs.get("reg_alpha", 0.5),
+                    reg_lambda=kwargs.get("reg_lambda", 2.0),
                     random_state=random_state,
                     n_jobs=1,
                     eval_metric="logloss",
                 )
             else:
                 est = XGBRegressor(
-                    n_estimators=kwargs.get("n_estimators", 300),
+                    n_estimators=kwargs.get("n_estimators", 150),
                     learning_rate=kwargs.get("learning_rate", 0.05),
-                    max_depth=kwargs.get("max_depth", 6),
+                    max_depth=kwargs.get("max_depth", 5),
                     subsample=kwargs.get("subsample", 0.8),
                     colsample_bytree=kwargs.get("colsample_bytree", 0.8),
-                    reg_alpha=kwargs.get("reg_alpha", 0.1),
-                    reg_lambda=kwargs.get("reg_lambda", 1.0),
+                    reg_alpha=kwargs.get("reg_alpha", 0.5),
+                    reg_lambda=kwargs.get("reg_lambda", 2.0),
                     random_state=random_state,
                     n_jobs=1,
                     eval_metric="rmse",
@@ -557,20 +591,30 @@ def create_estimator(
                 effective_family = "lgbm"
                 if is_classification:
                     est = LGBMClassifier(
-                        n_estimators=kwargs.get("n_estimators", 300),
+                        n_estimators=kwargs.get("n_estimators", 100),
                         learning_rate=kwargs.get("learning_rate", 0.05),
+                        max_depth=kwargs.get("max_depth", 5),
+                        min_child_samples=kwargs.get("min_child_samples", 20),
+                        reg_alpha=kwargs.get("reg_alpha", 0.5),
+                        reg_lambda=kwargs.get("reg_lambda", 2.0),
                         colsample_bytree=0.8,
                         subsample=0.8,
+                        subsample_freq=1,
                         random_state=random_state,
                         verbose=-1,
                         n_jobs=1,
                     )
                 else:
                     est = LGBMRegressor(
-                        n_estimators=kwargs.get("n_estimators", 300),
+                        n_estimators=kwargs.get("n_estimators", 100),
                         learning_rate=kwargs.get("learning_rate", 0.05),
+                        max_depth=kwargs.get("max_depth", 5),
+                        min_child_samples=kwargs.get("min_child_samples", 20),
+                        reg_alpha=kwargs.get("reg_alpha", 0.5),
+                        reg_lambda=kwargs.get("reg_lambda", 2.0),
                         colsample_bytree=0.8,
                         subsample=0.8,
+                        subsample_freq=1,
                         random_state=random_state,
                         verbose=-1,
                         n_jobs=1,
@@ -579,28 +623,40 @@ def create_estimator(
                 effective_family = "hist_gbdt"
                 if is_classification:
                     est = HistGradientBoostingClassifier(
-                        max_iter=kwargs.get("max_iter", 300),
+                        max_iter=kwargs.get("max_iter", 100),
                         learning_rate=kwargs.get("learning_rate", 0.05),
+                        max_depth=kwargs.get("max_depth", 5),
+                        min_samples_leaf=kwargs.get("min_samples_leaf", 20),
+                        l2_regularization=kwargs.get("l2_regularization", 2.0),
                         random_state=random_state,
                     )
                 else:
                     est = HistGradientBoostingRegressor(
-                        max_iter=kwargs.get("max_iter", 300),
+                        max_iter=kwargs.get("max_iter", 100),
                         learning_rate=kwargs.get("learning_rate", 0.05),
+                        max_depth=kwargs.get("max_depth", 5),
+                        min_samples_leaf=kwargs.get("min_samples_leaf", 20),
+                        l2_regularization=kwargs.get("l2_regularization", 2.0),
                         random_state=random_state,
                     )
 
     elif canonical_family == "hist_gbdt":
         if is_classification:
             est = HistGradientBoostingClassifier(
-                max_iter=kwargs.get("max_iter", 300),
+                max_iter=kwargs.get("max_iter", 100),
                 learning_rate=kwargs.get("learning_rate", 0.05),
+                max_depth=kwargs.get("max_depth", 5),
+                min_samples_leaf=kwargs.get("min_samples_leaf", 20),
+                l2_regularization=kwargs.get("l2_regularization", 2.0),
                 random_state=random_state,
             )
         else:
             est = HistGradientBoostingRegressor(
-                max_iter=kwargs.get("max_iter", 300),
+                max_iter=kwargs.get("max_iter", 100),
                 learning_rate=kwargs.get("learning_rate", 0.05),
+                max_depth=kwargs.get("max_depth", 5),
+                min_samples_leaf=kwargs.get("min_samples_leaf", 20),
+                l2_regularization=kwargs.get("l2_regularization", 2.0),
                 random_state=random_state,
             )
 
@@ -617,7 +673,8 @@ def create_estimator(
                     solver="saga",
                     l1_ratio=l1_ratio,
                     C=c_param,
-                    max_iter=1000,
+                    max_iter=2000,
+                    tol=1e-3,
                     random_state=random_state,
                 )
             elif penalty == "l1":
@@ -625,18 +682,20 @@ def create_estimator(
                     penalty="l1",
                     solver="saga",
                     C=c_param,
-                    max_iter=1000,
+                    max_iter=2000,
+                    tol=1e-3,
                     random_state=random_state,
                 )
             else:
                 linear_model = LogisticRegression(
                     C=c_param,
-                    max_iter=1000,
+                    max_iter=2000,
+                    tol=1e-3,
                     random_state=random_state,
                 )
         else:
             if penalty == "elasticnet":
-                linear_model = ElasticNet(alpha=alpha, l1_ratio=l1_ratio, random_state=random_state)
+                linear_model = ElasticNet(alpha=alpha, l1_ratio=l1_ratio, random_state=random_state, max_iter=2000, tol=1e-3)
             else:
                 linear_model = Ridge(alpha=alpha, random_state=random_state)
 
@@ -759,6 +818,23 @@ def extract_feature_importances(estimator: Any, n_features: int) -> np.ndarray:
     return np.ones(n_features, dtype=float) / max(1, n_features)
 
 
+class PredefinedSplitter:
+    """Predefined CV splitter wrapping locked (train_idx, val_idx) fold splits."""
+
+    def __init__(self, splits: Sequence[Tuple[Sequence[int], Sequence[int]]]):
+        self.splits = [
+            (np.asarray(tr, dtype=int), np.asarray(val, dtype=int))
+            for tr, val in splits
+        ]
+
+    def split(self, X=None, y=None, groups=None):
+        for tr, val in self.splits:
+            yield tr, val
+
+    def get_n_splits(self, X=None, y=None, groups=None) -> int:
+        return len(self.splits)
+
+
 def evaluate_model_oof(
     estimator_or_family: Union[str, BaseEstimator],
     X: Union[pd.DataFrame, np.ndarray],
@@ -768,6 +844,10 @@ def evaluate_model_oof(
     groups: Optional[Any] = None,
     random_state: int = 42,
     feature_names: Optional[List[str]] = None,
+    metric_name: Optional[str] = None,
+    metric_direction: Optional[str] = None,
+    log_target: bool = False,
+    preprocessor: Optional[Any] = None,
     **estimator_kwargs: Any,
 ) -> ModelOofResult:
     """Train estimator across locked CV folds, generating certified OOF predictions and metrics.
@@ -776,17 +856,26 @@ def evaluate_model_oof(
         estimator_or_family: Estimator instance or family name string ('lgbm', 'catboost', etc.).
         X: Feature matrix (DataFrame or 2D array).
         y: Target series or array.
-        cv_splitter: Cross-validation splitter object with `.split(X, y, groups)`.
+        cv_splitter: Cross-validation splitter object with `.split(X, y, groups)` or sequence of splits.
         task_type: 'binary_classification', 'multiclass_classification', or 'regression'.
         groups: Optional group array for group-aware splitters.
         random_state: Random state for repeatability.
         feature_names: Optional explicit list of feature names.
+        metric_name: Task evaluation metric ('balanced_accuracy', 'accuracy', 'rmse', 'rmse_log_price', 'r2', 'mae').
+        metric_direction: 'maximize' or 'minimize'.
+        log_target: Whether the target represents or was trained on log scale.
+        preprocessor: Optional fold-local preprocessor (fit strictly on train fold, transform val fold).
         **estimator_kwargs: Extra keyword args passed to `create_estimator`.
 
     Returns:
         ModelOofResult with complete OOF predictions, probabilities, and fold-level metrics.
     """
     is_classification = "classification" in task_type or task_type in ("binary", "multiclass")
+    resolved_metric = metric_name or ("balanced_accuracy" if is_classification else "r2")
+    if metric_direction is not None:
+        resolved_direction = metric_direction
+    else:
+        resolved_direction = "minimize" if resolved_metric in ("rmse", "rmse_log_price", "rmsle", "mae", "loss") else "maximize"
 
     if isinstance(estimator_or_family, str):
         base_estimator = create_estimator(
@@ -827,13 +916,18 @@ def evaluate_model_oof(
         oof_probabilities = None
 
     # Resolve splits
-    try:
-        splits = list(cv_splitter.split(X_df, y_arr, groups=groups))
-    except TypeError:
+    if hasattr(cv_splitter, "split"):
         try:
-            splits = list(cv_splitter.split(X_df, y_arr))
+            splits = list(cv_splitter.split(X_df, y_arr, groups=groups))
         except TypeError:
-            splits = list(cv_splitter.split(X_df))
+            try:
+                splits = list(cv_splitter.split(X_df, y_arr))
+            except TypeError:
+                splits = list(cv_splitter.split(X_df))
+    elif isinstance(cv_splitter, (list, tuple)):
+        splits = list(cv_splitter)
+    else:
+        raise ValueError(f"CV splitter type not supported: {type(cv_splitter)}")
 
     if not splits:
         raise ValueError("CV splitter generated 0 splits.")
@@ -850,8 +944,19 @@ def evaluate_model_oof(
         X_v = X_df.iloc[val_idx]
         y_v = y_arr[val_idx]
 
+        if preprocessor is not None:
+            fold_prep = copy.deepcopy(preprocessor)
+            X_tr_fit = fold_prep.fit_transform(X_tr, y_tr)
+            X_v_fit = fold_prep.transform(X_v)
+            if hasattr(fold_prep, "feature_names_out_") and fold_prep.feature_names_out_:
+                n_features = len(fold_prep.feature_names_out_)
+                actual_feature_names = list(fold_prep.feature_names_out_)
+        else:
+            X_tr_fit = X_tr
+            X_v_fit = X_v
+
         # Fit in-fold
-        est.fit(X_tr, y_tr)
+        est.fit(X_tr_fit, y_tr)
         fitted_estimators.append(est)
 
         # Collect feature importances
@@ -860,11 +965,11 @@ def evaluate_model_oof(
 
         # Evaluate validation
         if is_classification:
-            pred_val = est.predict(X_v)
+            pred_val = est.predict(X_v_fit)
             oof_predictions[val_idx] = pred_val
 
             if hasattr(est, "predict_proba"):
-                prob_val = est.predict_proba(X_v)
+                prob_val = est.predict_proba(X_v_fit)
                 if prob_val.shape[1] == len(classes):
                     oof_probabilities[val_idx] = prob_val
                 elif prob_val.shape[1] > len(classes):
@@ -872,27 +977,61 @@ def evaluate_model_oof(
                 else:
                     oof_probabilities[val_idx, :prob_val.shape[1]] = prob_val
 
-            pred_tr = est.predict(X_tr)
-            train_score = float(balanced_accuracy_score(y_tr, pred_tr))
-            val_score = float(balanced_accuracy_score(y_v, pred_val))
+            pred_tr = est.predict(X_tr_fit)
+            if resolved_metric == "accuracy":
+                from sklearn.metrics import accuracy_score
+                train_score = float(accuracy_score(y_tr, pred_tr))
+                val_score = float(accuracy_score(y_v, pred_val))
+            elif resolved_metric == "roc_auc":
+                from sklearn.metrics import roc_auc_score
+                prob_tr = est.predict_proba(X_tr_fit)[:, 1] if hasattr(est, "predict_proba") else pred_tr
+                prob_val = est.predict_proba(X_v_fit)[:, 1] if hasattr(est, "predict_proba") else pred_val
+                train_score = float(roc_auc_score(y_tr, prob_tr))
+                val_score = float(roc_auc_score(y_v, prob_val))
+            else:
+                train_score = float(balanced_accuracy_score(y_tr, pred_tr))
+                val_score = float(balanced_accuracy_score(y_v, pred_val))
         else:
-            pred_val = est.predict(X_v).flatten()
+            pred_val = est.predict(X_v_fit).flatten()
             oof_predictions[val_idx] = pred_val
 
-            pred_tr = est.predict(X_tr).flatten()
-            train_score = float(r2_score(y_tr, pred_tr))
-            val_score = float(r2_score(y_v, pred_val))
+            pred_tr = est.predict(X_tr_fit).flatten()
+            if resolved_metric in ("rmse", "rmse_log_price", "rmsle"):
+                if log_target:
+                    train_score = float(np.sqrt(np.mean((y_tr - pred_tr) ** 2)))
+                    val_score = float(np.sqrt(np.mean((y_v - pred_val) ** 2)))
+                else:
+                    train_score = float(np.sqrt(np.mean((np.log1p(np.maximum(0, y_tr)) - np.log1p(np.maximum(0, pred_tr))) ** 2)))
+                    val_score = float(np.sqrt(np.mean((np.log1p(np.maximum(0, y_v)) - np.log1p(np.maximum(0, pred_val))) ** 2)))
+            elif resolved_metric == "mae":
+                from sklearn.metrics import mean_absolute_error
+                train_score = float(mean_absolute_error(y_tr, pred_tr))
+                val_score = float(mean_absolute_error(y_v, pred_val))
+            else:
+                train_score = float(r2_score(y_tr, pred_tr))
+                val_score = float(r2_score(y_v, pred_val))
 
         train_scores.append(train_score)
         val_scores.append(val_score)
 
     mean_train = float(np.mean(train_scores))
     mean_val = float(np.mean(val_scores))
-    train_val_gap = float(mean_train - mean_val)
+    if resolved_direction == "minimize":
+        train_val_gap = float(mean_val - mean_train)
+    else:
+        train_val_gap = float(mean_train - mean_val)
 
-    # Average feature importances across folds
-    mean_importances = np.mean(fold_importances, axis=0) if fold_importances else np.ones(n_features) / n_features
-    total_imp = np.sum(mean_importances)
+    # Average feature importances across folds safely
+    if fold_importances and all(len(imp) == len(fold_importances[0]) for imp in fold_importances):
+        mean_importances = np.mean(fold_importances, axis=0)
+    elif fold_importances:
+        max_len = max(len(imp) for imp in fold_importances)
+        padded = [np.pad(imp, (0, max_len - len(imp))) for imp in fold_importances]
+        mean_importances = np.mean(padded, axis=0)
+    else:
+        mean_importances = np.ones(n_features) / max(1, n_features)
+
+    total_imp = float(np.sum(mean_importances))
     if total_imp > 0:
         mean_importances = mean_importances / total_imp
 
@@ -923,6 +1062,10 @@ def train_and_diagnose_portfolio(
     groups: Optional[Any] = None,
     random_state: int = 42,
     feature_names: Optional[List[str]] = None,
+    metric_name: Optional[str] = None,
+    metric_direction: Optional[str] = None,
+    log_target: bool = False,
+    preprocessor: Optional[Any] = None,
 ) -> Dict[str, ModelOofResult]:
     """Train multiple model families across locked CV folds, returning a portfolio of OOF results."""
     results: Dict[str, ModelOofResult] = {}
@@ -936,6 +1079,10 @@ def train_and_diagnose_portfolio(
             groups=groups,
             random_state=random_state,
             feature_names=feature_names,
+            metric_name=metric_name,
+            metric_direction=metric_direction,
+            log_target=log_target,
+            preprocessor=preprocessor,
         )
         results[fam] = res
     return results

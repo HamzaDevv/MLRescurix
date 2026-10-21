@@ -1,0 +1,9 @@
+{
+  "status": "verified_development_only",
+  "candidate_id": "base_hist_gbdt",
+  "test_metrics": {
+    "rmse": 1049.277474623472
+  },
+  "test_access_id": "test-gate-run_20261021_200725",
+  "bundle": "bundle"
+}

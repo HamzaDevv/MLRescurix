@@ -1,0 +1,77 @@
+{
+  "schema_version": "v2",
+  "actions": [
+    {
+      "action_id": "act_0_1792605569",
+      "status": "confirmed",
+      "action": "ADD_MNAR_INDICATOR",
+      "parent_candidate_id": "cand_t0",
+      "split_id": "cv_5fold_locked",
+      "paired_metric_delta": 0.00419,
+      "relative_gain": 0.006158956946098103,
+      "versioned_transform_lineage": [
+        {
+          "action": "ADD_MNAR_INDICATOR",
+          "parameters": {
+            "columns": [
+              "Cabin",
+              "Age"
+            ]
+          },
+          "applied_at": 1792605569614
+        }
+      ],
+      "fitted_fold_references": [
+        "fold_0",
+        "fold_1",
+        "fold_2",
+        "fold_3",
+        "fold_4"
+      ],
+      "resource_measurements": {
+        "elapsed_seconds": 0.747417688369751,
+        "peak_rss_kb": 368295936,
+        "total_folds": 5
+      },
+      "message": "Action settled as 'confirmed' (benefit=0.00419, relative_gain=0.6159%)",
+      "payload_hash": "f522a548a8b726815ef6a4bfe966a3f990ae0e1d12437c5d13ec4f9b17f48471",
+      "created_at_ms": 1792605570361
+    },
+    {
+      "action_id": "act_1_1792605574",
+      "status": "confirmed",
+      "action": "ADD_MNAR_INDICATOR",
+      "parent_candidate_id": "cand_t1",
+      "split_id": "cv_5fold_locked",
+      "paired_metric_delta": 0.00419,
+      "relative_gain": 0.006158956946098103,
+      "versioned_transform_lineage": [
+        {
+          "action": "ADD_MNAR_INDICATOR",
+          "parameters": {
+            "columns": [
+              "Cabin",
+              "Age"
+            ]
+          },
+          "applied_at": 1792605574498
+        }
+      ],
+      "fitted_fold_references": [
+        "fold_0",
+        "fold_1",
+        "fold_2",
+        "fold_3",
+        "fold_4"
+      ],
+      "resource_measurements": {
+        "elapsed_seconds": 0.7385311126708984,
+        "peak_rss_kb": 368427008,
+        "total_folds": 5
+      },
+      "message": "Action settled as 'confirmed' (benefit=0.00419, relative_gain=0.6159%)",
+      "payload_hash": "5a698505b482142355b27a481d8ac7c5d465e9409b958a016221e33fbdd36d68",
+      "created_at_ms": 1792605575237
+    }
+  ]
+}

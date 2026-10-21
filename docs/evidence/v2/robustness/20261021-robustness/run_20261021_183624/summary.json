@@ -1,0 +1,31 @@
+{
+  "campaign": "20261021-robustness",
+  "run_id": "run_20261021_183624",
+  "started_at": "2026-10-21T13:06:24.660408+00:00",
+  "updated_at": "2026-10-21T13:06:54.150824+00:00",
+  "status": "passed",
+  "git": {
+    "commit": "653a8ee6ac1b8ad2e463aa1c9e38e49f1fd35124",
+    "is_dirty": true,
+    "dirty_diff_sha256": "4ca5e6e3abc603ad592b93dfe36f0201576c5a2f7ab44aa6c0ecc92e3b297eb2"
+  },
+  "gates": {
+    "G_LIVE_DEV": {
+      "outcome": "passed",
+      "details": {
+        "status": "passed",
+        "task": "K2 House Prices",
+        "metric": "rmse_log_price",
+        "best_cv_score": 0.14559260071975635,
+        "holdout_accesses": 0,
+        "bundle_verified": true,
+        "provider_cost_usd": 0.00070202,
+        "duration_s": 29.421872854232788
+      }
+    }
+  },
+  "budget_spent_usd": 0.00070202,
+  "holdout_accesses": 0,
+  "budget_reserved_usd": 0.0,
+  "budget_uncertain_usd": 0.0
+}

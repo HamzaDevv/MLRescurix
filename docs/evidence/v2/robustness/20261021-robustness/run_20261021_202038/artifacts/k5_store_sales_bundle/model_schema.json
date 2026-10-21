@@ -1,0 +1,21 @@
+{
+  "format": "mlrescurix.schema.v2",
+  "task": "regression",
+  "model_type": "Ridge",
+  "features": [
+    "store_nbr",
+    "onpromotion",
+    "dow_idx",
+    "dom_idx",
+    "is_weekend",
+    "hist_sf_log",
+    "hist_sfd_log",
+    "cluster",
+    "dcoilwtico"
+  ],
+  "classes": null,
+  "decision_threshold": 0.5,
+  "calibration_method": "none",
+  "calibration_metrics": {},
+  "reliability_curves": {}
+}

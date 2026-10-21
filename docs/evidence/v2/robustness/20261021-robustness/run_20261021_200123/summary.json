@@ -1,0 +1,31 @@
+{
+  "campaign": "20261021-robustness",
+  "run_id": "run_20261021_200123",
+  "started_at": "2026-10-21T14:31:23.438544+00:00",
+  "updated_at": "2026-10-21T14:36:31.880921+00:00",
+  "status": "failed",
+  "git": {
+    "commit": "653a8ee6ac1b8ad2e463aa1c9e38e49f1fd35124",
+    "is_dirty": true,
+    "dirty_diff_sha256": "f28284886399ead3e922ce67dfc266dee690fe92dbad1664aa7899f5814ff451"
+  },
+  "gates": {
+    "G_LIVE_DEV": {
+      "outcome": "failed",
+      "details": {
+        "status": "failed",
+        "task": "K5 Store Sales Forecasting",
+        "metric": "rmsle",
+        "best_cv_score": 2.3171675385412245,
+        "holdout_accesses": 0,
+        "bundle_verified": true,
+        "provider_cost_usd": 0.00087326,
+        "duration_s": 308.3888556957245
+      }
+    }
+  },
+  "budget_spent_usd": 0.00087326,
+  "holdout_accesses": 0,
+  "budget_reserved_usd": 0.0,
+  "budget_uncertain_usd": 0.0
+}

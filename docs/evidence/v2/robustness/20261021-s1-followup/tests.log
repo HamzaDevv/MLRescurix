@@ -1,0 +1,37 @@
+/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/pytest_asyncio/plugin.py:208: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the fixture caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to function scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+........................................................................ [ 96%]
+...                                                                      [100%]
+=============================== warnings summary ===============================
+tests/test_s1_followup_guards.py::test_preflight_does_not_certify_presence_and_preserves_spend
+  /Users/hamza/Developer/Imp_Projects/MLRescurix/scripts/run_robustness_campaign.py:179: DeprecationWarning: Accessing jsonschema.__version__ is deprecated and will be removed in a future release. Use importlib.metadata directly to query for jsonschema's version.
+    packages[pkg] = getattr(mod, "__version__", "present")
+
+tests/test_p14_primitives_and_ablation.py::test_nested_oof_eb_encoder_unique_strings_memorization_prevention
+  /Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/joblib/externals/loky/backend/context.py:131: UserWarning: Could not find the number of physical cores for the following reason:
+  invalid literal for int() with base 10: ''
+  Returning the number of logical cores instead. You can silence this warning by setting LOKY_MAX_CPU_COUNT to the number of cores you want to use.
+    warnings.warn(
+
+tests/test_p16_critic_and_reflexive_loop.py::test_full_inference_pipeline_raw_records_and_parity
+tests/test_p16_critic_and_reflexive_loop.py::test_zero_skew_bundle_packaging
+tests/test_p16_critic_and_reflexive_loop.py::test_titanic_end_to_end_reflexive_loop
+tests/test_p16_critic_and_reflexive_loop.py::test_titanic_end_to_end_reflexive_loop
+tests/test_p16_critic_and_reflexive_loop.py::test_titanic_end_to_end_reflexive_loop
+tests/test_p16_critic_and_reflexive_loop.py::test_titanic_end_to_end_reflexive_loop
+tests/test_p16_critic_and_reflexive_loop.py::test_titanic_end_to_end_reflexive_loop
+tests/test_p16_critic_and_reflexive_loop.py::test_titanic_end_to_end_reflexive_loop
+  /Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/sklearn/linear_model/_logistic.py:406: ConvergenceWarning: lbfgs failed to converge after 1000 iteration(s) (status=1):
+  STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT
+  
+  Increase the number of iterations to improve the convergence (max_iter=1000).
+  You might also want to scale the data as shown in:
+      https://scikit-learn.org/stable/modules/preprocessing.html
+  Please also refer to the documentation for alternative solver options:
+      https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression
+    n_iter_i = _check_optimize_result(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+75 passed, 10 warnings in 40.81s

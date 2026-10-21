@@ -1,0 +1,327 @@
+{
+  "session_id": "run_20261021_231504",
+  "project_id": "k2_house_prices_robustness",
+  "target_column": "SalePrice",
+  "task_type": "regression",
+  "metric_name": "rmse_log_price",
+  "metric_direction": "minimize",
+  "turns_completed": 3,
+  "stop_reason": "max_turns_reached",
+  "accepted_candidate_id": null,
+  "best_cv_score": null,
+  "turns": [
+    {
+      "turn_index": 0,
+      "proposed_action": {
+        "thought_rationale": "Baseline linear model is stable but likely misses nonlinearity and missingness structure. Apply skew transforms to heavy-tailed numeric features and add MNAR indicators for structural missing categoricals before evaluating tree/linear portfolios.",
+        "action_type": "HYPOTHESIS_TRANSFORM",
+        "parameters": {
+          "transforms": [
+            {
+              "type": "APPLY_SKEW_TRANSFORM",
+              "columns": [
+                "LotArea",
+                "MasVnrArea",
+                "BsmtFinSF1",
+                "GrLivArea",
+                "TotalBsmtSF",
+                "1stFlrSF",
+                "2ndFlrSF",
+                "LotFrontage"
+              ]
+            },
+            {
+              "type": "ADD_MNAR_INDICATOR",
+              "columns": [
+                "LotFrontage",
+                "MasVnrType",
+                "MasVnrArea",
+                "BsmtQual",
+                "FireplaceQu",
+                "GarageType",
+                "GarageYrBlt",
+                "PoolQC",
+                "Fence",
+                "MiscFeature",
+                "Alley"
+              ]
+            }
+          ]
+        }
+      },
+      "disposition": "rejected",
+      "error_msg": "Action payload schema validation failed: None is not of type 'string'",
+      "measurements": {
+        "error": "Action payload schema validation failed: None is not of type 'string'"
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "worker_peak_rss_bytes": 374341632,
+        "controller_peak_rss_bytes": 377946112,
+        "avg_cpu_percent": 0.0,
+        "duration_seconds": 4.6796629428863525,
+        "cgroup_enforced": false,
+        "containment_status": "uncontained_host_process"
+      },
+      "provider_cost_usd": 0.00049566,
+      "evidence_used_for_next_turn": {
+        "action": "HYPOTHESIS_TRANSFORM",
+        "disposition": "rejected",
+        "measurements": {
+          "error": "Action payload schema validation failed: None is not of type 'string'"
+        },
+        "critic_disposition": null
+      }
+    },
+    {
+      "turn_index": 1,
+      "proposed_action": {
+        "thought_rationale": "Baseline linear CV is established; prior transform was rejected. Next best step is to evaluate diverse model families to find stronger nonlinear candidates before blending/audit.",
+        "action_type": "EVALUATE_PORTFOLIO",
+        "parameters": {
+          "model_families": [
+            "hist_gbdt",
+            "lgbm",
+            "penalized_linear"
+          ],
+          "cv_folds": 5,
+          "metric": "rmse_log_price",
+          "target_transform": "log1p",
+          "include_baseline": true
+        }
+      },
+      "disposition": "applied",
+      "error_msg": null,
+      "measurements": {
+        "portfolio": {
+          "hist_gbdt": {
+            "cv_score": 0.047281724832193325,
+            "train_score": 0.04094436733100267,
+            "gap": 0.006337357501190653
+          },
+          "penalized_linear": {
+            "cv_score": 0.0016103654601367424,
+            "train_score": 0.001404372199599842,
+            "gap": 0.00020599326053690045
+          }
+        }
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "worker_peak_rss_bytes": 375963648,
+        "controller_peak_rss_bytes": 377946112,
+        "avg_cpu_percent": 0.0,
+        "duration_seconds": 5.023548126220703,
+        "cgroup_enforced": false,
+        "containment_status": "uncontained_host_process"
+      },
+      "provider_cost_usd": 0.000342608,
+      "evidence_used_for_next_turn": {
+        "action": "EVALUATE_PORTFOLIO",
+        "disposition": "applied",
+        "measurements": {
+          "portfolio": {
+            "hist_gbdt": {
+              "cv_score": 0.047281724832193325,
+              "train_score": 0.04094436733100267,
+              "gap": 0.006337357501190653
+            },
+            "penalized_linear": {
+              "cv_score": 0.0016103654601367424,
+              "train_score": 0.001404372199599842,
+              "gap": 0.00020599326053690045
+            }
+          }
+        },
+        "critic_disposition": null
+      }
+    },
+    {
+      "turn_index": 2,
+      "proposed_action": {
+        "thought_rationale": "Turn 3 of 3; portfolio evaluation was applied but no CV score or Critic approval is available. Best remaining governed step is to blend evaluated model families and submit for Critic audit before any finalization.",
+        "action_type": "BLEND_AND_AUDIT",
+        "parameters": {
+          "blend_method": "weighted_average",
+          "model_families": [
+            "hist_gbdt",
+            "lgbm",
+            "penalized_linear"
+          ],
+          "audit_target": "rmse_log_price",
+          "require_critic_approval": true
+        }
+      },
+      "disposition": "applied",
+      "error_msg": null,
+      "measurements": {
+        "cv_score": 0.994034399414023,
+        "train_score": 0.02117436976530126,
+        "train_val_gap": 0.9728600296487218,
+        "critic_status": "VETO",
+        "blocking_flaws": [
+          "Target memorization veto: Train-val generalization gap 0.9729 exceeds threshold 0.12 (train 0.0212 vs val 0.9940)."
+        ]
+      },
+      "critic_result": {
+        "schema_version": "v2",
+        "critique_id": "critique_cand_turn_2_ep1_b9db9b97",
+        "candidate_id": "cand_turn_2",
+        "epoch": 1,
+        "status": "VETO",
+        "blocking_flaws": [
+          "Target memorization veto: Train-val generalization gap 0.9729 exceeds threshold 0.12 (train 0.0212 vs val 0.9940)."
+        ],
+        "soft_warnings": [],
+        "audit_checks": {
+          "target_memorization": {
+            "passed": false,
+            "train_metric": 0.02117436976530126,
+            "val_metric": 0.994034399414023,
+            "gap": 0.97286,
+            "max_allowed_gap": 0.12,
+            "dominant_feature": null,
+            "dominant_gain_ratio": null
+          },
+          "unexploited_signals": {
+            "passed": true,
+            "dropped_signals": [],
+            "details": null
+          },
+          "model_diversity": {
+            "passed": true,
+            "distinct_families_evaluated": 2,
+            "families": [
+              "hist_gbdt",
+              "penalized_linear"
+            ],
+            "min_required": 2
+          },
+          "topology_and_imbalance": {
+            "passed": true,
+            "cv_scheme_used": "5-fold stratified",
+            "required_cv_scheme": "5-fold stratified",
+            "score_floor_met": true,
+            "score": 0.994034
+          }
+        },
+        "error_slice_hypotheses": [],
+        "reviewer_notes": "Candidate VETOED due to 1 blocking flaw(s).",
+        "timestamp_ms": 1792604718792
+      },
+      "resource_observability": {
+        "worker_peak_rss_bytes": 376356864,
+        "controller_peak_rss_bytes": 377946112,
+        "avg_cpu_percent": 0.0,
+        "duration_seconds": 3.068826198577881,
+        "cgroup_enforced": false,
+        "containment_status": "uncontained_host_process"
+      },
+      "provider_cost_usd": 0.00039468,
+      "evidence_used_for_next_turn": {
+        "action": "BLEND_AND_AUDIT",
+        "disposition": "applied",
+        "measurements": {
+          "cv_score": 0.994034399414023,
+          "train_score": 0.02117436976530126,
+          "train_val_gap": 0.9728600296487218,
+          "critic_status": "VETO",
+          "blocking_flaws": [
+            "Target memorization veto: Train-val generalization gap 0.9729 exceeds threshold 0.12 (train 0.0212 vs val 0.9940)."
+          ]
+        },
+        "critic_disposition": "VETO"
+      }
+    }
+  ],
+  "current_active_features": [
+    "Id",
+    "MSSubClass",
+    "MSZoning",
+    "LotFrontage",
+    "LotArea",
+    "Street",
+    "Alley",
+    "LotShape",
+    "LandContour",
+    "Utilities",
+    "LotConfig",
+    "LandSlope",
+    "Neighborhood",
+    "Condition1",
+    "Condition2",
+    "BldgType",
+    "HouseStyle",
+    "OverallQual",
+    "OverallCond",
+    "YearBuilt",
+    "YearRemodAdd",
+    "RoofStyle",
+    "RoofMatl",
+    "Exterior1st",
+    "Exterior2nd",
+    "MasVnrType",
+    "MasVnrArea",
+    "ExterQual",
+    "ExterCond",
+    "Foundation",
+    "BsmtQual",
+    "BsmtCond",
+    "BsmtExposure",
+    "BsmtFinType1",
+    "BsmtFinSF1",
+    "BsmtFinType2",
+    "BsmtFinSF2",
+    "BsmtUnfSF",
+    "TotalBsmtSF",
+    "Heating",
+    "HeatingQC",
+    "CentralAir",
+    "Electrical",
+    "1stFlrSF",
+    "2ndFlrSF",
+    "LowQualFinSF",
+    "GrLivArea",
+    "BsmtFullBath",
+    "BsmtHalfBath",
+    "FullBath",
+    "HalfBath",
+    "BedroomAbvGr",
+    "KitchenAbvGr",
+    "KitchenQual",
+    "TotRmsAbvGrd",
+    "Functional",
+    "Fireplaces",
+    "FireplaceQu",
+    "GarageType",
+    "GarageYrBlt",
+    "GarageFinish",
+    "GarageCars",
+    "GarageArea",
+    "GarageQual",
+    "GarageCond",
+    "PavedDrive",
+    "WoodDeckSF",
+    "OpenPorchSF",
+    "EnclosedPorch",
+    "3SsnPorch",
+    "ScreenPorch",
+    "PoolArea",
+    "PoolQC",
+    "Fence",
+    "MiscFeature",
+    "MiscVal",
+    "MoSold",
+    "YrSold",
+    "SaleType",
+    "SaleCondition",
+    "SalePrice"
+  ],
+  "current_active_families": [
+    "hist_gbdt",
+    "penalized_linear"
+  ],
+  "bundle_verified": false,
+  "containment_status": "uncontained_host_process",
+  "holdout_accesses": 0
+}

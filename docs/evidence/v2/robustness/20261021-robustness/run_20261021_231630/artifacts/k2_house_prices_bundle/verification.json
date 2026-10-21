@@ -1,0 +1,7 @@
+{
+  "frozen_model_sha256": "d0293da1be8a2f1ce9dd796028375fa335634e6a963440c4f2db20ba45071698",
+  "bundle_candidate": "cand_apex_k2",
+  "dataset_sha256": "5a6939bfe164aef9cce059c74d1d3726808a0ef8b18ef5d8dd87dcfd5b14074c",
+  "test_access_id": "gate_run_20261021_231630",
+  "raw_input_api": "predict(records)"
+}

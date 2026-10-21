@@ -1,0 +1,120 @@
+{
+  "schema_version": "v2",
+  "actions": [
+    {
+      "action_id": "act_0_1792605493",
+      "status": "confirmed",
+      "action": "DELETE_FEATURE",
+      "parent_candidate_id": "cand_t0",
+      "split_id": "cv_5fold_locked",
+      "paired_metric_delta": 0.01526,
+      "relative_gain": 0.0224309505960518,
+      "versioned_transform_lineage": [
+        {
+          "action": "DELETE_FEATURE",
+          "parameters": {
+            "columns": [
+              "PassengerId",
+              "Name",
+              "Ticket"
+            ],
+            "reason": "unique or near-unique identifiers can leak target information and inflate CV"
+          },
+          "applied_at": 1792605493280
+        }
+      ],
+      "fitted_fold_references": [
+        "fold_0",
+        "fold_1",
+        "fold_2",
+        "fold_3",
+        "fold_4"
+      ],
+      "resource_measurements": {
+        "elapsed_seconds": 0.28446292877197266,
+        "peak_rss_kb": 365969408,
+        "total_folds": 5
+      },
+      "message": "Action settled as 'confirmed' (benefit=0.01526, relative_gain=2.2431%)",
+      "payload_hash": "b45bc4b1e98350654737b71a89fcd25419f7fc60efd877044daed9e43ccd4126",
+      "created_at_ms": 1792605493565
+    },
+    {
+      "action_id": "act_1_1792605501",
+      "status": "confirmed",
+      "action": "DELETE_FEATURE",
+      "parent_candidate_id": "cand_t1",
+      "split_id": "cv_5fold_locked",
+      "paired_metric_delta": 0.01526,
+      "relative_gain": 0.0224309505960518,
+      "versioned_transform_lineage": [
+        {
+          "action": "DELETE_FEATURE",
+          "parameters": {
+            "columns": [
+              "PassengerId",
+              "Name",
+              "Ticket",
+              "Cabin"
+            ],
+            "reason": "unique or high-cardinality identifiers risk target leakage and overfitting"
+          },
+          "applied_at": 1792605501219
+        }
+      ],
+      "fitted_fold_references": [
+        "fold_0",
+        "fold_1",
+        "fold_2",
+        "fold_3",
+        "fold_4"
+      ],
+      "resource_measurements": {
+        "elapsed_seconds": 0.28688788414001465,
+        "peak_rss_kb": 366051328,
+        "total_folds": 5
+      },
+      "message": "Action settled as 'confirmed' (benefit=0.01526, relative_gain=2.2431%)",
+      "payload_hash": "bf022c33cbadfa87e9a6d831f285c23ea95ba43ec08be31a18acacf7a7187409",
+      "created_at_ms": 1792605501505
+    },
+    {
+      "action_id": "act_2_1792605509",
+      "status": "confirmed",
+      "action": "DELETE_FEATURE",
+      "parent_candidate_id": "cand_t2",
+      "split_id": "cv_5fold_locked",
+      "paired_metric_delta": 0.01526,
+      "relative_gain": 0.0224309505960518,
+      "versioned_transform_lineage": [
+        {
+          "action": "DELETE_FEATURE",
+          "parameters": {
+            "columns": [
+              "PassengerId",
+              "Name",
+              "Ticket"
+            ],
+            "reason": "unique identifiers leak target and cause perfect CV"
+          },
+          "applied_at": 1792605509602
+        }
+      ],
+      "fitted_fold_references": [
+        "fold_0",
+        "fold_1",
+        "fold_2",
+        "fold_3",
+        "fold_4"
+      ],
+      "resource_measurements": {
+        "elapsed_seconds": 0.28085803985595703,
+        "peak_rss_kb": 366051328,
+        "total_folds": 5
+      },
+      "message": "Action settled as 'confirmed' (benefit=0.01526, relative_gain=2.2431%)",
+      "payload_hash": "b5f77ec0c8a1c0509dc1debf9985317f6eb26ffe53cd471f49b342678ec6e56e",
+      "created_at_ms": 1792605509882
+    }
+  ]
+}

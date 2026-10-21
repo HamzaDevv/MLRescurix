@@ -1,0 +1,4 @@
+{"timestamp": "2026-10-21T11:35:42.770084+00:00", "event": "live_dev_start", "action": "checking_live_prerequisites"}
+{"timestamp": "2026-10-21T11:35:42.770364+00:00", "event": "preflight_start", "action": "evaluating_prerequisites"}
+{"timestamp": "2026-10-21T11:35:44.216867+00:00", "event": "preflight_completed", "duration_s": 1.433495044708252, "blocked_gates": ["G5_KAGGLE_OFFICIAL_DATA", "G6_PROVIDER_GATEWAY"]}
+{"timestamp": "2026-10-21T11:35:44.217568+00:00", "event": "live_dev_blocked", "status": "blocked", "reason": "Live dev blocked by unfulfilled prerequisites: ['G5_KAGGLE_OFFICIAL_DATA', 'G6_PROVIDER_GATEWAY']", "blocked_gates": ["G5_KAGGLE_OFFICIAL_DATA", "G6_PROVIDER_GATEWAY"]}

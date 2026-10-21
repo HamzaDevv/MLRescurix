@@ -1,0 +1,165 @@
+{
+  "session_id": "run_20261021_232806",
+  "project_id": "k1_titanic_robustness",
+  "target_column": "Survived",
+  "task_type": "binary_classification",
+  "metric_name": "balanced_accuracy",
+  "metric_direction": "maximize",
+  "turns_completed": 3,
+  "stop_reason": "max_turns_reached",
+  "accepted_candidate_id": null,
+  "best_cv_score": null,
+  "turns": [
+    {
+      "turn_index": 0,
+      "proposed_action": {
+        "thought_rationale": "Baseline CV of 1.0 is implausible and indicates identifier leakage. Remove unique/high-cardinality identifiers before further modeling; keep Cabin for possible deck signal.",
+        "action_type": "HYPOTHESIS_TRANSFORM",
+        "parameters": {
+          "action": "DELETE_FEATURE",
+          "columns": [
+            "PassengerId",
+            "Name",
+            "Ticket"
+          ],
+          "reason": "unique or near-unique identifiers can leak target information and inflate CV"
+        }
+      },
+      "disposition": "applied",
+      "error_msg": null,
+      "measurements": {
+        "action_status": "confirmed",
+        "relative_gain": 0.0224309505960518,
+        "paired_metric_delta": 0.01526
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "worker_peak_rss_bytes": 365969408,
+        "controller_peak_rss_bytes": 365969408,
+        "avg_cpu_percent": 0.0,
+        "duration_seconds": 4.879533767700195,
+        "cgroup_enforced": false,
+        "containment_status": "uncontained_host_process"
+      },
+      "provider_cost_usd": 0.00028076,
+      "evidence_used_for_next_turn": {
+        "action": "HYPOTHESIS_TRANSFORM",
+        "disposition": "applied",
+        "measurements": {
+          "action_status": "confirmed",
+          "relative_gain": 0.0224309505960518,
+          "paired_metric_delta": 0.01526
+        },
+        "critic_disposition": null
+      }
+    },
+    {
+      "turn_index": 1,
+      "proposed_action": {
+        "thought_rationale": "Baseline CV of 1.0 is implausible and suggests leakage from unique/high-cardinality identifiers. Remove PassengerId, Name, Ticket, and Cabin to force generalizable features before re-evaluating.",
+        "action_type": "HYPOTHESIS_TRANSFORM",
+        "parameters": {
+          "action": "DELETE_FEATURE",
+          "columns": [
+            "PassengerId",
+            "Name",
+            "Ticket",
+            "Cabin"
+          ],
+          "reason": "unique or high-cardinality identifiers risk target leakage and overfitting"
+        }
+      },
+      "disposition": "applied",
+      "error_msg": null,
+      "measurements": {
+        "action_status": "confirmed",
+        "relative_gain": 0.0224309505960518,
+        "paired_metric_delta": 0.01526
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "worker_peak_rss_bytes": 366051328,
+        "controller_peak_rss_bytes": 366051328,
+        "avg_cpu_percent": 0.0,
+        "duration_seconds": 7.940699100494385,
+        "cgroup_enforced": false,
+        "containment_status": "uncontained_host_process"
+      },
+      "provider_cost_usd": 0.00059714,
+      "evidence_used_for_next_turn": {
+        "action": "HYPOTHESIS_TRANSFORM",
+        "disposition": "applied",
+        "measurements": {
+          "action_status": "confirmed",
+          "relative_gain": 0.0224309505960518,
+          "paired_metric_delta": 0.01526
+        },
+        "critic_disposition": null
+      }
+    },
+    {
+      "turn_index": 2,
+      "proposed_action": {
+        "thought_rationale": "Baseline CV=1.0 is implausible and indicates leakage from unique identifiers. Remove PassengerId, Name, and Ticket before any further modeling or audit.",
+        "action_type": "HYPOTHESIS_TRANSFORM",
+        "parameters": {
+          "action": "DELETE_FEATURE",
+          "columns": [
+            "PassengerId",
+            "Name",
+            "Ticket"
+          ],
+          "reason": "unique identifiers leak target and cause perfect CV"
+        }
+      },
+      "disposition": "applied",
+      "error_msg": null,
+      "measurements": {
+        "action_status": "confirmed",
+        "relative_gain": 0.0224309505960518,
+        "paired_metric_delta": 0.01526
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "worker_peak_rss_bytes": 366051328,
+        "controller_peak_rss_bytes": 366051328,
+        "avg_cpu_percent": 0.0,
+        "duration_seconds": 8.376407623291016,
+        "cgroup_enforced": false,
+        "containment_status": "uncontained_host_process"
+      },
+      "provider_cost_usd": 0.000492928,
+      "evidence_used_for_next_turn": {
+        "action": "HYPOTHESIS_TRANSFORM",
+        "disposition": "applied",
+        "measurements": {
+          "action_status": "confirmed",
+          "relative_gain": 0.0224309505960518,
+          "paired_metric_delta": 0.01526
+        },
+        "critic_disposition": null
+      }
+    }
+  ],
+  "current_active_features": [
+    "PassengerId",
+    "Survived",
+    "Pclass",
+    "Name",
+    "Sex",
+    "Age",
+    "SibSp",
+    "Parch",
+    "Ticket",
+    "Fare",
+    "Cabin",
+    "Embarked"
+  ],
+  "current_active_families": [
+    "hist_gbdt",
+    "penalized_linear"
+  ],
+  "bundle_verified": false,
+  "containment_status": "uncontained_host_process",
+  "holdout_accesses": 0
+}

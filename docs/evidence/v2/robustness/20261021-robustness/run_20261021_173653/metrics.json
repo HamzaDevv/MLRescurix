@@ -1,0 +1,11 @@
+{
+  "task_id": "K1",
+  "dataset": "titanic",
+  "development_rows": 713,
+  "holdout_rows": 178,
+  "best_cv_score": 0.8243112834048169,
+  "holdout_accuracy": 0.7471910112359551,
+  "holdout_balanced_accuracy": 0.7422135706340378,
+  "bundle_verified": true,
+  "elapsed_seconds": 21.017865896224976
+}

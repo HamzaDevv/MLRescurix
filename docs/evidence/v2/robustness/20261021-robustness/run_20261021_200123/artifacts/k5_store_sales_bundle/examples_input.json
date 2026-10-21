@@ -1,0 +1,67 @@
+[
+  {
+    "id": 2865456,
+    "date": "2017-06-01",
+    "store_nbr": 1,
+    "family": "AUTOMOTIVE",
+    "sales": 6.0,
+    "onpromotion": 0,
+    "city": "Quito",
+    "state": "Pichincha",
+    "type": "D",
+    "cluster": 13,
+    "dcoilwtico": 48.32
+  },
+  {
+    "id": 2865457,
+    "date": "2017-06-01",
+    "store_nbr": 1,
+    "family": "BABY CARE",
+    "sales": 0.0,
+    "onpromotion": 0,
+    "city": "Quito",
+    "state": "Pichincha",
+    "type": "D",
+    "cluster": 13,
+    "dcoilwtico": 48.32
+  },
+  {
+    "id": 2865458,
+    "date": "2017-06-01",
+    "store_nbr": 1,
+    "family": "BEAUTY",
+    "sales": 1.0,
+    "onpromotion": 0,
+    "city": "Quito",
+    "state": "Pichincha",
+    "type": "D",
+    "cluster": 13,
+    "dcoilwtico": 48.32
+  },
+  {
+    "id": 2865459,
+    "date": "2017-06-01",
+    "store_nbr": 1,
+    "family": "BEVERAGES",
+    "sales": 2250.0,
+    "onpromotion": 9,
+    "city": "Quito",
+    "state": "Pichincha",
+    "type": "D",
+    "cluster": 13,
+    "dcoilwtico": 48.32
+  },
+  {
+    "id": 2865460,
+    "date": "2017-06-01",
+    "store_nbr": 1,
+    "family": "BOOKS",
+    "sales": 3.0,
+    "onpromotion": 0,
+    "city": "Quito",
+    "state": "Pichincha",
+    "type": "D",
+    "cluster": 13,
+    "dcoilwtico": 48.32
+  }
+]

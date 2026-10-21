@@ -1,0 +1,15 @@
+{
+  "format": "mlrescurix.schema.v2",
+  "task": "multiclass_classification",
+  "prediction_type": "integer",
+  "classes": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "decision_threshold": 0.5
+}

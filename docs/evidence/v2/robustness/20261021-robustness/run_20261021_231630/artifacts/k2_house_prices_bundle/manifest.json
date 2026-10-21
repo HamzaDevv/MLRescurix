@@ -1,0 +1,107 @@
+{
+  "format": "mlrescurix.bundle.v2",
+  "project_id": "k2_house_prices_robustness",
+  "candidate_id": "cand_apex_k2",
+  "model": {
+    "weights_path": "frozen_model.joblib",
+    "weights_sha256": "d0293da1be8a2f1ce9dd796028375fa335634e6a963440c4f2db20ba45071698",
+    "format": "joblib",
+    "tolerances": {
+      "rtol": 1e-05,
+      "atol": 1e-06
+    },
+    "decision_threshold": 0.5,
+    "calibration_method": "none",
+    "calibration_metrics": {},
+    "reliability_curves": {}
+  },
+  "pipeline": {
+    "feature_pipeline": "inference.py",
+    "entrypoint": "inference.py"
+  },
+  "contracts": {
+    "cli": "python3 inference.py --input <path> --output <path>",
+    "api": "predict(records)",
+    "input_schema": "input_schema.json",
+    "output_schema": "output_schema.json",
+    "model_schema": "model_schema.json"
+  },
+  "dependencies": {
+    "training_lock": "training.lock",
+    "inference_lock": "inference.lock",
+    "isolated_inference": true
+  },
+  "scorecard": {
+    "path": "scorecard.json",
+    "sha256": "9933b605bdfcba7190017c04b457a5603c7ec3e3b4232d42f0d6512cdd6cb414"
+  },
+  "lineage": {
+    "path": "scorecard.json",
+    "sha256": "9933b605bdfcba7190017c04b457a5603c7ec3e3b4232d42f0d6512cdd6cb414"
+  },
+  "resource_measurements": {
+    "cold_load_ms": 12.0,
+    "warm_p50_ms": 2.1,
+    "warm_p95_ms": 3.8,
+    "peak_rss_kb": 25000,
+    "package_bytes": 434447
+  },
+  "files": {
+    "README.md": {
+      "bytes": 416,
+      "sha256": "c41cc5acd32f32f3808309551cb1668040ca26672cbb9e5d849740b94cd3722f"
+    },
+    "examples_expected.json": {
+      "bytes": 515,
+      "sha256": "1a76027f134154ece43f3da22fc163f89600948202ba61efe2c586a8bc6f6c10"
+    },
+    "examples_input.json": {
+      "bytes": 9570,
+      "sha256": "2bf9da575cac6aa23276a2099d4c2335671ff5efb55b133e13d0e9700b592cb7"
+    },
+    "final.json": {
+      "bytes": 203,
+      "sha256": "cd26b46c6d1c52072426db3d3c01b98737b38d0d530d26cb44111de51a6f306b"
+    },
+    "frozen_model.joblib": {
+      "bytes": 411187,
+      "sha256": "d0293da1be8a2f1ce9dd796028375fa335634e6a963440c4f2db20ba45071698"
+    },
+    "inference.lock": {
+      "bytes": 80,
+      "sha256": "f8435fef33f322805488706d7235382716a3764562cdeaa6d709af1430427cae"
+    },
+    "inference.py": {
+      "bytes": 3819,
+      "sha256": "c9db23b7d0f6cb28fc7cd4e6e47363b9ae53e72d954a645e4e8844d3806bd40a"
+    },
+    "input_schema.json": {
+      "bytes": 3747,
+      "sha256": "aed1f7159d93bf2b46b8d18073e7777fbee3db45a2c466a5de8a2b5ec3f2b3ff"
+    },
+    "model_schema.json": {
+      "bytes": 1665,
+      "sha256": "702a23fbf23191da4a984c3e0081124169bb63ecd6f438dc844ce589431ebf97"
+    },
+    "output_schema.json": {
+      "bytes": 141,
+      "sha256": "52d0a5b52fee1d5d38c9b46d63a7eaf494c2ec765f93db53e07b8782ee91dd03"
+    },
+    "scorecard.json": {
+      "bytes": 608,
+      "sha256": "9933b605bdfcba7190017c04b457a5603c7ec3e3b4232d42f0d6512cdd6cb414"
+    },
+    "serve.py": {
+      "bytes": 2094,
+      "sha256": "188a4192d0f3abc0753c9bb929323875da17000be473e92f412f907fdf321b97"
+    },
+    "training.lock": {
+      "bytes": 94,
+      "sha256": "e8cf0440f5989bc36839b88b0f8561e7756eec3ece120757473ff6e099ce3d76"
+    },
+    "verification.json": {
+      "bytes": 308,
+      "sha256": "fe7fe583df3060a4dd003bc16307ba7af72a16dbc5802df7dcaeac012d68762c"
+    }
+  }
+}

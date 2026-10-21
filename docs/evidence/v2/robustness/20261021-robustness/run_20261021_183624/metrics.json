@@ -1,0 +1,13 @@
+{
+  "task_id": "K2",
+  "dataset": "house_prices",
+  "development_rows": 1168,
+  "holdout_rows_sealed": 292,
+  "holdout_accesses": 0,
+  "metric_name": "rmse_log_price",
+  "metric_direction": "minimize",
+  "best_cv_score": 0.14559260071975635,
+  "holdout_score": null,
+  "bundle_verified": true,
+  "elapsed_seconds": 29.421872854232788
+}

@@ -1,0 +1,4 @@
+{"timestamp": "2026-10-21T11:35:49.985103+00:00", "event": "certify_start", "action": "evaluating_certification_gates"}
+{"timestamp": "2026-10-21T11:35:49.985399+00:00", "event": "preflight_start", "action": "evaluating_prerequisites"}
+{"timestamp": "2026-10-21T11:35:51.395833+00:00", "event": "preflight_completed", "duration_s": 1.399280309677124, "blocked_gates": ["G5_KAGGLE_OFFICIAL_DATA", "G6_PROVIDER_GATEWAY"]}
+{"timestamp": "2026-10-21T11:35:51.396509+00:00", "event": "certify_rejected", "status": "blocked", "reason": "Certification rejected: blocked gates ['G5_KAGGLE_OFFICIAL_DATA', 'G6_PROVIDER_GATEWAY']", "blocked_gates": ["G5_KAGGLE_OFFICIAL_DATA", "G6_PROVIDER_GATEWAY"], "failed_gates": []}

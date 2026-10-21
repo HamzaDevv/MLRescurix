@@ -1,0 +1,3 @@
+{"timestamp": "2026-10-21T17:58:06.981045+00:00", "event": "live_dev_start", "action": "evaluating_live_prerequisites"}
+{"timestamp": "2026-10-21T17:58:30.306630+00:00", "event": "holdout_protected", "task": "K1", "holdout_rows": 178, "access_count": 0, "status": "sealed"}
+{"timestamp": "2026-10-21T17:58:30.310785+00:00", "event": "live_dev_completed", "status": "failed", "task": "K1 Titanic", "best_cv_score": 0.0, "holdout_accesses": 0, "bundle_verified": true, "provider_cost_usd": 0.001370828, "duration_s": 23.325318098068237, "worker_peak_rss_bytes": 358629376, "controller_peak_rss_bytes": 366051328, "containment_status": "uncontained_host_process"}

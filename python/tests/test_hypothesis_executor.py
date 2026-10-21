@@ -269,3 +269,110 @@ def build_features(df, y=None):
     )
     assert receipt.action_id == "act_custom_code"
     assert receipt.status in ("confirmed", "refuted", "inconclusive")
+
+
+def test_authoritative_state_binding_enforcement(sample_df, topology):
+    from mlrescurix_worker.scientific.hypothesis_executor import (
+        ActionExecutionError,
+        AuthoritativeStateBinding,
+    )
+
+    binding = AuthoritativeStateBinding(
+        project_id="test_proj",
+        active_split_id="auth_split_01",
+        active_topology_hash="auth_topo_hash_01",
+        active_budget_id="auth_budget_01",
+        candidate_source_hashes={"cand_01": "expected_source_hash_999"},
+        remaining_budget_usd=0.05,
+    )
+    dispatcher = HypothesisActionDispatcher(state_binding=binding)
+
+    base_payload = {
+        "schema_version": "v2",
+        "action_id": "act_skew_num1",
+        "parent_candidate_id": "cand_01",
+        "source_hash": "expected_source_hash_999",
+        "split_id": "auth_split_01",
+        "topology_hash": "auth_topo_hash_01",
+        "seed": 2026,
+        "action": "APPLY_SKEW_TRANSFORM",
+        "parameters": {"columns": ["num1"], "method": "yeo_johnson"},
+        "budget_id": "auth_budget_01",
+        "rationale_ref": "reduce_skew",
+    }
+
+    # 1. Valid payload matching authoritative state passes validation
+    dispatcher.validate_action_payload(base_payload)
+
+    # 2. Split mismatch fails closed
+    p_bad_split = dict(base_payload, split_id="wrong_split")
+    with pytest.raises(ActionExecutionError, match="Authoritative split binding mismatch"):
+        dispatcher.validate_action_payload(p_bad_split)
+
+    # 3. Topology hash mismatch fails closed
+    p_bad_topo = dict(base_payload, topology_hash="wrong_topo")
+    with pytest.raises(ActionExecutionError, match="Authoritative topology binding mismatch"):
+        dispatcher.validate_action_payload(p_bad_topo)
+
+    # 4. Budget ID mismatch fails closed
+    p_bad_budget = dict(base_payload, budget_id="wrong_budget")
+    with pytest.raises(ActionExecutionError, match="Authoritative budget binding mismatch"):
+        dispatcher.validate_action_payload(p_bad_budget)
+
+    # 5. Candidate source hash mismatch fails closed
+    p_bad_cand_hash = dict(base_payload, source_hash="tampered_hash_000")
+    with pytest.raises(ActionExecutionError, match="Authoritative candidate source hash mismatch"):
+        dispatcher.validate_action_payload(p_bad_cand_hash)
+
+    # 6. Unknown candidate ID fails closed
+    p_unknown_cand = dict(base_payload, parent_candidate_id="unknown_cand_99")
+    with pytest.raises(ActionExecutionError, match="parent_candidate_id 'unknown_cand_99' not found"):
+        dispatcher.validate_action_payload(p_unknown_cand)
+
+    # 7. Exhausted budget fails closed
+    exhausted_binding = AuthoritativeStateBinding(
+        project_id="test_proj",
+        active_split_id="auth_split_01",
+        active_topology_hash="auth_topo_hash_01",
+        active_budget_id="auth_budget_01",
+        candidate_source_hashes={"cand_01": "expected_source_hash_999"},
+        remaining_budget_usd=0.0,
+    )
+    exhausted_dispatcher = HypothesisActionDispatcher(state_binding=exhausted_binding)
+    with pytest.raises(ActionExecutionError, match="is exhausted"):
+        exhausted_dispatcher.validate_action_payload(base_payload)
+
+
+def test_concurrent_ledger_conflict_detection(tmp_path):
+    from mlrescurix_worker.scientific.hypothesis_executor import (
+        HypothesisActionReceipt,
+        IdempotencyConflictError,
+    )
+
+    ledger = tmp_path / "ledger.json"
+    disp1 = HypothesisActionDispatcher(ledger)
+    disp2 = HypothesisActionDispatcher(ledger)
+
+    r1 = HypothesisActionReceipt(
+        action_id="act_shared",
+        status="confirmed",
+        action="APPLY_SKEW_TRANSFORM",
+        parent_candidate_id="c1",
+        split_id="s1",
+        payload_hash="hash_AAA",
+    )
+    disp1.idempotency_cache["act_shared"] = ("hash_AAA", r1)
+    disp1._save_ledger()
+
+    # Disp2 tries to save conflicting payload with same action_id
+    r2 = HypothesisActionReceipt(
+        action_id="act_shared",
+        status="confirmed",
+        action="APPLY_SKEW_TRANSFORM",
+        parent_candidate_id="c1",
+        split_id="s1",
+        payload_hash="hash_BBB",
+    )
+    disp2.idempotency_cache["act_shared"] = ("hash_BBB", r2)
+    with pytest.raises(IdempotencyConflictError, match="Concurrent conflicting action"):
+        disp2._save_ledger()

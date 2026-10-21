@@ -1,0 +1,9 @@
+{
+  "status": "verified_development_only",
+  "candidate_id": "cand_ensemble_ep2",
+  "test_metrics": {
+    "balanced_accuracy": 1.0
+  },
+  "test_access_id": "test-gate-run_20261021_172942",
+  "bundle": "bundle"
+}

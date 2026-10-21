@@ -1,0 +1,209 @@
+{
+  "session_id": "run_20261021_232923",
+  "project_id": "k1_titanic_robustness",
+  "target_column": "Survived",
+  "task_type": "binary_classification",
+  "metric_name": "balanced_accuracy",
+  "metric_direction": "maximize",
+  "turns_completed": 3,
+  "stop_reason": "max_turns_reached",
+  "accepted_candidate_id": "cand_turn_2",
+  "best_cv_score": 0.6966801385681294,
+  "turns": [
+    {
+      "turn_index": 0,
+      "proposed_action": {
+        "thought_rationale": "Missingness is substantial for Cabin and Age and may carry predictive signal. Add MNAR indicators before model evaluation to capture non-random missingness without leakage.",
+        "action_type": "HYPOTHESIS_TRANSFORM",
+        "parameters": {
+          "action": "ADD_MNAR_INDICATOR",
+          "columns": [
+            "Cabin",
+            "Age"
+          ]
+        }
+      },
+      "disposition": "applied",
+      "error_msg": null,
+      "measurements": {
+        "action_status": "confirmed",
+        "relative_gain": 0.006158956946098103,
+        "paired_metric_delta": 0.00419
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "worker_peak_rss_bytes": 368295936,
+        "controller_peak_rss_bytes": 368295936,
+        "avg_cpu_percent": 0.0,
+        "duration_seconds": 4.592351913452148,
+        "cgroup_enforced": false,
+        "containment_status": "uncontained_host_process"
+      },
+      "provider_cost_usd": 0.00023586,
+      "evidence_used_for_next_turn": {
+        "action": "HYPOTHESIS_TRANSFORM",
+        "disposition": "applied",
+        "measurements": {
+          "action_status": "confirmed",
+          "relative_gain": 0.006158956946098103,
+          "paired_metric_delta": 0.00419
+        },
+        "critic_disposition": null
+      }
+    },
+    {
+      "turn_index": 1,
+      "proposed_action": {
+        "thought_rationale": "Missingness in Cabin (77%) and Age (20%) is likely informative. Adding MNAR indicators is a safe, leakage-free transform that can improve linear and tree models before portfolio evaluation.",
+        "action_type": "HYPOTHESIS_TRANSFORM",
+        "parameters": {
+          "action": "ADD_MNAR_INDICATOR",
+          "columns": [
+            "Cabin",
+            "Age"
+          ]
+        }
+      },
+      "disposition": "applied",
+      "error_msg": null,
+      "measurements": {
+        "action_status": "confirmed",
+        "relative_gain": 0.006158956946098103,
+        "paired_metric_delta": 0.00419
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "worker_peak_rss_bytes": 368427008,
+        "controller_peak_rss_bytes": 368427008,
+        "avg_cpu_percent": 0.0,
+        "duration_seconds": 4.8755152225494385,
+        "cgroup_enforced": false,
+        "containment_status": "uncontained_host_process"
+      },
+      "provider_cost_usd": 0.00034424,
+      "evidence_used_for_next_turn": {
+        "action": "HYPOTHESIS_TRANSFORM",
+        "disposition": "applied",
+        "measurements": {
+          "action_status": "confirmed",
+          "relative_gain": 0.006158956946098103,
+          "paired_metric_delta": 0.00419
+        },
+        "critic_disposition": null
+      }
+    },
+    {
+      "turn_index": 2,
+      "proposed_action": {
+        "thought_rationale": "Final turn; prior transforms applied but no CV scores. Best executable step is to blend diverse model families and submit to Critic audit for validation before stopping.",
+        "action_type": "BLEND_AND_AUDIT",
+        "parameters": {
+          "model_families": [
+            "hist_gbdt",
+            "lgbm",
+            "penalized_linear"
+          ],
+          "blend_strategy": "weighted_soft_vote",
+          "audit": true
+        }
+      },
+      "disposition": "applied",
+      "error_msg": null,
+      "measurements": {
+        "cv_score": 0.6966801385681294,
+        "critic_r2_cv": null,
+        "train_score": 0.7404146898902095,
+        "train_val_gap": 0.04373455132208015,
+        "critic_status": "APPROVED",
+        "blocking_flaws": []
+      },
+      "critic_result": {
+        "schema_version": "v2",
+        "critique_id": "critique_cand_turn_2_ep1_93b231d0",
+        "candidate_id": "cand_turn_2",
+        "epoch": 1,
+        "status": "APPROVED",
+        "blocking_flaws": [],
+        "soft_warnings": [],
+        "audit_checks": {
+          "target_memorization": {
+            "passed": true,
+            "train_metric": 0.7404146898902095,
+            "val_metric": 0.6966801385681294,
+            "gap": 0.043735,
+            "max_allowed_gap": 0.12,
+            "dominant_feature": null,
+            "dominant_gain_ratio": null
+          },
+          "unexploited_signals": {
+            "passed": true,
+            "dropped_signals": [],
+            "details": null
+          },
+          "model_diversity": {
+            "passed": true,
+            "distinct_families_evaluated": 2,
+            "families": [
+              "hist_gbdt",
+              "penalized_linear"
+            ],
+            "min_required": 2
+          },
+          "topology_and_imbalance": {
+            "passed": true,
+            "cv_scheme_used": "5-fold stratified",
+            "required_cv_scheme": "5-fold stratified",
+            "score_floor_met": true,
+            "score": 0.69668
+          }
+        },
+        "error_slice_hypotheses": [],
+        "reviewer_notes": "Candidate verified and approved for zero-skew bundle packaging.",
+        "timestamp_ms": 1792605582425
+      },
+      "resource_observability": {
+        "worker_peak_rss_bytes": 369590272,
+        "controller_peak_rss_bytes": 369590272,
+        "avg_cpu_percent": 0.0,
+        "duration_seconds": 7.192201137542725,
+        "cgroup_enforced": false,
+        "containment_status": "uncontained_host_process"
+      },
+      "provider_cost_usd": 0.00049246,
+      "evidence_used_for_next_turn": {
+        "action": "BLEND_AND_AUDIT",
+        "disposition": "applied",
+        "measurements": {
+          "cv_score": 0.6966801385681294,
+          "critic_r2_cv": null,
+          "train_score": 0.7404146898902095,
+          "train_val_gap": 0.04373455132208015,
+          "critic_status": "APPROVED",
+          "blocking_flaws": []
+        },
+        "critic_disposition": "APPROVED"
+      }
+    }
+  ],
+  "current_active_features": [
+    "PassengerId",
+    "Survived",
+    "Pclass",
+    "Name",
+    "Sex",
+    "Age",
+    "SibSp",
+    "Parch",
+    "Ticket",
+    "Fare",
+    "Cabin",
+    "Embarked"
+  ],
+  "current_active_families": [
+    "hist_gbdt",
+    "penalized_linear"
+  ],
+  "bundle_verified": false,
+  "containment_status": "uncontained_host_process",
+  "holdout_accesses": 0
+}

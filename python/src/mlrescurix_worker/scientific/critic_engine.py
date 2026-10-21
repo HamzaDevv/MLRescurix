@@ -284,7 +284,14 @@ class CriticEngine:
                 dominant_feature = eval_result.get("dominant_feature")
                 dominant_gain_ratio = eval_result.get("dominant_gain_ratio")
 
-        gap = float(train_metric - val_metric)
+        if isinstance(eval_result, dict) and "train_val_gap" in eval_result:
+            gap = float(eval_result["train_val_gap"])
+        elif hasattr(eval_result, "train_val_gap"):
+            gap = float(eval_result.train_val_gap)
+        elif not is_classification:
+            gap = float(abs(train_metric - val_metric))
+        else:
+            gap = float(train_metric - val_metric)
 
         # Inspect feature importances from forensics_report if available
         if forensics_report is not None:
@@ -316,8 +323,8 @@ class CriticEngine:
                 f"{self.max_allowed_gap:.2f} (train {train_metric:.4f} vs val {val_metric:.4f})."
             )
 
-        # Check near-perfect train with collapsed val (train > 0.99 and val < 0.75)
-        if train_metric > 0.99 and val_metric < 0.75:
+        # Check near-perfect train with collapsed val (train > 0.99 and val < 0.75 for classification)
+        if is_classification and train_metric > 0.99 and val_metric < 0.75:
             target_mem_passed = False
             blocking_flaws.append(
                 f"Target memorization veto: Near-perfect training memorization ({train_metric:.4f} > 0.99) "

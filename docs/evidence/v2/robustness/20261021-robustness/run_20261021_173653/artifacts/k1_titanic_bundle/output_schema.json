@@ -1,0 +1,10 @@
+{
+  "format": "mlrescurix.schema.v2",
+  "task": "binary_classification",
+  "prediction_type": "integer",
+  "classes": [
+    0,
+    1
+  ],
+  "decision_threshold": 0.355
+}

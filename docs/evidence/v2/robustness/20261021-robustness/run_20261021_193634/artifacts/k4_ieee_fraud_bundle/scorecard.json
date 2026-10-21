@@ -1,0 +1,24 @@
+{
+  "candidate_id": "base_lgbm",
+  "project_id": "k4_ieee_fraud_campaign",
+  "dataset_sha256": "ac36e70e30422e063990048a7ab47cb8ec5f33d6f908555c6d1d85c899d8fbd0",
+  "test_access_id": "test-gate-run_20261021_193634",
+  "primary_metric": 0.5027380186114964,
+  "metrics": {
+    "balanced_accuracy": 0.5027380186114964
+  },
+  "constraints": {
+    "inference_latency_ms": {
+      "threshold": 50.0,
+      "value": 3.5,
+      "verdict": "pass",
+      "enforcement": "measured"
+    },
+    "bundle_bytes": {
+      "threshold": 10485760,
+      "value": 25000,
+      "verdict": "pass",
+      "enforcement": "measured"
+    }
+  }
+}

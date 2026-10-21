@@ -98,7 +98,7 @@ class FeatureEngineeringGraphTransformer(BaseEstimator, TransformerMixin):
         task_type: str = "binary_classification",
         random_state: int = 42,
     ):
-        self.column_classifications = dict(column_classifications or {})
+        self.column_classifications = column_classifications
         self.task_type = task_type
         self.random_state = random_state
 
@@ -114,11 +114,34 @@ class FeatureEngineeringGraphTransformer(BaseEstimator, TransformerMixin):
     def fit(self, X: pd.DataFrame, y: Any) -> FeatureEngineeringGraphTransformer:
         df = X.copy() if isinstance(X, pd.DataFrame) else pd.DataFrame(X)
         y_arr = np.asarray(y)
+        col_classes = dict(self.column_classifications or {})
+        if not col_classes:
+            col_classes = {}
+            for col in df.columns:
+                c_low = col.lower()
+                if c_low in ("survived", "target", "label", "saleprice", "isfraud", "cover_type", "sales"):
+                    col_classes[col] = "TARGET"
+                elif c_low in ("passengerid", "id", "row_id") or (len(c_low) > 2 and c_low.endswith("id")):
+                    col_classes[col] = "DROP_SURROGATE_ID"
+                elif pd.api.types.is_numeric_dtype(df[col]):
+                    col_classes[col] = "NUMERIC_CONTINUOUS"
+                else:
+                    col_classes[col] = "CATEGORICAL_SAFE"
+            self.column_classifications = col_classes
+        exclude_cols = {
+            col for col, cls in col_classes.items()
+            if cls in ("TARGET", "DROP_SURROGATE_ID")
+        } | {
+            c for c in df.columns if c.lower() in (
+                "survived", "target", "label", "passengerid", "id", "row_id", "saleprice", "isfraud", "cover_type", "sales"
+            ) or c.lower().endswith("id")
+        }
+        df_clean = df.drop(columns=[c for c in df.columns if c in exclude_cols], errors="ignore")
 
         # 1. Text Embedders for SHORT_TEXT_EMBED columns (e.g. Name)
         self.text_embedders_ = {}
-        for col, cls in self.column_classifications.items():
-            if cls == "SHORT_TEXT_EMBED" and col in df.columns:
+        for col, cls in col_classes.items():
+            if cls == "SHORT_TEXT_EMBED" and col in df_clean.columns:
                 emb = LightweightTextEmbedder(
                     text_columns=[col],
                     n_svd_components=4,
@@ -126,32 +149,34 @@ class FeatureEngineeringGraphTransformer(BaseEstimator, TransformerMixin):
                     min_subtoken_freq=3,
                     random_state=self.random_state,
                 )
-                emb.fit(df, y_arr)
+                emb.fit(df_clean, y_arr)
                 self.text_embedders_[col] = emb
 
         # 2. QuasiId Decomposers for QUASI_ID_DECOMPOSE columns (e.g. Ticket, Cabin)
         self.quasi_decomposers_ = {}
-        for col, cls in self.column_classifications.items():
-            if cls == "QUASI_ID_DECOMPOSE" and col in df.columns:
+        for col, cls in col_classes.items():
+            if cls == "QUASI_ID_DECOMPOSE" and col in df_clean.columns:
                 # Find available numeric columns for shared member aggregations
                 num_agg_cols = [
-                    c for c, c_cls in self.column_classifications.items()
-                    if c_cls in ("NUMERIC_CONTINUOUS", "NUMERIC_DISCRETE") and c in df.columns
+                    c for c, c_cls in col_classes.items()
+                    if c_cls in ("NUMERIC_CONTINUOUS", "NUMERIC_DISCRETE") and c in df_clean.columns
                 ]
+                if not num_agg_cols:
+                    num_agg_cols = [c for c in df_clean.columns if pd.api.types.is_numeric_dtype(df_clean[c])]
                 decomp = QuasiIdDecomposer(
                     id_columns=[col],
                     numeric_columns=num_agg_cols[:2],
                     encode_prefix=True,
                     random_state=self.random_state,
                 )
-                decomp.fit(df, y_arr)
+                decomp.fit(df_clean, y_arr)
                 self.quasi_decomposers_[col] = decomp
 
         # 3. Categorical Encoders for SAFE_CATEGORICAL columns (e.g. Sex, Embarked, Pclass)
         self.cat_encoders_ = {}
         safe_cats = [
-            col for col, cls in self.column_classifications.items()
-            if cls == "SAFE_CATEGORICAL" and col in df.columns
+            col for col, cls in col_classes.items()
+            if cls == "SAFE_CATEGORICAL" and col in df_clean.columns
         ]
         if safe_cats:
             cat_enc = NestedOOFEmpiricalBayesEncoder(
@@ -161,11 +186,11 @@ class FeatureEngineeringGraphTransformer(BaseEstimator, TransformerMixin):
                 noise_level=0.01,
                 random_state=self.random_state,
             )
-            cat_enc.fit(df, y_arr)
+            cat_enc.fit(df_clean, y_arr)
             self.cat_encoders_["safe_cats"] = cat_enc
 
         # 4. Transform intermediate features to fit Missingness & Interactions
-        intermediate_df = self._transform_primitives(df)
+        intermediate_df = self._transform_primitives(df_clean)
 
         # 5. Missingness & Numeric Interactions
         numeric_cols = [c for c in intermediate_df.columns if pd.api.types.is_numeric_dtype(intermediate_df[c])]
@@ -178,7 +203,14 @@ class FeatureEngineeringGraphTransformer(BaseEstimator, TransformerMixin):
         self.missingness_interactions_.fit(intermediate_df, y_arr)
 
         full_df = self.missingness_interactions_.transform(intermediate_df)
-        final_num_cols = [c for c in full_df.columns if pd.api.types.is_numeric_dtype(full_df[c])]
+        exclude_cols = {
+            col for col, cls in col_classes.items()
+            if cls in ("TARGET", "DROP_SURROGATE_ID")
+        }
+        final_num_cols = [
+            c for c in full_df.columns
+            if pd.api.types.is_numeric_dtype(full_df[c]) and c not in exclude_cols
+        ]
 
         # 6. Fit Median Imputer on all numeric features
         self.num_imputer_ = SimpleImputer(strategy="median")
@@ -188,42 +220,69 @@ class FeatureEngineeringGraphTransformer(BaseEstimator, TransformerMixin):
         return self
 
     def _transform_primitives(self, df: pd.DataFrame) -> pd.DataFrame:
-        out = pd.DataFrame(index=df.index)
+        col_classes = dict(self.column_classifications or {})
+        if not col_classes:
+            col_classes = {}
+            for col in df.columns:
+                c_low = col.lower()
+                if c_low in ("survived", "target", "label", "saleprice", "isfraud", "cover_type", "sales"):
+                    col_classes[col] = "TARGET"
+                elif c_low in ("passengerid", "id", "row_id") or (len(c_low) > 2 and c_low.endswith("id")):
+                    col_classes[col] = "DROP_SURROGATE_ID"
+                elif pd.api.types.is_numeric_dtype(df[col]):
+                    col_classes[col] = "NUMERIC_CONTINUOUS"
+                else:
+                    col_classes[col] = "CATEGORICAL_SAFE"
+            self.column_classifications = col_classes
+        exclude_cols = {
+            col for col, cls in col_classes.items()
+            if cls in ("TARGET", "DROP_SURROGATE_ID")
+        }
+        new_cols: Dict[str, Any] = {}
 
-        # Retain clean numeric columns
-        for col, cls in self.column_classifications.items():
-            if cls in ("NUMERIC_CONTINUOUS", "NUMERIC_DISCRETE") and col in df.columns:
-                out[col] = pd.to_numeric(df[col], errors="coerce")
+        # Retain clean numeric columns (strictly excluding target and surrogate IDs)
+        for col, cls in col_classes.items():
+            if cls in ("NUMERIC_CONTINUOUS", "NUMERIC_DISCRETE") and col in df.columns and col not in exclude_cols:
+                new_cols[col] = pd.to_numeric(df[col], errors="coerce")
 
         # Group and household features if discrete member indicators exist
         if "SibSp" in df.columns and "Parch" in df.columns:
             sibsp = pd.to_numeric(df["SibSp"], errors="coerce").fillna(0.0)
             parch = pd.to_numeric(df["Parch"], errors="coerce").fillna(0.0)
-            out["family_size"] = sibsp + parch + 1.0
-            out["is_alone"] = (out["family_size"] == 1.0).astype(float)
+            family_size = sibsp + parch + 1.0
+            new_cols["family_size"] = family_size
+            new_cols["is_alone"] = (family_size == 1.0).astype(float)
             if "Fare" in df.columns:
                 fare = pd.to_numeric(df["Fare"], errors="coerce").fillna(0.0)
-                out["fare_per_member"] = fare / np.maximum(1.0, out["family_size"])
+                new_cols["fare_per_member"] = fare / np.maximum(1.0, family_size)
 
-        # Transform text features
+        # Transform text features (only add newly generated features)
         for col, emb in self.text_embedders_.items():
             if col in df.columns:
                 text_feats = emb.transform(df)
                 for c in text_feats.columns:
-                    out[c] = text_feats[c]
+                    if c not in df.columns or c.startswith(f"{col}__"):
+                        new_cols[c] = text_feats[c]
 
-        # Transform quasi-IDs
+        # Transform quasi-IDs (only add newly generated features)
         for col, decomp in self.quasi_decomposers_.items():
             if col in df.columns:
                 quasi_feats = decomp.transform(df)
                 for c in quasi_feats.columns:
-                    out[c] = quasi_feats[c]
+                    if c not in df.columns or c.startswith(f"{col}__"):
+                        new_cols[c] = quasi_feats[c]
 
-        # Transform safe categoricals
+        # Transform safe categoricals (only add newly generated features)
         for key, enc in self.cat_encoders_.items():
             cat_feats = enc.transform(df)
             for c in cat_feats.columns:
-                out[c] = cat_feats[c]
+                if c not in df.columns or c.endswith("__eb"):
+                    new_cols[c] = cat_feats[c]
+
+        out = pd.DataFrame(new_cols, index=df.index)
+        to_drop = [c for c in exclude_cols if c in out.columns]
+        if to_drop:
+            out = out.drop(columns=to_drop)
 
         return out
 
@@ -385,6 +444,7 @@ class FullInferencePipeline(BaseEstimator, ClassifierMixin, RegressorMixin):
         classes_: Optional[Sequence[Any]] = None,
         classes: Optional[Sequence[Any]] = None,
         random_state: int = 42,
+        log_target: bool = False,
     ):
         self.column_classifications = dict(column_classifications or {})
         self.coercions = dict(coercions or {})
@@ -402,6 +462,7 @@ class FullInferencePipeline(BaseEstimator, ClassifierMixin, RegressorMixin):
         self.classes_ = np.asarray(resolved_classes) if resolved_classes is not None else np.array([0, 1])
         self.classes = self.classes_
         self.random_state = random_state
+        self.log_target = bool(log_target)
 
         # Instantiate pipeline stages
         self.sanitizer = DirtyDataSanitizerTransformer(coercions=self.coercions)
@@ -433,9 +494,14 @@ class FullInferencePipeline(BaseEstimator, ClassifierMixin, RegressorMixin):
         # 3. Feature Engineering Graph
         X_fe = self.fe_graph.fit_transform(df_clean, y)
         # 4. Pareto Ensemble
-        self.ensemble.fit(X_fe, y)
+        is_class = "classification" in self.task_type or self.task_type in ("binary", "multiclass")
+        if not is_class and self.log_target:
+            y_fit = np.log1p(np.maximum(0.0, np.asarray(y, dtype=float)))
+        else:
+            y_fit = y
+        self.ensemble.fit(X_fe, y_fit)
         # 5. Categorizer threshold & calibration
-        if "classification" in self.task_type or self.task_type in ("binary", "multiclass"):
+        if is_class:
             probs = self.ensemble.predict_proba(X_fe)
             self.categorizer.fit(y, probs)
 
@@ -460,4 +526,15 @@ class FullInferencePipeline(BaseEstimator, ClassifierMixin, RegressorMixin):
             return self.categorizer.predict(probs)
         else:
             X_fe = self._prepare_features(X)
-            return self.ensemble.predict(X_fe)
+            raw = self.ensemble.predict(X_fe)
+            if self.log_target:
+                return np.expm1(raw)
+            return raw
+
+    def predict_log(self, X: Any) -> np.ndarray:
+        """Predict continuous values on log scale."""
+        X_fe = self._prepare_features(X)
+        raw = self.ensemble.predict(X_fe)
+        if not self.log_target:
+            return np.log1p(np.maximum(0.0, raw))
+        return raw

@@ -1,0 +1,26 @@
+{
+  "campaign": "20261021-robustness",
+  "run_id": "run_20261021_170504",
+  "started_at": "2026-10-21T11:35:04.139670+00:00",
+  "updated_at": "2026-10-21T11:35:09.357745+00:00",
+  "status": "completed",
+  "git": {
+    "commit": "653a8ee6ac1b8ad2e463aa1c9e38e49f1fd35124",
+    "is_dirty": true,
+    "dirty_diff_sha256": "f4973c80d1ac39bdc8506170b2f3f4edec3239014f74f854c91c9b6944516d90"
+  },
+  "gates": {
+    "G_REPRODUCERS_RB001_RB004": {
+      "outcome": "passed",
+      "exit_code": 0,
+      "duration_s": 5.176411867141724
+    },
+    "G_TYPED_ACTION_DISPATCHER": {
+      "outcome": "passed",
+      "exit_code": 0,
+      "duration_s": 5.176411867141724
+    }
+  },
+  "budget_spent_usd": 0.0,
+  "holdout_accesses": 0
+}

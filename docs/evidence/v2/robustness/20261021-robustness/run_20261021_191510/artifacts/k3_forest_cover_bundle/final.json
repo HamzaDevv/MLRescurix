@@ -1,0 +1,9 @@
+{
+  "status": "verified_development_only",
+  "candidate_id": "base_lgbm",
+  "test_metrics": {
+    "balanced_accuracy": 0.5771779994373032
+  },
+  "test_access_id": "test-gate-run_20261021_191510",
+  "bundle": "bundle"
+}

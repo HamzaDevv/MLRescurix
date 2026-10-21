@@ -46,6 +46,17 @@ class IdempotencyConflictError(ActionExecutionError):
 
 
 @dataclass
+class AuthoritativeStateBinding:
+    """Rust-owned authoritative state binding contract for hypothesis execution."""
+    project_id: str
+    active_split_id: str
+    active_topology_hash: str
+    active_budget_id: str
+    candidate_source_hashes: Dict[str, str] = field(default_factory=dict)
+    remaining_budget_usd: float = 1.0
+
+
+@dataclass
 class HypothesisActionReceipt:
     action_id: str
     status: str  # "confirmed", "refuted", "inconclusive", "failed"
@@ -183,44 +194,84 @@ class HypothesisActionDispatcher:
     and executes paired fold-local ablations.
     """
 
-    def __init__(self, ledger_path: Optional[Union[str, Path]] = None):
+    def __init__(
+        self,
+        ledger_path: Optional[Union[str, Path]] = None,
+        state_binding: Optional[AuthoritativeStateBinding] = None,
+    ):
         self.idempotency_cache: Dict[str, Tuple[str, HypothesisActionReceipt]] = {}
         self.ledger_path = Path(ledger_path) if ledger_path else None
+        self.state_binding = state_binding
         if self.ledger_path and self.ledger_path.exists():
             self._load_ledger()
 
     def _load_ledger(self) -> None:
-        """Load persisted hypothesis actions from durable ledger."""
+        """Load persisted hypothesis actions from durable ledger with read lock."""
         try:
-            with open(self.ledger_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            for entry in data.get("actions", []):
-                aid = entry["action_id"]
-                phash = entry.get("payload_hash", "")
-                r_dict = dict(entry)
-                r_dict.pop("payload_hash", None)
-                receipt = HypothesisActionReceipt(**r_dict, payload_hash=phash)
-                self.idempotency_cache[aid] = (phash, receipt)
-        except Exception:
-            pass
+            import fcntl
+            lock_path = self.ledger_path.with_suffix(".lock")
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(lock_path, "a+", encoding="utf-8") as lock_f:
+                fcntl.flock(lock_f, fcntl.LOCK_SH)
+                try:
+                    with open(self.ledger_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    for entry in data.get("actions", []):
+                        aid = entry["action_id"]
+                        phash = entry.get("payload_hash", "")
+                        r_dict = dict(entry)
+                        r_dict.pop("payload_hash", None)
+                        receipt = HypothesisActionReceipt(**r_dict, payload_hash=phash)
+                        self.idempotency_cache[aid] = (phash, receipt)
+                finally:
+                    fcntl.flock(lock_f, fcntl.LOCK_UN)
+        except Exception as exc:
+            raise WorkflowError(f"Hypothesis ledger operation failed: {exc}") from exc
 
     def _save_ledger(self) -> None:
-        """Atomically persist action cache to durable ledger file."""
+        """Atomically persist action cache to durable ledger file with exclusive lock and concurrent merge."""
         if not self.ledger_path:
             return
         try:
+            import fcntl
             self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
-            actions = []
-            for aid, (phash, receipt) in self.idempotency_cache.items():
-                r_dict = receipt.to_dict()
-                r_dict["payload_hash"] = phash
-                actions.append(r_dict)
-            tmp_path = self.ledger_path.with_suffix(f".tmp.{os.getpid()}")
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump({"schema_version": "v2", "actions": actions}, f, indent=2)
-            tmp_path.replace(self.ledger_path)
-        except Exception:
-            pass
+            lock_path = self.ledger_path.with_suffix(".lock")
+            with open(lock_path, "a+", encoding="utf-8") as lock_f:
+                fcntl.flock(lock_f, fcntl.LOCK_EX)
+                try:
+                    committed_actions: Dict[str, Tuple[str, Dict[str, Any]]] = {}
+                    if self.ledger_path.exists():
+                        with open(self.ledger_path, "r", encoding="utf-8") as f:
+                            disk_data = json.load(f)
+                        for entry in disk_data.get("actions", []):
+                            c_aid = entry["action_id"]
+                            c_hash = entry.get("payload_hash", "")
+                            committed_actions[c_aid] = (c_hash, entry)
+
+                    # Merge in-memory cache and detect concurrent conflicts
+                    for aid, (phash, receipt) in self.idempotency_cache.items():
+                        if aid in committed_actions:
+                            disk_hash, _ = committed_actions[aid]
+                            if disk_hash != phash:
+                                raise IdempotencyConflictError(
+                                    f"Concurrent conflicting action '{aid}' already committed in ledger: "
+                                    f"committed hash '{disk_hash}' != in-flight hash '{phash}'"
+                                )
+                        r_dict = receipt.to_dict()
+                        r_dict["payload_hash"] = phash
+                        committed_actions[aid] = (phash, r_dict)
+
+                    merged_list = [entry for _, entry in committed_actions.values()]
+                    tmp_path = self.ledger_path.with_suffix(f".tmp.{os.getpid()}")
+                    with open(tmp_path, "w", encoding="utf-8") as f:
+                        json.dump({"schema_version": "v2", "actions": merged_list}, f, indent=2)
+                    tmp_path.replace(self.ledger_path)
+                finally:
+                    fcntl.flock(lock_f, fcntl.LOCK_UN)
+        except Exception as exc:
+            if isinstance(exc, ActionExecutionError):
+                raise
+            raise WorkflowError(f"Hypothesis ledger operation failed: {exc}") from exc
 
     @staticmethod
     def _compute_payload_hash(payload: Dict[str, Any]) -> str:
@@ -228,7 +279,7 @@ class HypothesisActionDispatcher:
         return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
     def validate_action_payload(self, payload: Dict[str, Any]) -> None:
-        """Validate payload against schema and required properties."""
+        """Validate payload against schema, required properties, and authoritative state binding."""
         if not isinstance(payload, dict):
             raise ActionExecutionError("Action payload must be a JSON dictionary")
 
@@ -266,6 +317,37 @@ class HypothesisActionDispatcher:
 
         if payload["schema_version"] != "v2":
             raise ActionExecutionError(f"Unsupported schema_version '{payload['schema_version']}', expected 'v2'")
+
+        # Bind against authoritative state if configured
+        if self.state_binding is not None:
+            sb = self.state_binding
+            if payload["split_id"] != sb.active_split_id:
+                raise ActionExecutionError(
+                    f"Authoritative split binding mismatch: payload split_id '{payload['split_id']}' != active split_id '{sb.active_split_id}'"
+                )
+            if payload["topology_hash"] != sb.active_topology_hash:
+                raise ActionExecutionError(
+                    f"Authoritative topology binding mismatch: payload topology_hash '{payload['topology_hash']}' != active topology_hash '{sb.active_topology_hash}'"
+                )
+            if payload["budget_id"] != sb.active_budget_id:
+                raise ActionExecutionError(
+                    f"Authoritative budget binding mismatch: payload budget_id '{payload['budget_id']}' != active budget_id '{sb.active_budget_id}'"
+                )
+            if sb.remaining_budget_usd <= 0.0:
+                raise ActionExecutionError(
+                    f"Authoritative budget '{sb.active_budget_id}' is exhausted (remaining: ${sb.remaining_budget_usd:.4f})"
+                )
+            if sb.candidate_source_hashes:
+                cand_id = payload["parent_candidate_id"]
+                if cand_id not in sb.candidate_source_hashes:
+                    raise ActionExecutionError(
+                        f"Authoritative candidate binding error: parent_candidate_id '{cand_id}' not found in registered candidates"
+                    )
+                expected_sha = sb.candidate_source_hashes[cand_id]
+                if payload["source_hash"] != expected_sha:
+                    raise ActionExecutionError(
+                        f"Authoritative candidate source hash mismatch for '{cand_id}': expected '{expected_sha}', got '{payload['source_hash']}'"
+                    )
 
         valid_actions = {
             "APPLY_SKEW_TRANSFORM",
@@ -443,8 +525,15 @@ class HypothesisActionDispatcher:
                 return receipt
 
             elif action_name == "CUSTOM_SANDBOX_CODE":
-                code_snippet = params.get("code_snippet", "")
-                transformer_or_callable = code_snippet
+                receipt = HypothesisActionReceipt(
+                    action_id=action_id, status="inconclusive", action=action_name,
+                    parent_candidate_id=payload["parent_candidate_id"],
+                    split_id=payload["split_id"], payload_hash=payload_hash,
+                    message="Custom feature code blocked: governed sandbox unavailable",
+                )
+                self.idempotency_cache[action_id] = (payload_hash, receipt)
+                self._save_ledger()
+                return receipt
 
         except Exception as e:
             receipt = HypothesisActionReceipt(
@@ -470,7 +559,8 @@ class HypothesisActionDispatcher:
             fidelity=fidelity,
             metric_name=metric_name,
             random_state=payload["seed"],
-            ledger_path=self.ledger_path,
+            ledger_path=(self.ledger_path.with_name(self.ledger_path.name + ".ablations.json")
+                         if self.ledger_path else None),
         )
 
         cv_delta = ablation_receipt.get("cv_score_delta", 0.0)

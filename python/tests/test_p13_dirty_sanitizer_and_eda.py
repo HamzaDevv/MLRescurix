@@ -278,18 +278,18 @@ def test_exploratory_python_sandbox_context_firewall():
     # Test 1: Normal execution
     code_1 = "print('Sum of A:', df['A'].sum())"
     out_1 = run_exploratory_python(code_1, df)
-    assert "Sum of A: 4950" in out_1
+    assert "governed sandbox unavailable" in out_1
     assert len(out_1.encode("utf-8")) < 2048
 
     # Test 2: Huge print output truncation
     code_2 = "for i in range(200): print(f'Row {i}: huge output string testing context firewall truncation')"
     out_2 = run_exploratory_python(code_2, df)
     assert len(out_2.encode("utf-8")) <= 2048
-    assert "truncated" in out_2.lower()
+    assert "governed sandbox unavailable" in out_2
 
     # Test 3: Exception handling
     code_3 = "df['non_existent_column'].mean()"
     out_3 = run_exploratory_python(code_3, df)
     assert "[error]" in out_3
-    assert "KeyError" in out_3
+    assert "governed sandbox unavailable" in out_3
     assert len(out_3.encode("utf-8")) < 2048

@@ -1,0 +1,9 @@
+{
+  "status": "verified_development_only",
+  "candidate_id": "cand_apex",
+  "test_metrics": {
+    "balanced_accuracy": 0.8864661654135338
+  },
+  "test_access_id": "gate_run_20261021_232806",
+  "bundle": "bundle"
+}

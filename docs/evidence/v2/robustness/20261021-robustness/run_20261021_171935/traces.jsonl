@@ -1,0 +1,4 @@
+{"timestamp": "2026-10-21T11:49:36.027635+00:00", "event": "preflight_start", "action": "evaluating_prerequisites"}
+{"timestamp": "2026-10-21T11:49:38.152977+00:00", "event": "preflight_completed", "duration_s": 2.111265182495117, "blocked_gates": ["G5_KAGGLE_OFFICIAL_DATA", "G6_PROVIDER_GATEWAY"]}
+{"timestamp": "2026-10-21T11:49:38.153229+00:00", "event": "deterministic_dev_start", "action": "evaluating_benchmarks"}
+{"timestamp": "2026-10-21T11:49:46.941875+00:00", "event": "deterministic_dev_completed", "outcome": "passed", "duration_s": 8.787811756134033}

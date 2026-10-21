@@ -1,0 +1,16 @@
+{
+  "format": "mlrescurix.schema.v2",
+  "task": "regression",
+  "features": [
+    "store_nbr",
+    "onpromotion",
+    "cluster",
+    "dcoilwtico"
+  ],
+  "dtypes": {
+    "store_nbr": "float64",
+    "onpromotion": "float64",
+    "cluster": "float64",
+    "dcoilwtico": "float64"
+  }
+}

@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 import numpy as np
 import pandas as pd
+from sklearn.base import clone
 from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.metrics import balanced_accuracy_score, root_mean_squared_error
 
@@ -1208,7 +1209,10 @@ class ResearchLedger:
             cand_score = ensemble_result.get("cv_score")
             cand_id = ensemble_result.get("candidate_id")
         elif model_results:
-            best_m = max(model_results, key=lambda m: m.get("cv_score", 0.0))
+            if self.metric_direction == "minimize":
+                best_m = min(model_results, key=lambda m: m.get("cv_score", float("inf")))
+            else:
+                best_m = max(model_results, key=lambda m: m.get("cv_score", -float("inf")))
             cand_score = best_m.get("cv_score")
             cand_id = best_m.get("candidate_id")
 
@@ -1534,7 +1538,7 @@ class AutonomousRescueEngine:
 
     def execute_reflexive_loop(
         self,
-        dataset_path: Union[str, Path],
+        dataset_path: Union[str, Path, pd.DataFrame],
         target_column: Optional[str] = None,
         max_epochs: int = 2,
         db_path: Optional[Union[str, Path]] = None,
@@ -1542,6 +1546,12 @@ class AutonomousRescueEngine:
         bundle_output_dir: Optional[Union[str, Path]] = None,
         project_id: Optional[str] = None,
         session_id: Optional[str] = None,
+        metric_name: Optional[str] = None,
+        metric_direction: Optional[str] = None,
+        locked_folds: Optional[List[Tuple[Sequence[int], Sequence[int]]]] = None,
+        log_target: bool = False,
+        provider_advice: Optional[Dict[str, Any]] = None,
+        candidate_families: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Execute full Phase 5 multi-epoch reflexive orchestration loop:
 
@@ -1566,7 +1576,7 @@ class AutonomousRescueEngine:
         # PHASE 1: Exploratory Data Science & Topology Lock (M2-EDA)
         # -------------------------------------------------------------------------
         eda_out_dir = self.workspace_root / ".m2" / "artifacts" / "eda"
-        dataset_id = self.problem_def.get("dataset_id") or Path(dataset_path).stem
+        dataset_id = self.problem_def.get("dataset_id") or (Path(dataset_path).stem if isinstance(dataset_path, (str, Path)) else "dataset")
         eda_dossier = eda_forensics_suite(
             dataset_uri_or_df=dataset_path,
             explicit_target=target_column,
@@ -1592,17 +1602,27 @@ class AutonomousRescueEngine:
             details={"target": target_col, "task_type": task_type, "cv_scheme": topology.get("cv_scheme")},
         )
 
-        metric_name = "balanced_accuracy" if is_classification else "r2"
-        metric_direction = "maximize"
+        resolved_metric = metric_name or ("balanced_accuracy" if is_classification else "r2")
+        if metric_direction is not None:
+            resolved_direction = metric_direction
+        else:
+            resolved_direction = "minimize" if resolved_metric in ("rmse", "rmse_log_price", "rmsle", "mae", "loss") else "maximize"
+
         ledger = ResearchLedger(
             project_id=project_id,
             session_id=session_id,
-            metric_name=metric_name,
-            metric_direction=metric_direction,
+            metric_name=resolved_metric,
+            metric_direction=resolved_direction,
         )
 
         # Load raw dataset
-        raw_df = pd.read_csv(dataset_path) if not isinstance(dataset_path, pd.DataFrame) else dataset_path.copy()
+        if isinstance(dataset_path, pd.DataFrame):
+            raw_df = dataset_path.copy()
+            dataset_file_path = self.workspace_root / "dataset.csv"
+            raw_df.to_csv(dataset_file_path, index=False)
+        else:
+            dataset_file_path = Path(dataset_path)
+            raw_df = pd.read_csv(dataset_file_path)
         raw_holdout_records = raw_df.head(10).to_dict(orient="records")
 
         # Sanitize dataframe
@@ -1611,8 +1631,20 @@ class AutonomousRescueEngine:
         y = clean_df[target_col].values
         classes = np.unique(y) if is_classification else None
 
-        cv_splitter, entity_group_col, temporal_col = build_cv_splitter(topology, clean_df)
-        groups = clean_df[entity_group_col].values if entity_group_col and entity_group_col in clean_df.columns else None
+        if locked_folds:
+            from .model_zoo import PredefinedSplitter
+            cv_splitter = PredefinedSplitter(locked_folds)
+            entity_group_col, temporal_col = None, None
+            groups = None
+        else:
+            cv_splitter, entity_group_col, temporal_col = build_cv_splitter(topology, clean_df)
+            groups = clean_df[entity_group_col].values if entity_group_col and entity_group_col in clean_df.columns else None
+
+        # Determine target scaling for regression (e.g. log-scale for RMSE on log price)
+        if not is_classification and log_target:
+            y_eval = np.log1p(np.maximum(0.0, np.asarray(y, dtype=float)))
+        else:
+            y_eval = y
 
         # -------------------------------------------------------------------------
         # PHASE 2: Baseline Anchor (Epoch 0)
@@ -1630,13 +1662,20 @@ class AutonomousRescueEngine:
         portfolio_base = train_and_diagnose_portfolio(
             baseline_families,
             X_base,
-            y,
+            y_eval,
             cv_splitter,
             task_type=task_type,
             groups=groups,
             feature_names=base_num_cols,
+            metric_name=resolved_metric,
+            metric_direction=resolved_direction,
+            log_target=log_target,
         )
-        best_base = max(portfolio_base.values(), key=lambda r: r.mean_cv_score)
+        if resolved_direction == "minimize":
+            best_base = min(portfolio_base.values(), key=lambda r: r.mean_cv_score)
+        else:
+            best_base = max(portfolio_base.values(), key=lambda r: r.mean_cv_score)
+
         baseline_model_results = [
             {
                 "candidate_id": f"base_{fam}",
@@ -1651,7 +1690,7 @@ class AutonomousRescueEngine:
             candidate_id=f"base_{best_base.family}",
             model_family=best_base.family,
             X=X_base,
-            y=y,
+            y=y_eval,
             oof_predictions=best_base.oof_predictions,
             cv_scores=best_base.cv_scores,
             mean_cv_score=best_base.mean_cv_score,
@@ -1684,28 +1723,35 @@ class AutonomousRescueEngine:
         final_pipeline: Optional[FullInferencePipeline] = None
         final_critique: Optional[CritiqueReceipt] = None
         best_threshold = 0.5
+        ensemble_cv_score = best_base.mean_cv_score
+
+        col_classes = topology.get("column_classifications", {})
+        text_cols = [c for c, cls in col_classes.items() if cls == "SHORT_TEXT_EMBED" and c in clean_df.columns]
+        quasi_cols = [c for c, cls in col_classes.items() if cls == "QUASI_ID_DECOMPOSE" and c in clean_df.columns]
+        safe_cat_cols = [c for c, cls in col_classes.items() if cls == "SAFE_CATEGORICAL" and c in clean_df.columns]
 
         for epoch in range(1, max_epochs + 1):
             if epoch == 1 and inject_naive_first_epoch:
-                # Injected Naive Candidate triggering Critic VETO
+                # Injected Naive Candidate triggering Critic VETO in intentional fault-injection test scenarios
                 naive_cand_id = "cand_naive_epoch1"
+                lgbm_res = portfolio_base.get("lgbm", best_base)
                 naive_eval = {
                     "candidate_id": naive_cand_id,
-                    "cv_score": float(best_base.mean_cv_score),
-                    "train_score": float(best_base.mean_cv_score + 0.15),
-                    "train_val_gap": 0.15,  # Triggers Hard Assertion 1 (> 0.12)
-                    "cv_scores": [float(best_base.mean_cv_score)] * len(best_base.cv_scores),
-                    "features": base_num_cols,  # Triggers Hard Assertion 2 (dropped Name & Ticket)
+                    "cv_score": float(lgbm_res.mean_cv_score),
+                    "train_score": float(lgbm_res.mean_train_score),
+                    "train_val_gap": float(lgbm_res.train_val_gap),
+                    "cv_scores": [float(s) for s in lgbm_res.cv_scores],
+                    "features": base_num_cols,
                     "feature_names": base_num_cols,
-                    "feature_importances": np.ones(len(base_num_cols)) / max(1, len(base_num_cols)),
-                    "submodels": ["lgbm"],  # Triggers Hard Assertion 3 (< 3 families)
+                    "feature_importances": lgbm_res.feature_importances,
+                    "submodels": [lgbm_res.family],
                 }
                 critique = critic_engine.audit(
                     candidate=naive_eval,
                     topology=topology,
                     eda_dossier=eda_dossier,
                     error_forensics=base_forensics,
-                    evaluated_model_families=["lgbm"],
+                    evaluated_model_families=[lgbm_res.family],
                     db_path=db_path,
                     project_id=project_id,
                     session_id=session_id,
@@ -1716,8 +1762,7 @@ class AutonomousRescueEngine:
                 m1_reflection = (
                     f"Critic issued VETO on Epoch 1 candidate with {len(critique.blocking_flaws)} blocking flaws. "
                     f"Flaws: {critique.blocking_flaws[:2]}. "
-                    f"Remediation: Extract honorifics from Name (SHORT_TEXT_EMBED), group size and costs from "
-                    f"Ticket (QUASI_ID_DECOMPOSE), and evaluate >= 3 distinct model families."
+                    f"Remediation: Extract signals from non-numeric columns and evaluate >= 3 distinct model families."
                 )
                 ledger.record_epoch(
                     epoch=1,
@@ -1738,61 +1783,132 @@ class AutonomousRescueEngine:
                 )
                 continue
 
-            # Full reflexive improvement epoch (Epoch 2 or Epoch 1 if not injecting naive)
-            hypotheses = [
-                "Extract honorifics and sub-token indicators from SHORT_TEXT_EMBED column 'Name' via LightweightTextEmbedder.",
-                "Decompose QUASI_ID_DECOMPOSE column 'Ticket' and 'Cabin' into group sizes and shared member costs.",
-                "Engineer family size (SibSp + Parch + 1), is_alone, and fare_per_member interactions.",
-                "Train diverse multi-paradigm zoo (LightGBM, CatBoost/HistGBDT, PenalizedLinear) and blend on Pareto frontier.",
-            ]
+            # Dynamic problem-specific hypotheses
+            hypotheses = []
+            if text_cols:
+                hypotheses.append(f"Extract sub-token indicators & SVD embeddings from text columns {text_cols[:2]} via LightweightTextEmbedder.")
+            if quasi_cols:
+                hypotheses.append(f"Decompose quasi-ID columns {quasi_cols[:2]} into group sizes and prefix clusters via QuasiIdDecomposer.")
+            if safe_cat_cols:
+                hypotheses.append(f"Encode safe categoricals {safe_cat_cols[:3]} with in-fold Nested Empirical Bayes Target Encoding.")
+            hypotheses.append("Formulate pairwise informative missingness indicators and numeric ratio interactions.")
+            hypotheses.append("Train diverse multi-paradigm zoo (LightGBM, CatBoost/HistGBDT, PenalizedLinear) and blend on Pareto frontier.")
 
-            # M2-FE feature ablation sprint
+            # M2-FE feature ablation sprint: fold-local preprocessing
             fe_graph = FeatureEngineeringGraphTransformer(
-                column_classifications=topology.get("column_classifications", {}),
+                column_classifications=col_classes,
                 task_type=task_type,
             )
-            X_feat = fe_graph.fit_transform(clean_df, y)
-            feat_names = list(fe_graph.feature_names_out_)
 
-            # Record feature ablations to SQLite
-            abl_results = [
-                {
-                    "ablation_id": f"abl_honorifics_{epoch}",
-                    "hypothesis_id": "hyp_name_honorifics",
-                    "feature_names": [c for c in feat_names if "Name__" in c or "honorific" in c.lower()][:3],
-                    "baseline_cv_score": best_base.mean_cv_score,
-                    "ablated_cv_score": best_base.mean_cv_score + 0.038,
-                    "cv_score_delta": 0.038,
-                    "train_val_gap_delta": -0.012,
-                    "fold_win_count": 5,
-                    "total_folds": 5,
-                    "status": "ACCEPTED",
-                },
-                {
-                    "ablation_id": f"abl_ticket_group_{epoch}",
-                    "hypothesis_id": "hyp_ticket_group",
-                    "feature_names": [c for c in feat_names if "Ticket__" in c or "group_size" in c.lower()][:2],
-                    "baseline_cv_score": best_base.mean_cv_score,
-                    "ablated_cv_score": best_base.mean_cv_score + 0.024,
-                    "cv_score_delta": 0.024,
-                    "train_val_gap_delta": -0.005,
-                    "fold_win_count": 4,
-                    "total_folds": 5,
-                    "status": "ACCEPTED",
-                },
-                {
-                    "ablation_id": f"abl_interactions_{epoch}",
-                    "hypothesis_id": "hyp_family_interactions",
-                    "feature_names": ["family_size", "is_alone", "fare_per_member"],
-                    "baseline_cv_score": best_base.mean_cv_score,
-                    "ablated_cv_score": best_base.mean_cv_score + 0.018,
-                    "cv_score_delta": 0.018,
-                    "train_val_gap_delta": -0.003,
-                    "fold_win_count": 4,
-                    "total_folds": 5,
-                    "status": "ACCEPTED",
-                },
-            ]
+            # Check if specialist advice specifies families
+            families = candidate_families or ["lgbm", "catboost" if HAS_CATBOOST else "hist_gbdt", "penalized_linear"]
+
+            # Train and diagnose portfolio with strict in-fold preprocessing
+            portfolio = train_and_diagnose_portfolio(
+                families,
+                clean_df,
+                y_eval,
+                cv_splitter,
+                task_type=task_type,
+                groups=groups,
+                metric_name=resolved_metric,
+                metric_direction=resolved_direction,
+                log_target=log_target,
+                preprocessor=fe_graph,
+            )
+
+            # Fit full feature transformer on full clean_df for final bundle and paired ablations
+            fe_graph_full = copy.deepcopy(fe_graph)
+            X_feat = fe_graph_full.fit_transform(clean_df, y_eval)
+            feat_names = list(fe_graph_full.feature_names_out_)
+
+            # Genuine measured paired ablations on active feature subsets
+            abl_results = []
+            candidate_abl_groups = []
+            if text_cols:
+                t_feats = [c for c in feat_names if any(c.startswith(f"{col}__") for col in text_cols)]
+                if t_feats:
+                    candidate_abl_groups.append(("hyp_text_embed", "abl_text", t_feats))
+            if quasi_cols:
+                q_feats = [c for c in feat_names if any(c.startswith(f"{col}__") for col in quasi_cols)]
+                if q_feats:
+                    candidate_abl_groups.append(("hyp_quasi_id", "abl_quasi", q_feats))
+            if safe_cat_cols:
+                eb_feats = [c for c in feat_names if c.endswith("__eb")]
+                if eb_feats:
+                    candidate_abl_groups.append(("hyp_cat_eb", "abl_cat", eb_feats))
+            inter_feats = [c for c in feat_names if "__x__" in c or c.startswith("missing_")]
+            if inter_feats:
+                candidate_abl_groups.append(("hyp_interactions", "abl_inter", inter_feats[:5]))
+
+            from sklearn.linear_model import Ridge, LogisticRegression
+            from sklearn.preprocessing import StandardScaler
+            from sklearn.pipeline import make_pipeline
+            from sklearn.metrics import accuracy_score, balanced_accuracy_score
+
+            if is_classification:
+                abl_clf = make_pipeline(StandardScaler(), LogisticRegression(max_iter=300, random_state=42))
+            else:
+                abl_clf = make_pipeline(StandardScaler(), Ridge(alpha=1.0, random_state=42))
+
+            full_fold_scores: List[float] = []
+            for tr_idx, v_idx in cv_splitter.split(clean_df, y_eval):
+                clf_inst = clone(abl_clf)
+                X_tr_mat = X_feat.iloc[tr_idx].values if isinstance(X_feat, pd.DataFrame) else X_feat[tr_idx]
+                X_v_mat = X_feat.iloc[v_idx].values if isinstance(X_feat, pd.DataFrame) else X_feat[v_idx]
+                clf_inst.fit(X_tr_mat, y_eval[tr_idx])
+                p_v = clf_inst.predict(X_v_mat)
+                if is_classification:
+                    if resolved_metric == "accuracy":
+                        full_fold_scores.append(float(accuracy_score(y_eval[v_idx], p_v)))
+                    else:
+                        full_fold_scores.append(float(balanced_accuracy_score(y_eval[v_idx], p_v)))
+                else:
+                    full_fold_scores.append(float(np.sqrt(np.mean((y_eval[v_idx] - p_v)**2))))
+            mean_full_abl = float(np.mean(full_fold_scores)) if full_fold_scores else 0.0
+
+            for hyp_id, abl_id, group_feats in candidate_abl_groups[:3]:
+                sub_feats = [c for c in feat_names if c not in group_feats]
+                if not sub_feats:
+                    continue
+                sub_idx = [feat_names.index(c) for c in sub_feats]
+                sub_fold_scores: List[float] = []
+                for tr_idx, v_idx in cv_splitter.split(clean_df, y_eval):
+                    clf_inst = clone(abl_clf)
+                    X_tr_sub = (X_feat.iloc[tr_idx, sub_idx].values if isinstance(X_feat, pd.DataFrame) else X_feat[tr_idx][:, sub_idx])
+                    X_v_sub = (X_feat.iloc[v_idx, sub_idx].values if isinstance(X_feat, pd.DataFrame) else X_feat[v_idx][:, sub_idx])
+                    clf_inst.fit(X_tr_sub, y_eval[tr_idx])
+                    p_sub = clf_inst.predict(X_v_sub)
+                    if is_classification:
+                        if resolved_metric == "accuracy":
+                            sub_fold_scores.append(float(accuracy_score(y_eval[v_idx], p_sub)))
+                        else:
+                            sub_fold_scores.append(float(balanced_accuracy_score(y_eval[v_idx], p_sub)))
+                    else:
+                        sub_fold_scores.append(float(np.sqrt(np.mean((y_eval[v_idx] - p_sub)**2))))
+                mean_sub_abl = float(np.mean(sub_fold_scores)) if sub_fold_scores else 0.0
+
+                if resolved_direction == "minimize":
+                    delta = round(float(mean_sub_abl - mean_full_abl), 6)
+                    wins = sum(1 for f_full, f_sub in zip(full_fold_scores, sub_fold_scores) if f_full < f_sub)
+                else:
+                    delta = round(float(mean_full_abl - mean_sub_abl), 6)
+                    wins = sum(1 for f_full, f_sub in zip(full_fold_scores, sub_fold_scores) if f_full > f_sub)
+
+                status = "ACCEPTED" if (delta > 0 or wins >= max(1, len(full_fold_scores) // 2)) else "REJECTED"
+                abl_results.append({
+                    "ablation_id": f"{abl_id}_{epoch}",
+                    "hypothesis_id": hyp_id,
+                    "feature_names": group_feats[:3],
+                    "baseline_cv_score": mean_sub_abl,
+                    "ablated_cv_score": mean_full_abl,
+                    "cv_score_delta": delta,
+                    "train_val_gap_delta": 0.0,
+                    "fold_win_count": wins,
+                    "total_folds": len(full_fold_scores),
+                    "status": status,
+                })
+
             for abl in abl_results:
                 persist_feature_ablation(
                     db_path=db_path,
@@ -1802,79 +1918,140 @@ class AutonomousRescueEngine:
                     epoch=epoch,
                 )
 
-            # M2-Model: Train diverse multi-paradigm portfolio
-            families = ["lgbm", "catboost" if HAS_CATBOOST else "hist_gbdt", "penalized_linear"]
-            portfolio = train_and_diagnose_portfolio(
-                families,
-                X_feat,
-                y,
-                cv_splitter,
-                task_type=task_type,
-                groups=groups,
-                feature_names=feat_names,
-            )
-
             # Fit full estimators for final pipeline
             fitted_submodels: List[Tuple[str, Any]] = []
             oof_probs_list: List[np.ndarray] = []
             for fam in families:
                 est = create_estimator(fam, task_type=task_type, random_state=42)
-                est.fit(X_feat, y)
+                est.fit(X_feat, y_eval)
                 fitted_submodels.append((fam, est))
-                oof_probs_list.append(portfolio[fam].oof_probabilities)
+                if is_classification and portfolio[fam].oof_probabilities is not None:
+                    oof_probs_list.append(portfolio[fam].oof_probabilities)
 
             # M2-Ensemble: Blend Pareto models & optimize decision threshold
             if is_classification:
-                avg_oof_probs = np.mean(oof_probs_list, axis=0)
-                best_thresh = 0.5
-                best_score = -1.0
-                for t in np.linspace(0.30, 0.70, 81):
-                    p_pos = avg_oof_probs[:, 1] if avg_oof_probs.ndim == 2 else avg_oof_probs
-                    pred_t = (p_pos >= t).astype(int)
-                    score_t = float(balanced_accuracy_score(y, pred_t))
-                    if score_t > best_score:
-                        best_score = score_t
-                        best_thresh = float(t)
+                avg_oof_probs = np.mean(oof_probs_list, axis=0) if oof_probs_list else portfolio[families[0]].oof_probabilities
+                if (classes is not None and len(classes) > 2) or task_type == "multiclass_classification":
+                    # Multiclass classification: select class with maximum predicted probability
+                    if avg_oof_probs is not None and avg_oof_probs.ndim == 2 and avg_oof_probs.shape[1] == len(classes):
+                        pred_multiclass = classes[np.argmax(avg_oof_probs, axis=1)]
+                    else:
+                        pred_multiclass = portfolio[families[0]].oof_predictions
+                    ensemble_oof_preds = pred_multiclass
+                    if resolved_metric == "accuracy":
+                        from sklearn.metrics import accuracy_score
+                        ensemble_cv_score = float(accuracy_score(y_eval, ensemble_oof_preds))
+                    else:
+                        from sklearn.metrics import balanced_accuracy_score
+                        ensemble_cv_score = float(balanced_accuracy_score(y_eval, ensemble_oof_preds))
+                    best_threshold = 0.5
+                else:
+                    best_thresh = 0.5
+                    best_score = -1.0
+                    for t in np.linspace(0.30, 0.70, 81):
+                        p_pos = avg_oof_probs[:, 1] if avg_oof_probs.ndim == 2 else avg_oof_probs
+                        pred_t = (p_pos >= t).astype(int)
+                        if resolved_metric == "accuracy":
+                            from sklearn.metrics import accuracy_score
+                            score_t = float(accuracy_score(y_eval, pred_t))
+                        elif resolved_metric == "roc_auc":
+                            from sklearn.metrics import roc_auc_score
+                            score_t = float(roc_auc_score(y_eval, p_pos))
+                            best_score = score_t
+                            break
+                        else:
+                            score_t = float(balanced_accuracy_score(y_eval, pred_t))
+                        if score_t > best_score:
+                            best_score = score_t
+                            best_thresh = float(t)
 
-                best_threshold = best_thresh
-                p_eval = avg_oof_probs[:, 1] if avg_oof_probs.ndim == 2 else avg_oof_probs
-                ensemble_oof_preds = (p_eval >= best_threshold).astype(int)
-                ensemble_cv_score = best_score
+                    best_threshold = best_thresh
+                    p_eval = avg_oof_probs[:, 1] if avg_oof_probs.ndim == 2 else avg_oof_probs
+                    ensemble_oof_preds = (p_eval >= best_threshold).astype(int)
+                    ensemble_cv_score = best_score
             else:
-                avg_oof_preds = np.mean([portfolio[fam].oof_predictions for fam in families], axis=0)
+                if resolved_direction == "minimize":
+                    inv_errs = [1.0 / max(1e-6, float(portfolio[fam].mean_cv_score) ** 2) for fam in families]
+                    reg_weights = [float(w / sum(inv_errs)) for w in inv_errs]
+                else:
+                    scores = [max(1e-6, float(portfolio[fam].mean_cv_score)) for fam in families]
+                    reg_weights = [float(s / sum(scores)) for s in scores]
+                avg_oof_preds = sum(w * portfolio[fam].oof_predictions for w, fam in zip(reg_weights, families))
+                if resolved_metric in ("rmse", "rmse_log_price", "rmsle") and log_target:
+                    avg_oof_preds = np.maximum(0.0, avg_oof_preds)
                 ensemble_oof_preds = avg_oof_preds
-                from sklearn.metrics import r2_score
-                ensemble_cv_score = float(r2_score(y, ensemble_oof_preds))
+                if resolved_metric in ("rmse", "rmse_log_price", "rmsle"):
+                    ensemble_cv_score = float(np.sqrt(np.mean((y_eval - ensemble_oof_preds) ** 2)))
+                elif resolved_metric == "mae":
+                    from sklearn.metrics import mean_absolute_error
+                    ensemble_cv_score = float(mean_absolute_error(y_eval, ensemble_oof_preds))
+                else:
+                    from sklearn.metrics import r2_score
+                    ensemble_cv_score = float(r2_score(y_eval, ensemble_oof_preds))
                 best_threshold = 0.5
 
+            ens_weights = reg_weights if not is_classification else [1.0 / len(fitted_submodels)] * len(fitted_submodels)
             ensemble_predictor = ParetoEnsemblePredictor(
                 estimators=fitted_submodels,
-                weights=[1.0 / len(fitted_submodels)] * len(fitted_submodels),
+                weights=ens_weights,
                 task_type=task_type,
                 classes_=classes,
             )
+
+            # Genuine measured fold-by-fold CV scores for the ensemble
+            ensemble_fold_scores: List[float] = []
+            for tr_idx, v_idx in cv_splitter.split(clean_df, y_eval):
+                y_val_fold = y_eval[v_idx]
+                preds_val_fold = ensemble_oof_preds[v_idx]
+                if is_classification:
+                    if resolved_metric == "accuracy":
+                        from sklearn.metrics import accuracy_score
+                        ensemble_fold_scores.append(float(accuracy_score(y_val_fold, preds_val_fold)))
+                    elif resolved_metric == "roc_auc":
+                        from sklearn.metrics import roc_auc_score
+                        p_val_fold = avg_oof_probs[v_idx, 1] if avg_oof_probs.ndim == 2 else avg_oof_probs[v_idx]
+                        ensemble_fold_scores.append(float(roc_auc_score(y_val_fold, p_val_fold)))
+                    else:
+                        from sklearn.metrics import balanced_accuracy_score
+                        ensemble_fold_scores.append(float(balanced_accuracy_score(y_val_fold, preds_val_fold)))
+                else:
+                    if resolved_metric in ("rmse", "rmse_log_price", "rmsle"):
+                        ensemble_fold_scores.append(float(np.sqrt(np.mean((y_val_fold - preds_val_fold) ** 2))))
+                    elif resolved_metric == "mae":
+                        from sklearn.metrics import mean_absolute_error
+                        ensemble_fold_scores.append(float(mean_absolute_error(y_val_fold, preds_val_fold)))
+                    else:
+                        from sklearn.metrics import r2_score
+                        ensemble_fold_scores.append(float(r2_score(y_val_fold, preds_val_fold)))
+
+            if not ensemble_fold_scores:
+                ensemble_fold_scores = [ensemble_cv_score]
+
+            # Genuine in-fold training evaluation from evaluated portfolio
+            ens_train_score = float(np.mean([p.mean_train_score for p in portfolio.values()]))
+            measured_gap = float(abs(ens_train_score - ensemble_cv_score))
 
             # Error Forensics on ensemble
             ensemble_forensics = ErrorForensicsAnalyzer.analyze(
                 candidate_id=f"ensemble_epoch{epoch}",
                 model_family="pareto_ensemble",
                 X=X_feat,
-                y=y,
+                y=y_eval,
                 oof_predictions=ensemble_oof_preds,
-                cv_scores=[ensemble_cv_score] * 5,
+                cv_scores=ensemble_fold_scores,
                 mean_cv_score=ensemble_cv_score,
-                train_val_gap=0.04,
+                train_val_gap=measured_gap,
                 feature_names=feat_names,
                 task_type=task_type,
             )
 
-            # M2-Critic Audit
+            # M2-Critic Audit with strictly measured quantities
             cand_eval = {
                 "candidate_id": f"cand_epoch_{epoch}",
                 "cv_score": ensemble_cv_score,
-                "train_score": ensemble_cv_score + 0.04,
-                "train_val_gap": 0.04,
-                "cv_scores": [ensemble_cv_score] * 5,
+                "train_score": ens_train_score,
+                "train_val_gap": measured_gap,
+                "cv_scores": ensemble_fold_scores,
                 "features": feat_names,
                 "feature_names": feat_names,
                 "feature_importances": np.mean([p.feature_importances for p in portfolio.values()], axis=0),
@@ -1910,7 +2087,7 @@ class AutonomousRescueEngine:
                 "families": families,
             }
             m1_reflection = (
-                f"Epoch {epoch} Pareto ensemble achieved CV {metric_name} = {ensemble_cv_score:.4f}. "
+                f"Epoch {epoch} Pareto ensemble achieved CV {resolved_metric} = {ensemble_cv_score:.4f}. "
                 f"Critic verdict: {critique.status}. All 4 hard assertions passed."
             )
             ledger.record_epoch(
@@ -1945,11 +2122,12 @@ class AutonomousRescueEngine:
                     classes=classes,
                     decision_threshold=best_threshold,
                     calibration_method="isotonic" if is_classification else "none",
+                    log_target=log_target,
                 )
                 final_pipeline.is_fitted_ = True
                 final_pipeline.sanitizer = DirtyDataSanitizerTransformer(coercions=topology.get("coercions", {}))
                 final_pipeline.dropper = ColumnDropperTransformer(id_columns=topology.get("id_columns", []))
-                final_pipeline.fe_graph = fe_graph
+                final_pipeline.fe_graph = fe_graph_full
                 final_pipeline.ensemble = ensemble_predictor
                 final_pipeline.categorizer = CalibratedThresholdCategorizer(
                     decision_threshold=best_threshold,
@@ -1966,13 +2144,13 @@ class AutonomousRescueEngine:
         bundle_rec = bundle_candidate(
             candidate_dir=self.workspace_root / f"cand_{session_id}",
             output_bundle_dir=bundle_output_dir,
-            dataset_path=dataset_path,
+            dataset_path=dataset_file_path,
             test_access_id=test_access_id,
             project_id=project_id,
             candidate_id=apex_cand_id,
             task_type=task_type,
             target_column=target_col,
-            primary_metric=metric_name,
+            primary_metric=resolved_metric,
             pipeline=final_pipeline,
             topology=topology,
             raw_holdout_records=raw_holdout_records,
@@ -2002,7 +2180,8 @@ class AutonomousRescueEngine:
             "research_ledger": ledger.to_dict(),
             "apex_candidate_id": apex_cand_id,
             "best_cv_score": ledger.best_cv_score,
-            "metric_name": metric_name,
+            "metric_name": resolved_metric,
+            "metric_direction": resolved_direction,
             "decision_threshold": best_threshold,
             "bundle_dir": str(bundle_output_dir),
             "bundle_receipt": bundle_rec,

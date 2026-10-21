@@ -1,0 +1,1 @@
+{"timestamp": "2026-10-21T17:58:30.310672+00:00", "stage": "live_dev_k1", "elapsed_s": 23.325318098068237, "worker_peak_rss_bytes": 358629376, "controller_lifetime_peak_rss_bytes": 366051328, "containment_status": "uncontained_host_process", "total_billed_cost_usd": 0.001370828}

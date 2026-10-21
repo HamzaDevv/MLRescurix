@@ -1,0 +1,7 @@
+{
+  "total_requests": 3,
+  "total_billed_cost_usd": 0.000688544,
+  "model_id": "deepseek/deepseek-v4.1-flash-1017",
+  "provider_endpoint": "inference-net/fp8",
+  "remaining_campaign_usd": 0.287839368
+}

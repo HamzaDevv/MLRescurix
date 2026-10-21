@@ -1,0 +1,9 @@
+{
+  "total_requests": 0,
+  "total_tokens": 0,
+  "total_billed_cost_usd": 0.0,
+  "reserved_cost_usd": 0.0,
+  "remaining_budget_usd": 0.3,
+  "budget_scope": "run_observation_only_not_authoritative_campaign_ledger",
+  "spending_cap_usd": 0.3
+}

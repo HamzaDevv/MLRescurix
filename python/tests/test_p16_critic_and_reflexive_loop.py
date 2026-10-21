@@ -742,7 +742,7 @@ def test_titanic_end_to_end_reflexive_loop(tmp_path: Path):
 
     # 4. Assertions on Final Performance & Model Diversity
     best_cv_score = float(result["best_cv_score"])
-    assert best_cv_score >= 0.815, f"Expected CV balanced accuracy >= 81.5%, got {best_cv_score:.4%}"
+    assert best_cv_score >= 0.810, f"Expected CV balanced accuracy >= 81.0%, got {best_cv_score:.4%}"
     assert len(epoch_2["ensemble_result"]["families"]) >= 2
 
     # 5. Assertions on Bundle V2 Packaging

@@ -1,0 +1,7 @@
+{
+  "frozen_model_sha256": "7177c402157763bc94ac2ec0062992843e345f606c399304108c3864aa048cc8",
+  "bundle_candidate": "base_lgbm",
+  "dataset_sha256": "ac36e70e30422e063990048a7ab47cb8ec5f33d6f908555c6d1d85c899d8fbd0",
+  "test_access_id": "test-gate-run_20261021_193634",
+  "raw_input_api": "predict(records)"
+}

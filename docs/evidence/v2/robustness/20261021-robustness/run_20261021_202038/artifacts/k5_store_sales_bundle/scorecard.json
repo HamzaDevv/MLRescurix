@@ -1,0 +1,24 @@
+{
+  "candidate_id": "base_lgbm",
+  "project_id": "k5_store_sales_campaign",
+  "dataset_sha256": "b02ffe3a44c9e686e9442376798cc95bfbc72703da24097fb70a5cb2ddd1fafe",
+  "test_access_id": "test-gate-run_20261021_202038",
+  "primary_metric": 952.642950937304,
+  "metrics": {
+    "rmse": 952.642950937304
+  },
+  "constraints": {
+    "inference_latency_ms": {
+      "threshold": 50.0,
+      "value": 3.5,
+      "verdict": "pass",
+      "enforcement": "measured"
+    },
+    "bundle_bytes": {
+      "threshold": 10485760,
+      "value": 25000,
+      "verdict": "pass",
+      "enforcement": "measured"
+    }
+  }
+}

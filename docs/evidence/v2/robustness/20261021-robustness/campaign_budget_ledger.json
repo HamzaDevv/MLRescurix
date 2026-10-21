@@ -1,0 +1,96 @@
+{
+  "campaign_ceiling_usd": "0.30",
+  "per_run_ceiling_usd": "0.05",
+  "contingency_usd": "0.05",
+  "total_billed_usd": "0.014604020",
+  "total_reserved_usd": "0.00",
+  "total_uncertain_usd": "0.00",
+  "remaining_campaign_usd": "0.285395980",
+  "runs": {
+    "run_20261021_172942": {
+      "billed_usd": "0.00061408",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 3
+    },
+    "run_20261021_173653": {
+      "billed_usd": "0.00092344",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 3
+    },
+    "run_20261021_183624": {
+      "billed_usd": "0.00070202",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 3
+    },
+    "run_20261021_191128": {
+      "billed_usd": "0.00078304",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 2
+    },
+    "run_20261021_191510": {
+      "billed_usd": "0.00064742",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 3
+    },
+    "run_20261021_193634": {
+      "billed_usd": "0.00111500",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 3
+    },
+    "run_20261021_200123": {
+      "billed_usd": "0.00087326",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 3
+    },
+    "run_20261021_200725": {
+      "billed_usd": "0.00099526",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 3
+    },
+    "run_20261021_202038": {
+      "billed_usd": "0.00105858",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 3
+    },
+    "run_20261021_231155": {
+      "billed_usd": "0.00252704",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 3
+    },
+    "run_20261021_231504": {
+      "billed_usd": "0.001232948",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 3
+    },
+    "run_20261021_231630": {
+      "billed_usd": "0.000688544",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 3
+    },
+    "run_20261021_232806": {
+      "billed_usd": "0.001370828",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 3
+    },
+    "run_20261021_232923": {
+      "billed_usd": "0.00107256",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 3
+    }
+  },
+  "active_reservations": {}
+}

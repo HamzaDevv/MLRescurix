@@ -339,6 +339,14 @@ class QuasiIdDecomposer(BaseEstimator, TransformerMixin):
         else:
             num_cols = [c for c in X.columns if c not in id_cols and pd.api.types.is_numeric_dtype(X[c])]
 
+        forbidden = {
+            "target", "label", "survived", "saleprice", "isfraud", "cover_type", "sales", "id", "passengerid", "row_id"
+        }
+        num_cols = [
+            c for c in num_cols
+            if c.lower() not in forbidden and not c.lower().endswith("id") and not c.lower().startswith("target")
+        ]
+
         return id_cols, num_cols
 
     def fit(
@@ -709,6 +717,7 @@ class InformativeMissingnessAndInteractions(BaseEstimator, TransformerMixin):
     def __init__(
         self,
         numeric_columns: Optional[Sequence[str]] = None,
+        missing_columns: Optional[Sequence[str]] = None,
         missing_rate_bounds: Tuple[float, float] = (0.005, 0.995),
         max_candidate_features: int = 8,
         max_interactions: int = 10,
@@ -716,9 +725,10 @@ class InformativeMissingnessAndInteractions(BaseEstimator, TransformerMixin):
         random_state: int = 42,
     ):
         self.numeric_columns = list(numeric_columns) if numeric_columns else None
+        self.missing_columns = list(missing_columns) if missing_columns else None
         self.missing_rate_bounds = missing_rate_bounds
         self.max_candidate_features = max(2, int(max_candidate_features))
-        self.max_interactions = max(1, int(max_interactions))
+        self.max_interactions = max(0, int(max_interactions))
         self.epsilon = float(epsilon)
         self.random_state = random_state
 
@@ -738,10 +748,12 @@ class InformativeMissingnessAndInteractions(BaseEstimator, TransformerMixin):
 
         # 1. Detect informative missingness
         self.informative_missing_cols_ = []
-        for col in X_df.columns:
-            rate = float(X_df[col].isna().mean())
-            if min_rate <= rate <= max_rate:
-                self.informative_missing_cols_.append(col)
+        target_missing = self.missing_columns if self.missing_columns else X_df.columns
+        for col in target_missing:
+            if col in X_df.columns:
+                rate = float(X_df[col].isna().mean())
+                if (min_rate <= rate <= max_rate) or (self.missing_columns and rate > 0.0):
+                    self.informative_missing_cols_.append(col)
 
         # 2. Select numeric columns
         if self.numeric_columns is not None:

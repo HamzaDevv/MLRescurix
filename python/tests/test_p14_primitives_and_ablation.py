@@ -41,6 +41,7 @@ import pytest
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.pipeline import Pipeline
 
+from mlrescurix_worker.scientific.workflow import WorkflowError
 from mlrescurix_worker.scientific.fe_ablation import (
     PurgedTimeSeriesSplit,
     ablate_feature_hypothesis,
@@ -519,7 +520,7 @@ def test_end_to_end_pipeline_with_all_primitives(titanic_df: pd.DataFrame):
 
 
 def test_fe_ablation_with_python_code_snippet(titanic_df: pd.DataFrame):
-    """Verify that ablate_feature_hypothesis can execute Python code string specifications."""
+    """Verify that raw code cannot execute without a governed sandbox."""
     topology = analyze_and_lock_topology(
         titanic_df, explicit_target="Survived", dataset_id="titanic_test"
     )
@@ -539,18 +540,16 @@ def build_features(df, y=None):
     return X
 """
 
-    receipt = ablate_feature_hypothesis(
-        hypothesis_id="hyp_log_fare_snippet",
-        candidate_features_py=candidate_code,
-        base_features_py=base_features,
-        topology=topology,
-        df=titanic_df,
-        fidelity="fast",
-    )
-
-    assert receipt["hypothesis_id"] == "hyp_log_fare_snippet"
-    assert "LogFare" in receipt["feature_names"]
-    assert receipt["status"] in ("ACCEPTED", "REJECTED")
+    # Arbitrary code must stay unavailable until governed execution is wired.
+    with pytest.raises(WorkflowError, match="governed sandbox unavailable"):
+        ablate_feature_hypothesis(
+            hypothesis_id="hyp_log_fare_snippet",
+            candidate_features_py=candidate_code,
+            base_features_py=base_features,
+            topology=topology,
+            df=titanic_df,
+            fidelity="fast",
+        )
 
 
 def test_text_embedder_unsupervised_and_regression_continuous_target():

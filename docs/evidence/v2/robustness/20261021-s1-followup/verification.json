@@ -1,0 +1,53 @@
+{
+  "reviewed_commit": "653a8ee",
+  "worktree_changes": true,
+  "verdict": "S1_partial_repair_required",
+  "provider_requests_this_followup": 0,
+  "provider_cost_usd_this_followup": "0.00",
+  "holdout_accesses_this_followup": 0,
+  "selected_tests": {
+    "exit_code": 0,
+    "passed": 75,
+    "warnings": 10,
+    "duration_seconds": 40.81,
+    "files": [
+      "test_s1_followup_guards.py",
+      "test_hypothesis_executor.py",
+      "test_s1_robustness_reproducers.py",
+      "test_p13_dirty_sanitizer_and_eda.py",
+      "test_p14_primitives_and_ablation.py",
+      "test_p15_model_zoo_and_forensics.py",
+      "test_p16_critic_and_reflexive_loop.py",
+      "test_kaggle_benchmarks.py"
+    ],
+    "log": "tests.log"
+  },
+  "not_run": [
+    "full Python suite",
+    "Rust suite",
+    "paid provider requests",
+    "authentic Kaggle campaign",
+    "container enforcement certification"
+  ],
+  "source_sha256": {
+    "python/src/mlrescurix_worker/scientific/eda_agent.py": "57ccb6944f490d6f8e200a50a7e351c32dd79e67373baba98e8c52706e15923c",
+    "python/src/mlrescurix_worker/scientific/fe_ablation.py": "78cca8d18c3d73a9be067e4aaf45cfa520af78818719586b58a66fbe057fd162",
+    "python/src/mlrescurix_worker/scientific/hypothesis_executor.py": "f49c2fecf91d3b3959808398ce17a849969fb945e88413075ae54259ff5b3b15",
+    "scripts/run_robustness_campaign.py": "664d7ffd6e744e513daae877e86e32a3266c1f5a06a3b7a9712011811071ccc2",
+    "docs/v2/BENCHMARK_SUITE.json": "de656a6a28221c8188d227ff9bccf1df828d3ed5d4ef3259ae861f56537aa1b1"
+  },
+  "budget": {
+    "total_campaign_usd": "0.30",
+    "per_main_run_usd": "0.05",
+    "contingency_included_usd": "0.05",
+    "production_enforcement": "not_implemented_live_mode_blocked"
+  },
+  "requested_model": "deepseek/deepseek-v4.1-flash-1017",
+  "endpoint": "inference-net/fp8",
+  "allow_fallbacks": false,
+  "post_final_edit_guards": {
+    "exit_code": 0,
+    "result": "11 passed, 1 warning in 1.73s",
+    "log": "final-guards.log"
+  }
+}

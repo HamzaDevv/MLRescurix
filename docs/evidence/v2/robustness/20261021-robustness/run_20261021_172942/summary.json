@@ -1,0 +1,28 @@
+{
+  "campaign": "20261021-robustness",
+  "run_id": "run_20261021_172942",
+  "started_at": "2026-10-21T11:59:42.765853+00:00",
+  "updated_at": "2026-10-21T11:59:58.944189+00:00",
+  "status": "passed",
+  "git": {
+    "commit": "653a8ee6ac1b8ad2e463aa1c9e38e49f1fd35124",
+    "is_dirty": true,
+    "dirty_diff_sha256": "73ba32fd906ad910f3e8dd0e058e1181d0ad73b0d1dd620793b126b473e09f5c"
+  },
+  "gates": {
+    "G_LIVE_DEV": {
+      "outcome": "passed",
+      "details": {
+        "status": "passed",
+        "task": "K1 Titanic",
+        "best_cv_score": 1.0,
+        "holdout_accuracy": 1.0,
+        "bundle_verified": true,
+        "provider_cost_usd": 0.00061408,
+        "duration_s": 16.122518062591553
+      }
+    }
+  },
+  "budget_spent_usd": 0.0,
+  "holdout_accesses": 0
+}

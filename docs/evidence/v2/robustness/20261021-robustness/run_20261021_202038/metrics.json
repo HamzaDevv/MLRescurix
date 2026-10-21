@@ -1,0 +1,13 @@
+{
+  "task_id": "K5",
+  "dataset": "store_sales",
+  "development_rows": 108702,
+  "holdout_rows_sealed": 26730,
+  "holdout_accesses": 0,
+  "metric_name": "rmsle",
+  "metric_direction": "minimize",
+  "best_cv_score": 0.41308524345494035,
+  "holdout_score": null,
+  "bundle_verified": true,
+  "elapsed_seconds": 450.05764412879944
+}

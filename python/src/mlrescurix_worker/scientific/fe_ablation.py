@@ -23,6 +23,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
+from .workflow import WorkflowError
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
 from sklearn.metrics import balanced_accuracy_score, r2_score, root_mean_squared_error
@@ -87,15 +88,45 @@ def build_cv_splitter(
     temporal_col = topology.get("temporal_col")
     task_type = topology.get("task_type", "binary_classification")
 
-    if cv_scheme == "purged_time_series_split" or temporal_col is not None:
+    # Validate declared column existence in DataFrame if provided
+    if df is not None:
+        if temporal_col is not None and temporal_col not in df.columns:
+            raise WorkflowError(f"Declared temporal column '{temporal_col}' missing from DataFrame")
+        if entity_group_col is not None and entity_group_col not in df.columns:
+            raise WorkflowError(f"Declared group column '{entity_group_col}' missing from DataFrame")
+
+    if cv_scheme in ("purged_time_series_split", "time_series") or temporal_col is not None:
+        if temporal_col is None and cv_scheme in ("purged_time_series_split", "time_series"):
+            raise WorkflowError(f"cv_scheme '{cv_scheme}' requires temporal_col to be specified in topology")
         splitter = PurgedTimeSeriesSplit(n_splits=cv_splits, embargo_pct=0.02)
-    elif cv_scheme == "stratified_group_kfold" and entity_group_col is not None:
+    elif cv_scheme == "stratified_group_kfold":
+        if entity_group_col is None:
+            raise WorkflowError("cv_scheme 'stratified_group_kfold' requires entity_group_col to be specified in topology")
+        if df is not None:
+            n_groups = df[entity_group_col].nunique()
+            if n_groups < 2:
+                raise WorkflowError(f"Group topology requires at least 2 distinct groups, but found {n_groups}")
+            if n_groups < cv_splits:
+                raise WorkflowError(f"Group topology requires at least {cv_splits} distinct groups, but found {n_groups}")
         splitter = StratifiedGroupKFold(n_splits=cv_splits, shuffle=True, random_state=random_state)
-    elif cv_scheme == "group_kfold" and entity_group_col is not None:
+    elif cv_scheme == "group_kfold":
+        if entity_group_col is None:
+            raise WorkflowError("cv_scheme 'group_kfold' requires entity_group_col to be specified in topology")
+        if df is not None:
+            n_groups = df[entity_group_col].nunique()
+            if n_groups < 2:
+                raise WorkflowError(f"Group topology requires at least 2 distinct groups, but found {n_groups}")
+            if n_groups < cv_splits:
+                raise WorkflowError(f"Group topology requires at least {cv_splits} distinct groups, but found {n_groups}")
         splitter = GroupKFold(n_splits=cv_splits)
     elif cv_scheme == "stratified_kfold" and "classification" in task_type:
         splitter = StratifiedKFold(n_splits=cv_splits, shuffle=True, random_state=random_state)
+    elif cv_scheme == "kfold":
+        splitter = KFold(n_splits=cv_splits, shuffle=True, random_state=random_state)
     else:
+        # If an explicit unknown scheme is declared, reject rather than silently defaulting
+        if cv_scheme not in ("stratified_kfold", "kfold", "group_kfold", "stratified_group_kfold", "purged_time_series_split", "time_series"):
+            raise WorkflowError(f"Unsupported cv_scheme declared in topology: '{cv_scheme}'")
         splitter = KFold(n_splits=cv_splits, shuffle=True, random_state=random_state)
 
     return splitter, entity_group_col, temporal_col
@@ -126,168 +157,14 @@ def _execute_feature_code_in_worker(
     id_cols: List[str],
     timeout_s: float = 30.0,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """Execute candidate Python feature code inside an isolated worker subprocess.
+    """Fail closed until candidate code uses the governed harness executor.
 
-    Enforces:
-    1. Zero controller execution: runs in a separate process with isolated memory.
-    2. Environment sanitization: inherits only allowlisted safe system variables, no secrets.
-    3. Label isolation: validation targets are strictly excluded before IPC.
-    4. Process-tree cleanup on timeout or exit.
+    Do not launch host Python or deserialize candidate-controlled pickle output.
+    Trusted in-process transformer and callable APIs remain separate contracts.
     """
-    import os
-    import pickle
-    import signal
-    import subprocess
-    import tempfile
-
-    train_no_target = train_df.drop(columns=[target_col], errors="ignore").copy()
-    val_no_target = val_df.drop(columns=[target_col], errors="ignore").copy()
-    y_train = train_df[target_col].copy() if target_col in train_df.columns else None
-
-    safe_env = {
-        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-        "PYTHONPATH": os.environ.get("PYTHONPATH", ""),
-        "SYSTEMROOT": os.environ.get("SYSTEMROOT", ""),
-        "PYTHONIOENCODING": "utf-8",
-        "LC_ALL": "C.UTF-8",
-        "LANG": "C.UTF-8",
-    }
-
-    with tempfile.TemporaryDirectory(prefix="m2_fe_sandbox_") as tmp_dir:
-        tmp_p = Path(tmp_dir)
-        in_path = tmp_p / "inputs.pkl"
-        out_path = tmp_p / "outputs.pkl"
-        code_file = tmp_p / "candidate_fe.py"
-
-        with open(in_path, "wb") as f:
-            pickle.dump({"train": train_no_target, "val": val_no_target, "y_train": y_train}, f, protocol=pickle.HIGHEST_PROTOCOL)
-
-        code_file.write_text(code_str, encoding="utf-8")
-
-        runner_script = tmp_p / "runner.py"
-        runner_code = """
-import pickle
-import sys
-import traceback
-from pathlib import Path
-import re
-import numpy as np
-import pandas as pd
-from sklearn.base import BaseEstimator, TransformerMixin
-import mlrescurix_worker.scientific.primitives as prim
-
-def main():
-    tmp_p = Path(__file__).resolve().parent
-    in_path = tmp_p / "inputs.pkl"
-    out_path = tmp_p / "outputs.pkl"
-    code_path = tmp_p / "candidate_fe.py"
-
-    with open(in_path, "rb") as f:
-        inputs = pickle.load(f)
-
-    train_df = inputs["train"]
-    val_df = inputs["val"]
-    y_train = inputs["y_train"]
-
-    code_str = code_path.read_text(encoding="utf-8")
-
-    sandbox_scope = {
-        "pd": pd,
-        "np": np,
-        "re": re,
-        "NestedOOFEmpiricalBayesEncoder": prim.NestedOOFEmpiricalBayesEncoder,
-        "QuasiIdDecomposer": prim.QuasiIdDecomposer,
-        "LightweightTextEmbedder": prim.LightweightTextEmbedder,
-        "InformativeMissingnessAndInteractions": prim.InformativeMissingnessAndInteractions,
-        "BaseEstimator": BaseEstimator,
-        "TransformerMixin": TransformerMixin,
-    }
-
-    exec(code_str, sandbox_scope)
-
-    fn = None
-    if "build_features" in sandbox_scope and callable(sandbox_scope["build_features"]):
-        fn = sandbox_scope["build_features"]
-    elif "transform" in sandbox_scope and callable(sandbox_scope["transform"]):
-        fn = sandbox_scope["transform"]
-    elif "get_transformer" in sandbox_scope and callable(sandbox_scope["get_transformer"]):
-        trans = sandbox_scope["get_transformer"]()
-        if hasattr(trans, "fit_transform"):
-            res_tr = trans.fit_transform(train_df, y_train) if y_train is not None else trans.fit_transform(train_df)
-        else:
-            if y_train is not None:
-                trans.fit(train_df, y_train)
-            else:
-                trans.fit(train_df)
-            res_tr = trans.transform(train_df)
-        res_val = trans.transform(val_df)
-        with open(out_path, "wb") as f:
-            pickle.dump({"train": res_tr, "val": res_val}, f)
-        return
-
-    if fn is not None:
-        try:
-            res_tr = fn(train_df, y_train)
-            res_val = fn(val_df, None)
-        except TypeError:
-            res_tr = fn(train_df)
-            res_val = fn(val_df)
-        with open(out_path, "wb") as f:
-            pickle.dump({"train": res_tr, "val": res_val}, f)
-        return
-
-    for val in sandbox_scope.values():
-        if isinstance(val, BaseEstimator) or (
-            isinstance(val, type) and issubclass(val, BaseEstimator) and val is not BaseEstimator
-        ):
-            inst = val() if isinstance(val, type) else val
-            try:
-                res_tr = inst.fit_transform(train_df, y_train) if hasattr(inst, "fit_transform") else inst.fit(train_df, y_train).transform(train_df)
-            except Exception:
-                res_tr = inst.fit_transform(train_df) if hasattr(inst, "fit_transform") else inst.fit(train_df).transform(train_df)
-            res_val = inst.transform(val_df)
-            with open(out_path, "wb") as f:
-                pickle.dump({"train": res_tr, "val": res_val}, f)
-            return
-
-    with open(out_path, "wb") as f:
-        pickle.dump({"train": train_df, "val": val_df}, f)
-
-if __name__ == "__main__":
-    main()
-"""
-        runner_script.write_text(runner_code, encoding="utf-8")
-
-        proc = subprocess.Popen(
-            [sys.executable, "-I", str(runner_script)],
-            cwd=str(tmp_p),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=safe_env,
-            start_new_session=True,
-        )
-
-        try:
-            p_out, p_err = proc.communicate(timeout=timeout_s)
-        except subprocess.TimeoutExpired:
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            except Exception:
-                proc.kill()
-            proc.wait()
-            raise WorkflowError(f"Custom feature code execution timed out after {timeout_s}s")
-
-        if proc.returncode != 0:
-            raise WorkflowError(f"Custom feature code execution failed (exit {proc.returncode}):\n{p_err.strip() or p_out.strip()}")
-
-        if not out_path.exists():
-            raise WorkflowError(f"Custom feature code did not produce output:\n{p_err.strip() or p_out.strip()}")
-
-        with open(out_path, "rb") as f:
-            res_data = pickle.load(f)
-
-        return _prepare_numeric_features(res_data["train"]), _prepare_numeric_features(res_data["val"])
+    raise WorkflowError(
+        "Custom feature code blocked: governed sandbox unavailable; host execution is disabled"
+    )
 
 
 def _resolve_and_apply_features(
@@ -346,12 +223,9 @@ def _resolve_and_apply_features(
         cols = [c for c in feature_source if c in train_df.columns and c != target_col and c not in id_cols]
         return _prepare_numeric_features(train_df[cols]), _prepare_numeric_features(val_df[cols])
 
-    # Case 4: Python code string or .py file path (routed through isolated worker boundary)
+    # Case 4: Untrusted Python strings/paths require a governed executor.
     if isinstance(feature_source, (str, Path)):
         code_str = str(feature_source)
-        if "\n" not in code_str and len(code_str) < 1024 and Path(code_str).is_file():
-            code_str = Path(code_str).read_text(encoding="utf-8")
-
         return _execute_feature_code_in_worker(
             code_str=code_str,
             train_df=train_df,
@@ -430,25 +304,68 @@ def ablate_feature_hypothesis(
     y_all = df_eval[target_col].to_numpy()
     groups = df_eval[group_col].to_numpy() if group_col and group_col in df_eval.columns else None
 
-    # Handle splitter fallback for classification when class counts < n_splits
+    # Handle splitter validation for classification when class counts < n_splits
     if is_classification and not isinstance(splitter, PurgedTimeSeriesSplit):
         unique_y, counts_y = np.unique(y_all[~pd.isna(y_all)], return_counts=True)
-        if len(counts_y) > 0 and min(counts_y) < splitter.get_n_splits(df_eval, y_all, groups):
-            splitter = KFold(n_splits=splitter.get_n_splits(df_eval, y_all, groups), shuffle=True, random_state=random_state)
+        n_req = splitter.get_n_splits(df_eval, y_all, groups)
+        if len(counts_y) > 0 and min(counts_y) < n_req:
+            raise WorkflowError(
+                f"Minority class count ({min(counts_y)}) is smaller than n_splits ({n_req}); "
+                f"cannot maintain requested CV scheme without violating topology"
+            )
 
-    # Determine metric
+    # Validate and determine task-aware metric
+    VALID_CLASSIFICATION_METRICS = {"balanced_accuracy", "accuracy", "roc_auc", "log_loss", "f1"}
+    VALID_REGRESSION_METRICS = {"rmse", "neg_rmse", "r2", "mae", "neg_mae", "mse", "neg_mse"}
+
     if metric_name is None:
         metric_name = "balanced_accuracy" if is_classification else "r2"
 
-    def score_fn(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    if is_classification:
+        if metric_name in VALID_REGRESSION_METRICS:
+            raise WorkflowError(f"Regression metric '{metric_name}' is invalid for classification task '{task_type}'")
+        if metric_name not in VALID_CLASSIFICATION_METRICS:
+            raise WorkflowError(f"Unsupported classification metric: '{metric_name}'")
+    else:
+        if metric_name in VALID_CLASSIFICATION_METRICS:
+            raise WorkflowError(f"Classification metric '{metric_name}' is invalid for regression task '{task_type}'")
+        if metric_name not in VALID_REGRESSION_METRICS:
+            raise WorkflowError(f"Unsupported regression metric: '{metric_name}'")
+
+    def score_fn(y_true: np.ndarray, y_pred: np.ndarray, y_prob: Optional[np.ndarray] = None) -> float:
         if metric_name == "balanced_accuracy":
             return float(balanced_accuracy_score(y_true, y_pred))
+        elif metric_name == "accuracy":
+            from sklearn.metrics import accuracy_score
+            return float(accuracy_score(y_true, y_pred))
+        elif metric_name == "f1":
+            from sklearn.metrics import f1_score
+            avg = "weighted" if len(np.unique(y_true)) > 2 else "binary"
+            return float(f1_score(y_true, y_pred, average=avg, zero_division=0))
+        elif metric_name == "roc_auc":
+            from sklearn.metrics import roc_auc_score
+            probs = y_prob if y_prob is not None else y_pred
+            if probs.ndim == 2 and probs.shape[1] == 2:
+                return float(roc_auc_score(y_true, probs[:, 1]))
+            elif probs.ndim == 2:
+                return float(roc_auc_score(y_true, probs, multi_class="ovr"))
+            return float(roc_auc_score(y_true, probs))
+        elif metric_name == "log_loss":
+            from sklearn.metrics import log_loss as sk_log_loss
+            probs = y_prob if y_prob is not None else y_pred
+            return float(-sk_log_loss(y_true, probs))
         elif metric_name == "r2":
             return float(r2_score(y_true, y_pred))
         elif metric_name in ("rmse", "neg_rmse"):
             return float(-root_mean_squared_error(y_true, y_pred))
+        elif metric_name in ("mae", "neg_mae"):
+            from sklearn.metrics import mean_absolute_error
+            return float(-mean_absolute_error(y_true, y_pred))
+        elif metric_name in ("mse", "neg_mse"):
+            from sklearn.metrics import mean_squared_error
+            return float(-mean_squared_error(y_true, y_pred))
         else:
-            return float(balanced_accuracy_score(y_true, y_pred))
+            raise WorkflowError(f"Unsupported metric: '{metric_name}'")
 
     # Determine model hyperparameters based on fidelity
     max_iter = 50
@@ -502,9 +419,11 @@ def ablate_feature_hypothesis(
         base_model.fit(X_base_tr, y_tr)
         base_tr_pred = base_model.predict(X_base_tr)
         base_val_pred = base_model.predict(X_base_val)
+        base_tr_prob = base_model.predict_proba(X_base_tr) if hasattr(base_model, "predict_proba") else None
+        base_val_prob = base_model.predict_proba(X_base_val) if hasattr(base_model, "predict_proba") else None
 
-        base_tr_sc = score_fn(y_tr, base_tr_pred)
-        base_val_sc = score_fn(y_val, base_val_pred)
+        base_tr_sc = score_fn(y_tr, base_tr_pred, base_tr_prob)
+        base_val_sc = score_fn(y_val, base_val_pred, base_val_prob)
         base_train_scores.append(base_tr_sc)
         base_val_scores.append(base_val_sc)
 
@@ -512,9 +431,11 @@ def ablate_feature_hypothesis(
         cand_model.fit(X_cand_tr, y_tr)
         cand_tr_pred = cand_model.predict(X_cand_tr)
         cand_val_pred = cand_model.predict(X_cand_val)
+        cand_tr_prob = cand_model.predict_proba(X_cand_tr) if hasattr(cand_model, "predict_proba") else None
+        cand_val_prob = cand_model.predict_proba(X_cand_val) if hasattr(cand_model, "predict_proba") else None
 
-        cand_tr_sc = score_fn(y_tr, cand_tr_pred)
-        cand_val_sc = score_fn(y_val, cand_val_pred)
+        cand_tr_sc = score_fn(y_tr, cand_tr_pred, cand_tr_prob)
+        cand_val_sc = score_fn(y_val, cand_val_pred, cand_val_prob)
         cand_train_scores.append(cand_tr_sc)
         cand_val_scores.append(cand_val_sc)
 

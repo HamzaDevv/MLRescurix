@@ -1,0 +1,2 @@
+{"timestamp": "2026-10-21T13:20:09.596194+00:00", "event": "preflight_start", "action": "evaluating_prerequisites"}
+{"timestamp": "2026-10-21T13:20:12.323996+00:00", "event": "preflight_completed", "duration_s": 2.7035880088806152, "blocked_gates": ["G5_KAGGLE_OFFICIAL_DATA", "G6_PROVIDER_GATEWAY"]}

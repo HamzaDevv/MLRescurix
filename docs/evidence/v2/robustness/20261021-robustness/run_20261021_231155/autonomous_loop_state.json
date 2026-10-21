@@ -1,0 +1,203 @@
+{
+  "session_id": "run_20261021_231155",
+  "project_id": "k2_house_prices_robustness",
+  "target_column": "SalePrice",
+  "task_type": "regression",
+  "metric_name": "rmse_log_price",
+  "metric_direction": "minimize",
+  "turns_completed": 3,
+  "stop_reason": "max_turns_reached",
+  "accepted_candidate_id": null,
+  "best_cv_score": null,
+  "turns": [
+    {
+      "turn_index": 0,
+      "proposed_action": {
+        "action_type": "PARSE_ERROR",
+        "thought_rationale": "Malformed JSON from model: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)",
+        "parameters": {
+          "raw_content": "{\n"
+        }
+      },
+      "disposition": "rejected",
+      "error_msg": "Unknown action type 'PARSE_ERROR'",
+      "measurements": {
+        "error": "Unknown action type 'PARSE_ERROR'"
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "worker_peak_rss_bytes": 374112256,
+        "controller_peak_rss_bytes": 377798656,
+        "avg_cpu_percent": 0.0,
+        "duration_seconds": 14.78908896446228,
+        "cgroup_enforced": false,
+        "containment_status": "uncontained_host_process"
+      },
+      "provider_cost_usd": 0.00083792,
+      "evidence_used_for_next_turn": {
+        "action": "PARSE_ERROR",
+        "disposition": "rejected",
+        "measurements": {
+          "error": "Unknown action type 'PARSE_ERROR'"
+        },
+        "critic_disposition": null
+      }
+    },
+    {
+      "turn_index": 1,
+      "proposed_action": {
+        "action_type": "PARSE_ERROR",
+        "thought_rationale": "Malformed JSON from model: Expecting value: line 1 column 1 (char 0)",
+        "parameters": {
+          "raw_content": ""
+        }
+      },
+      "disposition": "rejected",
+      "error_msg": "Unknown action type 'PARSE_ERROR'",
+      "measurements": {
+        "error": "Unknown action type 'PARSE_ERROR'"
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "worker_peak_rss_bytes": 374112256,
+        "controller_peak_rss_bytes": 377798656,
+        "avg_cpu_percent": 0.0,
+        "duration_seconds": 15.216262817382812,
+        "cgroup_enforced": false,
+        "containment_status": "uncontained_host_process"
+      },
+      "provider_cost_usd": 0.0008424,
+      "evidence_used_for_next_turn": {
+        "action": "PARSE_ERROR",
+        "disposition": "rejected",
+        "measurements": {
+          "error": "Unknown action type 'PARSE_ERROR'"
+        },
+        "critic_disposition": null
+      }
+    },
+    {
+      "turn_index": 2,
+      "proposed_action": {
+        "action_type": "PARSE_ERROR",
+        "thought_rationale": "Malformed JSON from model: Expecting value: line 1 column 1 (char 0)",
+        "parameters": {
+          "raw_content": ""
+        }
+      },
+      "disposition": "rejected",
+      "error_msg": "Unknown action type 'PARSE_ERROR'",
+      "measurements": {
+        "error": "Unknown action type 'PARSE_ERROR'"
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "worker_peak_rss_bytes": 374112256,
+        "controller_peak_rss_bytes": 377798656,
+        "avg_cpu_percent": 0.0,
+        "duration_seconds": 8.605157852172852,
+        "cgroup_enforced": false,
+        "containment_status": "uncontained_host_process"
+      },
+      "provider_cost_usd": 0.00084672,
+      "evidence_used_for_next_turn": {
+        "action": "PARSE_ERROR",
+        "disposition": "rejected",
+        "measurements": {
+          "error": "Unknown action type 'PARSE_ERROR'"
+        },
+        "critic_disposition": null
+      }
+    }
+  ],
+  "current_active_features": [
+    "Id",
+    "MSSubClass",
+    "MSZoning",
+    "LotFrontage",
+    "LotArea",
+    "Street",
+    "Alley",
+    "LotShape",
+    "LandContour",
+    "Utilities",
+    "LotConfig",
+    "LandSlope",
+    "Neighborhood",
+    "Condition1",
+    "Condition2",
+    "BldgType",
+    "HouseStyle",
+    "OverallQual",
+    "OverallCond",
+    "YearBuilt",
+    "YearRemodAdd",
+    "RoofStyle",
+    "RoofMatl",
+    "Exterior1st",
+    "Exterior2nd",
+    "MasVnrType",
+    "MasVnrArea",
+    "ExterQual",
+    "ExterCond",
+    "Foundation",
+    "BsmtQual",
+    "BsmtCond",
+    "BsmtExposure",
+    "BsmtFinType1",
+    "BsmtFinSF1",
+    "BsmtFinType2",
+    "BsmtFinSF2",
+    "BsmtUnfSF",
+    "TotalBsmtSF",
+    "Heating",
+    "HeatingQC",
+    "CentralAir",
+    "Electrical",
+    "1stFlrSF",
+    "2ndFlrSF",
+    "LowQualFinSF",
+    "GrLivArea",
+    "BsmtFullBath",
+    "BsmtHalfBath",
+    "FullBath",
+    "HalfBath",
+    "BedroomAbvGr",
+    "KitchenAbvGr",
+    "KitchenQual",
+    "TotRmsAbvGrd",
+    "Functional",
+    "Fireplaces",
+    "FireplaceQu",
+    "GarageType",
+    "GarageYrBlt",
+    "GarageFinish",
+    "GarageCars",
+    "GarageArea",
+    "GarageQual",
+    "GarageCond",
+    "PavedDrive",
+    "WoodDeckSF",
+    "OpenPorchSF",
+    "EnclosedPorch",
+    "3SsnPorch",
+    "ScreenPorch",
+    "PoolArea",
+    "PoolQC",
+    "Fence",
+    "MiscFeature",
+    "MiscVal",
+    "MoSold",
+    "YrSold",
+    "SaleType",
+    "SaleCondition",
+    "SalePrice"
+  ],
+  "current_active_families": [
+    "hist_gbdt",
+    "penalized_linear"
+  ],
+  "bundle_verified": false,
+  "containment_status": "uncontained_host_process",
+  "holdout_accesses": 0
+}

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from pathlib import Path
 
 from .workflow import (WorkflowError, audit_csv, finalize_candidate,
@@ -331,16 +332,41 @@ def main() -> int:
             session_id = spec_data.get("session_id", "session_001")
             epoch = spec_data.get("epoch", 1)
 
-            receipt = ablate_feature_hypothesis(
-                hypothesis_id=hyp_id,
-                candidate_features_py=cand_fe,
-                base_features_py=base_fe,
-                topology=topology,
-                dataset_path=dataset_path,
-                session_id=session_id,
-                project_id=project_id,
-                epoch=epoch,
-            )
+            try:
+                receipt = ablate_feature_hypothesis(
+                    hypothesis_id=hyp_id,
+                    candidate_features_py=cand_fe,
+                    base_features_py=base_fe,
+                    topology=topology,
+                    dataset_path=dataset_path,
+                    session_id=session_id,
+                    project_id=project_id,
+                    epoch=epoch,
+                )
+            except WorkflowError as we:
+                receipt = {
+                    "ablation_id": f"ablation_{hyp_id}_{int(time.time() * 1000)}",
+                    "session_id": session_id,
+                    "project_id": project_id,
+                    "epoch": epoch,
+                    "hypothesis_id": hyp_id,
+                    "feature_names": [],
+                    "baseline_cv_score": 0.0,
+                    "ablated_cv_score": 0.0,
+                    "cv_score_delta": 0.0,
+                    "train_val_gap_delta": 0.0,
+                    "base_gap": 0.0,
+                    "cand_gap": 0.0,
+                    "fold_win_count": 0,
+                    "total_folds": 0,
+                    "win_rate": 0.0,
+                    "fold_deltas": [],
+                    "status": "REJECTED",
+                    "rejection_reason": str(we),
+                    "importance_scores": {},
+                    "evaluated_at_ms": int(time.time() * 1000),
+                    "metric_name": "balanced_accuracy",
+                }
             if db_path:
                 persist_feature_ablation(
                     db_path=db_path,

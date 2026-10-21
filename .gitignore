@@ -19,6 +19,12 @@ __pycache__/
 # Runtime state, databases, environments, and artifacts
 /.mlrescurix-state/
 /.m2/
+/data/
+/.kaggle_staging/
+/kaggle_outputs/
+*.joblib
+*.safetensors
+*.lock
 *.sqlite
 *.sqlite3
 *.sqlite-wal

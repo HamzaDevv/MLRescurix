@@ -326,7 +326,7 @@ existing project/provider policy. Capability preflight can reduce scale or refus
 - Per problem/seed/mode wall caps: 10/15/20/30/30 minutes respectively. Same caps for
   baseline and upgrade; count preprocessing/OOF/calibration in the cap. Campaign wall
   ceiling 20 hours including retries; resumable across sessions, not an estimate.
-- Live-provider ceiling: USD 5 total campaign, USD 0.50 per main live task run, 20
+- Live-provider ceiling: USD 0.30 total campaign across all sessions/runs/retries, USD 0.05 per main live task run, 20
   requests including retries and 80,000 total requested tokens per run. Ceiling applies
   at whichever bound is exhausted first. Reserve worst-case request cost before sending;
   if pricing/accounting is unavailable, refuse the next billed request. Change caps
@@ -335,6 +335,10 @@ existing project/provider policy. Capability preflight can reduce scale or refus
   128 MiB under its existing accounting contract. Preflight joins, covariance/MI,
   TF-IDF, dense conversions and ensemble copies. Archive selected evidence, delete
   disposable intermediates through existing ownership/GC rules, and record refusals.
+- Requested model: `deepseek/deepseek-v4.1-flash-1017` through OpenRouter, pinned
+  to `inference-net/fp8`, with fallbacks disabled. Reserve USD 0.05 contingency within
+  the USD 0.30 total; revalidate endpoint pricing before live use. This budget may
+  restrict coverage; report incomplete evidence instead of increasing the cap.
 - Provider transport: at most 2 retries per request, 60-second attempt timeout and
   180-second total request deadline, all within run caps. No unbounded fix/run loops.
 

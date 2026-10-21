@@ -305,30 +305,9 @@ class ParetoEnsembleSynthesizer:
                 task_type=task_type,
             )
             blending_weights = blending_weights_arr.tolist()
-        elif meta_learner == "elasticnet":
-            if task_type == "regression":
-                fitted_meta_model = ElasticNet(alpha=0.1, l1_ratio=0.5, random_state=spec_obj.seed)
-                fitted_meta_model.fit(oof_eligible, y_eligible)
-            else:
-                fitted_meta_model = LogisticRegression(
-                    penalty="elasticnet",
-                    l1_ratio=0.5,
-                    C=1.0,
-                    solver="saga",
-                    max_iter=500,
-                    random_state=spec_obj.seed,
-                )
-                fitted_meta_model.fit(oof_eligible, y_eligible)
-        elif meta_learner == "logistic":
-            fitted_meta_model = LogisticRegression(C=1.0, max_iter=500, random_state=spec_obj.seed)
+        else:
+            fitted_meta_model = cls._build_meta_estimator(meta_learner, task_type, spec_obj.seed)
             fitted_meta_model.fit(oof_eligible, y_eligible)
-        else:  # default "ridge"
-            if task_type == "regression":
-                fitted_meta_model = Ridge(alpha=1.0, random_state=spec_obj.seed)
-                fitted_meta_model.fit(oof_eligible, y_eligible)
-            else:
-                fitted_meta_model = LogisticRegression(C=1.0, max_iter=500, random_state=spec_obj.seed)
-                fitted_meta_model.fit(oof_eligible, y_eligible)
 
         # Serialize meta model if trained
         if fitted_meta_model is not None:
@@ -337,17 +316,51 @@ class ParetoEnsembleSynthesizer:
         # 4. Refit each submodel on the full training set inside destination
         cls._fit_full_submodels(submodels_dest, submodel_ids, train_path)
 
-        # 5. Calculate OOF score of the stacked ensemble on eligible assessed rows
-        oof_score = cls._compute_ensemble_oof_score(
-            meta_features=oof_eligible,
-            y_true=y_eligible,
-            task_type=task_type,
-            meta_learner=meta_learner,
-            meta_model=fitted_meta_model,
-            weights=blending_weights,
-            classes=classes,
-            primary_metric=spec_obj.primary_metric,
-        )
+        # 5. Independent meta-model assessment: score meta-learner out-of-sample via secondary CV
+        n_meta_splits = min(5, len(y_eligible))
+        if n_meta_splits >= 2:
+            if task_type in ("binary", "multiclass"):
+                unique_cls, cls_counts = np.unique(y_eligible, return_counts=True)
+                if min(cls_counts) >= n_meta_splits:
+                    meta_cv = StratifiedKFold(n_splits=n_meta_splits, shuffle=True, random_state=spec_obj.seed)
+                    meta_splits = list(meta_cv.split(oof_eligible, y_eligible))
+                else:
+                    meta_cv = KFold(n_splits=n_meta_splits, shuffle=True, random_state=spec_obj.seed)
+                    meta_splits = list(meta_cv.split(oof_eligible))
+            else:
+                meta_cv = KFold(n_splits=n_meta_splits, shuffle=True, random_state=spec_obj.seed)
+                meta_splits = list(meta_cv.split(oof_eligible))
+
+            meta_oof_preds = np.full(len(y_eligible), np.nan, dtype=float)
+            for m_tr_idx, m_val_idx in meta_splits:
+                m_tr_X, m_tr_y = oof_eligible[m_tr_idx], y_eligible[m_tr_idx]
+                m_val_X = oof_eligible[m_val_idx]
+
+                if meta_learner == "bayesian_blend":
+                    w = optimize_bayesian_blend_weights(m_tr_X, m_tr_y, task_type=task_type)
+                    w_arr = np.array(list(w.values()) if isinstance(w, dict) else w, dtype=float)
+                    if task_type == "regression":
+                        meta_oof_preds[m_val_idx] = m_val_X @ w_arr
+                    else:
+                        probs = m_val_X @ w_arr
+                        meta_oof_preds[m_val_idx] = probs if spec_obj.primary_metric in ("log_loss", "roc_auc") else (probs >= 0.5).astype(int)
+                else:
+                    m_eval = cls._build_meta_estimator(meta_learner, task_type, spec_obj.seed)
+                    m_eval.fit(m_tr_X, m_tr_y)
+                    if task_type in ("binary", "multiclass") and spec_obj.primary_metric in ("log_loss", "roc_auc") and hasattr(m_eval, "predict_proba"):
+                        probs = m_eval.predict_proba(m_val_X)
+                        meta_oof_preds[m_val_idx] = probs[:, 1] if probs.shape[1] == 2 else probs[:, 0]
+                    else:
+                        meta_oof_preds[m_val_idx] = m_eval.predict(m_val_X)
+
+            oof_score = cls._score_predictions(
+                y_true=y_eligible,
+                y_pred=meta_oof_preds,
+                primary_metric=spec_obj.primary_metric,
+                task_type=task_type,
+            )
+        else:
+            oof_score = None
 
         # 6. Save ensemble configuration metadata
         meta_config = {
@@ -446,23 +459,57 @@ class ParetoEnsembleSynthesizer:
 
         if split_assignments is not None and len(split_assignments) > 0:
             validated_splits = []
+            seen_val_indices: set[int] = set()
             for fold_idx, (tr_idx, val_idx) in enumerate(split_assignments):
-                tr_arr = np.asarray(tr_idx, dtype=int)
-                val_arr = np.asarray(val_idx, dtype=int)
+                tr_arr = np.asarray(tr_idx)
+                val_arr = np.asarray(val_idx)
+                if not np.issubdtype(tr_arr.dtype, np.integer) or not np.issubdtype(val_arr.dtype, np.integer):
+                    raise WorkflowError(f"Split assignment fold {fold_idx} indices must be exact integers without float coercion")
                 if len(tr_arr) == 0:
                     raise WorkflowError(f"Split assignment fold {fold_idx} has empty train set")
                 if len(val_arr) == 0:
                     raise WorkflowError(f"Split assignment fold {fold_idx} has empty validation set")
+                if np.min(tr_arr) < 0 or np.max(tr_arr) >= n_rows or np.min(val_arr) < 0 or np.max(val_arr) >= n_rows:
+                    raise WorkflowError(f"Split assignment indices out of bounds [0, {n_rows}) in fold {fold_idx}")
+                if len(np.unique(tr_arr)) != len(tr_arr):
+                    raise WorkflowError(f"Duplicate training indices in fold {fold_idx}")
+                if len(np.unique(val_arr)) != len(val_arr):
+                    raise WorkflowError(f"Duplicate validation indices in fold {fold_idx}")
                 overlap = set(tr_arr) & set(val_arr)
                 if overlap:
                     raise WorkflowError(f"Overlapping indices in fold {fold_idx}: train and validation sets must be disjoint, got {overlap}")
-                if np.min(tr_arr) < 0 or np.max(tr_arr) >= n_rows or np.min(val_arr) < 0 or np.max(val_arr) >= n_rows:
-                    raise WorkflowError(f"Split assignment indices out of bounds [0, {n_rows}) in fold {fold_idx}")
+                val_set = set(val_arr)
+                if not seen_val_indices.isdisjoint(val_set):
+                    raise WorkflowError(f"Validation indices in fold {fold_idx} overlap with previous validation fold(s): {seen_val_indices & val_set}")
+                seen_val_indices.update(val_set)
                 validated_splits.append((tr_arr, val_arr))
             splits = validated_splits
-        elif topology is not None and topology.get("temporal_col"):
+        elif topology is not None and (topology.get("temporal_col") or topology.get("entity_group_col")):
             temporal_col = topology.get("temporal_col")
-            if temporal_col in df_train.columns:
+            group_col = topology.get("entity_group_col")
+
+            # Validate column presence in df_train; reject missing declared columns
+            if temporal_col is not None and temporal_col not in df_train.columns:
+                raise WorkflowError(f"Declared temporal column '{temporal_col}' missing from training data")
+            if group_col is not None and group_col not in df_train.columns:
+                raise WorkflowError(f"Declared group column '{group_col}' missing from training data")
+
+            if temporal_col is not None and group_col is not None:
+                # Joint temporal and group topology
+                time_vals = df_train[temporal_col].to_numpy()
+                sorted_order = np.argsort(time_vals, kind="stable")
+                from sklearn.model_selection import TimeSeriesSplit
+                tss = TimeSeriesSplit(n_splits=n_splits)
+                splits = []
+                for tr_pos, val_pos in tss.split(sorted_order):
+                    tr_idx = sorted_order[tr_pos]
+                    val_idx = sorted_order[val_pos]
+                    max_tr_time = df_train.iloc[tr_idx][temporal_col].max()
+                    min_val_time = df_train.iloc[val_idx][temporal_col].min()
+                    if max_tr_time >= min_val_time:
+                        raise WorkflowError(f"Temporal leakage detected: max train time ({max_tr_time}) >= min val time ({min_val_time})")
+                    splits.append((tr_idx, val_idx))
+            elif temporal_col is not None:
                 from sklearn.model_selection import TimeSeriesSplit
                 # Sort indices by temporal column to guarantee strict chronological ordering (past -> future)
                 time_vals = df_train[temporal_col].to_numpy()
@@ -474,18 +521,10 @@ class ParetoEnsembleSynthesizer:
                     val_idx = sorted_order[val_pos]
                     max_tr_time = df_train.iloc[tr_idx][temporal_col].max()
                     min_val_time = df_train.iloc[val_idx][temporal_col].min()
-                    if max_tr_time > min_val_time:
-                        raise WorkflowError(f"Temporal leakage detected: max train time ({max_tr_time}) > min val time ({min_val_time})")
+                    if max_tr_time >= min_val_time:
+                        raise WorkflowError(f"Temporal leakage detected: max train time ({max_tr_time}) >= min val time ({min_val_time})")
                     splits.append((tr_idx, val_idx))
-            elif is_classification:
-                splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
-                splits = list(splitter.split(df_train, y))
             else:
-                splitter = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
-                splits = list(splitter.split(df_train))
-        elif topology is not None and topology.get("entity_group_col"):
-            group_col = topology.get("entity_group_col")
-            if group_col in df_train.columns:
                 n_groups = df_train[group_col].nunique()
                 if n_groups < n_splits or n_groups < 2:
                     raise WorkflowError(f"Group topology requires at least {max(2, n_splits)} distinct groups, but found {n_groups}")
@@ -497,12 +536,6 @@ class ParetoEnsembleSynthesizer:
                     val_groups = set(df_train.iloc[val_idx][group_col])
                     if not tr_groups.isdisjoint(val_groups):
                         raise WorkflowError(f"Group leakage detected: groups appear in both train and val: {tr_groups & val_groups}")
-            elif is_classification:
-                splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
-                splits = list(splitter.split(df_train, y))
-            else:
-                splitter = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
-                splits = list(splitter.split(df_train))
         elif is_classification:
             splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
             split_gen = splitter.split(df_train, y)
@@ -622,6 +655,72 @@ class ParetoEnsembleSynthesizer:
                 raise SubmodelEvaluationError(f"Full refit of submodel '{sm_id}' failed: {res.stderr}")
 
     @classmethod
+    def _build_meta_estimator(cls, meta_learner: str, task_type: str, seed: int):
+        if meta_learner == "elasticnet":
+            if task_type == "regression":
+                return ElasticNet(alpha=0.1, l1_ratio=0.5, random_state=seed)
+            else:
+                return LogisticRegression(
+                    penalty="elasticnet",
+                    l1_ratio=0.5,
+                    C=1.0,
+                    solver="saga",
+                    max_iter=500,
+                    random_state=seed,
+                )
+        elif meta_learner == "logistic":
+            return LogisticRegression(C=1.0, max_iter=500, random_state=seed)
+        else:  # default "ridge"
+            if task_type == "regression":
+                return Ridge(alpha=1.0, random_state=seed)
+            else:
+                return LogisticRegression(C=1.0, max_iter=500, random_state=seed)
+
+    @classmethod
+    def _score_predictions(
+        cls,
+        y_true: np.ndarray,
+        y_pred: np.ndarray,
+        primary_metric: str,
+        task_type: str,
+    ) -> float:
+        """Task-aware evaluation score; rejects unsupported metric contracts."""
+        is_classification = task_type in ("binary", "multiclass")
+        valid_classification = {"balanced_accuracy", "accuracy", "roc_auc", "log_loss", "f1"}
+        valid_regression = {"rmse", "neg_rmse", "r2", "mae", "neg_mae", "mse", "neg_mse"}
+
+        if is_classification:
+            if primary_metric in valid_regression:
+                raise WorkflowError(f"Regression metric '{primary_metric}' is invalid for classification task")
+            if primary_metric not in valid_classification:
+                raise WorkflowError(f"Unsupported classification metric: '{primary_metric}'")
+        else:
+            if primary_metric in valid_classification:
+                raise WorkflowError(f"Classification metric '{primary_metric}' is invalid for regression task")
+            if primary_metric not in valid_regression:
+                raise WorkflowError(f"Unsupported regression metric: '{primary_metric}'")
+
+        if primary_metric in ("rmse", "neg_rmse"):
+            return float(math.sqrt(mean_squared_error(y_true, y_pred)))
+        elif primary_metric == "r2":
+            from sklearn.metrics import r2_score
+            return float(r2_score(y_true, y_pred))
+        elif primary_metric in ("mae", "neg_mae"):
+            from sklearn.metrics import mean_absolute_error
+            return float(mean_absolute_error(y_true, y_pred))
+        elif primary_metric == "balanced_accuracy":
+            return float(balanced_accuracy_score(y_true, y_pred.round().astype(int)))
+        elif primary_metric == "accuracy":
+            return float(accuracy_score(y_true, y_pred.round().astype(int)))
+        elif primary_metric == "log_loss":
+            return float(log_loss(y_true, y_pred))
+        elif primary_metric == "roc_auc":
+            from sklearn.metrics import roc_auc_score
+            return float(roc_auc_score(y_true, y_pred))
+        else:
+            raise WorkflowError(f"Unsupported metric '{primary_metric}' for {task_type}")
+
+    @classmethod
     def _compute_ensemble_oof_score(
         cls,
         meta_features: np.ndarray,
@@ -643,16 +742,22 @@ class ParetoEnsembleSynthesizer:
                 preds = meta_features @ w_arr
             else:
                 probs = meta_features @ w_arr
-                preds = (probs >= 0.5).astype(int)
+                preds = probs if eff_metric in ("log_loss", "roc_auc") else (probs >= 0.5).astype(int)
         elif meta_model is not None:
-            preds = meta_model.predict(meta_features)
+            if task_type in ("binary", "multiclass") and eff_metric in ("log_loss", "roc_auc") and hasattr(meta_model, "predict_proba"):
+                probs = meta_model.predict_proba(meta_features)
+                preds = probs[:, 1] if probs.shape[1] == 2 else probs[:, 0]
+            else:
+                preds = meta_model.predict(meta_features)
         else:
             preds = np.mean(meta_features, axis=1)
 
-        if task_type == "regression":
-            return float(math.sqrt(mean_squared_error(y_true, preds)))
-        else:
-            return float(balanced_accuracy_score(y_true, preds))
+        return cls._score_predictions(
+            y_true=y_true,
+            y_pred=preds,
+            primary_metric=eff_metric,
+            task_type=task_type,
+        )
 
     @classmethod
     def _generate_ensemble_entrypoint_code(

@@ -1,0 +1,105 @@
+{
+  "campaign": "20261021-robustness",
+  "run_id": "run_20261021_170549",
+  "started_at": "2026-10-21T11:35:49.946019+00:00",
+  "updated_at": "2026-10-21T11:35:51.396653+00:00",
+  "status": "blocked",
+  "git": {
+    "commit": "653a8ee6ac1b8ad2e463aa1c9e38e49f1fd35124",
+    "is_dirty": true,
+    "dirty_diff_sha256": "f4973c80d1ac39bdc8506170b2f3f4edec3239014f74f854c91c9b6944516d90"
+  },
+  "gates": {
+    "G0_HOST_ENVIRONMENT": {
+      "outcome": "passed",
+      "details": {
+        "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+        "python_version": "3.13.3",
+        "arch": "arm64",
+        "cores": 8
+      }
+    },
+    "G1_PYTHON_SCIENTIFIC_STACK": {
+      "outcome": "passed",
+      "details": {
+        "numpy": "2.2.6",
+        "pandas": "2.3.0",
+        "scipy": "1.16.1",
+        "sklearn": "1.8.0",
+        "pytest": "8.3.4",
+        "jsonschema": "4.26.0",
+        "psutil": "6.1.1"
+      }
+    },
+    "G2_RUST_HARNESS_PROVENANCE": {
+      "outcome": "inconclusive",
+      "reason": "Binary hashes collected; source-to-build binding unverified",
+      "details": {
+        "debug_binary": {
+          "exists": true,
+          "sha256": "f8d08deecc51e974b728c3b609b4ce1e0509f350f5162d3018cbf0b8f75b9f00"
+        },
+        "dist_binary": {
+          "exists": true,
+          "sha256": "f9ffee6b9279600c78f227c4d32d83572f5e7357f3a1e13ccdf9c490f5158f24"
+        },
+        "rust_source_sha256": "65a5a0df3c3103a82551a6540bf2c542f2db6586b0c7a2d5a4b1657ea61c53af"
+      }
+    },
+    "G3_STORAGE_SCHEMA_V11": {
+      "outcome": "inconclusive",
+      "details": {
+        "max_supported_version": 11,
+        "never_downgrade_to_v10": true,
+        "status": "unverified",
+        "reason": "Runtime database migration not exercised"
+      }
+    },
+    "G4_CONTAINER_CGROUP_V2": {
+      "outcome": "inconclusive",
+      "reason": "Daemon reports cgroup v2; per-job enforcement unverified",
+      "details": {
+        "docker_bin": "/usr/local/bin/docker",
+        "daemon_reachable": true,
+        "info": "linux 2",
+        "cgroup_v2_certified": true
+      }
+    },
+    "G5_KAGGLE_OFFICIAL_DATA": {
+      "outcome": "blocked",
+      "reason": "Official archives, file hashes, rules and splits are not pinned",
+      "details": {
+        "client_installed": true,
+        "credentials_present": true,
+        "official_data_status": "not_pinned"
+      }
+    },
+    "G6_PROVIDER_GATEWAY": {
+      "outcome": "blocked",
+      "reason": "Provider key file present; validity unverified until live flow",
+      "details": {
+        "key_present": true,
+        "key_source": "local_file",
+        "validity_verified": false,
+        "spending_cap_usd": 0.3,
+        "per_run_cap_usd": 0.05,
+        "model_id": "deepseek/deepseek-v4.1-flash-1017",
+        "provider_routing": {
+          "only": [
+            "inference-net/fp8"
+          ],
+          "order": [
+            "inference-net/fp8"
+          ],
+          "allow_fallbacks": false
+        }
+      }
+    },
+    "G_CERTIFICATION": {
+      "outcome": "blocked",
+      "reason": "Certification rejected: blocked gates ['G5_KAGGLE_OFFICIAL_DATA', 'G6_PROVIDER_GATEWAY']"
+    }
+  },
+  "budget_spent_usd": 0.0,
+  "holdout_accesses": 0
+}

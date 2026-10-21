@@ -1,0 +1,7 @@
+{
+  "test_files": "test_kaggle_benchmarks.py, test_gate4_benchmarks.py",
+  "exit_code": 0,
+  "duration_s": 7.8099822998046875,
+  "passed": true,
+  "stdout_summary": "11 passed in 7.27s"
+}

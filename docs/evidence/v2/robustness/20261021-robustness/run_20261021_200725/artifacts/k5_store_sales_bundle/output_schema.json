@@ -1,0 +1,7 @@
+{
+  "format": "mlrescurix.schema.v2",
+  "task": "regression",
+  "prediction_type": "float",
+  "classes": null,
+  "decision_threshold": null
+}
