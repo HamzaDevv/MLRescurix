@@ -1,5 +1,13 @@
 # MLRescurix v2 implementation hub
 
+Current work (2026-10-21): [refined robustness master plan](ROBUSTNESS_MASTER_PLAN.md),
+[persistent S0–S5 ledger](ROBUSTNESS_PROGRESS.md),
+[five Kaggle problem manifest](BENCHMARK_SUITE.json), and
+[Gemini Argon review disposition](ROBUSTNESS_ARGON_REVIEW.md).
+Use [SESSION_PROMPT.md](SESSION_PROMPT.md) to continue at S1. This campaign is planned;
+its runtime upgrades and five-problem/live-provider certification are not complete.
+The older phase/status narrative below is historical context, not current campaign evidence.
+
 Created 2026-10-14. Planning baseline: `abf1f235030a79f9a606b429e34608431e37603d`.
 
 Build an agent-first ML coding harness that delivers the best verified feasible
@@ -9,7 +17,8 @@ tabular ML; expand through evaluated task/backend adapters and compute negotiati
 
 ## Read and continue
 
-1. [Progress and current handoff](PROGRESS.md): authoritative implementation status.
+1. [Robustness progress and current handoff](ROBUSTNESS_PROGRESS.md): current campaign status.
+   [Historical implementation progress](PROGRESS.md) retains earlier phase evidence.
 2. [Repository audit and blueprint corrections](AUDIT.md): what exists and what changes.
 3. [Phased roadmap](ROADMAP.md): ordered slices, dependencies and acceptance gates.
 4. [Target architecture and contracts](ARCHITECTURE.md): boundaries shared by phases.

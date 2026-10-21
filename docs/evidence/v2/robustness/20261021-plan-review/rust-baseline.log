@@ -1,0 +1,15 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+     Running tests/reflexive_loop_gate.rs (target/debug/deps/reflexive_loop_gate-10b63956389ed83c)
+
+running 8 tests
+test test_critic_audit_tool_dispatch_and_sqlite_sync ... ok
+test test_critic_audit_veto_steering_and_attempt_epoch_fencing ... ok
+test test_ablation_sprint_tool_dispatch_and_sqlite_sync ... ok
+test test_model_portfolio_eval_tool_dispatch ... ok
+test test_eda_forensics_tool_dispatch_and_sqlite_sync ... ok
+test test_scientific_tools_registry_exposure ... ok
+test test_scientific_tools_role_rbac_and_unauthorized_rejection ... ok
+test test_reflexive_orchestrate_end_to_end_and_sqlite_v11_sync ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 50.30s
+

@@ -130,14 +130,20 @@ def _resolve_and_apply_features(
     X_val_raw = val_df.drop(columns=[target_col] + [c for c in id_cols if c in val_df.columns], errors="ignore")
     y_train = train_df[target_col]
 
+    # Label isolation: validation target MUST NOT reach candidate callable frames!
+    val_df_no_target = val_df.drop(columns=[target_col], errors="ignore")
+    train_df_no_target = train_df.drop(columns=[target_col], errors="ignore")
+
     # Case 1: Callable f(df) or f(df, y)
     if callable(feature_source) and not isinstance(feature_source, type):
         try:
-            res_tr = feature_source(train_df, y_train)
-            res_val = feature_source(val_df, None)
+            # Preferred: explicit feature/label contract (df_no_target, y)
+            res_tr = feature_source(train_df_no_target, y_train)
+            res_val = feature_source(val_df_no_target, None)
         except TypeError:
-            res_tr = feature_source(train_df)
-            res_val = feature_source(val_df)
+            # Fallback: single-argument callable f(df_no_target)
+            res_tr = feature_source(train_df_no_target)
+            res_val = feature_source(val_df_no_target)
         return _prepare_numeric_features(res_tr), _prepare_numeric_features(res_val)
 
     # Case 2: Scikit-learn BaseEstimator instance

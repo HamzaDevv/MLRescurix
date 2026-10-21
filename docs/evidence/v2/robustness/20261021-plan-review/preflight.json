@@ -1,0 +1,33 @@
+{
+  "recorded_at": "2026-10-21T14:31:57.021966+05:30",
+  "source_commit": "5be287b1abf4d3e3140510f4a633072e1519f820",
+  "scope": "Planning and local regression baseline only; no live API request or five-problem benchmark executed.",
+  "report_sha256": "6567cf6ed10a481e891784b31f64135ed0ce63f0f2511eaf274f36d3354b928d",
+  "python": "3.13.3",
+  "host_os": "Darwin",
+  "architecture": "arm64",
+  "packages": {
+    "numpy": "2.2.6",
+    "pandas": "2.3.0",
+    "scipy": "1.16.1",
+    "scikit-learn": "1.8.0",
+    "pytest": "8.3.4",
+    "jsonschema": "4.26.0",
+    "psutil": "6.1.1",
+    "optuna": null,
+    "kaggle": null
+  },
+  "docker": {
+    "daemon_accessible": false,
+    "platform_cgroup": null,
+    "exit_code": 1
+  },
+  "credential_presence_only": {
+    "openrouter_environment": false,
+    "provider_local_file": true,
+    "kaggle_environment": false,
+    "kaggle_legacy_file": false,
+    "kaggle_token_file": false,
+    "credential_validity_checked": false
+  }
+}

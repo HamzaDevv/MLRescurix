@@ -1,5 +1,10 @@
 # MLRescurix
 
+Current upgrade plan (2026-10-21): [refined architecture and five-problem robustness campaign](docs/v2/ROBUSTNESS_MASTER_PLAN.md).
+Continue across 3–5 sessions using the [persistent ledger](docs/v2/ROBUSTNESS_PROGRESS.md)
+and [session prompt](docs/v2/SESSION_PROMPT.md). This new campaign is not yet certified;
+release badges and evidence below describe the historical M6 release.
+
 [![Release](https://img.shields.io/badge/release-v0.1.0--m6-blue.svg)](RELEASE_NOTES.md)
 [![Status](https://img.shields.io/badge/status-READY_FOR_RELEASE-brightgreen.svg)](docs/m6-completion-status.md)
 [![Tests](https://img.shields.io/badge/tests-346_passed-success.svg)](CHANGELOG.md)

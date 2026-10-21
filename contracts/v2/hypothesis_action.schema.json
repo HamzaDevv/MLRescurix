@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:hypothesis-action:2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "action_id",
+    "parent_candidate_id",
+    "source_hash",
+    "split_id",
+    "topology_hash",
+    "seed",
+    "action",
+    "parameters",
+    "budget_id",
+    "rationale_ref"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "v2"
+    },
+    "action_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "parent_candidate_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "source_hash": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 64
+    },
+    "split_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "topology_hash": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 64
+    },
+    "seed": {
+      "type": "integer"
+    },
+    "budget_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "rationale_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "APPLY_SKEW_TRANSFORM",
+        "ENCODE_HIGH_CARD_CAT",
+        "DECOMPOSE_QUASI_ID",
+        "EMBED_SHORT_TEXT",
+        "ADD_MNAR_INDICATOR",
+        "ADD_INTERACTION",
+        "DELETE_FEATURE",
+        "REORDER_MODEL_PRIORITY",
+        "UPDATE_SEARCH_SPACE",
+        "TRANSFORM_TARGET",
+        "CUSTOM_SANDBOX_CODE"
+      ]
+    },
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "columns": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "method": {
+          "type": "string"
+        },
+        "clip_min": {
+          "type": ["number", "null"]
+        },
+        "smoothing": {
+          "type": "number",
+          "minimum": 0.0
+        },
+        "cv_folds": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 20
+        },
+        "min_samples_leaf": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "id_columns": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "numeric_columns": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "aggregations": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "text_columns": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "n_svd_components": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "top_k_subtokens": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 256
+        },
+        "max_features": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "feature_pairs": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "operations": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["multiply", "divide", "add", "subtract"] }
+        },
+        "max_interactions": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "reason": {
+          "type": "string"
+        },
+        "preferred_families": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "target_family": {
+          "type": "string"
+        },
+        "parameter_bounds": {
+          "type": "object"
+        },
+        "target_column": {
+          "type": "string"
+        },
+        "offset": {
+          "type": ["number", "null"]
+        },
+        "code_snippet": {
+          "type": "string"
+        },
+        "entrypoint_function": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

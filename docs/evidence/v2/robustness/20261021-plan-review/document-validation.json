@@ -1,0 +1,11 @@
+{
+  "status": "pass",
+  "local_links_checked": 25,
+  "planning_manifest_valid_json": true,
+  "problem_count": 5,
+  "typed_action_count": 10,
+  "required_case_group_count": 12,
+  "original_attachments_preserved_byte_for_byte": true,
+  "campaign_not_executed_status_consistent": true,
+  "scope": "Documentation/manifests only, not runtime contract or live campaign validation."
+}

@@ -290,65 +290,148 @@ def run_exploratory_python(
     code_snippet: str,
     dataset_df: pd.DataFrame,
     timeout_s: float = 15.0,
+    exclude_columns: Optional[List[str]] = None,
 ) -> str:
-    """Execute ad-hoc Python exploratory code with strict Context Firewall output wrapping (< 2 KB).
+    """Execute ad-hoc Python exploratory code in an isolated worker subprocess with strict timeout and Context Firewall.
 
-    Wraps DataFrames into compact Markdown tables (max 15 rows x 10 cols) and captures exceptions cleanly.
+    Guarantees:
+    1. Hard timeout enforcement via subprocess process isolation (child killed on timeout).
+    2. Zero parent memory mutation: caller's DataFrame is completely unaffected.
+    3. Label isolation: optional exclude_columns stripped before worker execution.
+    4. Strict Context Firewall: output formatted and truncated to <= 2048 bytes.
     """
-    start_time = time.time()
-    old_stdout = sys.stdout
-    old_stderr = sys.stderr
+    import json
+    import pickle
+    import subprocess
+    import tempfile
+
+    # Provide read-only dataset view without excluded columns
+    df_clean = dataset_df.copy(deep=True)
+    if exclude_columns:
+        df_clean = df_clean.drop(columns=[c for c in exclude_columns if c in df_clean.columns], errors="ignore")
+
+    with tempfile.TemporaryDirectory(prefix="m2_eda_sandbox_") as tmp_dir:
+        tmp_p = Path(tmp_dir)
+        df_path = tmp_p / "dataset.pkl"
+        code_path = tmp_p / "snippet.py"
+        result_path = tmp_p / "result.json"
+
+        with open(df_path, "wb") as f:
+            pickle.dump(df_clean, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+        runner_code = """
+import io
+import json
+import pickle
+import sys
+import traceback
+from pathlib import Path
+import numpy as np
+import pandas as pd
+
+def main():
+    tmp_p = Path(__file__).resolve().parent
+    df_path = tmp_p / "dataset.pkl"
+    code_path = tmp_p / "code.txt"
+    result_path = tmp_p / "result.json"
+
+    with open(df_path, "rb") as f:
+        df = pickle.load(f)
+
+    code_snippet = code_path.read_text(encoding="utf-8")
+
     captured_out = io.StringIO()
     captured_err = io.StringIO()
-
+    old_stdout = sys.stdout
+    old_stderr = sys.stderr
     sys.stdout = captured_out
     sys.stderr = captured_err
 
-    # Provide read-only dataset view
-    df_view = dataset_df.copy(deep=False)
     local_env = {
-        "df": df_view,
+        "df": df,
         "pd": pd,
         "np": np,
     }
 
-    error_msg: Optional[str] = None
-    eval_result: Any = None
-
+    error_msg = None
     try:
-        # Check timeout constraint
         compiled = compile(code_snippet, "<exploratory_cell>", "exec")
         exec(compiled, local_env)
     except Exception as e:
         tb = traceback.format_exc(limit=3)
-        error_msg = f"Execution Error: {e}\n{tb}"
+        error_msg = f"Execution Error: {e}\\n{tb}"
     finally:
         sys.stdout = old_stdout
         sys.stderr = old_stderr
 
-    elapsed = time.time() - start_time
-    stdout_text = captured_out.getvalue().strip()
-    stderr_text = captured_err.getvalue().strip()
+    result = {
+        "stdout": captured_out.getvalue().strip(),
+        "stderr": captured_err.getvalue().strip(),
+        "error": error_msg,
+    }
+    with open(result_path, "w", encoding="utf-8") as f:
+        json.dump(result, f)
 
-    output_parts: List[str] = []
+if __name__ == "__main__":
+    main()
+"""
+        runner_file = tmp_p / "runner.py"
+        runner_file.write_text(runner_code, encoding="utf-8")
+        (tmp_p / "code.txt").write_text(code_snippet, encoding="utf-8")
 
-    if stdout_text:
-        # Check if stdout looks like a dataframe or long text
-        lines = stdout_text.splitlines()
-        if len(lines) > 20:
-            stdout_text = "\n".join(lines[:15]) + f"\n... [{len(lines) - 15} lines truncated for context firewall]"
-        output_parts.append(stdout_text)
+        proc = subprocess.Popen(
+            [sys.executable, "-I", str(runner_file)],
+            cwd=str(tmp_p),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
 
-    if stderr_text:
-        output_parts.append(f"[stderr]\n{stderr_text[:500]}")
+        try:
+            p_out, p_err = proc.communicate(timeout=timeout_s)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            return f"[error]\nExecution Error: Timeout after {timeout_s}s exceeded."
 
-    if error_msg:
-        output_parts.append(f"[error]\n{error_msg[:1000]}")
+        stdout_text = ""
+        stderr_text = ""
+        error_msg: Optional[str] = None
 
-    digest = "\n\n".join(output_parts) if output_parts else "[Cell executed successfully with no output]"
+        if result_path.exists():
+            try:
+                with open(result_path, "r", encoding="utf-8") as f:
+                    res_data = json.load(f)
+                    stdout_text = res_data.get("stdout", "")
+                    stderr_text = res_data.get("stderr", "")
+                    error_msg = res_data.get("error")
+            except Exception as e:
+                error_msg = f"Failed to read sandbox output: {e}"
+        else:
+            if proc.returncode != 0:
+                error_msg = f"Sandbox process exited with code {proc.returncode}:\n{p_err.strip() or p_out.strip()}"
+            else:
+                stdout_text = p_out.strip()
+                stderr_text = p_err.strip()
 
-    # Hard ceiling Context Firewall: < 2048 bytes
-    if len(digest.encode("utf-8")) > 2048:
-        digest = digest[:1950] + "\n... [TRUNCATED BY CONTEXT FIREWALL <2 KB]"
+        output_parts: List[str] = []
 
-    return digest
+        if stdout_text:
+            lines = stdout_text.splitlines()
+            if len(lines) > 20:
+                stdout_text = "\n".join(lines[:15]) + f"\n... [{len(lines) - 15} lines truncated for context firewall]"
+            output_parts.append(stdout_text)
+
+        if stderr_text:
+            output_parts.append(f"[stderr]\n{stderr_text[:500]}")
+
+        if error_msg:
+            output_parts.append(f"[error]\n{error_msg[:1000]}")
+
+        digest = "\n\n".join(output_parts) if output_parts else "[Cell executed successfully with no output]"
+
+        # Hard ceiling Context Firewall: <= 2048 bytes
+        if len(digest.encode("utf-8")) > 2048:
+            digest = digest[:1950] + "\n... [TRUNCATED BY CONTEXT FIREWALL <2 KB]"
+
+        return digest

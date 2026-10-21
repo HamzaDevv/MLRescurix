@@ -1,0 +1,4 @@
+{"timestamp": "2026-10-21T09:29:22.354519+00:00", "event": "preflight_start", "action": "evaluating_prerequisites"}
+{"timestamp": "2026-10-21T09:29:24.341051+00:00", "event": "preflight_completed", "duration_s": 1.9810960292816162, "blocked_gates": ["G4_CONTAINER_CGROUP_V2", "G5_KAGGLE_OFFICIAL_DATA"]}
+{"timestamp": "2026-10-21T09:29:24.341393+00:00", "event": "faults_start", "action": "running_reproducers"}
+{"timestamp": "2026-10-21T09:29:30.793091+00:00", "event": "faults_completed", "outcome": "passed", "duration_s": 6.4510657787323}

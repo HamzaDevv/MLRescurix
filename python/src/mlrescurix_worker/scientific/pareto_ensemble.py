@@ -60,6 +60,8 @@ class ParetoEnsembleSpec:
     n_splits: int = 5
     seed: int = 2026
     submodel_names: list[str] = field(default_factory=list)
+    split_assignments: list[tuple[Sequence[int], Sequence[int]]] | None = None
+    topology: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -75,6 +77,10 @@ class ParetoEnsembleSpec:
             "n_splits": self.n_splits,
             "seed": self.seed,
             "submodel_names": self.submodel_names,
+            "split_assignments": [
+                (list(tr), list(val)) for tr, val in self.split_assignments
+            ] if self.split_assignments is not None else None,
+            "topology": self.topology,
         }
 
     @classmethod
@@ -92,6 +98,8 @@ class ParetoEnsembleSpec:
             n_splits=data.get("n_splits", 5),
             seed=data.get("seed", 2026),
             submodel_names=data.get("submodel_names", []),
+            split_assignments=data.get("split_assignments"),
+            topology=data.get("topology"),
         )
 
 
@@ -263,7 +271,7 @@ class ParetoEnsembleSynthesizer:
                 shutil.rmtree(target_sm_dir)
             shutil.copytree(sm_src, target_sm_dir, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
 
-        # 2. Collect out-of-fold (OOF) predictions across submodels
+        # 2. Collect out-of-fold (OOF) predictions across submodels using shared/locked splits
         oof_meta_features = cls._collect_oof_predictions(
             submodels_dest=submodels_dest,
             submodel_ids=submodel_ids,
@@ -274,6 +282,8 @@ class ParetoEnsembleSynthesizer:
             classes=classes,
             n_splits=spec_obj.n_splits,
             seed=spec_obj.seed,
+            split_assignments=spec_obj.split_assignments,
+            topology=spec_obj.topology,
         )
 
         # 3. Fit meta-learner or compute optimal blending weights
@@ -414,20 +424,49 @@ class ParetoEnsembleSynthesizer:
         classes: list[Any] | None,
         n_splits: int = 5,
         seed: int = 2026,
+        split_assignments: list[tuple[Sequence[int], Sequence[int]]] | None = None,
+        topology: dict[str, Any] | None = None,
     ) -> np.ndarray:
-        """Fit each submodel on K-fold training splits and collect out-of-fold validation predictions."""
+        """Fit each submodel on K-fold training splits and collect out-of-fold validation predictions.
+
+        RB-004 fix: If split_assignments are provided, consume the exact shared/locked fold assignments
+        used across candidate models, stacking, and calibration. If topology is provided with groups or
+        temporal ordering, respect them.
+        """
         n_rows = len(df_train)
         is_classification = task_type in ("binary", "multiclass")
         y = df_train[target_col].to_numpy()
 
-        if is_classification:
+        if split_assignments is not None and len(split_assignments) > 0:
+            splits = [
+                (np.asarray(tr_idx, dtype=int), np.asarray(val_idx, dtype=int))
+                for tr_idx, val_idx in split_assignments
+            ]
+        elif topology is not None and (topology.get("entity_group_col") or topology.get("temporal_col")):
+            group_col = topology.get("entity_group_col")
+            temporal_col = topology.get("temporal_col")
+            if group_col and group_col in df_train.columns and df_train[group_col].nunique() >= n_splits:
+                from sklearn.model_selection import GroupKFold
+                gkf = GroupKFold(n_splits=n_splits)
+                splits = list(gkf.split(df_train, y, groups=df_train[group_col]))
+            elif temporal_col and temporal_col in df_train.columns:
+                from sklearn.model_selection import TimeSeriesSplit
+                tss = TimeSeriesSplit(n_splits=n_splits)
+                splits = list(tss.split(df_train))
+            elif is_classification:
+                splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+                splits = list(splitter.split(df_train, y))
+            else:
+                splitter = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
+                splits = list(splitter.split(df_train))
+        elif is_classification:
             splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
             split_gen = splitter.split(df_train, y)
+            splits = list(split_gen)
         else:
             splitter = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
             split_gen = splitter.split(df_train)
-
-        splits = list(split_gen)
+            splits = list(split_gen)
 
         submodel_oof_cols: list[np.ndarray] = []
 

@@ -1,0 +1,46 @@
+{
+  "source_sha256": "c31b1f86988f20468fb88c1ab3e51d8ecc936fef1686df4fd529ecfc8e88615b",
+  "status": "arithmetic_and_source_review_only",
+  "cases": [
+    {
+      "case": "rmse_improves",
+      "direction": "minimize",
+      "old": 10,
+      "new": 9,
+      "dummy": 20,
+      "argon_unsigned_formula": -0.0999999999,
+      "corrected_directional_dummy_normalization": 0.1,
+      "retained_plan_directional_relative_gain": 0.1
+    },
+    {
+      "case": "rmse_worsens",
+      "direction": "minimize",
+      "old": 10,
+      "new": 11,
+      "dummy": 20,
+      "argon_unsigned_formula": 0.0999999999,
+      "corrected_directional_dummy_normalization": -0.1,
+      "retained_plan_directional_relative_gain": -0.1
+    },
+    {
+      "case": "accuracy_improves",
+      "direction": "maximize",
+      "old": 0.8,
+      "new": 0.82,
+      "dummy": 0.5,
+      "argon_unsigned_formula": 0.0666666644444442,
+      "corrected_directional_dummy_normalization": 0.06666666666666635,
+      "retained_plan_directional_relative_gain": 0.024999999999999883
+    },
+    {
+      "case": "negative_r2_improves",
+      "direction": "maximize",
+      "old": -0.2,
+      "new": -0.1,
+      "dummy": -1,
+      "argon_unsigned_formula": 0.12499999843750001,
+      "corrected_directional_dummy_normalization": 0.125,
+      "retained_plan_directional_relative_gain": 0.5
+    }
+  ]
+}

@@ -1,7 +1,19 @@
 # Persistent progress and session handoff
 
-Last updated: 2026-10-17 (Asia/Kolkata).
+Last updated: 2026-10-21 (Asia/Kolkata); historical runtime entries below end on 2026-10-17.
 Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
+
+## Current continuation: robustness campaign
+
+The 2026-10-21 report review and Gemini Argon disposition are complete. The
+[refined master plan](ROBUSTNESS_MASTER_PLAN.md) defines a 3–5-session upgrade and
+five-problem Kaggle/live-provider/resource/fault campaign. Its authoritative current
+status and issue register are in [ROBUSTNESS_PROGRESS.md](ROBUSTNESS_PROGRESS.md).
+Continue with [SESSION_PROMPT.md](SESSION_PROMPT.md), starting at S1 trust boundaries.
+S0 ran 44 existing Python scientific tests and 8 Rust reflexive integration tests;
+all passed. New runtime fixes and five-task/live certification remain unimplemented.
+Historical release claims and schema-v10 references below are not new verification
+of current HEAD; the reviewed source accepts storage schema versions through 11.
 
 ## Current state
 

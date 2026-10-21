@@ -268,8 +268,50 @@ class MultiFidelityIterationEngine:
             random_state=seed,
         )
 
-        # Split 75/25 train/val for proxy screen
-        if task_type in ("binary", "multiclass") and df_sample[target_col].nunique() > 1:
+        # Topology-aware splitting for proxy screen (RB-003 fix)
+        temporal_col = None
+        group_col = None
+        if topology is not None:
+            temporal_col = topology.get("temporal_col")
+            group_col = topology.get("entity_group_col")
+            cv_scheme = topology.get("cv_scheme")
+            if not temporal_col and cv_scheme == "purged_time_series_split":
+                for c, role in topology.get("column_classifications", {}).items():
+                    if role == "TEMPORAL_AXIS" and c in df_sample.columns:
+                        temporal_col = c
+                        break
+
+        if not temporal_col and sample_meta.get("temporal_col"):
+            temporal_col = sample_meta.get("temporal_col")
+        if not group_col and sample_meta.get("group_col"):
+            group_col = sample_meta.get("group_col")
+
+        if temporal_col and temporal_col in df_sample.columns:
+            # Strictly chronological split: train on past, validate on future
+            df_sorted = df_sample.sort_values(by=temporal_col).reset_index(drop=True)
+            n_val = max(1, int(len(df_sorted) * 0.25))
+            n_train = len(df_sorted) - n_val
+            train_df = df_sorted.iloc[:n_train].copy().reset_index(drop=True)
+            val_df = df_sorted.iloc[n_train:].copy().reset_index(drop=True)
+            if len(train_df) > 0 and len(val_df) > 0:
+                assert train_df[temporal_col].max() <= val_df[temporal_col].min(), "Temporal lookahead violation in proxy screen"
+        elif group_col and group_col in df_sample.columns and df_sample[group_col].nunique() > 1:
+            # Strictly group-disjoint split: train and val share zero groups
+            from sklearn.model_selection import GroupShuffleSplit
+            gss = GroupShuffleSplit(n_splits=1, test_size=0.25, random_state=seed)
+            try:
+                tr_idx, val_idx = next(gss.split(df_sample, groups=df_sample[group_col]))
+                train_df = df_sample.iloc[tr_idx].copy().reset_index(drop=True)
+                val_df = df_sample.iloc[val_idx].copy().reset_index(drop=True)
+                assert set(train_df[group_col]).isdisjoint(set(val_df[group_col])), "Group leakage detected in proxy screen"
+            except Exception:
+                unique_groups = list(df_sample[group_col].unique())
+                n_val_groups = max(1, int(len(unique_groups) * 0.25))
+                val_groups = set(unique_groups[:n_val_groups])
+                train_df = df_sample[~df_sample[group_col].isin(val_groups)].copy().reset_index(drop=True)
+                val_df = df_sample[df_sample[group_col].isin(val_groups)].copy().reset_index(drop=True)
+                assert set(train_df[group_col]).isdisjoint(set(val_df[group_col])), "Group leakage detected in fallback proxy split"
+        elif task_type in ("binary", "multiclass") and df_sample[target_col].nunique() > 1:
             try:
                 train_df, val_df = train_test_split(
                     df_sample, test_size=0.25, stratify=df_sample[target_col], random_state=seed
