@@ -301,7 +301,9 @@ def run_exploratory_python(
     4. Strict Context Firewall: output formatted and truncated to <= 2048 bytes.
     """
     import json
+    import os
     import pickle
+    import signal
     import subprocess
     import tempfile
 
@@ -309,6 +311,16 @@ def run_exploratory_python(
     df_clean = dataset_df.copy(deep=True)
     if exclude_columns:
         df_clean = df_clean.drop(columns=[c for c in exclude_columns if c in df_clean.columns], errors="ignore")
+
+    # Explicit environment allowlist: strip all credentials, tokens, and secrets
+    safe_env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "PYTHONPATH": os.environ.get("PYTHONPATH", ""),
+        "SYSTEMROOT": os.environ.get("SYSTEMROOT", ""),
+        "PYTHONIOENCODING": "utf-8",
+        "LC_ALL": "C.UTF-8",
+        "LANG": "C.UTF-8",
+    }
 
     with tempfile.TemporaryDirectory(prefix="m2_eda_sandbox_") as tmp_dir:
         tmp_p = Path(tmp_dir)
@@ -365,8 +377,8 @@ def main():
         sys.stderr = old_stderr
 
     result = {
-        "stdout": captured_out.getvalue().strip(),
-        "stderr": captured_err.getvalue().strip(),
+        "stdout": captured_out.getvalue()[:20000].strip(),
+        "stderr": captured_err.getvalue()[:20000].strip(),
         "error": error_msg,
     }
     with open(result_path, "w", encoding="utf-8") as f:
@@ -385,12 +397,17 @@ if __name__ == "__main__":
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            env=safe_env,
+            start_new_session=True,
         )
 
         try:
             p_out, p_err = proc.communicate(timeout=timeout_s)
         except subprocess.TimeoutExpired:
-            proc.kill()
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except Exception:
+                proc.kill()
             proc.wait()
             return f"[error]\nExecution Error: Timeout after {timeout_s}s exceeded."
 
@@ -430,8 +447,13 @@ if __name__ == "__main__":
 
         digest = "\n\n".join(output_parts) if output_parts else "[Cell executed successfully with no output]"
 
-        # Hard ceiling Context Firewall: <= 2048 bytes
-        if len(digest.encode("utf-8")) > 2048:
-            digest = digest[:1950] + "\n... [TRUNCATED BY CONTEXT FIREWALL <2 KB]"
+        # Hard ceiling Context Firewall: strictly <= 2048 UTF-8 bytes
+        raw_bytes = digest.encode("utf-8", errors="replace")
+        if len(raw_bytes) > 2048:
+            marker = b"\n... [TRUNCATED BY CONTEXT FIREWALL <2 KB]"
+            budget = 2048 - len(marker)
+            digest = raw_bytes[:budget].decode("utf-8", errors="ignore") + marker.decode("utf-8")
+            while len(digest.encode("utf-8")) > 2048:
+                digest = digest[:-1]
 
         return digest

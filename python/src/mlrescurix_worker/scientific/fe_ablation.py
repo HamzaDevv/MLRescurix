@@ -118,6 +118,178 @@ def _prepare_numeric_features(df_feat: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(clean_cols, index=df_feat.index)
 
 
+def _execute_feature_code_in_worker(
+    code_str: str,
+    train_df: pd.DataFrame,
+    val_df: pd.DataFrame,
+    target_col: str,
+    id_cols: List[str],
+    timeout_s: float = 30.0,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Execute candidate Python feature code inside an isolated worker subprocess.
+
+    Enforces:
+    1. Zero controller execution: runs in a separate process with isolated memory.
+    2. Environment sanitization: inherits only allowlisted safe system variables, no secrets.
+    3. Label isolation: validation targets are strictly excluded before IPC.
+    4. Process-tree cleanup on timeout or exit.
+    """
+    import os
+    import pickle
+    import signal
+    import subprocess
+    import tempfile
+
+    train_no_target = train_df.drop(columns=[target_col], errors="ignore").copy()
+    val_no_target = val_df.drop(columns=[target_col], errors="ignore").copy()
+    y_train = train_df[target_col].copy() if target_col in train_df.columns else None
+
+    safe_env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "PYTHONPATH": os.environ.get("PYTHONPATH", ""),
+        "SYSTEMROOT": os.environ.get("SYSTEMROOT", ""),
+        "PYTHONIOENCODING": "utf-8",
+        "LC_ALL": "C.UTF-8",
+        "LANG": "C.UTF-8",
+    }
+
+    with tempfile.TemporaryDirectory(prefix="m2_fe_sandbox_") as tmp_dir:
+        tmp_p = Path(tmp_dir)
+        in_path = tmp_p / "inputs.pkl"
+        out_path = tmp_p / "outputs.pkl"
+        code_file = tmp_p / "candidate_fe.py"
+
+        with open(in_path, "wb") as f:
+            pickle.dump({"train": train_no_target, "val": val_no_target, "y_train": y_train}, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+        code_file.write_text(code_str, encoding="utf-8")
+
+        runner_script = tmp_p / "runner.py"
+        runner_code = """
+import pickle
+import sys
+import traceback
+from pathlib import Path
+import re
+import numpy as np
+import pandas as pd
+from sklearn.base import BaseEstimator, TransformerMixin
+import mlrescurix_worker.scientific.primitives as prim
+
+def main():
+    tmp_p = Path(__file__).resolve().parent
+    in_path = tmp_p / "inputs.pkl"
+    out_path = tmp_p / "outputs.pkl"
+    code_path = tmp_p / "candidate_fe.py"
+
+    with open(in_path, "rb") as f:
+        inputs = pickle.load(f)
+
+    train_df = inputs["train"]
+    val_df = inputs["val"]
+    y_train = inputs["y_train"]
+
+    code_str = code_path.read_text(encoding="utf-8")
+
+    sandbox_scope = {
+        "pd": pd,
+        "np": np,
+        "re": re,
+        "NestedOOFEmpiricalBayesEncoder": prim.NestedOOFEmpiricalBayesEncoder,
+        "QuasiIdDecomposer": prim.QuasiIdDecomposer,
+        "LightweightTextEmbedder": prim.LightweightTextEmbedder,
+        "InformativeMissingnessAndInteractions": prim.InformativeMissingnessAndInteractions,
+        "BaseEstimator": BaseEstimator,
+        "TransformerMixin": TransformerMixin,
+    }
+
+    exec(code_str, sandbox_scope)
+
+    fn = None
+    if "build_features" in sandbox_scope and callable(sandbox_scope["build_features"]):
+        fn = sandbox_scope["build_features"]
+    elif "transform" in sandbox_scope and callable(sandbox_scope["transform"]):
+        fn = sandbox_scope["transform"]
+    elif "get_transformer" in sandbox_scope and callable(sandbox_scope["get_transformer"]):
+        trans = sandbox_scope["get_transformer"]()
+        if hasattr(trans, "fit_transform"):
+            res_tr = trans.fit_transform(train_df, y_train) if y_train is not None else trans.fit_transform(train_df)
+        else:
+            if y_train is not None:
+                trans.fit(train_df, y_train)
+            else:
+                trans.fit(train_df)
+            res_tr = trans.transform(train_df)
+        res_val = trans.transform(val_df)
+        with open(out_path, "wb") as f:
+            pickle.dump({"train": res_tr, "val": res_val}, f)
+        return
+
+    if fn is not None:
+        try:
+            res_tr = fn(train_df, y_train)
+            res_val = fn(val_df, None)
+        except TypeError:
+            res_tr = fn(train_df)
+            res_val = fn(val_df)
+        with open(out_path, "wb") as f:
+            pickle.dump({"train": res_tr, "val": res_val}, f)
+        return
+
+    for val in sandbox_scope.values():
+        if isinstance(val, BaseEstimator) or (
+            isinstance(val, type) and issubclass(val, BaseEstimator) and val is not BaseEstimator
+        ):
+            inst = val() if isinstance(val, type) else val
+            try:
+                res_tr = inst.fit_transform(train_df, y_train) if hasattr(inst, "fit_transform") else inst.fit(train_df, y_train).transform(train_df)
+            except Exception:
+                res_tr = inst.fit_transform(train_df) if hasattr(inst, "fit_transform") else inst.fit(train_df).transform(train_df)
+            res_val = inst.transform(val_df)
+            with open(out_path, "wb") as f:
+                pickle.dump({"train": res_tr, "val": res_val}, f)
+            return
+
+    with open(out_path, "wb") as f:
+        pickle.dump({"train": train_df, "val": val_df}, f)
+
+if __name__ == "__main__":
+    main()
+"""
+        runner_script.write_text(runner_code, encoding="utf-8")
+
+        proc = subprocess.Popen(
+            [sys.executable, "-I", str(runner_script)],
+            cwd=str(tmp_p),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=safe_env,
+            start_new_session=True,
+        )
+
+        try:
+            p_out, p_err = proc.communicate(timeout=timeout_s)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except Exception:
+                proc.kill()
+            proc.wait()
+            raise WorkflowError(f"Custom feature code execution timed out after {timeout_s}s")
+
+        if proc.returncode != 0:
+            raise WorkflowError(f"Custom feature code execution failed (exit {proc.returncode}):\n{p_err.strip() or p_out.strip()}")
+
+        if not out_path.exists():
+            raise WorkflowError(f"Custom feature code did not produce output:\n{p_err.strip() or p_out.strip()}")
+
+        with open(out_path, "rb") as f:
+            res_data = pickle.load(f)
+
+        return _prepare_numeric_features(res_data["train"]), _prepare_numeric_features(res_data["val"])
+
+
 def _resolve_and_apply_features(
     feature_source: Any,
     train_df: pd.DataFrame,
@@ -174,44 +346,19 @@ def _resolve_and_apply_features(
         cols = [c for c in feature_source if c in train_df.columns and c != target_col and c not in id_cols]
         return _prepare_numeric_features(train_df[cols]), _prepare_numeric_features(val_df[cols])
 
-    # Case 4: Python code string or .py file path
+    # Case 4: Python code string or .py file path (routed through isolated worker boundary)
     if isinstance(feature_source, (str, Path)):
         code_str = str(feature_source)
         if "\n" not in code_str and len(code_str) < 1024 and Path(code_str).is_file():
             code_str = Path(code_str).read_text(encoding="utf-8")
 
-        # Execute code in sandbox namespace
-        import mlrescurix_worker.scientific.primitives as prim
-        sandbox_scope: Dict[str, Any] = {
-            "pd": pd,
-            "np": np,
-            "re": re,
-            "NestedOOFEmpiricalBayesEncoder": prim.NestedOOFEmpiricalBayesEncoder,
-            "QuasiIdDecomposer": prim.QuasiIdDecomposer,
-            "LightweightTextEmbedder": prim.LightweightTextEmbedder,
-            "InformativeMissingnessAndInteractions": prim.InformativeMissingnessAndInteractions,
-            "BaseEstimator": BaseEstimator,
-            "TransformerMixin": TransformerMixin,
-        }
-
-        exec(code_str, sandbox_scope)
-
-        # Look for transform or build_features or transformer class/instance
-        if "build_features" in sandbox_scope and callable(sandbox_scope["build_features"]):
-            fn = sandbox_scope["build_features"]
-            return _resolve_and_apply_features(fn, train_df, val_df, target_col, id_cols)
-        if "transform" in sandbox_scope and callable(sandbox_scope["transform"]):
-            fn = sandbox_scope["transform"]
-            return _resolve_and_apply_features(fn, train_df, val_df, target_col, id_cols)
-        if "get_transformer" in sandbox_scope and callable(sandbox_scope["get_transformer"]):
-            trans = sandbox_scope["get_transformer"]()
-            return _resolve_and_apply_features(trans, train_df, val_df, target_col, id_cols)
-        for val in sandbox_scope.values():
-            if isinstance(val, BaseEstimator) or (
-                isinstance(val, type) and issubclass(val, BaseEstimator) and val is not BaseEstimator
-            ):
-                inst = val() if isinstance(val, type) else val
-                return _resolve_and_apply_features(inst, train_df, val_df, target_col, id_cols)
+        return _execute_feature_code_in_worker(
+            code_str=code_str,
+            train_df=train_df,
+            val_df=val_df,
+            target_col=target_col,
+            id_cols=id_cols,
+        )
 
     # Default fallback: numeric columns from X_train_raw
     return _prepare_numeric_features(X_train_raw), _prepare_numeric_features(X_val_raw)

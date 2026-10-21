@@ -1,0 +1,35 @@
+{
+  "invalid_payload_accepted": true,
+  "eda_inherits_dummy_environment": true,
+  "eda_output_bytes": 5892,
+  "custom_code_runs_in_controller": true,
+  "target_transform_receipt": "confirmed",
+  "target_transform_mutated_input": false,
+  "ledger_created": false,
+  "restart_cache_entries": 0,
+  "improving_neg_rmse_receipt": "refuted",
+  "improving_neg_rmse_relative_gain": -2.0,
+  "ablation_metric_forwarded": false,
+  "ablation_seed_forwarded": false,
+  "ablation_ledger_forwarded": false,
+  "temporal_oof_trains_on_future": true,
+  "unassessed_oof_rows_filled_zero": 4,
+  "overlapping_locked_split_accepted": true,
+  "runner_noop_modes": {
+    "deterministic_dev": {
+      "returned_successfully": true,
+      "summary_written": false,
+      "printed_run_complete": true
+    },
+    "live_dev": {
+      "returned_successfully": true,
+      "summary_written": false,
+      "printed_run_complete": true
+    },
+    "certify": {
+      "returned_successfully": true,
+      "summary_written": false,
+      "printed_run_complete": true
+    }
+  }
+}

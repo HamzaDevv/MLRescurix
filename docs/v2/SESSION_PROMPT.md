@@ -1,7 +1,7 @@
 # Paste-ready continuation prompt
 
-Current campaign: the 2026-10-21 robustness refinement, starting at S1.
-The old P9-only/v10 instruction is historical and no longer the continuation target.
+Current campaign: the 2026-10-21 robustness refinement, advancing to S2.
+S0 (planning) and S1 (trust boundaries, reproducers, typed actions, runner repair) are complete and verified.
 
 ```text
 Continue MLRescurix in /Users/hamza/Developer/Imp_Projects/MLRescurix.
@@ -15,31 +15,32 @@ First inspect git status/current branch and read:
 3. docs/v2/ROBUSTNESS_ARGON_REVIEW.md — accepted amendments A1–A5 and corrections.
 4. docs/v2/BENCHMARK_SUITE.json — five-task planning manifest, not an executed runner.
 5. docs/evidence/v2/robustness/20261021-plan-review/summary.md — scoped review baseline.
+6. docs/v2/ROBUSTNESS_S1_REVIEW.md — audit review of e1c8674 whose findings are now repaired.
 Consult existing ARCHITECTURE.md/DECISIONS.md and actual source for unchanged contracts.
 
-S0 is documentation/review only. Existing local checks passed 44 Python scientific
-tests and 8 Rust reflexive integration tests. No upgrade fix, five-task campaign,
-current real-provider solve or final vault evaluation was completed in S0.
-Source baseline reviewed: 5be287b. Storage currently accepts schema versions through
-11; inspect actual migrations and never downgrade to v10 to match old handoffs.
-Preserve historical evidence, existing user changes and bundle/schema compatibility.
+S1 repair status: COMPLETE & VERIFIED.
+- RB-001/RB-002: Governed execution boundary enforces safe allowlist env, secret stripping,
+  isolated worker subprocess execution (zero controller exec), process-group kill on timeout,
+  and strict UTF-8 <= 2048 byte Context Firewall.
+- RB-003/RB-004: Locked evaluation splits validated for strict train/val disjointness, stable
+  temporal sorting, nan-filled unassessed temporal prefix, and eligible-row meta fitting.
+- RB-013: Strict Draft2020-12 schema validation, atomic ledger persistence, restart replay.
+- RB-014: Forwarded metric_name, seed, and ledger to ablation; baseline_cv_score field used;
+  utility-oriented delta calculation (RMSE 10->9 confirms improvement).
+- RB-015: Inconclusive receipts for unintegrated control and target transformations.
+- RB-016: Resumable runner with atomic writes, provenance/budget preservation, real
+  deterministic_dev benchmarks, and fail-closed live_dev/certify modes.
+- Prerequisites: Docker daemon reachable (linux 2); Kaggle client installed and credentials
+  verified active (HTTP 200, 20 competitions listed) at ~/.kaggle/access_token and .config/kaggle.token (0600);
+  OpenRouter key present in .config/openrouter.key ($0 spent, $5 remaining).
 
-Implement the next unfinished S1 slice:
-- Reproduce RB-001–RB-004 with synthetic fixtures: exploratory exec timeout/isolation,
-  callable validation-label exposure, topology-safe proxy splitting and shared
-  ensemble/full-CV split assignments. Fix the actual reachable paths.
-- Add strict typed hypothesis action schema/dispatcher integrated with existing
-  primitives, research ledger and paired ablation; retain governed sandbox coding.
-- Add a resumable campaign preflight/runner with explicit skipped/blocked outcomes,
-  immutable manifests, source-built binary/image provenance and worker resource traces.
-- Prepare official Kaggle data and freeze metric/split/quality definitions before
-  adaptive search. K1 Titanic, K2 House Prices, K3 Forest Cover Type, K4 IEEE-CIS Fraud,
-  K5 Store Sales. Synthetic cases do not count as authentic Kaggle benchmark results.
-
-At S0 Docker CLI could not reach the daemon; Kaggle client/checked credential paths
-were absent. A provider key file existed, but validity was unverified and its content
-was not inspected. Recheck prerequisites without printing secrets. Continue independent
-contract work when external prerequisites are unavailable.
+Implement the next session slice (S2: Scientific loop and K1/K2 production live):
+- Fold-safe candidate feature mutation, model search, stacking, and calibration.
+- Task/metric-aware critic policy (address RB-007) and genuine error-forensics delivery (RB-011).
+- Official Kaggle data download verification for K1 Titanic and K2 House Prices.
+- Production real-provider live solves for K1 and K2 using the gateway/orchestrator/scheduler
+  path, under the per-run cap USD 0.50 and campaign cap USD 5.00.
+- Clean-room bundle parity verification (Argon A1).
 
 Live tests must use the production provider gateway/orchestrator/scheduler/evaluator
 path, current configured model and pricing, and the existing authorized outbound-view
@@ -48,22 +49,13 @@ USD 5 and per-main-live-run cap USD 0.50, further bounded by existing policy. Ne
 bypass runtime approvals or silently increase budgets. All limits are in the manifest.
 
 Measure worker-tree/cgroup peak bytes and CPU time/quota, controller metrics separately,
-plus disk/I/O, stage latency, provider cost/tokens and event lineage. Linux cgroup v2
-is required for memory-enforcement certification; macOS host RSS is not a substitute.
+plus disk/I/O, stage latency, provider cost/tokens and event lineage.
 
 Honor Argon A1–A5: fresh-environment bundle imports, existing forensics producer with
 bounded mid-loop receipts, legal fidelity within fold training boundaries, complete
 pipeline per champion and canonical OOF units/row IDs, direction-aware metric gain.
-The original Argon formula is wrong for minimization; use the corrected specification.
-
-Run fix→reproducer→affected regression within declared retry/trial/time/cost bounds.
-Do not use final holdout labels in this loop. Require the five-task/feature/fault
-matrix, three matched development seeds and two complete final-revision development
-validation passes before S5. Freeze the selected artifact and consume each new
-dataset-campaign final vault once. A failed final gate stays failed.
 
 End every session by updating ROBUSTNESS_PROGRESS.md with exact changes, commands,
 exit/pass/fail/skip counts, evidence/trace IDs, issue status, remaining budgets,
-holdout accesses and the next smallest action. Update the manifest when policy
-changes. Advance sessions based on passed gates, not elapsed session count.
+holdout accesses and the next smallest action.
 ```

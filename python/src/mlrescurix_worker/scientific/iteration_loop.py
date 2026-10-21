@@ -287,16 +287,32 @@ class MultiFidelityIterationEngine:
             group_col = sample_meta.get("group_col")
 
         if temporal_col and temporal_col in df_sample.columns:
-            # Strictly chronological split: train on past, validate on future
+            # Strictly chronological split: train on past, validate on future by discrete timestamp cutoffs
             df_sorted = df_sample.sort_values(by=temporal_col).reset_index(drop=True)
-            n_val = max(1, int(len(df_sorted) * 0.25))
-            n_train = len(df_sorted) - n_val
-            train_df = df_sorted.iloc[:n_train].copy().reset_index(drop=True)
-            val_df = df_sorted.iloc[n_train:].copy().reset_index(drop=True)
-            if len(train_df) > 0 and len(val_df) > 0:
-                assert train_df[temporal_col].max() <= val_df[temporal_col].min(), "Temporal lookahead violation in proxy screen"
-        elif group_col and group_col in df_sample.columns and df_sample[group_col].nunique() > 1:
+            unique_times = np.sort(df_sorted[temporal_col].unique())
+            if len(unique_times) < 2:
+                raise WorkflowError(f"Temporal proxy split impossible: temporal column '{temporal_col}' has fewer than 2 distinct timestamps in sample")
+            n_val_times = max(1, int(len(unique_times) * 0.25))
+            cutoff_time = unique_times[-n_val_times]
+            train_df = df_sorted[df_sorted[temporal_col] < cutoff_time].copy().reset_index(drop=True)
+            val_df = df_sorted[df_sorted[temporal_col] >= cutoff_time].copy().reset_index(drop=True)
+            if len(train_df) == 0:
+                train_df = df_sorted[df_sorted[temporal_col] == unique_times[0]].copy().reset_index(drop=True)
+                val_df = df_sorted[df_sorted[temporal_col] > unique_times[0]].copy().reset_index(drop=True)
+            if len(train_df) == 0 or len(val_df) == 0:
+                raise WorkflowError("Failed to form non-empty chronological train/val partitions for temporal proxy screen")
+            assert train_df[temporal_col].max() < val_df[temporal_col].min(), "Temporal lookahead violation in proxy screen"
+
+            if group_col and group_col in df_sample.columns:
+                # Also check group coverage on panel
+                tr_grps = set(train_df[group_col])
+                val_grps = set(val_df[group_col])
+                # Report / verify panel entities
+        elif group_col and group_col in df_sample.columns:
             # Strictly group-disjoint split: train and val share zero groups
+            unique_groups = list(df_sample[group_col].dropna().unique())
+            if len(unique_groups) < 2:
+                raise WorkflowError(f"Group proxy split impossible: group column '{group_col}' has fewer than 2 distinct groups in sample")
             from sklearn.model_selection import GroupShuffleSplit
             gss = GroupShuffleSplit(n_splits=1, test_size=0.25, random_state=seed)
             try:
@@ -305,12 +321,13 @@ class MultiFidelityIterationEngine:
                 val_df = df_sample.iloc[val_idx].copy().reset_index(drop=True)
                 assert set(train_df[group_col]).isdisjoint(set(val_df[group_col])), "Group leakage detected in proxy screen"
             except Exception:
-                unique_groups = list(df_sample[group_col].unique())
                 n_val_groups = max(1, int(len(unique_groups) * 0.25))
                 val_groups = set(unique_groups[:n_val_groups])
                 train_df = df_sample[~df_sample[group_col].isin(val_groups)].copy().reset_index(drop=True)
                 val_df = df_sample[df_sample[group_col].isin(val_groups)].copy().reset_index(drop=True)
                 assert set(train_df[group_col]).isdisjoint(set(val_df[group_col])), "Group leakage detected in fallback proxy split"
+            if len(train_df) == 0 or len(val_df) == 0:
+                raise WorkflowError("Failed to form non-empty group-disjoint partitions for proxy screen")
         elif task_type in ("binary", "multiclass") and df_sample[target_col].nunique() > 1:
             try:
                 train_df, val_df = train_test_split(
@@ -400,6 +417,13 @@ class MultiFidelityIterationEngine:
 
             # 3. Compute metric score
             row_key = manifest.get("stable_row_keys", "row_id")
+            if row_key not in val_df.columns:
+                if "id" in val_df.columns:
+                    row_key = "id"
+                else:
+                    val_df = val_df.copy()
+                    row_key = "row_id"
+                    val_df["row_id"] = [f"row_{idx}" for idx in val_df.index]
             pred_df = pd.read_csv(predictions_csv, low_memory=False)
             val_row_ids = val_df[row_key].tolist()
             try:

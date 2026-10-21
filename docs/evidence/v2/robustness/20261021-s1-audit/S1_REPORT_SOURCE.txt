@@ -1,0 +1,178 @@
+Ran git status check
+Analyzed ROBUSTNESS_PROGRESS.md:L1-130
+Analyzed ROBUSTNESS_MASTER_PLAN.md:L1-404
+Analyzed ROBUSTNESS_ARGON_REVIEW.md:L1-153
+Analyzed BENCHMARK_SUITE.json:L1-473
+Analyzed summary.md:L1-41
+Ran find storage migration and schema files
+Analyzed storage.rs:L1-100
+Ran check prerequisites
+Analyzed preflight.json:L1-33
+Canceled search for provider_local_file
+Checked task Search for provider_local_file
+Killed task Search for provider_local_file
+Ran check titanic live script for provider keys · Exited with code 1
+Ran check API key references in live script
+Ran check .config/openrouter.key existence
+Ran find run_exploratory_python in eda_agent.py
+Analyzed eda_agent.py:L280-354
+Ran find _resolve_and_apply_features in fe_ablation.py
+Analyzed fe_ablation.py:L110-220
+Ran find run_proxy_screen in iteration_loop.py
+Analyzed iteration_loop.py:L225-320
+Ran find sample_topology_aware_tier0 definition
+Analyzed iteration_loop.py:L66-150
+Ran find _collect_oof_predictions in pareto_ensemble.py
+Analyzed pareto_ensemble.py:L400-475
+Ran list test files in python/tests
+Ran run Python baseline tests
+Checked task Run Python baseline tests
+Checked task Run Python baseline tests
+Ran list classes in primitives.py
+Analyzed iteration_hypothesis.schema.json:L1-80
+Analyzed research_ledger.schema.json:L1-80
+Ran list scripts directory
+Analyzed run_live_end_to_end_test.py:L1-60
+Ran find titanic or kaggle files
+Ran find tests for run_exploratory_python
+Analyzed test_p13_dirty_sanitizer_and_eda.py:L270-295
+Ran find _resolve_and_apply_features in tests · Exited with code 1
+Ran find ablate_feature_hypothesis in tests
+Analyzed test_p14_primitives_and_ablation.py:L420-560
+Analyzed pareto_ensemble.py:L250-285
+Analyzed pareto_ensemble.py:L20-60
+Analyzed pareto_ensemble.py:L61-90
+Ran check if hypothesis_action.schema.json exists · Exited with code 1
+Ran check if hypothesis_executor.py exists · Exited with code 1
+Ran check Python startup time
+Edited eda_agent.py
+Ran test exploratory Python sandbox · Exited with code 1
+Edited eda_agent.py
+Ran test exploratory Python sandbox
+Edited fe_ablation.py
+Ran run P14 primitives and ablation tests
+Ran find train_test_split in iteration_loop.py
+Analyzed iteration_loop.py:L185-210
+Edited iteration_loop.py
+Ran test iteration loop
+Checked task Test iteration loop
+Checked task Test iteration loop
+Analyzed pareto_ensemble.py:L340-395
+Edited pareto_ensemble.py
+Analyzed pareto_ensemble.py:L270-295
+Analyzed pareto_ensemble.py:L415-460
+Edited pareto_ensemble.py
+Edited pareto_ensemble.py
+Ran test candidate synthesis and pareto ensemble
+Checked task Test candidate synthesis and pareto ensemble
+Created test_s1_robustness_reproducers.py
+Ran run S1 robustness reproducers test · Exited with code 2
+Analyzed pareto_ensemble.py:L90-115
+Edited pareto_ensemble.py
+Ran run S1 robustness reproducers test · Exited with code 1
+Ran check validate_candidate_manifest requirements
+Analyzed candidate_runner.py:L35-75
+Analyzed candidate_runner.py:L75-105
+Analyzed candidate_runner.py:L104-125
+Analyzed pareto_ensemble.py:L210-230
+Edited test_s1_robustness_reproducers.py
+Edited test_s1_robustness_reproducers.py
+Edited test_s1_robustness_reproducers.py
+Ran run S1 robustness reproducers test · Exited with code 1
+Edited test_s1_robustness_reproducers.py
+Ran run S1 robustness reproducers test
+Ran run full scientific baseline test suite
+Checked task Run full scientific baseline test suite
+Checked task Run full scientific baseline test suite
+Created hypothesis_action.schema.json
+Created hypothesis_executor.py
+Created test_hypothesis_executor.py
+Ran run hypothesis executor tests · Exited with code 2
+Ran find analyze_and_lock_topology import
+Edited test_hypothesis_executor.py
+Ran run hypothesis executor tests · Exited with code 1
+Ran check NestedOOFEmpiricalBayesEncoder init
+Ran check __init__ of primitives
+Edited hypothesis_executor.py
+Ran run hypothesis executor tests
+Ran check for existing harness binary
+Created run_robustness_campaign.py
+Ran run campaign preflight and fault reproducers
+Ran list evidence directory
+Created README.md
+Created kaggle_synthetic_contracts.py
+Created test_kaggle_benchmarks.py
+Ran test Kaggle benchmark synthetic fixtures · Exited with code 2
+Ran create __init__.py in python/tests/fixtures
+Edited test_kaggle_benchmarks.py
+Ran run test_kaggle_benchmarks.py
+Ran run all tests including S1 robustness additions
+Checked task Run all tests including S1 robustness additions
+Checked task Run all tests including S1 robustness additions
+Ran run Rust reflexive_loop_gate integration test
+Checked task Run Rust reflexive_loop_gate integration test
+Ran check git status
+Ran compute git commit and dirty diff sha256
+Analyzed ROBUSTNESS_PROGRESS.md:L1-65
+Analyzed ROBUSTNESS_PROGRESS.md:L75-130
+Edited ROBUSTNESS_PROGRESS.md
+Ran final git status check
+
+### MLRescurix 2026-10-21 Robustness Campaign: S1 Session Complete
+
+The unfinished **S1 slice** (trust boundaries, reproducers, typed hypothesis action contract, campaign preflight runner, and benchmark freezing) has been implemented and verified.
+
+---
+
+### Key Implementations & Results
+
+#### 1. Reproduction & Fix of Trust Boundary Defects (RB-001–RB-004)
+Verified via dedicated test suite in [`test_s1_robustness_reproducers.py`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/python/tests/test_s1_robustness_reproducers.py) (8/8 passed):
+- **RB-001 ([`eda_agent.py`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/python/src/mlrescurix_worker/scientific/eda_agent.py#L289-L415))**: Routed [`run_exploratory_python`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/python/src/mlrescurix_worker/scientific/eda_agent.py#L289-L415) through an isolated subprocess worker with enforced timeout kill, deepcopy dataset protection (preventing parent DataFrame memory mutation), column exclusion for label protection, and Context Firewall output clamping ($\le 2048$ bytes).
+- **RB-002 ([`fe_ablation.py`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/python/src/mlrescurix_worker/scientific/fe_ablation.py#L121-L150))**: Stripped validation targets (`val_df_no_target`) before calling any candidate callable or feature transformation frame; verified that canaries attempting to inspect validation targets fail closed with `KeyError`.
+- **RB-003 ([`iteration_loop.py`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/python/src/mlrescurix_worker/scientific/iteration_loop.py#L271-L320))**: Replaced random proxy splitting with strictly chronological train/validation splitting for temporal datasets and group-disjoint splitting for grouped datasets, guarded by runtime assertions against temporal lookahead and group leakage.
+- **RB-004 ([`pareto_ensemble.py`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/python/src/mlrescurix_worker/scientific/pareto_ensemble.py#L420-L480))**: Extended [`ParetoEnsembleSpec`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/python/src/mlrescurix_worker/scientific/pareto_ensemble.py#L50-L105) and [`_collect_oof_predictions`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/python/src/mlrescurix_worker/scientific/pareto_ensemble.py#L420-L480) to consume locked, shared `split_assignments` and topology structures across all submodels, stacking, and calibration.
+
+#### 2. Strict Typed Hypothesis Action Contract & Dispatcher
+- **Action Schema**: Defined strict JSON Schema in [`contracts/v2/hypothesis_action.schema.json`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/contracts/v2/hypothesis_action.schema.json) with `additionalProperties: false`, strict enums, and parameter constraints.
+- **Dispatcher**: Implemented [`HypothesisActionDispatcher`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/python/src/mlrescurix_worker/scientific/hypothesis_executor.py#L145-L380) in [`hypothesis_executor.py`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/python/src/mlrescurix_worker/scientific/hypothesis_executor.py) supporting all ten typed DSL actions (`APPLY_SKEW_TRANSFORM`, `ENCODE_HIGH_CARD_CAT`, `DECOMPOSE_QUASI_ID`, `EMBED_SHORT_TEXT`, `ADD_MNAR_INDICATOR`, `ADD_INTERACTION`, `DELETE_FEATURE`, `REORDER_MODEL_PRIORITY`, `UPDATE_SEARCH_SPACE`, `TRANSFORM_TARGET`) plus governed sandbox coding (`CUSTOM_SANDBOX_CODE`).
+- **Idempotency & Settlement**: Idempotent re-execution returns cached receipts; conflicting parameters under the same `action_id` raise [`IdempotencyConflictError`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/python/src/mlrescurix_worker/scientific/hypothesis_executor.py#L35-L42). Implemented Argon A5 direction-aware gain calculation. Tested in [`test_hypothesis_executor.py`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/python/tests/test_hypothesis_executor.py) (8/8 passed).
+
+#### 3. Resumable Campaign Preflight & Runner
+- Created [`scripts/run_robustness_campaign.py`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/scripts/run_robustness_campaign.py) supporting `--mode preflight|faults|deterministic_dev|live_dev|certify|all`.
+- Generates and maintains immutable evidence layout under `docs/evidence/v2/robustness/<campaign>/<run_id>/` (`manifest.json`, `summary.json`, `artifacts.json`, `faults.json`, `provider_usage.json`, `traces.jsonl`, `logs/`).
+- Reports explicit gate statuses:
+  - `G0_HOST_ENVIRONMENT`: **PASSED** (macOS Darwin arm64, Python 3.13.3)
+  - `G1_PYTHON_SCIENTIFIC_STACK`: **PASSED**
+  - `G2_RUST_HARNESS_PROVENANCE`: **PASSED** (Pinned binary hashes: `target/debug` and `dist`)
+  - `G3_STORAGE_SCHEMA_V11`: **PASSED** (Storage schema accepts through v11; never downgrade to v10)
+  - `G4_CONTAINER_CGROUP_V2`: **BLOCKED** (Docker daemon inaccessible on host)
+  - `G5_KAGGLE_OFFICIAL_DATA`: **BLOCKED** (Kaggle credentials not present)
+  - `G6_PROVIDER_GATEWAY`: **PASSED** (Local key file present; unverified until authorized live solve)
+  - `G_REPRODUCERS_RB001_RB004` & `G_TYPED_ACTION_DISPATCHER`: **PASSED** (16/16 passed in 5.85s)
+
+#### 4. Kaggle Benchmark Specifications Frozen (K1–K5)
+- Documented and frozen metric and split definitions in [`docs/v2/kaggle_benchmarks/README.md`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/docs/v2/kaggle_benchmarks/README.md).
+- Added schema-conforming synthetic dataset generators in [`kaggle_synthetic_contracts.py`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/python/tests/fixtures/kaggle_synthetic_contracts.py); verified in [`test_kaggle_benchmarks.py`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/python/tests/test_kaggle_benchmarks.py) (5/5 passed).
+- Pinned policy: synthetic fixtures do not count as authentic Kaggle results.
+
+---
+
+### Verification Summary
+
+| Suite / Command | Exit Code | Result | Duration |
+|---|---|---|---|
+| `python3 scripts/run_robustness_campaign.py --mode all` | 0 | Preflight (5 passed, 2 blocked); Faults 16 passed | 6.45s |
+| `pytest python/tests/` (Full scientific + S1 additions) | 0 | 65 passed, 8 warnings, 0 failed | 18.73s |
+| `cargo test --locked --test reflexive_loop_gate` | 0 | 8 passed, 0 failed/ignored | 13.35s |
+
+---
+
+### Session Ledger Update
+
+[`docs/v2/ROBUSTNESS_PROGRESS.md`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/docs/v2/ROBUSTNESS_PROGRESS.md) has been updated with the full required end-of-session entry:
+- **Source revision + dirty diff hash**: `5be287b1abf4d3e3140510f4a633072e1519f820` + `e053433c02999a1c8670fbd187ca08bd25ea419dcf80822f3a489d1d073358c5`
+- **Issue register**: RB-001–RB-004 marked **fixed & verified**; RB-005–RB-012 open for S2.
+- **Provider spend**: USD 0 spent, USD 5 remaining.
+- **Holdout accesses**: 0.
+- **Next smallest action**: S2 — fold-local caching, quarantine ablations, metric-aware critic, and real-provider production solve for K1/K2.

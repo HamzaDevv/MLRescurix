@@ -103,8 +103,13 @@ class CampaignRunner:
         # Load or initialize summary
         if self.summary_path.exists():
             try:
-                self.summary = json.loads(self.summary_path.read_text(encoding="utf-8"))
-            except Exception:
+                loaded = json.loads(self.summary_path.read_text(encoding="utf-8"))
+                if loaded.get("run_id") and loaded["run_id"] != self.run_id:
+                    raise ValueError(f"Run ID mismatch: expected {self.run_id}, found {loaded['run_id']}")
+                self.summary = loaded
+            except Exception as e:
+                if "Run ID mismatch" in str(e):
+                    raise
                 self.summary = self._init_summary()
         else:
             self.summary = self._init_summary()
@@ -121,6 +126,12 @@ class CampaignRunner:
             "budget_spent_usd": 0.0,
             "holdout_accesses": 0,
         }
+
+    def _atomic_write_json(self, path: Path, data: Any) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(f".tmp.{os.getpid()}")
+        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        tmp.replace(path)
 
     def record_trace(self, event_name: str, payload: Dict[str, Any]) -> None:
         record = {
@@ -142,7 +153,7 @@ class CampaignRunner:
 
     def save_summary(self) -> None:
         self.summary["updated_at"] = datetime.now(timezone.utc).isoformat()
-        self.summary_path.write_text(json.dumps(self.summary, indent=2), encoding="utf-8")
+        self._atomic_write_json(self.summary_path, self.summary)
 
     def run_preflight(self) -> Dict[str, Any]:
         """Perform comprehensive preflight checks across all system layers."""
@@ -215,11 +226,14 @@ class CampaignRunner:
             pass
 
         kaggle_json = Path.home() / ".kaggle" / "kaggle.json"
-        kaggle_env = bool(os.environ.get("KAGGLE_USERNAME") and os.environ.get("KAGGLE_KEY"))
+        kaggle_access_token = Path.home() / ".kaggle" / "access_token"
+        local_kaggle_token = REPO_ROOT / ".config" / "kaggle.token"
+        kaggle_env = bool(os.environ.get("KAGGLE_USERNAME") and os.environ.get("KAGGLE_KEY")) or bool(os.environ.get("KAGGLE_API_TOKEN"))
+        has_kaggle_creds = kaggle_json.is_file() or kaggle_access_token.is_file() or local_kaggle_token.is_file() or kaggle_env
         kaggle_status = {
             "client_installed": kaggle_installed,
-            "credentials_present": (kaggle_json.is_file() or kaggle_env),
-            "official_data_status": "ready" if (kaggle_installed and (kaggle_json.is_file() or kaggle_env)) else "blocked_missing_credentials",
+            "credentials_present": has_kaggle_creds,
+            "official_data_status": "ready" if (kaggle_installed and has_kaggle_creds) else "blocked_missing_credentials",
         }
 
         # 7. Provider credentials (check existence WITHOUT printing secrets)
@@ -272,28 +286,29 @@ class CampaignRunner:
         self.summary["gates"].update(gates)
         preflight_elapsed = time.time() - t0
 
-        # Snapshot immutable manifest to evidence dir
-        if MANIFEST_PATH.is_file():
+        # Snapshot immutable manifest to evidence dir (preserve on resume)
+        if MANIFEST_PATH.is_file() and not self.manifest_path.exists():
             shutil.copy2(MANIFEST_PATH, self.manifest_path)
 
-        # Write artifacts record
+        # Write artifacts record atomically
         artifacts_record = {
             "source_provenance": self.summary["git"],
             "rust_binaries": rust_provenance,
             "python_worker_sha256": compute_directory_sha256(REPO_ROOT / "python" / "src" / "mlrescurix_worker"),
-            "benchmark_manifest_sha256": compute_file_sha256(self.manifest_path),
+            "benchmark_manifest_sha256": compute_file_sha256(self.manifest_path) if self.manifest_path.exists() else None,
         }
-        self.artifacts_path.write_text(json.dumps(artifacts_record, indent=2), encoding="utf-8")
+        self._atomic_write_json(self.artifacts_path, artifacts_record)
 
-        # Record provider usage baseline
-        provider_record = {
-            "total_requests": 0,
-            "total_tokens": 0,
-            "total_billed_cost_usd": 0.0,
-            "reserved_cost_usd": 0.0,
-            "remaining_budget_usd": 5.0,
-        }
-        self.provider_usage_path.write_text(json.dumps(provider_record, indent=2), encoding="utf-8")
+        # Record provider usage baseline (preserve on resume)
+        if not self.provider_usage_path.exists():
+            provider_record = {
+                "total_requests": 0,
+                "total_tokens": 0,
+                "total_billed_cost_usd": 0.0,
+                "reserved_cost_usd": 0.0,
+                "remaining_budget_usd": 5.0,
+            }
+            self._atomic_write_json(self.provider_usage_path, provider_record)
 
         self.record_trace("preflight_completed", {"duration_s": preflight_elapsed, "blocked_gates": [k for k, v in gates.items() if v["outcome"] == "blocked"]})
         self.save_summary()
@@ -348,8 +363,100 @@ class CampaignRunner:
         self.save_summary()
         return faults_result
 
+    def run_deterministic_dev(self) -> Dict[str, Any]:
+        """Run deterministic dev benchmark verification on synthetic fixtures."""
+        self.record_trace("deterministic_dev_start", {"action": "evaluating_benchmarks"})
+        t0 = time.time()
+        import resource
+        rss_start = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
 
-def main() -> None:
+        cmd = [
+            sys.executable,
+            "-m",
+            "pytest",
+            str(REPO_ROOT / "python" / "tests" / "test_kaggle_benchmarks.py"),
+            str(REPO_ROOT / "python" / "tests" / "test_gate4_benchmarks.py"),
+            "-q",
+        ]
+        env = dict(os.environ)
+        env["PYTHONPATH"] = str(REPO_ROOT / "python" / "src")
+
+        p = subprocess.run(cmd, cwd=str(REPO_ROOT), env=env, capture_output=True, text=True)
+        elapsed = time.time() - t0
+        rss_end = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+
+        self.record_resource("deterministic_dev", {
+            "elapsed_s": elapsed,
+            "controller_rss_kb": rss_end,
+            "rss_delta_kb": rss_end - rss_start,
+        })
+
+        dev_log_path = self.run_dir / "logs" / "deterministic_dev.log"
+        dev_log_path.write_text(p.stdout + "\n" + p.stderr, encoding="utf-8")
+
+        passed = (p.returncode == 0)
+        dev_result = {
+            "test_files": "test_kaggle_benchmarks.py, test_gate4_benchmarks.py",
+            "exit_code": p.returncode,
+            "duration_s": elapsed,
+            "passed": passed,
+            "stdout_summary": p.stdout.strip().splitlines()[-1] if p.stdout.strip() else "",
+        }
+
+        self._atomic_write_json(self.run_dir / "deterministic_dev.json", dev_result)
+        gate_outcome = "passed" if passed else "failed"
+        self.summary["gates"]["G_DETERMINISTIC_DEV_BENCHMARKS"] = {
+            "outcome": gate_outcome,
+            "exit_code": p.returncode,
+            "duration_s": elapsed,
+        }
+        self.summary["status"] = "completed" if passed else "failed"
+        self.record_trace("deterministic_dev_completed", {"outcome": gate_outcome, "duration_s": elapsed})
+        self.save_summary()
+        return dev_result
+
+    def run_live_dev(self) -> Dict[str, Any]:
+        """Execute or check live dev run under budget limits."""
+        self.record_trace("live_dev_start", {"action": "checking_live_prerequisites"})
+        gates = self.run_preflight()
+        blocked = [k for k, v in gates.items() if v["outcome"] == "blocked"]
+        outcome = {
+            "status": "blocked",
+            "reason": f"Live dev blocked by unfulfilled prerequisites: {blocked}" if blocked else "Live development requires explicit interactive confirmation and budget reservation",
+            "blocked_gates": blocked,
+        }
+        self.summary["gates"]["G_LIVE_DEV"] = {
+            "outcome": "blocked",
+            "reason": outcome["reason"],
+        }
+        self.summary["status"] = "blocked"
+        self.record_trace("live_dev_blocked", outcome)
+        self.save_summary()
+        return outcome
+
+    def run_certify(self) -> Dict[str, Any]:
+        """Execute certification gates. Never succeeds without Linux cgroup v2 verification."""
+        self.record_trace("certify_start", {"action": "evaluating_certification_gates"})
+        gates = self.run_preflight()
+        blocked = [k for k, v in gates.items() if v["outcome"] == "blocked"]
+        failed = [k for k, v in gates.items() if v["outcome"] == "failed"]
+        outcome = {
+            "status": "blocked" if blocked else ("failed" if failed else "inconclusive"),
+            "reason": f"Certification rejected: blocked gates {blocked}" if blocked else "Certification requires Linux cgroup v2 and complete campaign passes",
+            "blocked_gates": blocked,
+            "failed_gates": failed,
+        }
+        self.summary["gates"]["G_CERTIFICATION"] = {
+            "outcome": outcome["status"],
+            "reason": outcome["reason"],
+        }
+        self.summary["status"] = outcome["status"]
+        self.record_trace("certify_rejected", outcome)
+        self.save_summary()
+        return outcome
+
+
+def main() -> Optional[int]:
     parser = argparse.ArgumentParser(description="MLRescurix Robustness Campaign Runner (S1-S5)")
     parser.add_argument("--mode", choices=["preflight", "faults", "deterministic_dev", "live_dev", "certify", "all"], default="preflight", help="Execution mode")
     parser.add_argument("--campaign", default="20261021-robustness", help="Campaign name")
@@ -374,11 +481,41 @@ def main() -> None:
         print(f"  Status: {'PASSED' if res['passed'] else 'FAILED'} in {res['duration_s']:.2f}s")
         print(f"  Summary: {res['stdout_summary']}")
         if not res["passed"]:
-            sys.exit(1)
+            return 1
+
+    if args.mode in ("deterministic_dev", "all"):
+        print("\n--- Running Deterministic Dev Benchmarks ---")
+        runner.run_preflight()
+        res = runner.run_deterministic_dev()
+        print(f"  Status: {'PASSED' if res['passed'] else 'FAILED'} in {res['duration_s']:.2f}s")
+        print(f"  Summary: {res['stdout_summary']}")
+        if not res["passed"]:
+            return 1
+
+    if args.mode == "live_dev":
+        print("\n--- Running Live Dev ---")
+        res = runner.run_live_dev()
+        print(f"  Status: {res['status'].upper()}: {res['reason']}")
+        print(f"\n=== Robustness Campaign Run Blocked ===")
+        print(f"Summary written to: {runner.summary_path}")
+        return 1
+
+    if args.mode == "certify":
+        print("\n--- Evaluating Certification Gates ---")
+        res = runner.run_certify()
+        print(f"  Status: {res['status'].upper()}: {res['reason']}")
+        print(f"\n=== Robustness Campaign Certification Blocked ===")
+        print(f"Summary written to: {runner.summary_path}")
+        return 1
+
+    if runner.summary.get("status") == "in_progress":
+        runner.summary["status"] = "completed"
+        runner.save_summary()
 
     print("\n=== Robustness Campaign Run Complete ===")
     print(f"Summary written to: {runner.summary_path}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)

@@ -1,0 +1,4 @@
+{"timestamp": "2026-10-21T10:55:12.487819+00:00", "event": "live_dev_start", "action": "checking_live_prerequisites"}
+{"timestamp": "2026-10-21T10:55:12.488085+00:00", "event": "preflight_start", "action": "evaluating_prerequisites"}
+{"timestamp": "2026-10-21T10:55:14.955419+00:00", "event": "preflight_completed", "duration_s": 2.4475820064544678, "blocked_gates": []}
+{"timestamp": "2026-10-21T10:55:14.956112+00:00", "event": "live_dev_blocked", "status": "blocked", "reason": "Live development requires explicit interactive confirmation and budget reservation", "blocked_gates": []}

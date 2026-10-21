@@ -13,6 +13,7 @@ from mlrescurix_worker.scientific.pareto_ensemble import (
     ParetoEnsembleSpec,
     ParetoEnsembleSynthesizer,
 )
+from mlrescurix_worker.scientific.workflow import WorkflowError
 
 
 # =====================================================================
@@ -135,6 +136,7 @@ def test_rb003_proxy_screen_temporal_ordering(tmp_path: Path):
     # Synthetic time-series dataset
     dates = pd.date_range("2026-01-01", periods=100, freq="D")
     df = pd.DataFrame({
+        "row_id": [f"ts_row_{i}" for i in range(100)],
         "timestamp": dates.astype(str),
         "feat": np.random.randn(100),
         "target": np.random.randint(0, 2, 100),
@@ -145,20 +147,33 @@ def test_rb003_proxy_screen_temporal_ordering(tmp_path: Path):
     cand_dir = tmp_path / "cand_ts"
     cand_dir.mkdir(parents=True)
     entrypoint = cand_dir / "entrypoint.py"
-    entrypoint.write_text("""
+    log_dir = tmp_path / "ts_logs"
+    log_dir.mkdir(parents=True)
+    entrypoint.write_text(f"""
 import sys
+from pathlib import Path
+import pandas as pd
+import numpy as np
+
+log_dir = Path('{str(log_dir)}')
+
 if __name__ == "__main__":
     if "fit" in sys.argv:
-        # Save a dummy marker
-        pass
+        tr_idx = sys.argv.index("--train-path") + 1
+        df_tr = pd.read_csv(sys.argv[tr_idx])
+        df_tr.to_csv(log_dir / "train_seen.csv", index=False)
     elif "predict" in sys.argv:
-        import pandas as pd
-        import numpy as np
-        # Read val features and emit predictions
-        val_idx = sys.argv.index("--val-path") + 1
+        val_idx = sys.argv.index("--input-path") + 1 if "--input-path" in sys.argv else sys.argv.index("--val-path") + 1
         df_val = pd.read_csv(sys.argv[val_idx])
-        pred_idx = sys.argv.index("--predictions-path") + 1
-        pd.DataFrame({"pred": np.zeros(len(df_val))}).to_csv(sys.argv[pred_idx], index=False)
+        df_val.to_csv(log_dir / "val_seen.csv", index=False)
+        out_idx = sys.argv.index("--output-path") + 1 if "--output-path" in sys.argv else sys.argv.index("--predictions-path") + 1
+        row_col = "row_id" if "row_id" in df_val.columns else df_val.columns[0]
+        pd.DataFrame({{
+            row_col: df_val[row_col],
+            "pred": np.ones(len(df_val), dtype=int),
+            "prob_0": np.full(len(df_val), 0.3),
+            "prob_1": np.full(len(df_val), 0.7),
+        }}).to_csv(sys.argv[out_idx], index=False)
 """, encoding="utf-8")
 
     manifest = {
@@ -169,6 +184,7 @@ if __name__ == "__main__":
         "supported_operations": ["fit", "predict"],
         "target_column": "target",
         "class_order": [0, 1],
+        "stable_row_keys": "row_id",
     }
 
     topology = {
@@ -185,7 +201,21 @@ if __name__ == "__main__":
         seed=2026,
     )
 
+    # 1. Successful evaluation and admission
     assert receipt.candidate_id == "cand_ts_01"
+    assert receipt.status == "admitted", f"Proxy screen failed: {receipt.reason}"
+    assert receipt.proxy_metric_value is not None
+    assert receipt.proxy_metric_name == "balanced_accuracy"
+
+    # 2. Direct inspection of actual train and validation rows
+    train_seen = pd.read_csv(log_dir / "train_seen.csv")
+    val_seen = pd.read_csv(log_dir / "val_seen.csv")
+    assert len(train_seen) > 0
+    assert len(val_seen) > 0
+
+    # 3. Strict chronological constraint verification (no lookahead leakage)
+    assert train_seen["timestamp"].max() < val_seen["timestamp"].min()
+    assert set(train_seen["row_id"]).isdisjoint(set(val_seen["row_id"]))
 
 
 def test_rb003_proxy_screen_group_disjointness(tmp_path: Path):
@@ -193,6 +223,7 @@ def test_rb003_proxy_screen_group_disjointness(tmp_path: Path):
     # Synthetic group dataset (e.g. families / stores)
     groups = [f"group_{i % 10}" for i in range(100)]
     df = pd.DataFrame({
+        "row_id": [f"grp_row_{i}" for i in range(100)],
         "family_id": groups,
         "feat": np.random.randn(100),
         "target": np.random.randint(0, 2, 100),
@@ -202,19 +233,34 @@ def test_rb003_proxy_screen_group_disjointness(tmp_path: Path):
 
     cand_dir = tmp_path / "cand_grp"
     cand_dir.mkdir(parents=True)
+    log_dir = tmp_path / "grp_logs"
+    log_dir.mkdir(parents=True)
     entrypoint = cand_dir / "entrypoint.py"
-    entrypoint.write_text("""
+    entrypoint.write_text(f"""
 import sys
+from pathlib import Path
+import pandas as pd
+import numpy as np
+
+log_dir = Path('{str(log_dir)}')
+
 if __name__ == "__main__":
     if "fit" in sys.argv:
-        pass
+        tr_idx = sys.argv.index("--train-path") + 1
+        df_tr = pd.read_csv(sys.argv[tr_idx])
+        df_tr.to_csv(log_dir / "train_seen.csv", index=False)
     elif "predict" in sys.argv:
-        import pandas as pd
-        import numpy as np
-        val_idx = sys.argv.index("--val-path") + 1
+        val_idx = sys.argv.index("--input-path") + 1 if "--input-path" in sys.argv else sys.argv.index("--val-path") + 1
         df_val = pd.read_csv(sys.argv[val_idx])
-        pred_idx = sys.argv.index("--predictions-path") + 1
-        pd.DataFrame({"pred": np.zeros(len(df_val))}).to_csv(sys.argv[pred_idx], index=False)
+        df_val.to_csv(log_dir / "val_seen.csv", index=False)
+        out_idx = sys.argv.index("--output-path") + 1 if "--output-path" in sys.argv else sys.argv.index("--predictions-path") + 1
+        row_col = "row_id" if "row_id" in df_val.columns else df_val.columns[0]
+        pd.DataFrame({{
+            row_col: df_val[row_col],
+            "pred": np.ones(len(df_val), dtype=int),
+            "prob_0": np.full(len(df_val), 0.3),
+            "prob_1": np.full(len(df_val), 0.7),
+        }}).to_csv(sys.argv[out_idx], index=False)
 """, encoding="utf-8")
 
     manifest = {
@@ -225,6 +271,7 @@ if __name__ == "__main__":
         "supported_operations": ["fit", "predict"],
         "target_column": "target",
         "class_order": [0, 1],
+        "stable_row_keys": "row_id",
     }
 
     topology = {
@@ -241,7 +288,34 @@ if __name__ == "__main__":
         seed=2026,
     )
 
+    # 1. Successful evaluation and admission
     assert receipt.candidate_id == "cand_grp_01"
+    assert receipt.status == "admitted", f"Proxy screen failed: {receipt.reason}"
+    assert receipt.proxy_metric_value is not None
+
+    # 2. Direct inspection of actual train and validation rows
+    train_seen = pd.read_csv(log_dir / "train_seen.csv")
+    val_seen = pd.read_csv(log_dir / "val_seen.csv")
+    assert len(train_seen) > 0
+    assert len(val_seen) > 0
+
+    # 3. Strict group disjointness constraint: train and val share ZERO groups
+    tr_groups = set(train_seen["family_id"])
+    val_groups = set(val_seen["family_id"])
+    assert tr_groups.isdisjoint(val_groups)
+
+    # 4. Topology constraint rejection: if fewer than 2 distinct groups, must raise WorkflowError
+    single_grp_df = pd.DataFrame({"row_id": [f"s_{i}" for i in range(20)], "family_id": ["single"] * 20, "feat": np.random.randn(20), "target": [0, 1] * 10})
+    single_csv = tmp_path / "single_grp.csv"
+    single_grp_df.to_csv(single_csv, index=False)
+    with pytest.raises(WorkflowError, match="fewer than 2 distinct groups"):
+        MultiFidelityIterationEngine.run_proxy_screen(
+            dataset_csv=single_csv,
+            manifest=manifest,
+            candidate_dir=cand_dir,
+            max_samples=20,
+            topology=topology,
+        )
 
 
 # =====================================================================

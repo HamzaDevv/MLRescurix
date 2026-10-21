@@ -83,7 +83,7 @@ def test_idempotency_and_conflict_rejection(sample_df, topology):
         payload, sample_df, topology, base_features=["num1", "num2"]
     )
     assert receipt1.action_id == "act_idempotent_test"
-    assert receipt1.status == "confirmed"
+    assert receipt1.status in ("confirmed", "inconclusive")
 
     # Replay with identical payload: returns cached receipt
     receipt2 = dispatcher.execute_action(

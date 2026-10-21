@@ -1,0 +1,24 @@
+{
+  "reviewed_commit": "e1c86743c9227c25ef807f9364c7f3348ad925e6",
+  "verdict": "S1_partial_repair_required",
+  "runtime_changes": false,
+  "selected_tests": {
+    "command": "PYTHONPATH=python/src python3 -m pytest python/tests/test_p13_dirty_sanitizer_and_eda.py python/tests/test_p14_primitives_and_ablation.py python/tests/test_p15_model_zoo_and_forensics.py python/tests/test_p16_critic_and_reflexive_loop.py python/tests/test_s1_robustness_reproducers.py python/tests/test_hypothesis_executor.py python/tests/test_kaggle_benchmarks.py -q",
+    "exit_code": 0,
+    "passed": 65,
+    "warnings": 9,
+    "duration_s": 51.23
+  },
+  "repository_collection": {
+    "command": "PYTHONPATH=python/src python3 -m pytest python/tests --collect-only -q",
+    "exit_code": 0,
+    "collected": 196,
+    "duration_s": 2.65
+  },
+  "audit_probe_exit_code": 0,
+  "audit_semantics": "diagnostic observations of defects, not passing robustness tests",
+  "rust_tests_rerun": false,
+  "provider_requests": 0,
+  "provider_cost_usd": 0,
+  "holdout_accesses": 0
+}

@@ -286,23 +286,29 @@ class ParetoEnsembleSynthesizer:
             topology=spec_obj.topology,
         )
 
-        # 3. Fit meta-learner or compute optimal blending weights
+        # 3. Fit meta-learner or compute optimal blending weights on assessed/eligible rows only
         import joblib
+
+        eligible_mask = ~np.isnan(oof_meta_features).any(axis=1) if oof_meta_features.ndim > 1 else ~np.isnan(oof_meta_features)
+        if not np.any(eligible_mask):
+            raise WorkflowError("No eligible assessed rows in OOF predictions for meta-model fitting")
+        oof_eligible = oof_meta_features[eligible_mask]
+        y_eligible = y_all[eligible_mask]
 
         fitted_meta_model = None
         blending_weights: list[float] | None = None
 
         if meta_learner == "bayesian_blend":
             blending_weights_arr = optimize_bayesian_blend_weights(
-                predictions_matrix=oof_meta_features,
-                y_true=y_all,
+                predictions_matrix=oof_eligible,
+                y_true=y_eligible,
                 task_type=task_type,
             )
             blending_weights = blending_weights_arr.tolist()
         elif meta_learner == "elasticnet":
             if task_type == "regression":
                 fitted_meta_model = ElasticNet(alpha=0.1, l1_ratio=0.5, random_state=spec_obj.seed)
-                fitted_meta_model.fit(oof_meta_features, y_all)
+                fitted_meta_model.fit(oof_eligible, y_eligible)
             else:
                 fitted_meta_model = LogisticRegression(
                     penalty="elasticnet",
@@ -312,17 +318,17 @@ class ParetoEnsembleSynthesizer:
                     max_iter=500,
                     random_state=spec_obj.seed,
                 )
-                fitted_meta_model.fit(oof_meta_features, y_all)
+                fitted_meta_model.fit(oof_eligible, y_eligible)
         elif meta_learner == "logistic":
             fitted_meta_model = LogisticRegression(C=1.0, max_iter=500, random_state=spec_obj.seed)
-            fitted_meta_model.fit(oof_meta_features, y_all)
+            fitted_meta_model.fit(oof_eligible, y_eligible)
         else:  # default "ridge"
             if task_type == "regression":
                 fitted_meta_model = Ridge(alpha=1.0, random_state=spec_obj.seed)
-                fitted_meta_model.fit(oof_meta_features, y_all)
+                fitted_meta_model.fit(oof_eligible, y_eligible)
             else:
                 fitted_meta_model = LogisticRegression(C=1.0, max_iter=500, random_state=spec_obj.seed)
-                fitted_meta_model.fit(oof_meta_features, y_all)
+                fitted_meta_model.fit(oof_eligible, y_eligible)
 
         # Serialize meta model if trained
         if fitted_meta_model is not None:
@@ -331,15 +337,16 @@ class ParetoEnsembleSynthesizer:
         # 4. Refit each submodel on the full training set inside destination
         cls._fit_full_submodels(submodels_dest, submodel_ids, train_path)
 
-        # 5. Calculate OOF score of the stacked ensemble
+        # 5. Calculate OOF score of the stacked ensemble on eligible assessed rows
         oof_score = cls._compute_ensemble_oof_score(
-            meta_features=oof_meta_features,
-            y_true=y_all,
+            meta_features=oof_eligible,
+            y_true=y_eligible,
             task_type=task_type,
             meta_learner=meta_learner,
             meta_model=fitted_meta_model,
             weights=blending_weights,
-            metric_name=spec_obj.primary_metric,
+            classes=classes,
+            primary_metric=spec_obj.primary_metric,
         )
 
         # 6. Save ensemble configuration metadata
@@ -438,21 +445,58 @@ class ParetoEnsembleSynthesizer:
         y = df_train[target_col].to_numpy()
 
         if split_assignments is not None and len(split_assignments) > 0:
-            splits = [
-                (np.asarray(tr_idx, dtype=int), np.asarray(val_idx, dtype=int))
-                for tr_idx, val_idx in split_assignments
-            ]
-        elif topology is not None and (topology.get("entity_group_col") or topology.get("temporal_col")):
-            group_col = topology.get("entity_group_col")
+            validated_splits = []
+            for fold_idx, (tr_idx, val_idx) in enumerate(split_assignments):
+                tr_arr = np.asarray(tr_idx, dtype=int)
+                val_arr = np.asarray(val_idx, dtype=int)
+                if len(tr_arr) == 0:
+                    raise WorkflowError(f"Split assignment fold {fold_idx} has empty train set")
+                if len(val_arr) == 0:
+                    raise WorkflowError(f"Split assignment fold {fold_idx} has empty validation set")
+                overlap = set(tr_arr) & set(val_arr)
+                if overlap:
+                    raise WorkflowError(f"Overlapping indices in fold {fold_idx}: train and validation sets must be disjoint, got {overlap}")
+                if np.min(tr_arr) < 0 or np.max(tr_arr) >= n_rows or np.min(val_arr) < 0 or np.max(val_arr) >= n_rows:
+                    raise WorkflowError(f"Split assignment indices out of bounds [0, {n_rows}) in fold {fold_idx}")
+                validated_splits.append((tr_arr, val_arr))
+            splits = validated_splits
+        elif topology is not None and topology.get("temporal_col"):
             temporal_col = topology.get("temporal_col")
-            if group_col and group_col in df_train.columns and df_train[group_col].nunique() >= n_splits:
+            if temporal_col in df_train.columns:
+                from sklearn.model_selection import TimeSeriesSplit
+                # Sort indices by temporal column to guarantee strict chronological ordering (past -> future)
+                time_vals = df_train[temporal_col].to_numpy()
+                sorted_order = np.argsort(time_vals, kind="stable")
+                tss = TimeSeriesSplit(n_splits=n_splits)
+                splits = []
+                for tr_pos, val_pos in tss.split(sorted_order):
+                    tr_idx = sorted_order[tr_pos]
+                    val_idx = sorted_order[val_pos]
+                    max_tr_time = df_train.iloc[tr_idx][temporal_col].max()
+                    min_val_time = df_train.iloc[val_idx][temporal_col].min()
+                    if max_tr_time > min_val_time:
+                        raise WorkflowError(f"Temporal leakage detected: max train time ({max_tr_time}) > min val time ({min_val_time})")
+                    splits.append((tr_idx, val_idx))
+            elif is_classification:
+                splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+                splits = list(splitter.split(df_train, y))
+            else:
+                splitter = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
+                splits = list(splitter.split(df_train))
+        elif topology is not None and topology.get("entity_group_col"):
+            group_col = topology.get("entity_group_col")
+            if group_col in df_train.columns:
+                n_groups = df_train[group_col].nunique()
+                if n_groups < n_splits or n_groups < 2:
+                    raise WorkflowError(f"Group topology requires at least {max(2, n_splits)} distinct groups, but found {n_groups}")
                 from sklearn.model_selection import GroupKFold
                 gkf = GroupKFold(n_splits=n_splits)
                 splits = list(gkf.split(df_train, y, groups=df_train[group_col]))
-            elif temporal_col and temporal_col in df_train.columns:
-                from sklearn.model_selection import TimeSeriesSplit
-                tss = TimeSeriesSplit(n_splits=n_splits)
-                splits = list(tss.split(df_train))
+                for tr_idx, val_idx in splits:
+                    tr_groups = set(df_train.iloc[tr_idx][group_col])
+                    val_groups = set(df_train.iloc[val_idx][group_col])
+                    if not tr_groups.isdisjoint(val_groups):
+                        raise WorkflowError(f"Group leakage detected: groups appear in both train and val: {tr_groups & val_groups}")
             elif is_classification:
                 splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
                 splits = list(splitter.split(df_train, y))
@@ -478,12 +522,12 @@ class ParetoEnsembleSynthesizer:
             entrypoint = sm_dir / "entrypoint.py"
 
             if task_type == "regression":
-                oof_preds = np.zeros(n_rows, dtype=float)
+                oof_preds = np.full(n_rows, np.nan, dtype=float)
             elif task_type == "binary":
-                oof_preds = np.zeros(n_rows, dtype=float)  # positive class probability
+                oof_preds = np.full(n_rows, np.nan, dtype=float)  # positive class probability
             else:
                 n_classes = len(classes) if classes else 2
-                oof_preds = np.zeros((n_rows, n_classes), dtype=float)
+                oof_preds = np.full((n_rows, n_classes), np.nan, dtype=float)
 
             for fold_idx, (train_idx, val_idx) in enumerate(splits):
                 fold_train_df = df_train.iloc[train_idx].copy()
@@ -586,9 +630,13 @@ class ParetoEnsembleSynthesizer:
         meta_learner: str,
         meta_model: Any | None,
         weights: list[float] | None,
-        metric_name: str,
+        metric_name: str = "balanced_accuracy",
+        primary_metric: str | None = None,
+        classes: list[Any] | None = None,
+        **kwargs: Any,
     ) -> float:
         """Compute the evaluation score on stacked out-of-fold predictions."""
+        eff_metric = primary_metric or metric_name
         if meta_learner == "bayesian_blend" and weights is not None:
             w_arr = np.array(weights, dtype=float)
             if task_type == "regression":

@@ -8,6 +8,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -27,7 +28,13 @@ from .primitives import (
 )
 from .workflow import WorkflowError
 
-SCHEMA_PATH = Path(__file__).resolve().parent.parent.parent.parent / "contracts" / "v2" / "hypothesis_action.schema.json"
+SCHEMA_PATH = Path(__file__).resolve().parents[4] / "contracts" / "v2" / "hypothesis_action.schema.json"
+if not SCHEMA_PATH.exists():
+    for candidate_root in [Path(__file__).resolve().parents[3], Path.cwd(), Path.cwd().parent]:
+        candidate_schema = candidate_root / "contracts" / "v2" / "hypothesis_action.schema.json"
+        if candidate_schema.exists():
+            SCHEMA_PATH = candidate_schema
+            break
 
 
 class ActionExecutionError(WorkflowError):
@@ -179,6 +186,41 @@ class HypothesisActionDispatcher:
     def __init__(self, ledger_path: Optional[Union[str, Path]] = None):
         self.idempotency_cache: Dict[str, Tuple[str, HypothesisActionReceipt]] = {}
         self.ledger_path = Path(ledger_path) if ledger_path else None
+        if self.ledger_path and self.ledger_path.exists():
+            self._load_ledger()
+
+    def _load_ledger(self) -> None:
+        """Load persisted hypothesis actions from durable ledger."""
+        try:
+            with open(self.ledger_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            for entry in data.get("actions", []):
+                aid = entry["action_id"]
+                phash = entry.get("payload_hash", "")
+                r_dict = dict(entry)
+                r_dict.pop("payload_hash", None)
+                receipt = HypothesisActionReceipt(**r_dict, payload_hash=phash)
+                self.idempotency_cache[aid] = (phash, receipt)
+        except Exception:
+            pass
+
+    def _save_ledger(self) -> None:
+        """Atomically persist action cache to durable ledger file."""
+        if not self.ledger_path:
+            return
+        try:
+            self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
+            actions = []
+            for aid, (phash, receipt) in self.idempotency_cache.items():
+                r_dict = receipt.to_dict()
+                r_dict["payload_hash"] = phash
+                actions.append(r_dict)
+            tmp_path = self.ledger_path.with_suffix(f".tmp.{os.getpid()}")
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump({"schema_version": "v2", "actions": actions}, f, indent=2)
+            tmp_path.replace(self.ledger_path)
+        except Exception:
+            pass
 
     @staticmethod
     def _compute_payload_hash(payload: Dict[str, Any]) -> str:
@@ -189,6 +231,21 @@ class HypothesisActionDispatcher:
         """Validate payload against schema and required properties."""
         if not isinstance(payload, dict):
             raise ActionExecutionError("Action payload must be a JSON dictionary")
+
+        if SCHEMA_PATH.exists():
+            import jsonschema
+            try:
+                with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
+                    schema = json.load(f)
+                jsonschema.validate(instance=payload, schema=schema)
+            except jsonschema.ValidationError as ve:
+                if "is a required property" in ve.message:
+                    raise ActionExecutionError(f"Action payload missing required field: {ve.message}") from ve
+                if "is not one of" in ve.message and any("action" in str(p) for p in ve.path):
+                    raise ActionExecutionError(f"Unknown action type: {ve.message}") from ve
+                raise ActionExecutionError(f"Action payload schema validation failed: {ve.message}") from ve
+            except Exception as e:
+                raise ActionExecutionError(f"Action payload validation error: {e}") from e
 
         required = [
             "schema_version",
@@ -328,11 +385,10 @@ class HypothesisActionDispatcher:
                 transformer_or_callable = FeatureDeletionTransformer(columns_to_delete=cols_to_del)
 
             elif action_name == "REORDER_MODEL_PRIORITY":
-                # Control-plane scheduling action: validate and return confirmed immediately
                 preferred = params.get("preferred_families", [])
                 receipt = HypothesisActionReceipt(
                     action_id=action_id,
-                    status="confirmed",
+                    status="inconclusive",
                     action=action_name,
                     parent_candidate_id=payload["parent_candidate_id"],
                     split_id=payload["split_id"],
@@ -340,19 +396,19 @@ class HypothesisActionDispatcher:
                     relative_gain=0.0,
                     versioned_transform_lineage=[lineage_record],
                     fitted_fold_references=["control_plane_schedule"],
-                    message=f"Model priority reordered: {preferred}",
+                    message=f"Model priority reordered: {preferred}; returned inconclusive pending scheduler search sprint",
                     payload_hash=payload_hash,
                 )
                 self.idempotency_cache[action_id] = (payload_hash, receipt)
+                self._save_ledger()
                 return receipt
 
             elif action_name == "UPDATE_SEARCH_SPACE":
-                # Control-plane search space update
                 target_fam = params.get("target_family", "general")
                 bounds = params.get("parameter_bounds", {})
                 receipt = HypothesisActionReceipt(
                     action_id=action_id,
-                    status="confirmed",
+                    status="inconclusive",
                     action=action_name,
                     parent_candidate_id=payload["parent_candidate_id"],
                     split_id=payload["split_id"],
@@ -360,17 +416,18 @@ class HypothesisActionDispatcher:
                     relative_gain=0.0,
                     versioned_transform_lineage=[lineage_record],
                     fitted_fold_references=["search_space_updated"],
-                    message=f"Search space updated for family '{target_fam}': {bounds}",
+                    message=f"Search space updated for family '{target_fam}': {bounds}; returned inconclusive pending search trial execution",
                     payload_hash=payload_hash,
                 )
                 self.idempotency_cache[action_id] = (payload_hash, receipt)
+                self._save_ledger()
                 return receipt
 
             elif action_name == "TRANSFORM_TARGET":
                 method = params.get("method", "log")
                 receipt = HypothesisActionReceipt(
                     action_id=action_id,
-                    status="confirmed",
+                    status="inconclusive",
                     action=action_name,
                     parent_candidate_id=payload["parent_candidate_id"],
                     split_id=payload["split_id"],
@@ -378,10 +435,11 @@ class HypothesisActionDispatcher:
                     relative_gain=0.0,
                     versioned_transform_lineage=[lineage_record],
                     fitted_fold_references=["target_transform_configured"],
-                    message=f"Target transformation '{method}' configured for fold-local fitting",
+                    message=f"Target transformation '{method}' requires candidate pipeline fitting and canonical inverse-metric evaluation; returned inconclusive until integrated into candidate training.",
                     payload_hash=payload_hash,
                 )
                 self.idempotency_cache[action_id] = (payload_hash, receipt)
+                self._save_ledger()
                 return receipt
 
             elif action_name == "CUSTOM_SANDBOX_CODE":
@@ -399,6 +457,7 @@ class HypothesisActionDispatcher:
                 payload_hash=payload_hash,
             )
             self.idempotency_cache[action_id] = (payload_hash, receipt)
+            self._save_ledger()
             return receipt
 
         # Run paired fold-local ablation
@@ -409,14 +468,16 @@ class HypothesisActionDispatcher:
             topology=topology,
             df=df,
             fidelity=fidelity,
+            metric_name=metric_name,
+            random_state=payload["seed"],
+            ledger_path=self.ledger_path,
         )
 
         cv_delta = ablation_receipt.get("cv_score_delta", 0.0)
-        base_score = ablation_receipt.get("base_cv_score", 0.5)
+        base_score = ablation_receipt.get("baseline_cv_score", ablation_receipt.get("base_cv_score", 0.5))
 
-        # Corrected Argon A5 gain calculation
-        d = 1.0 if direction == "maximize" else -1.0
-        benefit = d * cv_delta
+        # cv_score_delta in fe_ablation is utility-oriented (higher is always better)
+        benefit = cv_delta
         eps = 1e-8
         relative_gain = benefit / max(abs(base_score), eps)
 
@@ -458,4 +519,5 @@ class HypothesisActionDispatcher:
         )
 
         self.idempotency_cache[action_id] = (payload_hash, receipt)
+        self._save_ledger()
         return receipt

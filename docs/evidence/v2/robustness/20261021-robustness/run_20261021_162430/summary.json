@@ -1,0 +1,104 @@
+{
+  "campaign": "20261021-robustness",
+  "run_id": "run_20261021_162430",
+  "started_at": "2026-10-21T10:54:30.118043+00:00",
+  "updated_at": "2026-10-21T10:54:56.667641+00:00",
+  "status": "completed",
+  "git": {
+    "commit": "e1c86743c9227c25ef807f9364c7f3348ad925e6",
+    "is_dirty": true,
+    "dirty_diff_sha256": "1b1818c764992d5cdd10c42119dc202d1cd70755914b221e912bad494316ffe9"
+  },
+  "gates": {
+    "G0_HOST_ENVIRONMENT": {
+      "outcome": "passed",
+      "details": {
+        "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+        "python_version": "3.13.3",
+        "arch": "arm64",
+        "cores": 8
+      }
+    },
+    "G1_PYTHON_SCIENTIFIC_STACK": {
+      "outcome": "passed",
+      "details": {
+        "numpy": "2.2.6",
+        "pandas": "2.3.0",
+        "scipy": "1.16.1",
+        "sklearn": "1.8.0",
+        "pytest": "8.3.4",
+        "jsonschema": "4.26.0",
+        "psutil": "6.1.1"
+      }
+    },
+    "G2_RUST_HARNESS_PROVENANCE": {
+      "outcome": "passed",
+      "details": {
+        "debug_binary": {
+          "exists": true,
+          "sha256": "72b6e5565fd856e0c86840c29b66029baf0945a6222a215dcd0a32a85fd45165"
+        },
+        "dist_binary": {
+          "exists": true,
+          "sha256": "f9ffee6b9279600c78f227c4d32d83572f5e7357f3a1e13ccdf9c490f5158f24"
+        },
+        "rust_source_sha256": "65a5a0df3c3103a82551a6540bf2c542f2db6586b0c7a2d5a4b1657ea61c53af"
+      }
+    },
+    "G3_STORAGE_SCHEMA_V11": {
+      "outcome": "passed",
+      "details": {
+        "max_supported_version": 11,
+        "never_downgrade_to_v10": true,
+        "status": "verified"
+      }
+    },
+    "G4_CONTAINER_CGROUP_V2": {
+      "outcome": "passed",
+      "reason": "OK",
+      "details": {
+        "docker_bin": "/usr/local/bin/docker",
+        "daemon_reachable": true,
+        "info": "linux 2",
+        "cgroup_v2_certified": true
+      }
+    },
+    "G5_KAGGLE_OFFICIAL_DATA": {
+      "outcome": "passed",
+      "reason": "OK",
+      "details": {
+        "client_installed": true,
+        "credentials_present": true,
+        "official_data_status": "ready"
+      }
+    },
+    "G6_PROVIDER_GATEWAY": {
+      "outcome": "passed",
+      "reason": "Provider key file present; validity unverified until live flow",
+      "details": {
+        "key_present": true,
+        "key_source": "local_file",
+        "validity_verified": false,
+        "spending_cap_usd": 5.0,
+        "per_run_cap_usd": 0.5
+      }
+    },
+    "G_REPRODUCERS_RB001_RB004": {
+      "outcome": "passed",
+      "exit_code": 0,
+      "duration_s": 14.880364179611206
+    },
+    "G_TYPED_ACTION_DISPATCHER": {
+      "outcome": "passed",
+      "exit_code": 0,
+      "duration_s": 14.880364179611206
+    },
+    "G_DETERMINISTIC_DEV_BENCHMARKS": {
+      "outcome": "passed",
+      "exit_code": 0,
+      "duration_s": 8.326756000518799
+    }
+  },
+  "budget_spent_usd": 0.0,
+  "holdout_accesses": 0
+}

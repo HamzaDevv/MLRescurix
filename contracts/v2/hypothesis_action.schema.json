@@ -15,6 +15,7 @@
     "budget_id",
     "rationale_ref"
   ],
+  "additionalProperties": false,
   "properties": {
     "schema_version": {
       "type": "string",
@@ -75,108 +76,193 @@
       ]
     },
     "parameters": {
-      "type": "object",
-      "properties": {
-        "columns": {
-          "type": "array",
-          "items": { "type": "string" }
-        },
-        "method": {
-          "type": "string"
-        },
-        "clip_min": {
-          "type": ["number", "null"]
-        },
-        "smoothing": {
-          "type": "number",
-          "minimum": 0.0
-        },
-        "cv_folds": {
-          "type": "integer",
-          "minimum": 2,
-          "maximum": 20
-        },
-        "min_samples_leaf": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "id_columns": {
-          "type": "array",
-          "items": { "type": "string" }
-        },
-        "numeric_columns": {
-          "type": "array",
-          "items": { "type": "string" }
-        },
-        "aggregations": {
-          "type": "array",
-          "items": { "type": "string" }
-        },
-        "text_columns": {
-          "type": "array",
-          "items": { "type": "string" }
-        },
-        "n_svd_components": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 64
-        },
-        "top_k_subtokens": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 256
-        },
-        "max_features": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 10000
-        },
-        "feature_pairs": {
-          "type": "array",
-          "items": {
-            "type": "array",
-            "items": { "type": "string" },
-            "minItems": 2,
-            "maxItems": 2
-          }
-        },
-        "operations": {
-          "type": "array",
-          "items": { "type": "string", "enum": ["multiply", "divide", "add", "subtract"] }
-        },
-        "max_interactions": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 100
-        },
-        "reason": {
-          "type": "string"
-        },
-        "preferred_families": {
-          "type": "array",
-          "items": { "type": "string" }
-        },
-        "target_family": {
-          "type": "string"
-        },
-        "parameter_bounds": {
-          "type": "object"
-        },
-        "target_column": {
-          "type": "string"
-        },
-        "offset": {
-          "type": ["number", "null"]
-        },
-        "code_snippet": {
-          "type": "string"
-        },
-        "entrypoint_function": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": false
+      "type": "object"
     }
   },
-  "additionalProperties": false
+  "allOf": [
+    {
+      "if": { "properties": { "action": { "const": "DELETE_FEATURE" } } },
+      "then": {
+        "properties": {
+          "parameters": {
+            "type": "object",
+            "required": ["columns"],
+            "additionalProperties": false,
+            "properties": {
+              "columns": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+              "reason": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "action": { "const": "APPLY_SKEW_TRANSFORM" } } },
+      "then": {
+        "properties": {
+          "parameters": {
+            "type": "object",
+            "required": ["columns", "method"],
+            "additionalProperties": false,
+            "properties": {
+              "columns": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+              "method": { "type": "string", "enum": ["yeo_johnson", "box_cox", "log1p"] },
+              "clip_min": { "type": ["number", "null"] }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "action": { "const": "ENCODE_HIGH_CARD_CAT" } } },
+      "then": {
+        "properties": {
+          "parameters": {
+            "type": "object",
+            "required": ["columns"],
+            "additionalProperties": false,
+            "properties": {
+              "columns": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+              "smoothing": { "type": "number", "minimum": 0.0 },
+              "cv_folds": { "type": "integer", "minimum": 2, "maximum": 20 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "action": { "const": "DECOMPOSE_QUASI_ID" } } },
+      "then": {
+        "properties": {
+          "parameters": {
+            "type": "object",
+            "required": ["id_columns"],
+            "additionalProperties": false,
+            "properties": {
+              "id_columns": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+              "numeric_columns": { "type": "array", "items": { "type": "string" } },
+              "aggregations": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "action": { "const": "EMBED_SHORT_TEXT" } } },
+      "then": {
+        "properties": {
+          "parameters": {
+            "type": "object",
+            "required": ["text_columns"],
+            "additionalProperties": false,
+            "properties": {
+              "text_columns": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+              "n_svd_components": { "type": "integer", "minimum": 1, "maximum": 64 },
+              "top_k_subtokens": { "type": "integer", "minimum": 1, "maximum": 256 },
+              "max_features": { "type": "integer", "minimum": 1, "maximum": 10000 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "action": { "const": "ADD_MNAR_INDICATOR" } } },
+      "then": {
+        "properties": {
+          "parameters": {
+            "type": "object",
+            "required": ["columns"],
+            "additionalProperties": false,
+            "properties": {
+              "columns": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "action": { "const": "ADD_INTERACTION" } } },
+      "then": {
+        "properties": {
+          "parameters": {
+            "type": "object",
+            "required": ["feature_pairs"],
+            "additionalProperties": false,
+            "properties": {
+              "feature_pairs": {
+                "type": "array",
+                "items": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 2 }
+              },
+              "operations": { "type": "array", "items": { "type": "string", "enum": ["multiply", "divide", "add", "subtract"] } },
+              "max_interactions": { "type": "integer", "minimum": 1, "maximum": 100 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "action": { "const": "REORDER_MODEL_PRIORITY" } } },
+      "then": {
+        "properties": {
+          "parameters": {
+            "type": "object",
+            "required": ["preferred_families"],
+            "additionalProperties": false,
+            "properties": {
+              "preferred_families": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "action": { "const": "UPDATE_SEARCH_SPACE" } } },
+      "then": {
+        "properties": {
+          "parameters": {
+            "type": "object",
+            "required": ["target_family", "parameter_bounds"],
+            "additionalProperties": false,
+            "properties": {
+              "target_family": { "type": "string" },
+              "parameter_bounds": { "type": "object" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "action": { "const": "TRANSFORM_TARGET" } } },
+      "then": {
+        "properties": {
+          "parameters": {
+            "type": "object",
+            "required": ["method"],
+            "additionalProperties": false,
+            "properties": {
+              "method": { "type": "string", "enum": ["log", "log1p", "box_cox"] },
+              "target_column": { "type": "string" },
+              "offset": { "type": ["number", "null"] }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "action": { "const": "CUSTOM_SANDBOX_CODE" } } },
+      "then": {
+        "properties": {
+          "parameters": {
+            "type": "object",
+            "required": ["code_snippet"],
+            "additionalProperties": false,
+            "properties": {
+              "code_snippet": { "type": "string", "minLength": 1 },
+              "entrypoint_function": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  ]
 }
