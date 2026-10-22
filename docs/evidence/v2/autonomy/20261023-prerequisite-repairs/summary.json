@@ -1,0 +1,187 @@
+{
+  "date": "2026-10-23",
+  "source_parent": "b4e4e8a59ce6c27ec826655f10493ecc636643ea",
+  "initial_branch": "main",
+  "initial_worktree": "clean",
+  "scope": "offline prerequisite correctness/governance repairs; architecture consolidation deferred",
+  "python": {
+    "command": "python3 -m pytest python/tests -q",
+    "exit_code": 0,
+    "passed": 308,
+    "skipped": 1,
+    "warnings": 10,
+    "seconds": 202.1,
+    "skip_reason": "explicit bounded 64m container tmpfs required",
+    "log": "python-tests.log"
+  },
+  "final_canonical_ledger_guard": {
+    "command": "python3 -m pytest python/tests/test_rust_gateway_adapter.py python/tests/test_prerequisite_repairs.py -q",
+    "exit_code": 0,
+    "passed": 29,
+    "seconds": 3.0,
+    "log": "final-canonical-ledger-tests.log",
+    "scope_note": "Final canonical-ledger binding guard added after full-suite collection; this final affected suite covers it and the surrounding gateway/budget/staging contracts."
+  },
+  "panel_contract_regressions": {
+    "passed": 61,
+    "seconds": 5.54,
+    "log": "panel-and-contract-tests.log"
+  },
+  "rust": {
+    "command": "cargo test --locked --test agent_m4 --test reflexive_loop_gate --lib",
+    "exit_code": 0,
+    "passed": 63,
+    "ignored": 2,
+    "groups": [
+      {
+        "name": "lib",
+        "passed": 29,
+        "ignored": 2
+      },
+      {
+        "name": "agent_m4",
+        "passed": 26,
+        "ignored": 0
+      },
+      {
+        "name": "reflexive_loop_gate",
+        "passed": 8,
+        "ignored": 0
+      }
+    ],
+    "ignored_reason": "explicit digest-pinned Docker cgroup tests; both separately executed successfully",
+    "log": "rust-tests.log"
+  },
+  "build": {
+    "command": "cargo build --locked -p mlrescurix-harness",
+    "exit_code": 0,
+    "log": "rust-build.log"
+  },
+  "linux_cgroup": {
+    "command": "MLRESCURIX_BUNDLE_IMAGE=mlrescurix-scientific@sha256:d094b6becbbd1a1d86b944fd39370bfe26bb96f6290b429c0a51c512faf5f1bd MLRESCURIX_EVIDENCE_DIR=<this evidence directory> cargo test --locked --lib execution::resources::tests::live_cgroup -- --ignored",
+    "passed": 2,
+    "exit_code": 0,
+    "seconds": 7.59,
+    "log": "cgroup-tests.log",
+    "scope": "isolated Docker Linux allocation/OOM/recovery fixtures only",
+    "receipts": [
+      "live-cgroup.json",
+      "live-oom.json",
+      "live-survivor.json"
+    ],
+    "production_campaign_verified": false
+  },
+  "bounded_tmpfs_attempt": {
+    "status": "blocked_before_test_execution",
+    "exit_code": 1,
+    "reason": "cached scientific image lacks jsonschema; matching hash-verified Linux wheels/lock and rebuilt image unavailable offline",
+    "log": "bounded-tmpfs-environment-blocker.log",
+    "source_repair": "worker metadata declares locally tested jsonschema==4.26.0 and psutil==6.1.1; image digest is not replaced"
+  },
+  "static_checks": {
+    "python_compileall": "passed",
+    "git_diff_check": "passed after whitespace-only normalization of new logs",
+    "credential_pattern_scan": "passed",
+    "copied_dataset_model_database_wheel_scan": "passed"
+  },
+  "development_staging": {
+    "official_tasks_reproduced": [
+      "K1",
+      "K2",
+      "K3"
+    ],
+    "receipts": [
+      "K1-stage.json",
+      "K2-stage.json",
+      "K3-stage.json"
+    ],
+    "trusted_import_reads_source_bytes": true,
+    "worker_final_rows": 0,
+    "frozen_splits_regenerated": false,
+    "K1_contamination_preserved": true
+  },
+  "K5_protocol": {
+    "status": "locked_and_reproduced",
+    "metadata_receipt": "K5-protocol-reproduction.json",
+    "required_entities": 1782,
+    "training_rows": [
+      2893968,
+      2920698,
+      2947428
+    ],
+    "horizon_dates": [
+      15,
+      15,
+      15
+    ],
+    "embargo_days": 0,
+    "covariates": [
+      "day_of_week",
+      "day_of_month",
+      "month"
+    ],
+    "model_quality_verified": false,
+    "full_scale_resource_feasibility_verified": false
+  },
+  "accounting": {
+    "campaign_ledger_unchanged": true,
+    "ledger_sha256": "827abd984dd960f91cd39725d7dcbdb78d47c114322a0358cbbb08a5b30d0b52",
+    "campaign_ceiling_usd": "0.30",
+    "recorded_committed_usd": "0.050724020",
+    "recorded_remaining_usd": "0.249275980",
+    "historical_runs": 29,
+    "runs_with_matching_local_turn_accounting": 20,
+    "local_turn_records": 56,
+    "verified_provider_charge_usd": null,
+    "receipt": "accounting-reconciliation.json",
+    "additional_provider_spend_usd": "0",
+    "paid_provider_calls": 0
+  },
+  "final_holdout_scored": false,
+  "architecture_consolidation_started": false,
+  "production_certified": false,
+  "implemented": [
+    "hash-bound development staging and dedicated worker inputs",
+    "source-bound complete K5 observation-calendar/entity/covariate protocol",
+    "idempotent durable reservation/settlement with conservative uncertain liability",
+    "Rust dispatch admission under shared campaign lock and request/scope/store binding",
+    "canonical live ledger binding and disabled direct Python provider bypasses",
+    "separate inspectable operator outbound authorization",
+    "read-only historical accounting audit and explicit estimate labels",
+    "transport/legacy worker descendant cleanup, environment allowlists, honest partial measurement and bounded repair feedback"
+  ],
+  "blocked": [
+    "independent K1/K2 absolute acceptance requirements; thresholds remain null",
+    "authoritative K4 fold index-space/gap/training bounds/subset mapping",
+    "verified historical provider charges without invoice/provider-charge receipts",
+    "future explicit upload authorization and current provider route availability/pricing verification",
+    "hashed Linux jsonschema/psutil dependency wheel lock and rebuilt scientific image for bounded-tmpfs pipeline check",
+    "full production campaign scheduling/resources/concurrent isolation/fault/soak/clean-room delivery and repaired-revision live quality evidence"
+  ],
+  "source_files_sha256": {
+    "crates/harness/src/agents/gateway.rs": "a74fce430778b6c2713ac19c88c0e47d9a62efd77015b6b60d378980b8155399",
+    "crates/harness/src/main.rs": "a2acfa254d9b2038e2048f85be8ce343ffc28de8c1005e972b41b01ff77046ef",
+    "crates/harness/tests/agent_m4.rs": "9e01a6d8c7a29662e55b8b1cc708e83835866128350051f77c68cf9cd46505c7",
+    "python/pyproject.toml": "2dcc5b3cd9bb081a26e0bd3d465ac45d7fe07c25ceb02dc0a22f60c40720108d",
+    "python/src/mlrescurix_worker/scientific/agent_cli.py": "57103f92f5d3dcea4a4a11cc5afdbad05a3ac92a1a948241927055bbec713029",
+    "python/src/mlrescurix_worker/scientific/autonomous_loop.py": "1b2eb4acb8d968ceab75d4dfdd9768492b4d451f242185cd4e51f64747f2d24a",
+    "python/src/mlrescurix_worker/scientific/candidate_pipeline.py": "3b7b8520cb5a14f21a829eb33b2396609ed201f2962523b974b0ea8d4b4abf32",
+    "python/src/mlrescurix_worker/scientific/candidate_runner.py": "4375de663f38f594a0b690ca33e918fd8cb073f0627ac62581ebd70e194fc4ad",
+    "python/src/mlrescurix_worker/scientific/development_stage.py": "e9b2bc086a4b33e079b74ceac27aec16b775a2c57b1715c7198f118f77341b89",
+    "python/src/mlrescurix_worker/scientific/panel_contract.py": "12dd5c9966406d477415ece9821c86b1744e35f588e64a65e05ddbed1f9e4a36",
+    "python/src/mlrescurix_worker/scientific/resource_monitor.py": "ce9c2befef424c8bf322ea13f798f7fca6df28d026ba74285490da084b1add88",
+    "python/src/mlrescurix_worker/scientific/rust_gateway.py": "bd92a82b3cb4ec5ee1977ed3fe6e95a819c124004ca814e85a0ab9c1c5a75afd",
+    "python/tests/test_autonomous_agent_loop.py": "aa1017f612cb9e3ffa776e1c498a6a9509e48fdce7b88660095544e875f6b301",
+    "python/tests/test_autonomy_regressions.py": "6e6ab5ec50572476c0cce0bcea9a70846bd82d01785760cfb67acf8d5e3b73d8",
+    "python/tests/test_panel_evaluator_and_critic.py": "4f4d9fbf6997c6c2f70c385a03bcab4a28ef707ed8a31d40f114707f38ed40d1",
+    "python/tests/test_prerequisite_repairs.py": "7961a9391a4b2b6a809375252014055836d788bc7b99f16040c962bc295a50ba",
+    "python/tests/test_resource_monitor.py": "d80f6e8f8440df6cb3fd8ba15d3dc877d1192e8f3c6c77a14d3368bcb7add484",
+    "python/tests/test_rust_gateway_adapter.py": "6fca12d91b1af38cddda6349c14dfd0e71ac9fba82577055dea852c2ecad0288",
+    "python/tests/test_s1_followup_guards.py": "d4a73f1f3a5d64dd7dd8fe221d852b8e68deb401e1f7c552ca84ff4079400ae3",
+    "scripts/freeze_k5_panel_contract.py": "499148b3e02a4246069bcb562959031f230267f20634cc3998c05e4530d4f8a9",
+    "scripts/reconcile_campaign_accounting.py": "63fafa14ba508b59396d8c622daae539c97b0f2578d2682aa8bc132788ceb196",
+    "scripts/run_robustness_campaign.py": "ac979f273b73f9841e9682d84a2d3ecd609d949db04dcadbb64ce32a9a2c52e6",
+    "scripts/stage_benchmark_development.py": "b5459ba602f5d74cc12926f147ea99524d3684eeeff41e22db7f66fc7dd41a03"
+  },
+  "log_normalization": "Only newly generated logs have trailing whitespace/extra terminal blank lines removed; historical committed evidence remains unchanged."
+}

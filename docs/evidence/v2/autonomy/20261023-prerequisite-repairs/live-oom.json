@@ -1,0 +1,62 @@
+{
+  "docker_state": {
+    "Dead": false,
+    "Error": "",
+    "ExitCode": 137,
+    "FinishedAt": "2026-10-22T19:40:42.792441834Z",
+    "OOMKilled": true,
+    "Paused": false,
+    "Pid": 0,
+    "Restarting": false,
+    "Running": false,
+    "StartedAt": "2026-10-22T19:40:42.510673333Z",
+    "Status": "exited"
+  },
+  "exit_confirmed": true,
+  "id": "039852e882787ff17f4a5c84fcd8c5e94d30afebf3be905c39eb49178a1dc655",
+  "job": "j",
+  "labels": {
+    "io.mlrescurix.generation": "2",
+    "io.mlrescurix.intent": "1",
+    "io.mlrescurix.job": "j",
+    "io.mlrescurix.lease": "lease",
+    "io.mlrescurix.owner": "mlrescurix.scientific.v1",
+    "io.mlrescurix.owner-id": "5c062f62aa68fba131800055c57fc783cb24864a07f3b192b9959204203a8190",
+    "io.mlrescurix.project": "p",
+    "io.mlrescurix.spec": "3b673fcfaab9fe5799191a95ad80cdab011058860b9e4297e869192e6e404549",
+    "io.mlrescurix.state-root": "02fa182f65a386cd7e0bde1fa11af049efe70679e634756ce6e654e7c8e5ff42",
+    "io.mlrescurix.task": "t"
+  },
+  "measurement": {
+    "after": {
+      "cpu.max": "100000 100000",
+      "cpu.stat": "usage_usec 76011\nuser_usec 33398\nsystem_usec 42612\nnr_periods 1\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0",
+      "memory.current": "7688192",
+      "memory.events": "low 0\nhigh 0\nmax 55\noom 1\noom_kill 1\noom_group_kill 0",
+      "memory.max": "67108864",
+      "memory.peak": "67108864",
+      "memory.swap.max": "0",
+      "pids.events": "max 0",
+      "pids.max": "64"
+    },
+    "before": {
+      "cpu.max": "100000 100000",
+      "cpu.stat": "usage_usec 54988\nuser_usec 28743\nsystem_usec 26244\nnr_periods 1\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0",
+      "memory.current": "10997760",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+      "memory.max": "67108864",
+      "memory.peak": "10997760",
+      "memory.swap.max": "0",
+      "pids.events": "max 0",
+      "pids.max": "64"
+    },
+    "complete": true,
+    "exit_code": -9,
+    "memory_bytes": 67108864,
+    "supported": true,
+    "threads": 1
+  },
+  "measurement_complete": true,
+  "project": "p",
+  "removed": true
+}

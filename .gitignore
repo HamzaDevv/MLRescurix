@@ -47,3 +47,8 @@ __pycache__/
 .DS_Store
 .idea/
 .vscode/
+
+# Development-only staging runtime payloads; receipts contain hashes only.
+/docs/evidence/v2/robustness/*/run_*/staged_*.csv
+/docs/evidence/v2/robustness/*/run_*/inputs/
+/docs/evidence/v2/robustness/*/run_*/script_data/

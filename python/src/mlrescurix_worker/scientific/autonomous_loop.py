@@ -109,6 +109,8 @@ class AutonomousAgentLoop:
         self.max_turns = max_turns
         self.per_run_budget_usd = Decimal(str(per_run_budget_usd))
         self.provider_caller = provider_caller
+        if callable(getattr(provider_caller, "bind_campaign", None)):
+            provider_caller.bind_campaign(campaign_authority.ledger_path, session_id)
         self.provider_is_fixture = provider_is_fixture
         self.allow_development_provider = allow_development_provider
         self.worker_memory_bytes = int(worker_memory_bytes)
@@ -120,7 +122,13 @@ class AutonomousAgentLoop:
         self.pricing = pricing
         self.outbound_script_output_approved = outbound_script_output_approved
         self.state_file = self.workspace_root / "autonomous_loop_state.json"
-        self.raw_df = pd.read_csv(self.dataset_path)
+        from .development_stage import verify_stage
+        stage_receipt = verify_stage(self.dataset_path) if not provider_is_fixture else None
+        input_bytes = self.dataset_path.read_bytes()
+        if stage_receipt and hashlib.sha256(input_bytes).hexdigest() != stage_receipt["csv_sha256"]:
+            raise ValueError("Staged input changed while loading")
+        import io
+        self.raw_df = pd.read_csv(io.BytesIO(input_bytes))
         if target_column not in self.raw_df: raise ValueError(f"Target column {target_column!r} missing")
         if self.raw_df[target_column].isna().any(): raise ValueError("Missing development targets")
         is_panel_task = task_type in ("panel_forecasting", "forecasting")
@@ -180,6 +188,24 @@ class AutonomousAgentLoop:
             for train, valid in self.locked_folds:
                 if set(self.raw_df.iloc[train][group].dropna()) & set(self.raw_df.iloc[valid][group].dropna()):
                     raise ValueError("Pinned folds violate group separation")
+        if is_panel_task:
+            from .panel_contract import validate_panel_fold
+            if len(self.topology.get("panel_protocol", {}).get("origins", [])) != len(self.locked_folds):
+                raise ValueError("Incomplete panel_protocol: exact origin count must match frozen folds")
+            for i, (train, valid) in enumerate(self.locked_folds):
+                validate_panel_fold(self.raw_df, train, valid, self.topology, i, target_column)
+        isolated = self.workspace_root / "inputs"
+        isolated.mkdir(exist_ok=True)
+        if isolated.is_symlink(): raise ValueError("Input staging directory must not be a symlink")
+        copied = isolated / "development.csv"
+        if copied.is_symlink(): raise ValueError("Staged input must not be a symlink")
+        if self.state_file.exists():
+            try: json.loads(self.state_file.read_text())
+            except Exception as exc: raise RecoveryRequired(f"Corrupt checkpoint; preserve and reconcile: {exc}") from exc
+        if copied.exists() and copied.read_bytes() != input_bytes:
+            raise RecoveryRequired("Checkpoint binding mismatch: staged development bytes changed")
+        copied.write_bytes(input_bytes)
+        self.dataset_path = copied
         self.binding = {"project_id": project_id, "session_id": session_id,
             "data_sha256": hashlib.sha256(self.dataset_path.read_bytes()).hexdigest(),
             "folds_sha256": identity(self.locked_folds), "target": target_column, "task": task_type,
@@ -333,6 +359,8 @@ class AutonomousAgentLoop:
             "limitations": ["Tabular model backend; other modalities require explicit handoff", "Generated script metrics cannot self-certify candidate acceptance"]}
 
     def _reservation(self, messages, max_tokens):
+        if callable(getattr(self.provider_caller, "reservation", None)):
+            return self.provider_caller.reservation(messages, max_tokens)
         if self.provider_caller is not None and self.provider_is_fixture and self.pricing is None: return Decimal("0.005")
         if not self.pricing or not self.pricing.get("verified"):
             raise ValueError("Live dispatch requires verified input/output price ceilings; no stale guessed rates")
@@ -347,6 +375,10 @@ class AutonomousAgentLoop:
     def _call_provider(self, messages, max_tokens=2500):
         pending = self.state["pending_turn"]
         request_id = pending["request_id"]
+        if not self.provider_is_fixture:
+            from .rust_gateway import RustGatewayAdapter
+            if not isinstance(self.provider_caller, RustGatewayAdapter):
+                raise ValueError("Live dispatch requires the campaign-bound Rust gateway adapter")
         amount = self._reservation(messages, max_tokens)
         # Upper-bound context and requested output across all turns, including repair calls.
         requested_bound = len(json.dumps(messages).encode()) + 4096 + max_tokens
@@ -371,7 +403,8 @@ class AutonomousAgentLoop:
             if not cost.is_finite() or cost < 0: raise ValueError("Invalid provider cost")
             # Durable response precedes settlement, so an interrupted settlement is reconciled, never resent.
             pending.update(phase="provider_received", provider_receipt=res); self._save_state(self.state)
-            self.campaign_authority.settle(self.session_id, request_id, cost)
+            self.campaign_authority.settle(self.session_id, request_id, cost) if self.provider_is_fixture else self.campaign_authority.settle(
+                self.session_id, request_id, cost, cost_kind="calculated_estimate" if res.get("cost_is_estimate", True) else "unverified")
             pending["phase"] = "provider_settled"; self._save_state(self.state)
             if cost > amount: raise RecoveryRequired("Provider charge exceeded verified reservation; reconcile pricing before continuation")
             self._event("provider_settled", request_id=request_id, cost_usd=str(cost), estimated=res.get("cost_is_estimate", False))
@@ -382,27 +415,7 @@ class AutonomousAgentLoop:
             raise
 
     def _http_provider(self, messages, max_tokens):
-        if not self.allow_development_provider:
-            raise ValueError("Direct development provider transport disabled; production Rust gateway adapter required")
-        import urllib.request
-        key = os.environ.get("OPENROUTER_API_KEY")
-        key_file = REPO_ROOT / ".config" / "openrouter.key"
-        if not key and key_file.is_file(): key = key_file.read_text().strip()
-        if not key: raise ValueError("OPENROUTER_API_KEY unavailable")
-        payload = {"model": self.model_name, "messages": messages, "max_tokens": max_tokens,
-            "temperature": 0.1, "provider": {"only": [self.endpoint], "order": [self.endpoint], "allow_fallbacks": False}}
-        req = urllib.request.Request("https://openrouter.ai/api/v1/chat/completions", data=json.dumps(payload).encode(),
-            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=90) as response: data = json.load(response)
-        usage = data.get("usage", {})
-        billed = usage.get("cost")
-        estimated = billed is None
-        if estimated:
-            if not {"prompt_tokens", "completion_tokens"} <= usage.keys(): raise ValueError("Provider usage missing; charge uncertain")
-            billed = (Decimal(str(usage["prompt_tokens"])) * Decimal(str(self.pricing["input_per_million"])) +
-                Decimal(str(usage["completion_tokens"])) * Decimal(str(self.pricing["output_per_million"]))) / Decimal(1000000)
-        return {"content": data["choices"][0]["message"].get("content", ""), "usage": usage,
-            "cost_usd": str(billed), "cost_is_estimate": estimated, "provider_response_id": data.get("id")}
+        raise ValueError("Direct transport disabled; bind the shared campaign authority to RustGatewayAdapter")
 
     def _messages(self, turn, dossier):
         history = [{"turn": t["turn_index"], "proposed_action": t["proposed_action"].get("action_type"),
@@ -436,10 +449,15 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
                 if result:
                     receipt["measurements"] = copy.deepcopy(receipt["measurements"])
                     result = receipt["measurements"]["python_result"]
+                    local_stderr = result.get("stderr", "")
                     error_classes = re.findall(r"\b[A-Za-z]+(?:Error|Exception)\b", result.get("stderr", ""))
                     result["stdout"] = "[local output withheld pending outbound approval]"
                     result["stderr"] = ", ".join(sorted(set(error_classes))) or "[local stderr withheld]"
                     result["error"] = result.get("status")
+                    # Bounded structured locations help repair without uploading data-bearing exception text.
+                    locations = re.findall(r'File "[^"\n]*[\/]([A-Za-z0-9_.-]+\.py)", line ([0-9]{1,7})', local_stderr)
+                    result["repair_locations"] = [{"script": name, "line": int(line)} for name, line in locations[-8:]
+                                                if name in self.state["script_registry"]]
         user = {
             "instruction": "Review task context, diagnostic dossier, and turn history. Choose your next action and return strictly a single valid JSON object with keys: thought_rationale, action_type, parameters.",
             "task_context": {"problem_statement": self.problem_statement, "target": self.target_column,
@@ -611,7 +629,10 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
             # Dedicated mount contains only development CSV, never repo keys or full source data.
             data = self.workspace_root / "script_data"; data.mkdir(exist_ok=True)
             if data.is_symlink() or data.resolve().parent != self.workspace_root: raise ValueError("Development mount must be confined to workspace")
-            (data / "development.csv").write_bytes(self.dataset_path.read_bytes())
+            script_bytes = self.dataset_path.read_bytes()
+            if hashlib.sha256(script_bytes).hexdigest() != self.binding["data_sha256"]:
+                raise ValueError("Development data changed since checkpoint binding")
+            (data / "development.csv").write_bytes(script_bytes)
             result = run_python_script(path, self.workspace_root / "scripts", data_root=data, sandbox_image=self.sandbox_image)
             if hasattr(result, "to_dict"): result = result.to_dict()
             return {"python_result": result, "advisory_only": True}, {}

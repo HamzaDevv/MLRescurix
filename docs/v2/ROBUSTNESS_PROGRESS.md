@@ -1,9 +1,23 @@
 # MLRescurix robustness: persistent session ledger
 
-Updated: 2026-10-22 (Asia/Kolkata).
+Updated: 2026-10-23 (Asia/Kolkata).
 Authoritative plan: [ROBUSTNESS_MASTER_PLAN.md](ROBUSTNESS_MASTER_PLAN.md).
 Manifest: [BENCHMARK_SUITE.json](BENCHMARK_SUITE.json).
 Continuation: [SESSION_PROMPT.md](SESSION_PROMPT.md).
+
+## Latest prerequisite repair session — 2026-10-23
+
+[Prerequisite repair record](PREREQUISITE_REPAIRS_20261023.md) and [architecture handoff](FINAL_REFACTOR_HANDOFF.md) supersede older implementation status below without rewriting historical evidence.
+
+Implemented: hash-bound development staging and dedicated worker inputs; strict complete panel contracts and reproducible source-bound K5 entity/observation calendars; idempotent durable campaign ledger transitions with uncertain estimate residuals; campaign reservation enforcement and request/scope/store binding at Rust dispatch; disabled direct Python provider bypasses; inspectable independent operator approval; historical accounting audit; legacy child cleanup/environment isolation; honest partial measurements and bounded script diagnosis locations.
+
+Verified: official K1/K2/K3 staging and source-bound K5 protocol reproduction; offline duplicate/crash/contract regressions; Linux Docker allocation/OOM/recovery fixtures with a cached digest-pinned image. Exact final Python/Rust/build results and retained earlier failures are in `docs/evidence/v2/autonomy/20261023-prerequisite-repairs/summary.json`. None is a five-task repaired-revision live pass or production certification.
+
+Blocked: independent K1/K2 absolute quality requirements (thresholds remain null); authoritative K4 gap/index-space/training-bound/subset provenance; verified provider-charge receipts; future explicit upload authorization and current route availability/pricing; full campaign production scheduling/resource/fault/soak and clean-room delivery evidence; cached image missing `jsonschema` for the bounded-tmpfs publication check. K1 contamination remains permanent historical evidence. Architecture consolidation is the **next session**, not work completed here.
+
+Final checks: `python3 -m pytest python/tests -q` **308 passed, 1 skipped, 10 warnings, 202.10s**. After full-suite collection, the final canonical-ledger binding guard and affected gateway/prerequisite tests passed **29/29**. Rust `cargo test --locked --test agent_m4 --test reflexive_loop_gate --lib`: **63 passed, 2 ignored**; the two ignored Linux Docker cgroup tests were separately run and **2/2 passed**. `cargo build --locked -p mlrescurix-harness`, Python compilation, staged whitespace and credential/runtime-artifact scans passed. The Python bounded-tmpfs check remains skipped on host; a separate container attempt was blocked by missing `jsonschema`, not counted as a test pass. Earlier failures and their corrections are retained in the evidence directory.
+
+The existing ledger is unchanged: **USD 0.050724020 committed**, **USD 0.249275980 recorded remaining**, **USD 0.30 total ceiling**. All 29 run amounts reconcile to that total; 20 runs have matching turn/response accounting, not verified invoices. This session spends **USD 0**, makes **zero paid calls**, and performs **zero final scoring**. Copied data, model files and runtime databases remain outside Git.
 
 ## Current position
 
@@ -107,7 +121,7 @@ After completing repairs across RB-001, RB-002, RB-003, RB-004, RB-013, RB-014, 
 - Total campaign ceiling: **USD 0.30**, across all tasks, sessions, retries and repairs.
 - Per-main-live-run ceiling: USD 0.05; five tasks reserve USD 0.25 plus USD 0.05 contingency.
 - Endpoint: OpenRouter `deepseek/deepseek-v4.1-flash-1017`, only `inference-net/fp8`, no fallback.
-- Cumulative billed: **USD 0.050724020** across all runs, sessions, and live agent turns.
+- Cumulative recorded committed: **USD 0.050724020** across all runs, sessions, and live agent turns; actual provider billing remains unverified.
 - Cumulative reserved: **USD 0.00**.
 - Cumulative uncertain: **USD 0.00**.
 - Remaining campaign funds: **USD 0.249275980** (83.09% of campaign budget remaining).

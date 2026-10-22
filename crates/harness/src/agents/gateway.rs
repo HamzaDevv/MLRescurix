@@ -262,7 +262,13 @@ impl OutboundFilter {
 }
 
 pub trait ProviderGateway: Send + Sync {
+    fn is_offline_fixture(&self) -> bool { false }
     fn requires_policy_approval(&self)->bool {false}
+    fn campaign_budget_context(&self) -> Result<(std::path::PathBuf, String)> {
+        Ok((std::env::var("MLRESCURIX_CAMPAIGN_LEDGER").map(std::path::PathBuf::from)
+            .map_err(|_| "shared campaign ledger required for paid transport")?,
+            std::env::var("MLRESCURIX_CAMPAIGN_RUN").map_err(|_| "campaign run identity required")?))
+    }
     fn chat_completion(&self, request: &ChatCompletionRequest) -> Result<ChatCompletionResponse>;
 }
 
@@ -285,6 +291,7 @@ impl ScriptedProviderFixture {
 }
 
 impl ProviderGateway for ScriptedProviderFixture {
+    fn is_offline_fixture(&self) -> bool { true }
     fn chat_completion(&self, _request: &ChatCompletionRequest) -> Result<ChatCompletionResponse> {
         let mut guard = self.responses.lock().unwrap();
         if guard.is_empty() {
@@ -475,6 +482,19 @@ pub fn resolve_model_pricing(root: &Path, model: &str) -> Result<Option<(i64, i6
     Ok(None)
 }
 
+/// Local operator inspection; never sent to a provider by this function.
+pub fn inspect_outbound_view(root: &Path, project: &str, digest: &str) -> Result<Value> {
+    crate::execution::migrate(root)?;
+    let db = rusqlite::Connection::open(root.join("state.sqlite")).map_err(|e| e.to_string())?;
+    let (raw, actor, approved, expires): (String, String, bool, i64) = db.query_row(
+        "SELECT view_json,actor,approved,expires_ms FROM outbound_views WHERE project=?1 AND request_sha256=?2",
+        rusqlite::params![project, digest], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).map_err(|e| e.to_string())?;
+    use sha2::{Digest, Sha256};
+    if format!("{:x}", Sha256::digest(raw.as_bytes())) != digest { return Err("outbound view digest mismatch".into()); }
+    Ok(serde_json::json!({"project":project,"request_sha256":digest,"view":serde_json::from_str::<Value>(&raw).map_err(|e|e.to_string())?,
+        "actor":actor,"approved":approved,"expires_ms":expires}))
+}
+
 pub fn approve_outbound_view(
     root: &Path,
     project_id: &str,
@@ -483,6 +503,9 @@ pub fn approve_outbound_view(
     approved: bool,
     ttl_ms: i64,
 ) -> Result<Value> {
+    if approved && matches!(actor, "controller" | "scientific-controller" | "scientific-agent") {
+        return Err("controller actors cannot authorize their own outbound upload; independent operator approval required".into());
+    }
     if actor.is_empty() || request_sha256.len() != 64 || !request_sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err("invalid outbound view approval parameters".into());
     }
@@ -715,6 +738,55 @@ pub fn dispatch_gateway(
 
 /// Dispatch with caller-owned idempotency identity. A caller must reuse the same
 /// ID when recovering an interrupted turn and choose a new ID for every new turn.
+fn campaign_nanodollars(value: &str) -> Result<u64> {
+    let (whole, fraction) = value.split_once('.').unwrap_or((value, ""));
+    if whole.is_empty() || !whole.bytes().all(|b| b.is_ascii_digit()) || fraction.len() > 9 || !fraction.bytes().all(|b| b.is_ascii_digit()) {
+        return Err("invalid campaign dollar precision".into());
+    }
+    let whole: u64 = whole.parse().map_err(|_| "invalid campaign dollars")?;
+    let fraction: u64 = format!("{fraction:0<9}").parse().map_err(|_| "invalid campaign fraction")?;
+    whole.checked_mul(1_000_000_000).and_then(|w| w.checked_add(fraction)).ok_or("campaign amount overflow".into())
+}
+
+/// The JSON campaign ledger is the sole dollar authority. Hold its POSIX lock
+/// through receipt fencing and transport; settlement is idempotent in its owner.
+/// A crash leaves the reservation committed, never a free retry allowance.
+fn campaign_dispatch_guard_at(path: &Path, run: &str, request_id: &str, digest: &str, root: &Path, required_nanodollars: u64, scope: &str) -> Result<std::fs::File> {
+    use std::io::Write;
+    use std::os::fd::AsRawFd;
+    let lock = std::fs::OpenOptions::new().create(true).append(true).open(path.with_extension("lock")).map_err(|e| e.to_string())?;
+    // SAFETY: flock operates on this owned descriptor; closing releases the lock.
+    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) } != 0 {
+        return Err("cannot lock campaign ledger".into());
+    }
+    let mut data: Value = serde_json::from_slice(&std::fs::read(&path).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    let amount = |v: &Value| -> Result<u64> { campaign_nanodollars(v.as_str().ok_or("campaign dollar amount must be a decimal string")?) };
+    let committed = amount(&data["total_billed_usd"])?
+        .checked_add(amount(&data["total_reserved_usd"])?).and_then(|v| v.checked_add(amount(&data["total_uncertain_usd"]).ok()?)).ok_or("campaign totals overflow")?;
+    let ceiling = amount(&data["campaign_ceiling_usd"])?;
+    if ceiling > 300_000_000 || committed > ceiling { return Err("campaign ceiling violated".into()); }
+    let reservation = &mut data["active_reservations"][request_id];
+    if reservation["run_id"].as_str() != Some(run) || amount(&reservation["amount_usd"])? < required_nanodollars {
+        return Err("matching active campaign reservation required".into());
+    }
+    let root_identity = root.canonicalize().map_err(|e| e.to_string())?.to_string_lossy().to_string();
+    if let Some(old) = reservation["gateway_digest"].as_str() {
+        if old != digest || reservation["gateway_state_root"].as_str() != Some(root_identity.as_str()) || reservation["gateway_scope"].as_str() != Some(scope) {
+            return Err("campaign request already bound to different content or receipt store".into());
+        }
+    }
+    reservation["gateway_scope"] = Value::String(scope.into());
+    reservation["gateway_digest"] = Value::String(digest.into());
+    reservation["gateway_state_root"] = Value::String(root_identity);
+    let tmp = path.with_extension(format!("gateway-tmp-{}", std::process::id()));
+    let mut file = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
+    file.write_all(&serde_json::to_vec_pretty(&data).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    file.sync_all().map_err(|e| e.to_string())?;
+    std::fs::rename(tmp, &path).map_err(|e| e.to_string())?;
+    std::fs::File::open(path.parent().ok_or("ledger parent missing")?).and_then(|f| f.sync_all()).map_err(|e| e.to_string())?;
+    Ok(lock)
+}
+
 pub fn dispatch_gateway_with_id(
     root: &Path,
     project_id: &str,
@@ -757,6 +829,18 @@ pub fn dispatch_gateway_with_id(
         }
     }
 
+    let _campaign_lock = if !gateway.is_offline_fixture() {
+        let provider = sanitized.provider.as_ref().ok_or("explicit campaign provider route required")?;
+        if sanitized.model != "deepseek/deepseek-v4.1-flash-1017" || provider["only"] != serde_json::json!(["inference-net/fp8"])
+            || provider["order"] != serde_json::json!(["inference-net/fp8"]) || provider["allow_fallbacks"] != false {
+            return Err("campaign requires the authorized model and inference-net/fp8 route without fallback".into());
+        }
+        let input_bound = u32::try_from(serde_json::to_vec(&sanitized.messages).map_err(|e| e.to_string())?.len() + 4096).map_err(|_| "request too large")?;
+        let maximum = TokenUsage { prompt_tokens: input_bound, completion_tokens: sanitized.max_tokens.ok_or("explicit max_tokens required")?, total_tokens: 0 };
+        let required = u64::try_from(cost_from_pricing(&maximum, rates)?).map_err(|_| "negative pricing")?.checked_mul(10_000).ok_or("reservation overflow")?;
+        let (ledger, run) = gateway.campaign_budget_context()?;
+        Some(campaign_dispatch_guard_at(&ledger, &run, request_id, &digest, root, required.max(1), &format!("{project_id}\0{task_id}"))?)
+    } else { None }; // Scripted offline fixtures have no provider charges.
     let cached_response = reserve_gateway_receipt(root, project_id, task_id, request_id, &digest)?;
     let replayed = cached_response.is_some();
     let resp = match cached_response {
@@ -812,4 +896,39 @@ pub fn dispatch_gateway_with_id(
         "replayed": replayed,
         "cost_is_estimate": true
     }))
+}
+
+#[cfg(test)]
+mod campaign_admission_tests {
+    use super::*;
+    #[test]
+    fn exact_dollar_precision() {
+        assert_eq!(campaign_nanodollars("0.050724020").unwrap(), 50_724_020);
+        for invalid in ["NaN", "-1", "0.0000000001", "1e2", "18446744073709551615"] {
+            assert!(campaign_nanodollars(invalid).is_err());
+        }
+    }
+    #[test]
+    fn reservation_binding_survives_reopen_and_rejects_cross_scope_replay() {
+        let dir = tempfile::tempdir().unwrap();
+        let ledger = dir.path().join("campaign_budget_ledger.json");
+        std::fs::write(&ledger, serde_json::json!({
+            "campaign_ceiling_usd":"0.30", "total_billed_usd":"0.050724020",
+            "total_reserved_usd":"0.01", "total_uncertain_usd":"0.00",
+            "active_reservations":{"r":{"run_id":"run", "amount_usd":"0.01"}}
+        }).to_string()).unwrap();
+        let acquire = |run: &str, id: &str, digest: &str, scope: &str, cost| campaign_dispatch_guard_at(
+            &ledger, run, id, digest, dir.path(), cost, scope);
+        assert!(acquire("other", "r", "hash", "p/t", 1).is_err());
+        assert!(acquire("run", "missing", "hash", "p/t", 1).is_err());
+        assert!(acquire("run", "r", "hash", "p/t", 10_000_001).is_err());
+        drop(acquire("run", "r", "hash", "p/t", 10_000_000).unwrap());
+        // Crash before/after receipt creation still retains the full reservation.
+        drop(acquire("run", "r", "hash", "p/t", 1).unwrap());
+        assert!(acquire("run", "r", "changed", "p/t", 1).is_err());
+        assert!(acquire("run", "r", "hash", "p/other", 1).is_err());
+        let stored: Value = serde_json::from_slice(&std::fs::read(ledger).unwrap()).unwrap();
+        assert_eq!(stored["total_billed_usd"], "0.050724020");
+        assert_eq!(stored["total_reserved_usd"], "0.01");
+    }
 }

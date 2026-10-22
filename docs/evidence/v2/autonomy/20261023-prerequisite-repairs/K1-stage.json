@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "scope": "development_only",
+  "source_sha256": "7d118fef8b6ccf7f81111877bc388536f7b1e498a655e3d649d19aaa010e9f6f",
+  "split_sha256": "8a6240ef8c3fee27df50211378b680b8d77daafdd8fbd5c3bea49dd91e8637b6",
+  "csv_sha256": "3d9f961cd28957ec72faa6eb82fc5b71792ba30c8f66a11035c3cf882edf98fb",
+  "selection_sha256": "a387abbddbbd22a229935fa2f94727280dd739f5ff79a05e13f2bbd3056716ff",
+  "rows": 713,
+  "trusted_import_reads_source_bytes": true,
+  "worker_final_rows": 0,
+  "task_id": "K1",
+  "history": "K1 final contamination is preserved; staging does not restore a clean final set"
+}

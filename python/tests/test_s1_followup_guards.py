@@ -113,20 +113,20 @@ def test_campaign_budget_authority_exhaustion_before_http(tmp_path):
         authority.reserve("run_01", "req_02", 0.03)
 
     # 3. Settle req_01 with actual cost
-    authority.settle("run_01", "req_01", 0.02)
+    authority.settle("run_01", "req_01", 0.02, cost_kind="provider_verified")
     status = authority.get_status()
     assert status["total_billed_usd"] == "0.02"
     assert status["total_reserved_usd"] == "0.00"
 
     # 4. Fill campaign budget across multiple runs up to 0.30
     authority.reserve("run_02", "req_03", 0.05)
-    authority.settle("run_02", "req_03", 0.05)
+    authority.settle("run_02", "req_03", 0.05, cost_kind="provider_verified")
     authority.reserve("run_03", "req_04", 0.05)
-    authority.settle("run_03", "req_04", 0.05)
+    authority.settle("run_03", "req_04", 0.05, cost_kind="provider_verified")
     authority.reserve("run_04", "req_05", 0.05)
-    authority.settle("run_04", "req_05", 0.05)
+    authority.settle("run_04", "req_05", 0.05, cost_kind="provider_verified")
     authority.reserve("run_05", "req_06", 0.05)
-    authority.settle("run_05", "req_06", 0.05)
+    authority.settle("run_05", "req_06", 0.05, cost_kind="provider_verified")
     # Total billed so far: 0.02 + 0.05*4 = 0.22. Remaining = 0.08
 
     # 5. Mark uncertain retains spend against campaign ceiling

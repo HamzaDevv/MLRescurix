@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "scope": "development_only",
+  "source_sha256": "1e18addf81e5e4d347cc17ee6075bbe4a42b7fa26b9e5b063e8f692a5f929d41",
+  "split_sha256": "93a726c923b451d81caad118e6cd81a9bbb1802310bb4a2d45fbe4778fa21d42",
+  "csv_sha256": "2c46437d169e43ceb2c597b26bcf9d2aa1a67acb952f6a5c05c1929ff17006af",
+  "selection_sha256": "95787e2dec8767eea5eb972e2e5d317c24a2295b599329307f15131b7cc2c9d7",
+  "rows": 1168,
+  "trusted_import_reads_source_bytes": true,
+  "worker_final_rows": 0,
+  "task_id": "K2",
+  "history": null
+}

@@ -228,8 +228,10 @@
         "split_manifest_sha256": "8a6240ef8c3fee27df50211378b680b8d77daafdd8fbd5c3bea49dd91e8637b6"
       },
       "final_quality_criteria": {
-        "status": "must_be_locked_before_adaptive_search",
-        "threshold": null
+        "status": "inconclusive_no_independent_acceptance_requirement",
+        "threshold": null,
+        "justification": "The master plan defines metric/direction and baseline non-inferiority, but no independently fixed absolute quality requirement. Historical observed scores and ad hoc thresholds cannot establish one. Threshold remains null; product owner must freeze an independent requirement before further adaptive search.",
+        "evidence": "docs/v2/PREREQUISITE_REPAIRS_20261023.md"
       },
       "live_result": "exploratory_runs_invalid_holdout_reused_after_leakage_discovery",
       "scale_profiles": [
@@ -289,8 +291,10 @@
         "split_manifest_sha256": "93a726c923b451d81caad118e6cd81a9bbb1802310bb4a2d45fbe4778fa21d42"
       },
       "final_quality_criteria": {
-        "status": "must_be_locked_before_adaptive_search",
-        "threshold": null
+        "status": "inconclusive_no_independent_acceptance_requirement",
+        "threshold": null,
+        "justification": "The master plan defines metric/direction and baseline non-inferiority, but no independently fixed absolute quality requirement. Historical observed scores and ad hoc thresholds cannot establish one. Threshold remains null; product owner must freeze an independent requirement before further adaptive search.",
+        "evidence": "docs/v2/PREREQUISITE_REPAIRS_20261023.md"
       },
       "live_result": {
         "run_id": "run_20261021_183624",
@@ -445,7 +449,17 @@
         "join_coverage",
         "selection_method",
         "sha256"
-      ]
+      ],
+      "execution_contract": {
+        "status": "blocked_missing_authoritative_provenance",
+        "missing": [
+          "development_folds_index_space",
+          "locked prediction-context gap and units",
+          "authoritative train time bounds for each origin",
+          "frozen subset-to-origin mapping retaining every train/validation row"
+        ],
+        "note": "Do not change the frozen split hash or infer a gap from observed timestamps."
+      }
     },
     {
       "id": "K5",
@@ -528,7 +542,13 @@
         "join_coverage",
         "selection_method",
         "sha256"
-      ]
+      ],
+      "execution_contract": {
+        "status": "locked_source_bound_panel_protocol",
+        "protocol_path": "docs/v2/K5_PANEL_PROTOCOL.json",
+        "protocol_sha256": "b6606cfed014f1de93634077e2d5d7ad8034e788429fc7529a0b251ac089158d",
+        "note": "Full frozen observation history; deterministic Gregorian calendar predictors only; reject missing/unseen entities. This is a protocol commitment, not model quality or resource certification."
+      }
     }
   ]
 }

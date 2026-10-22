@@ -41,6 +41,7 @@ enum Command {
     StoragePolicySummary { #[arg(long)] state:PathBuf },
     RegisterModelPricing { #[arg(long)] state:PathBuf, #[arg(long)] model:String, #[arg(long)] prompt_millicents_per_1k:i64, #[arg(long)] completion_millicents_per_1k:i64 },
     StageOutboundView { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] request:PathBuf, #[arg(long,default_value="local-human")] actor:String },
+    InspectOutboundView { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] request_sha256:String },
     ApproveOutboundView { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] request_sha256:String, #[arg(long,default_value="local-human")] actor:String, #[arg(long,default_value_t=true,action=clap::ArgAction::Set)] approved:bool, #[arg(long,default_value_t=3600000)] ttl_ms:i64 },
     GatewayDispatch { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] task:String, #[arg(long)] role:String, #[arg(long)] request_id:String, #[arg(long)] request:PathBuf, #[arg(long)] endpoint:Option<String>, #[arg(long)] api_key:Option<String>, #[arg(long)] mock:Option<PathBuf>, #[arg(long,default_value_t=false,action=clap::ArgAction::Set)] require_policy_approval:bool },
     AgentRun { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] role:String, #[arg(long)] task:String, #[arg(long)] branch:String, #[arg(long,default_value="default-model")] model:String, #[arg(long,default_value_t=10)] max_turns:u32, #[arg(long)] endpoint:Option<String>, #[arg(long)] api_key:Option<String>, #[arg(long)] mock:Option<PathBuf> },
@@ -216,6 +217,9 @@ async fn run()->Result<(),String>{
             let req: mlrescurix_harness::agents::ChatCompletionRequest = serde_json::from_slice(&req_bytes)
                 .map_err(|e| format!("invalid request JSON: {e}"))?;
             print(mlrescurix_harness::agents::stage_outbound_request(&state, &project, &req, &actor)?)
+        },
+        Command::InspectOutboundView { state, project, request_sha256 } => {
+            print(mlrescurix_harness::agents::gateway::inspect_outbound_view(&state, &project, &request_sha256)?)
         },
         Command::ApproveOutboundView { state, project, request_sha256, actor, approved, ttl_ms } => {
             execution::migrate(&state)?;

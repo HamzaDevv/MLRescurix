@@ -1,0 +1,603 @@
+{
+  "ledger_sha256": "827abd984dd960f91cd39725d7dcbdb78d47c114322a0358cbbb08a5b30d0b52",
+  "recorded_committed_usd": "0.050724020",
+  "legacy_recorded_billed_usd": "0.050724020",
+  "reserved_usd": "0.00",
+  "uncertain_usd": "0.00",
+  "sum_runs_matches_ledger": true,
+  "remaining_recorded_usd": "0.249275980",
+  "verified_provider_charge_usd": null,
+  "additional_spend_usd": "0",
+  "status": "provider_reconciliation_blocked_no_invoice_or_provider_charge_receipts",
+  "note": "False historical cost_is_estimate flags do not verify a provider charge. All committed funds remain committed.",
+  "runs": [
+    {
+      "run_id": "run_20261021_172942",
+      "committed_recorded_usd": "0.00061408",
+      "receipt_sum_usd": null,
+      "receipt_sum_matches_ledger": null,
+      "receipts": [],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261021_173653",
+      "committed_recorded_usd": "0.00092344",
+      "receipt_sum_usd": null,
+      "receipt_sum_matches_ledger": null,
+      "receipts": [],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261021_183624",
+      "committed_recorded_usd": "0.00070202",
+      "receipt_sum_usd": null,
+      "receipt_sum_matches_ledger": null,
+      "receipts": [],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261021_191128",
+      "committed_recorded_usd": "0.00078304",
+      "receipt_sum_usd": null,
+      "receipt_sum_matches_ledger": null,
+      "receipts": [],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261021_191510",
+      "committed_recorded_usd": "0.00064742",
+      "receipt_sum_usd": null,
+      "receipt_sum_matches_ledger": null,
+      "receipts": [],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261021_193634",
+      "committed_recorded_usd": "0.00111500",
+      "receipt_sum_usd": null,
+      "receipt_sum_matches_ledger": null,
+      "receipts": [],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261021_200123",
+      "committed_recorded_usd": "0.00087326",
+      "receipt_sum_usd": null,
+      "receipt_sum_matches_ledger": null,
+      "receipts": [],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261021_200725",
+      "committed_recorded_usd": "0.00099526",
+      "receipt_sum_usd": null,
+      "receipt_sum_matches_ledger": null,
+      "receipts": [],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261021_202038",
+      "committed_recorded_usd": "0.00105858",
+      "receipt_sum_usd": null,
+      "receipt_sum_matches_ledger": null,
+      "receipts": [],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261021_231155",
+      "committed_recorded_usd": "0.00252704",
+      "receipt_sum_usd": "0.00252704",
+      "receipt_sum_matches_ledger": true,
+      "receipts": [
+        {
+          "response_id": null,
+          "recorded_usd": "0.00083792",
+          "basis": "unverified_turn_accounting",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": null,
+          "recorded_usd": "0.0008424",
+          "basis": "unverified_turn_accounting",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": null,
+          "recorded_usd": "0.00084672",
+          "basis": "unverified_turn_accounting",
+          "verified_provider_charge_usd": null
+        }
+      ],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261021_231504",
+      "committed_recorded_usd": "0.001232948",
+      "receipt_sum_usd": "0.001232948",
+      "receipt_sum_matches_ledger": true,
+      "receipts": [
+        {
+          "response_id": null,
+          "recorded_usd": "0.00049566",
+          "basis": "unverified_turn_accounting",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": null,
+          "recorded_usd": "0.000342608",
+          "basis": "unverified_turn_accounting",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": null,
+          "recorded_usd": "0.00039468",
+          "basis": "unverified_turn_accounting",
+          "verified_provider_charge_usd": null
+        }
+      ],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261021_231630",
+      "committed_recorded_usd": "0.000688544",
+      "receipt_sum_usd": "0.000688544",
+      "receipt_sum_matches_ledger": true,
+      "receipts": [
+        {
+          "response_id": null,
+          "recorded_usd": "0.000335192",
+          "basis": "unverified_turn_accounting",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": null,
+          "recorded_usd": "0.000194356",
+          "basis": "unverified_turn_accounting",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": null,
+          "recorded_usd": "0.000158996",
+          "basis": "unverified_turn_accounting",
+          "verified_provider_charge_usd": null
+        }
+      ],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261021_232806",
+      "committed_recorded_usd": "0.001370828",
+      "receipt_sum_usd": "0.001370828",
+      "receipt_sum_matches_ledger": true,
+      "receipts": [
+        {
+          "response_id": null,
+          "recorded_usd": "0.00028076",
+          "basis": "unverified_turn_accounting",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": null,
+          "recorded_usd": "0.00059714",
+          "basis": "unverified_turn_accounting",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": null,
+          "recorded_usd": "0.000492928",
+          "basis": "unverified_turn_accounting",
+          "verified_provider_charge_usd": null
+        }
+      ],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261021_232923",
+      "committed_recorded_usd": "0.00107256",
+      "receipt_sum_usd": "0.00107256",
+      "receipt_sum_matches_ledger": true,
+      "receipts": [
+        {
+          "response_id": null,
+          "recorded_usd": "0.00023586",
+          "basis": "unverified_turn_accounting",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": null,
+          "recorded_usd": "0.00034424",
+          "basis": "unverified_turn_accounting",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": null,
+          "recorded_usd": "0.00049246",
+          "basis": "unverified_turn_accounting",
+          "verified_provider_charge_usd": null
+        }
+      ],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261022_220628",
+      "committed_recorded_usd": "0.00437",
+      "receipt_sum_usd": "0.00437",
+      "receipt_sum_matches_ledger": true,
+      "receipts": [
+        {
+          "response_id": "gen-1792686990-QjUQ00lJTdQTzjNXiiM5",
+          "recorded_usd": "0.00181",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": "gen-1792687031-4EdZBMEsarQZfBC0HnH5",
+          "recorded_usd": "0.00184",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": "gen-1792687068-8fO6MgxVgBzr5SDsysoj",
+          "recorded_usd": "0.00072",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        }
+      ],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261022_221143",
+      "committed_recorded_usd": "0.00311",
+      "receipt_sum_usd": "0.00311",
+      "receipt_sum_matches_ledger": true,
+      "receipts": [
+        {
+          "response_id": "gen-1792687306-gc7T7wOgJKB7eRk4wMU7",
+          "recorded_usd": "0.00182",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": "gen-1792687351-I7rpVvR7EiqvHVpjReDP",
+          "recorded_usd": "0.00074",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": "gen-1792687367-j1Gg7zffWhMYCbtH2YKK",
+          "recorded_usd": "0.00055",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        }
+      ],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261022_221457",
+      "committed_recorded_usd": "0.00400",
+      "receipt_sum_usd": "0.00400",
+      "receipt_sum_matches_ledger": true,
+      "receipts": [
+        {
+          "response_id": "gen-1792687500-urh1bKhP6yXiD9dmAnQf",
+          "recorded_usd": "0.00182",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": "gen-1792687543-cXzZOWZSc6G7Afh4wfyt",
+          "recorded_usd": "0.00151",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": "gen-1792687571-WjILQLrdS0teAgct0pEN",
+          "recorded_usd": "0.00067",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        }
+      ],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261022_221943",
+      "committed_recorded_usd": "0.00209",
+      "receipt_sum_usd": "0.00209",
+      "receipt_sum_matches_ledger": true,
+      "receipts": [
+        {
+          "response_id": "gen-1792687785-4jKmlRVMcjAuG9qyDwyA",
+          "recorded_usd": "0.00082",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": "gen-1792687801-1D9TZAj7CahDBYl7uIwf",
+          "recorded_usd": "0.00045",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": "gen-1792687813-UYbZEHYF7ld45ZazQrG3",
+          "recorded_usd": "0.00082",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        }
+      ],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261022_222344",
+      "committed_recorded_usd": "0.00207",
+      "receipt_sum_usd": "0.00207",
+      "receipt_sum_matches_ledger": true,
+      "receipts": [
+        {
+          "response_id": "gen-1792688028-gxOL84tZRccym5YUiHFM",
+          "recorded_usd": "0.00082",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": "gen-1792688045-ilLu2pP2Mp881t59OQEh",
+          "recorded_usd": "0.0003",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": "gen-1792688054-BjAgicEa9ubLVElaFmmR",
+          "recorded_usd": "0.00095",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        }
+      ],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261022_222612",
+      "committed_recorded_usd": "0.00229",
+      "receipt_sum_usd": "0.00229",
+      "receipt_sum_matches_ledger": true,
+      "receipts": [
+        {
+          "response_id": "gen-1792688175-VMzXGuRVMghoZhtuFdbK",
+          "recorded_usd": "0.00082",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": "gen-1792688191-WB50q6wRy3bSUNLPy2Nb",
+          "recorded_usd": "0.00059",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": "gen-1792688200-zJLXS22VHIrWk5YOOkER",
+          "recorded_usd": "0.00088",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        }
+      ],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261022_222846",
+      "committed_recorded_usd": "0.00351",
+      "receipt_sum_usd": "0.00351",
+      "receipt_sum_matches_ledger": true,
+      "receipts": [
+        {
+          "response_id": "gen-1792688330-HZWbyesnFT6XmPu2G9LK",
+          "recorded_usd": "0.00132",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": "gen-1792688356-o1W793dgHL4mWOJyoO3U",
+          "recorded_usd": "0.00053",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": "gen-1792688369-xhV6HTldE4INNbXYw56y",
+          "recorded_usd": "0.00166",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        }
+      ],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261022_224238",
+      "committed_recorded_usd": "0.00360",
+      "receipt_sum_usd": "0.00360",
+      "receipt_sum_matches_ledger": true,
+      "receipts": [
+        {
+          "response_id": "gen-1792689161-rIpmLPy80PFHDsmT18rs",
+          "recorded_usd": "0.00132",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": "gen-1792689193-CBJK0ExmriEa57cc4n5R",
+          "recorded_usd": "0.00135",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": "gen-1792689221-Rc6GNH4ly3ZRI3myNwS2",
+          "recorded_usd": "0.00093",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        }
+      ],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261022_225223",
+      "committed_recorded_usd": "0.00155",
+      "receipt_sum_usd": "0.00155",
+      "receipt_sum_matches_ledger": true,
+      "receipts": [
+        {
+          "response_id": "gen-1792689745-lmHKE6czP0vQS883ZCLI",
+          "recorded_usd": "0.0002",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": "gen-1792689755-aKxluR9mQpYomegXNPiF",
+          "recorded_usd": "0.00071",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": "gen-1792689763-6WcUT02ShHtWGz5XFyou",
+          "recorded_usd": "0.00064",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        }
+      ],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261022_225536",
+      "committed_recorded_usd": "0.00106",
+      "receipt_sum_usd": "0.00106",
+      "receipt_sum_matches_ledger": true,
+      "receipts": [
+        {
+          "response_id": "gen-1792689939-oWrMrGZjWyWVXGL0UsuH",
+          "recorded_usd": "0.00039",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": "gen-1792689951-xwzX65lR5PrbrvS0kKgW",
+          "recorded_usd": "0.00067",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        }
+      ],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261022_225637",
+      "committed_recorded_usd": "0.00102",
+      "receipt_sum_usd": "0.00102",
+      "receipt_sum_matches_ledger": true,
+      "receipts": [
+        {
+          "response_id": "gen-1792690000-FsgKVVnOxM8TLRlhAVyv",
+          "recorded_usd": "0.00034",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": "gen-1792690028-uVI9PRlwq980KV2VN4ov",
+          "recorded_usd": "0.00068",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        }
+      ],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261022_230312",
+      "committed_recorded_usd": "0.00191",
+      "receipt_sum_usd": "0.00191",
+      "receipt_sum_matches_ledger": true,
+      "receipts": [
+        {
+          "response_id": "gen-1792690401-CnH5TNZIz6GFOU81WIcb",
+          "recorded_usd": "0.00043",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": "gen-1792690415-h7kfGbbh9CeFsooBiJAH",
+          "recorded_usd": "0.00068",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": "gen-1792690431-87juTCKMl1kd8mZijdVW",
+          "recorded_usd": "0.0008",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        }
+      ],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261022_230458",
+      "committed_recorded_usd": "0.00202",
+      "receipt_sum_usd": "0.00202",
+      "receipt_sum_matches_ledger": true,
+      "receipts": [
+        {
+          "response_id": "gen-1792690507-SPQUvNhOrvoVaQoOguAI",
+          "recorded_usd": "0.00044",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": "gen-1792690599-7nLqLWMIyTZF4DuEfxRq",
+          "recorded_usd": "0.00158",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        }
+      ],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261022_231013",
+      "committed_recorded_usd": "0.00141",
+      "receipt_sum_usd": "0.00141",
+      "receipt_sum_matches_ledger": true,
+      "receipts": [
+        {
+          "response_id": "gen-1792690822-FBkUcJblumbfRg6678nm",
+          "recorded_usd": "0.00043",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": "gen-1792690920-aqieXhsEV2b3AmXYyl1u",
+          "recorded_usd": "0.00098",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        }
+      ],
+      "verified_provider_charge_usd": null
+    },
+    {
+      "run_id": "run_20261022_232021",
+      "committed_recorded_usd": "0.00211",
+      "receipt_sum_usd": "0.00211",
+      "receipt_sum_matches_ledger": true,
+      "receipts": [
+        {
+          "response_id": "gen-1792691431-f1EXR5OYw8tPM4rQMI8f",
+          "recorded_usd": "0.0002",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": "gen-1792691445-CNEyHzy1cabtsffXAHDC",
+          "recorded_usd": "0.0012",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        },
+        {
+          "response_id": "gen-1792691465-8QFoF97xs4FxsYmYh9VZ",
+          "recorded_usd": "0.00071",
+          "basis": "calculated_estimate",
+          "verified_provider_charge_usd": null
+        }
+      ],
+      "verified_provider_charge_usd": null
+    }
+  ]
+}

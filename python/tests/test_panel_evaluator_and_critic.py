@@ -56,7 +56,7 @@ def test_panel_forecasting_evaluator_clean_and_leakage():
     dates = pd.date_range("2017-01-01", periods=30, freq="D")
     df = pd.DataFrame({
         "date": dates,
-        "store_nbr": [1] * 15 + [2] * 15,
+        "store_nbr": [1] * 30,
         "family": ["GROCERY"] * 30,
         "sales": np.abs(np.sin(np.arange(30))) * 100,
         "onpromotion": [0, 1] * 15,
@@ -82,6 +82,14 @@ def test_panel_forecasting_evaluator_clean_and_leakage():
         "entity_columns": ["store_nbr", "family"],
         "forecast_horizon_dates": 5,
         "known_at_forecast_columns": ["onpromotion"],
+    }
+
+    topology["panel_protocol"] = {
+        "required_entities": [[1, "GROCERY"]], "embargo_days": 0,
+        "missing_entity_behavior": "reject", "unseen_entity_behavior": "reject",
+        "covariate_availability": {"onpromotion": {"kind": "published", "known_by": "2016-12-31", "provenance": "synthetic prepublished promotion schedule"}},
+        "origins": [{"train_start": "2017-01-01", "train_end": str(dates[tr[-1]].date()),
+                     "horizon_dates": [str(dates[v].date()) for v in va]} for tr, va in folds],
     }
 
     # Clean run
@@ -148,7 +156,7 @@ def test_panel_loop_rejects_random_folds(tmp_path):
     with pytest.raises(ValueError, match="caller-pinned temporal folds"):
         AutonomousAgentLoop(
             tmp_path / "workspace", "p", "s", object(), data, "sales",
-            task_type="panel_forecasting", metric_name="rmsle", metric_direction="minimize",
+            task_type="panel_forecasting", metric_name="rmsle", metric_direction="minimize", provider_is_fixture=True,
         )
 
 

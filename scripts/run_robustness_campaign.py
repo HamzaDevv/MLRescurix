@@ -406,118 +406,97 @@ class CampaignBudgetAuthority:
             finally:
                 fcntl.flock(lock_f, fcntl.LOCK_UN)
 
-    def reserve(self, run_id: str, request_id: str, amount_usd: float | Decimal) -> Decimal:
+    def _transition(self, run_id, request_id, operation, amount, cost_kind="unverified"):
         import fcntl
-        amount = Decimal(str(amount_usd))
-        if amount <= 0:
-            return Decimal("0.00")
-        with open(self.lock_path, "a+", encoding="utf-8") as lock_f:
-            fcntl.flock(lock_f, fcntl.LOCK_EX)
-            try:
-                data = json.loads(self.ledger_path.read_text(encoding="utf-8"))
-                billed = Decimal(str(data.get("total_billed_usd", "0.00")))
-                reserved = Decimal(str(data.get("total_reserved_usd", "0.00")))
-                uncertain = Decimal(str(data.get("total_uncertain_usd", "0.00")))
-                ceiling = Decimal(str(data.get("campaign_ceiling_usd", self.campaign_ceiling)))
-                per_run = Decimal(str(data.get("per_run_ceiling_usd", self.per_run_ceiling)))
-
-                effective_committed = billed + reserved + uncertain
-                if effective_committed + amount > ceiling:
-                    raise BudgetExhaustionError(
-                        f"Campaign spending ceiling USD {ceiling} exhausted: committed USD {effective_committed} + request USD {amount} > {ceiling}"
-                    )
-
-                run_data = data.setdefault("runs", {}).setdefault(run_id, {
-                    "billed_usd": "0.00", "reserved_usd": "0.00", "uncertain_usd": "0.00", "requests": 0
-                })
-                run_billed = Decimal(str(run_data.get("billed_usd", "0.00")))
-                run_reserved = Decimal(str(run_data.get("reserved_usd", "0.00")))
-                run_uncertain = Decimal(str(run_data.get("uncertain_usd", "0.00")))
-                run_effective = run_billed + run_reserved + run_uncertain
-                if run_effective + amount > per_run:
-                    raise BudgetExhaustionError(
-                        f"Per-run spending ceiling USD {per_run} exhausted for run '{run_id}': committed USD {run_effective} + request USD {amount} > {per_run}"
-                    )
-
-                reserved += amount
-                run_reserved += amount
-                data["total_reserved_usd"] = str(reserved)
-                data["remaining_campaign_usd"] = str(max(Decimal("0.00"), ceiling - billed - reserved - uncertain))
-                run_data["reserved_usd"] = str(run_reserved)
-                data.setdefault("active_reservations", {})[request_id] = {
-                    "run_id": run_id, "amount_usd": str(amount), "reserved_at": datetime.now(timezone.utc).isoformat()
-                }
-
-                tmp = self.ledger_path.with_suffix(f".tmp.{os.getpid()}")
-                tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-                tmp.replace(self.ledger_path)
+        amount = Decimal(str(amount))
+        if not amount.is_finite() or amount < 0 or (operation == "reserve" and amount == 0):
+            raise ValueError("Budget amounts must be finite and nonnegative; reservations must be positive")
+        if not run_id or not request_id:
+            raise ValueError("Stable run/request identity required")
+        with open(self.lock_path, "a+", encoding="utf-8") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            data = json.loads(self.ledger_path.read_text())
+            records = data.setdefault("request_records", {})
+            active = data.setdefault("active_reservations", {})
+            old = active.get(request_id) or records.get(request_id)
+            if old and old["run_id"] != run_id:
+                raise ValueError("Request identity belongs to a different run")
+            if operation == "reserve" and old:
+                if Decimal(old["amount_usd"]) != amount:
+                    raise ValueError("Request reservation changed")
+                if old.get("status", "reserved") != "reserved":
+                    raise ValueError("Request already settled or ambiguous; reconcile without redispatch")
                 return amount
-            finally:
-                fcntl.flock(lock_f, fcntl.LOCK_UN)
-
-    def settle(self, run_id: str, request_id: str, actual_billed_usd: float | Decimal) -> None:
-        import fcntl
-        actual = Decimal(str(actual_billed_usd))
-        with open(self.lock_path, "a+", encoding="utf-8") as lock_f:
-            fcntl.flock(lock_f, fcntl.LOCK_EX)
+            if operation != "reserve" and not old:
+                raise ValueError("Cannot settle an unreserved request")
+            if operation != "reserve" and old.get("status") in ("settled", "uncertain"):
+                if old["status"] == "settled" and operation == "settle" and Decimal(old["settled_usd"]) == amount and old.get("cost_kind") == cost_kind:
+                    return
+                if old["status"] == "uncertain" and operation == "uncertain":
+                    return
+                raise ValueError("Terminal request requires explicit evidence reconciliation")
+            run = data.setdefault("runs", {}).setdefault(run_id, {
+                "billed_usd": "0.00", "reserved_usd": "0.00", "uncertain_usd": "0.00", "requests": 0})
+            ceiling = min(self.campaign_ceiling, Decimal(data["campaign_ceiling_usd"]))
+            per_run = min(self.per_run_ceiling, Decimal(data["per_run_ceiling_usd"]))
+            def change(total, field, delta):
+                data[total] = str(Decimal(data[total]) + delta)
+                run[field] = str(Decimal(run[field]) + delta)
+            if operation == "reserve":
+                committed = sum(Decimal(data[k]) for k in ("total_billed_usd", "total_reserved_usd", "total_uncertain_usd"))
+                run_committed = sum(Decimal(run[k]) for k in ("billed_usd", "reserved_usd", "uncertain_usd"))
+                if committed + amount > ceiling:
+                    raise BudgetExhaustionError("Campaign spending ceiling exhausted")
+                if run_committed + amount > per_run:
+                    raise BudgetExhaustionError("Per-run spending ceiling exhausted")
+                old = {"run_id": run_id, "amount_usd": str(amount), "status": "reserved"}
+                active[request_id] = dict(old)
+                change("total_reserved_usd", "reserved_usd", amount)
+            else:
+                reserved = Decimal(old["amount_usd"])
+                if operation == "uncertain" and amount != reserved:
+                    raise ValueError("Uncertain amount must retain the complete reservation")
+                # Estimates cannot release unused reservation; provider charges remain unknown.
+                retained = max(amount, reserved) if cost_kind != "provider_verified" else amount
+                if operation == "settle" and amount > reserved:
+                    # Record an actual overrun rather than hiding known liability.
+                    # The controller stops and subsequent admission uses the higher total.
+                    old["reservation_exceeded"] = True
+                change("total_reserved_usd", "reserved_usd", -reserved)
+                active.pop(request_id, None)
+                if operation == "settle":
+                    change("total_billed_usd", "billed_usd", amount)
+                    change("total_uncertain_usd", "uncertain_usd", retained - amount)
+                    run["requests"] += 1
+                    old.update(status="settled", settled_usd=str(amount), cost_kind=cost_kind,
+                               unreconciled_usd=str(retained - amount))
+                else:
+                    change("total_uncertain_usd", "uncertain_usd", reserved)
+                    old.update(status="uncertain", cost_kind="unknown")
+            records[request_id] = old
+            data["remaining_campaign_usd"] = str(max(Decimal(0), ceiling - sum(
+                Decimal(data[k]) for k in ("total_billed_usd", "total_reserved_usd", "total_uncertain_usd"))))
+            tmp = self.ledger_path.with_suffix(f".tmp.{os.getpid()}")
+            with tmp.open("w") as stream:
+                stream.write(json.dumps(data, indent=2) + "\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            tmp.replace(self.ledger_path)
+            directory_fd = os.open(self.campaign_dir, os.O_RDONLY)
             try:
-                data = json.loads(self.ledger_path.read_text(encoding="utf-8"))
-                active_res = data.setdefault("active_reservations", {})
-                res_info = active_res.pop(request_id, None)
-                reserved_amount = Decimal(str(res_info["amount_usd"])) if res_info else actual
-
-                billed = Decimal(str(data.get("total_billed_usd", "0.00"))) + actual
-                reserved = max(Decimal("0.00"), Decimal(str(data.get("total_reserved_usd", "0.00"))) - reserved_amount)
-                uncertain = Decimal(str(data.get("total_uncertain_usd", "0.00")))
-                ceiling = Decimal(str(data.get("campaign_ceiling_usd", self.campaign_ceiling)))
-
-                run_data = data.setdefault("runs", {}).setdefault(run_id, {
-                    "billed_usd": "0.00", "reserved_usd": "0.00", "uncertain_usd": "0.00", "requests": 0
-                })
-                run_data["billed_usd"] = str(Decimal(str(run_data.get("billed_usd", "0.00"))) + actual)
-                run_data["reserved_usd"] = str(max(Decimal("0.00"), Decimal(str(run_data.get("reserved_usd", "0.00"))) - reserved_amount))
-                run_data["requests"] = int(run_data.get("requests", 0)) + 1
-
-                data["total_billed_usd"] = str(billed)
-                data["total_reserved_usd"] = str(reserved)
-                data["remaining_campaign_usd"] = str(max(Decimal("0.00"), ceiling - billed - reserved - uncertain))
-
-                tmp = self.ledger_path.with_suffix(f".tmp.{os.getpid()}")
-                tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-                tmp.replace(self.ledger_path)
+                os.fsync(directory_fd)
             finally:
-                fcntl.flock(lock_f, fcntl.LOCK_UN)
+                os.close(directory_fd)
+            return amount
 
-    def mark_uncertain(self, run_id: str, request_id: str, reserved_usd: float | Decimal) -> None:
-        import fcntl
-        amt = Decimal(str(reserved_usd))
-        with open(self.lock_path, "a+", encoding="utf-8") as lock_f:
-            fcntl.flock(lock_f, fcntl.LOCK_EX)
-            try:
-                data = json.loads(self.ledger_path.read_text(encoding="utf-8"))
-                active_res = data.setdefault("active_reservations", {})
-                active_res.pop(request_id, None)
+    def reserve(self, run_id, request_id, amount_usd):
+        return self._transition(run_id, request_id, "reserve", amount_usd)
 
-                reserved = max(Decimal("0.00"), Decimal(str(data.get("total_reserved_usd", "0.00"))) - amt)
-                uncertain = Decimal(str(data.get("total_uncertain_usd", "0.00"))) + amt
-                billed = Decimal(str(data.get("total_billed_usd", "0.00")))
-                ceiling = Decimal(str(data.get("campaign_ceiling_usd", self.campaign_ceiling)))
+    def settle(self, run_id, request_id, actual_billed_usd, *, cost_kind="unverified"):
+        return self._transition(run_id, request_id, "settle", actual_billed_usd, cost_kind)
 
-                run_data = data.setdefault("runs", {}).setdefault(run_id, {
-                    "billed_usd": "0.00", "reserved_usd": "0.00", "uncertain_usd": "0.00", "requests": 0
-                })
-                run_data["reserved_usd"] = str(max(Decimal("0.00"), Decimal(str(run_data.get("reserved_usd", "0.00"))) - amt))
-                run_data["uncertain_usd"] = str(Decimal(str(run_data.get("uncertain_usd", "0.00"))) + amt)
-
-                data["total_reserved_usd"] = str(reserved)
-                data["total_uncertain_usd"] = str(uncertain)
-                data["remaining_campaign_usd"] = str(max(Decimal("0.00"), ceiling - billed - reserved - uncertain))
-
-                tmp = self.ledger_path.with_suffix(f".tmp.{os.getpid()}")
-                tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-                tmp.replace(self.ledger_path)
-            finally:
-                fcntl.flock(lock_f, fcntl.LOCK_UN)
+    def mark_uncertain(self, run_id, request_id, reserved_usd):
+        return self._transition(run_id, request_id, "uncertain", reserved_usd)
 
     def get_status(self) -> Dict[str, Any]:
         import fcntl
@@ -586,6 +565,11 @@ class CampaignRunner:
         }
 
     def _atomic_write_json(self, path: Path, data: Any) -> None:
+        if isinstance(data, dict) and ("total_billed_cost_usd" in data or "budget_spent_usd" in data):
+            # Preserve compatibility fields without presenting bookkeeping as invoices.
+            data = dict(data, cost_basis="ledger_recorded_estimates_or_unverified_accounting",
+                        verified_provider_charge_usd=None,
+                        legacy_billed_fields_are_verified_charges=False)
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(f".tmp.{os.getpid()}")
         tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -649,9 +633,28 @@ class CampaignRunner:
         elif task_id == "K5":
             topology.update(temporal_col=split.get("time"), cv_scheme="purged_time_series_split",
                             entity_columns=split.get("entities"), forecast_horizon_dates=split.get("development_horizon_dates"))
+        if task_id == "K5":
+            protocol_path = REPO_ROOT / problem["execution_contract"]["protocol_path"]
+            if compute_file_sha256(protocol_path) != problem["execution_contract"]["protocol_sha256"]:
+                raise ValueError("Frozen K5 panel protocol hash mismatch")
+            frozen = json.loads(protocol_path.read_text())
+            if frozen["panel_protocol"]["training_calendar_provenance"]["split_sha256"] != problem["authenticity"]["split_manifest_sha256"]:
+                raise ValueError("K5 protocol belongs to a different frozen split")
+            topology.update({k: frozen[k] for k in ("temporal_col", "entity_columns", "forecast_horizon_dates", "known_at_forecast_columns", "panel_protocol")})
         statement = (f"{problem['name']}; target={problem['target']}; metric={problem['metric']} "
                      f"({problem['direction']}); pinned split={json.dumps(split, sort_keys=True)}")
         return topology, statement
+
+    def _execution_contract_block(self, task_id):
+        problem = next(p for p in self.policy["problems"] if p["id"] == task_id)
+        contract = problem.get("execution_contract", {})
+        if contract.get("status", "").startswith("blocked"):
+            outcome = {"status": "blocked", "reason": contract}
+            self.summary["gates"]["G_LIVE_DEV"] = outcome
+            self.summary["status"] = "blocked"
+            self.save_summary()
+            return outcome
+        return None
 
     def _live_gateway_block(self) -> Optional[Dict[str, Any]]:
         """Verify Rust harness binary exists for production gateway execution."""
@@ -987,78 +990,7 @@ class CampaignRunner:
         return dev_result
 
     def _call_openrouter_specialist(self, role: str, messages: List[Dict[str, str]], max_tokens: int = 1200) -> Dict[str, Any]:
-        import urllib.request
-        import urllib.error
-
-        openrouter_key_file = REPO_ROOT / ".config" / "openrouter.key"
-        api_key = os.environ.get("OPENROUTER_API_KEY")
-        if not api_key and openrouter_key_file.is_file():
-            api_key = openrouter_key_file.read_text(encoding="utf-8").strip()
-        if not api_key:
-            raise RuntimeError("OPENROUTER_API_KEY not found in environment or .config/openrouter.key")
-
-        request_id = f"req_{role}_{int(time.time() * 1000)}"
-        est_amount = Decimal("0.005")
-        self.campaign_authority.reserve(self.run_id, request_id, est_amount)
-
-        url = "https://openrouter.ai/api/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/HamzaDevv/MLRescurix",
-            "X-Title": "MLRescurix Live Robustness Campaign",
-        }
-        payload = {
-            "model": "deepseek/deepseek-v4.1-flash-1017",
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": 0.1,
-            "provider": {
-                "only": ["inference-net/fp8"],
-                "order": ["inference-net/fp8"],
-                "allow_fallbacks": False,
-            },
-        }
-
-        t0 = time.time()
-        req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers)
-        try:
-            with urllib.request.urlopen(req, timeout=90) as resp:
-                resp_bytes = resp.read()
-                data = json.loads(resp_bytes.decode("utf-8"))
-            lat_ms = int((time.time() - t0) * 1000)
-            choice = data["choices"][0]
-            content = choice["message"].get("content", "") or ""
-            usage = data.get("usage", {})
-            actual_cost = Decimal(str(usage.get("cost", 0.0) or 0.0))
-            if actual_cost <= Decimal("0.0"):
-                p_tok = usage.get("prompt_tokens", 0)
-                c_tok = usage.get("completion_tokens", 0)
-                actual_cost = (Decimal(p_tok) * Decimal("0.08") + Decimal(c_tok) * Decimal("0.50")) / Decimal("1000000")
-
-            self.campaign_authority.settle(self.run_id, request_id, actual_cost)
-            turn_record = {
-                "turn_id": request_id,
-                "role": role,
-                "latency_ms": lat_ms,
-                "prompt_tokens": usage.get("prompt_tokens", 0),
-                "completion_tokens": usage.get("completion_tokens", 0),
-                "reasoning_tokens": usage.get("completion_tokens_details", {}).get("reasoning_tokens", 0),
-                "total_tokens": usage.get("total_tokens", 0),
-                "cost_usd": float(actual_cost),
-                "content_preview": content[:120],
-            }
-            self.record_trace("openrouter_turn_completed", turn_record)
-            return {
-                "content": content,
-                "usage": usage,
-                "cost_usd": float(actual_cost),
-                "latency_ms": lat_ms,
-            }
-        except Exception as e:
-            self.campaign_authority.mark_uncertain(self.run_id, request_id, est_amount)
-            self.record_trace("openrouter_turn_failed", {"role": role, "request_id": request_id, "error": str(e)})
-            raise
+        raise RuntimeError("Legacy direct provider transport disabled; use campaign-bound RustGatewayAdapter with a stable request identity")
 
     def run_live_dev(self) -> Dict[str, Any]:
         """Execute genuine live dev solve for K1 Titanic under strict budget authority.
@@ -1114,13 +1046,13 @@ class CampaignRunner:
         dev_indices = split_manifest["development_indices"]
         holdout_indices = split_manifest.get("holdout_indices", [])
         dev_folds = split_manifest.get("development_folds", [])
-        df_full = pd.read_csv(k1_train_path)
-
-        # Fit/select only on the development slice. The full source CSV was
-        # materialized above, so report row access separately from scoring.
-        df_dev = df_full.iloc[dev_indices].copy().reset_index(drop=True)
+        from mlrescurix_worker.scientific.development_stage import stage_development
+        task_policy = next(t for t in self.policy["problems"] if t["id"] == "K1")
         dev_csv_path = self.run_dir / "dev_train.csv"
-        df_dev.to_csv(dev_csv_path, index=False)
+        stage_development(k1_train_path, k1_manifest_path, dev_csv_path,
+            task_policy["authenticity"]["files_sha256"]["train.csv"],
+            task_policy["authenticity"]["split_manifest_sha256"])
+        df_dev = pd.read_csv(dev_csv_path)
 
         dev_index_map = {orig: dev for dev, orig in enumerate(dev_indices)}
         if dev_folds:
@@ -1191,10 +1123,10 @@ class CampaignRunner:
         )
 
         # No holdout metrics or selection decisions were made; source parsing
-        # did materialize the partition before the development slice.
+        # trusted importer reads source bytes; workers receive development rows only.
         self.summary["holdout_accesses"] = 0
         self.record_trace("holdout_partition_audit", {"task": "K1", "holdout_rows": len(holdout_indices),
-            "source_rows_materialized": len(df_full), "holdout_labels_materialized": len(holdout_indices),
+            "source_rows_materialized": len(df_dev), "holdout_labels_materialized": 0,
             "holdout_labels_used_for_selection_or_scoring": 0, "status": "not_scored_or_used_for_selection"})
 
         elapsed = time.time() - t0
@@ -1219,7 +1151,7 @@ class CampaignRunner:
             "dataset": "titanic",
             "development_rows": len(df_dev),
             "holdout_rows_designated": len(holdout_indices),
-            "holdout_labels_materialized": len(holdout_indices),
+            "holdout_labels_materialized": 0,
             "holdout_labels_used_for_selection_or_scoring": 0,
             "holdout_accesses": 0,
             "best_cv_score": best_cv_score,
@@ -1321,13 +1253,13 @@ class CampaignRunner:
         split_manifest = json.loads(k2_manifest_path.read_text(encoding="utf-8"))
         dev_indices = split_manifest["development_indices"]
         dev_folds = split_manifest["development_folds"]
-        df_full = pd.read_csv(k2_train_path)
-
-        # Fit/select only on the development slice. The full source CSV was
-        # materialized above, so report row access separately from scoring.
-        df_dev = df_full.iloc[dev_indices].copy().reset_index(drop=True)
+        from mlrescurix_worker.scientific.development_stage import stage_development
+        task_policy = next(t for t in self.policy["problems"] if t["id"] == "K2")
         dev_csv_path = self.run_dir / "dev_k2_train.csv"
-        df_dev.to_csv(dev_csv_path, index=False)
+        stage_development(k2_train_path, k2_manifest_path, dev_csv_path,
+            task_policy["authenticity"]["files_sha256"]["train.csv"],
+            task_policy["authenticity"]["split_manifest_sha256"])
+        df_dev = pd.read_csv(dev_csv_path)
 
         # Explicit mapping from original dataset indices to development partition row indices
         dev_index_map = {orig: dev for dev, orig in enumerate(dev_indices)}
@@ -1396,10 +1328,10 @@ class CampaignRunner:
         )
 
         # No holdout metrics or selection decisions were made; source parsing
-        # did materialize the partition before the development slice.
+        # trusted importer reads source bytes; workers receive development rows only.
         self.summary["holdout_accesses"] = 0
         self.record_trace("holdout_partition_audit", {"task": "K2", "holdout_rows": 292,
-            "source_rows_materialized": len(df_full), "holdout_labels_materialized": 292,
+            "source_rows_materialized": len(df_dev), "holdout_labels_materialized": 0,
             "holdout_labels_used_for_selection_or_scoring": 0, "status": "not_scored_or_used_for_selection"})
 
         elapsed = time.time() - t0
@@ -1424,7 +1356,7 @@ class CampaignRunner:
             "dataset": "house_prices",
             "development_rows": len(df_dev),
             "holdout_rows_designated": 292,
-            "holdout_labels_materialized": 292,
+            "holdout_labels_materialized": 0,
             "holdout_labels_used_for_selection_or_scoring": 0,
             "holdout_accesses": 0,
             "metric_name": "rmse_log_price",
@@ -1529,13 +1461,13 @@ class CampaignRunner:
         split_manifest = json.loads(k3_manifest_path.read_text(encoding="utf-8"))
         dev_indices = split_manifest["development_indices"]
         dev_folds = split_manifest["development_folds"]
-        df_full = pd.read_csv(k3_train_path)
-
-        # Fit/select only on the development slice. The full source CSV was
-        # materialized above, so report row access separately from scoring.
-        df_dev = df_full.iloc[dev_indices].copy().reset_index(drop=True)
+        from mlrescurix_worker.scientific.development_stage import stage_development
+        task_policy = next(t for t in self.policy["problems"] if t["id"] == "K3")
         dev_csv_path = self.run_dir / "dev_k3_train.csv"
-        df_dev.to_csv(dev_csv_path, index=False)
+        stage_development(k3_train_path, k3_manifest_path, dev_csv_path,
+            task_policy["authenticity"]["files_sha256"]["train.csv"],
+            task_policy["authenticity"]["split_manifest_sha256"])
+        df_dev = pd.read_csv(dev_csv_path)
 
         # Explicit mapping from original dataset indices to development partition row indices
         dev_index_map = {orig: dev for dev, orig in enumerate(dev_indices)}
@@ -1604,10 +1536,10 @@ class CampaignRunner:
         )
 
         # No holdout metrics or selection decisions were made; source parsing
-        # did materialize the partition before the development slice.
+        # trusted importer reads source bytes; workers receive development rows only.
         self.summary["holdout_accesses"] = 0
         self.record_trace("holdout_partition_audit", {"task": "K3", "holdout_rows": 3024,
-            "source_rows_materialized": len(df_full), "holdout_labels_materialized": 3024,
+            "source_rows_materialized": len(df_dev), "holdout_labels_materialized": 0,
             "holdout_labels_used_for_selection_or_scoring": 0, "status": "not_scored_or_used_for_selection"})
 
         elapsed = time.time() - t0
@@ -1632,7 +1564,7 @@ class CampaignRunner:
             "dataset": "forest_cover_type",
             "development_rows": len(df_dev),
             "holdout_rows_designated": 3024,
-            "holdout_labels_materialized": 3024,
+            "holdout_labels_materialized": 0,
             "holdout_labels_used_for_selection_or_scoring": 0,
             "holdout_accesses": 0,
             "metric_name": "accuracy",
@@ -1697,6 +1629,8 @@ class CampaignRunner:
             self.summary["status"] = "blocked"
             self.save_summary()
             return outcome
+        blocked = self._execution_contract_block("K4")
+        if blocked: return blocked
         self.record_trace("live_dev_k4_start", {"action": "evaluating_live_prerequisites"})
         k4_manifest_path = REPO_ROOT / "data" / "official" / "k4_ieee_fraud" / "split_manifest.json"
         k4_train_trans_path = REPO_ROOT / "data" / "official" / "k4_ieee_fraud" / "train_transaction.csv"
@@ -1744,10 +1678,13 @@ class CampaignRunner:
         sub_start = sub_spec.get("dev_window_start_idx", 422432)
         sub_end = sub_spec.get("dev_window_end_idx", 472431)
 
-        # Read only development rows
-        df_trans = pd.read_csv(k4_train_trans_path, skiprows=range(1, sub_start + 1), nrows=(sub_end - sub_start + 1))
-        header_cols = pd.read_csv(k4_train_trans_path, nrows=0).columns.tolist()
-        df_trans.columns = header_cols
+        from mlrescurix_worker.scientific.development_stage import stage_development, verify_stage, seal_derived
+        task_policy = next(t for t in self.policy["problems"] if t["id"] == "K4")
+        staged = self.run_dir / "staged_k4.csv"
+        stage_development(k4_train_trans_path, k4_manifest_path, staged,
+            task_policy["authenticity"]["files_sha256"]["train_transaction.csv"],
+            task_policy["authenticity"]["split_manifest_sha256"], indices=range(sub_start, sub_end + 1))
+        df_trans = pd.read_csv(staged)
 
         # Join identity data if available
         if k4_train_id_path.is_file():
@@ -1758,6 +1695,7 @@ class CampaignRunner:
 
         dev_csv_path = self.run_dir / "dev_k4_train.csv"
         df_dev.to_csv(dev_csv_path, index=False)
+        seal_derived(dev_csv_path, verify_stage(staged))
 
         # Use the split manifest's pinned rolling origins; unsupported mappings block the run.
         try:
@@ -1921,6 +1859,8 @@ class CampaignRunner:
             self.summary["status"] = "blocked"
             self.save_summary()
             return outcome
+        blocked = self._execution_contract_block("K5")
+        if blocked: return blocked
         self.record_trace("live_dev_k5_start", {"action": "evaluating_live_prerequisites"})
         k5_manifest_path = REPO_ROOT / "data" / "official" / "k5_store_sales" / "split_manifest.json"
         k5_train_path = REPO_ROOT / "data" / "official" / "k5_store_sales" / "train.csv"
@@ -1964,40 +1904,25 @@ class CampaignRunner:
         dev_rows_total = split_manifest["development_rows"]  # 2,974,158
         holdout_rows_total = split_manifest["holdout_rows"]  # 26,730
 
-        df_full = pd.read_csv(k5_train_path)
+        from mlrescurix_worker.scientific.development_stage import stage_development, verify_stage, seal_derived
+        task_policy = next(t for t in self.policy["problems"] if t["id"] == "K5")
+        staged = self.run_dir / "staged_k5.csv"
+        stage_development(k5_train_path, k5_manifest_path, staged,
+            task_policy["authenticity"]["files_sha256"]["train.csv"],
+            task_policy["authenticity"]["split_manifest_sha256"])
+        df_full = pd.read_csv(staged)
 
-        # Historical prior window (strictly prior to 2017-06-01): 2017-01-01 to 2017-05-31
-        # Preserves strict temporal causality: zero lookahead, zero development/holdout leakage
-        hist = df_full[(df_full["date"] >= "2017-01-01") & (df_full["date"] < "2017-06-01")].copy()
-        hist["dow"] = pd.to_datetime(hist["date"]).dt.dayofweek
-        h_sf = hist.groupby(["store_nbr", "family"])["sales"].mean().reset_index().rename(columns={"sales": "hist_sf_mean"})
-        h_sfd = hist.groupby(["store_nbr", "family", "dow"])["sales"].mean().reset_index().rename(columns={"sales": "hist_sfd_mean"})
-
-        # Slicing strictly within development partition: last 60 development dates (2017-06-01 to 2017-07-31)
-        # Covers all 3 rolling validation origins declared in the split manifest
-        mask_dev = (df_full["date"] >= "2017-06-01") & (df_full["date"] <= "2017-07-31")
-        df_dev = df_full[mask_dev].copy().reset_index(drop=True)
-        dev_dt = pd.to_datetime(df_dev["date"])
-        df_dev["dow_idx"] = dev_dt.dt.dayofweek
-        df_dev["dom_idx"] = dev_dt.dt.day
-        df_dev["is_weekend"] = (df_dev["dow_idx"] >= 5).astype(int)
-
-        df_dev = df_dev.merge(h_sf, on=["store_nbr", "family"], how="left")
-        df_dev = df_dev.merge(h_sfd, left_on=["store_nbr", "family", "dow_idx"], right_on=["store_nbr", "family", "dow"], how="left")
-        df_dev["hist_sf_log"] = np.log1p(np.maximum(0, df_dev["hist_sf_mean"])).fillna(0)
-        df_dev["hist_sfd_log"] = np.log1p(np.maximum(0, df_dev["hist_sfd_mean"])).fillna(0)
-        df_dev = df_dev.drop(columns=["dow", "hist_sf_mean", "hist_sfd_mean"])
-
-        if k5_stores_path.is_file():
-            stores = pd.read_csv(k5_stores_path)
-            df_dev = df_dev.merge(stores, on="store_nbr", how="left")
-        if k5_oil_path.is_file():
-            oil = pd.read_csv(k5_oil_path)
-            oil["dcoilwtico"] = oil["dcoilwtico"].ffill().bfill()
-            df_dev = df_dev.merge(oil, on="date", how="left")
-
+        # Complete frozen observation history; no outcome-derived priors or
+        # publication-unknown oil/promotions enter the known-at-origin view.
+        df_dev = df_full[["date", "store_nbr", "family", "sales"]].copy()
+        del df_full
+        calendar = pd.to_datetime(df_dev["date"])
+        df_dev["day_of_week"] = calendar.dt.dayofweek
+        df_dev["day_of_month"] = calendar.dt.day
+        df_dev["month"] = calendar.dt.month
         dev_csv_path = self.run_dir / "dev_k5_train.csv"
         df_dev.to_csv(dev_csv_path, index=False)
+        seal_derived(dev_csv_path, verify_stage(staged))
 
         try:
             locked_folds = map_locked_temporal_folds(
@@ -2066,11 +1991,10 @@ class CampaignRunner:
             target_column="sales", primary_metric="rmsle",
         )
 
-        # The full source was materialized above; distinguish that from use in
-        # candidate selection or metric scoring.
+        # Trusted import access is distinct from staged worker access.
         self.summary["holdout_accesses"] = 0
         self.record_trace("holdout_partition_audit", {"task": "K5", "holdout_rows": holdout_rows_total,
-            "source_rows_materialized": len(df_full), "holdout_labels_materialized": holdout_rows_total,
+            "source_rows_materialized": len(df_dev), "holdout_labels_materialized": 0,
             "holdout_labels_used_for_selection_or_scoring": 0, "status": "not_scored_or_used_for_selection"})
 
         elapsed = time.time() - t0
@@ -2095,7 +2019,7 @@ class CampaignRunner:
             "dataset": "store_sales",
             "development_rows": len(df_dev),
             "holdout_rows_designated": holdout_rows_total,
-            "holdout_labels_materialized": holdout_rows_total,
+            "holdout_labels_materialized": 0,
             "holdout_labels_used_for_selection_or_scoring": 0,
             "holdout_accesses": 0,
             "metric_name": "rmsle",

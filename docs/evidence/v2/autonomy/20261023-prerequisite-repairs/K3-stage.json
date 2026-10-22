@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "scope": "development_only",
+  "source_sha256": "45d9949029e81059332efa1dcb22af082f7ad344859984b5dc761d1f328d88f5",
+  "split_sha256": "bb4e2ffde162cf02d2a282ba868d5e84d28228273b0bd70c5e8b658fc84dec75",
+  "csv_sha256": "52a47a6d82ae1799a8b254f28347dab54b51a4c3f4e5cd581341dded532cf9a2",
+  "selection_sha256": "43ccbef01cc5ce471ba2b0e1baeb235323cc22a756e2b41a22eee49fd51f35c9",
+  "rows": 12096,
+  "trusted_import_reads_source_bytes": true,
+  "worker_final_rows": 0,
+  "task_id": "K3",
+  "history": null
+}

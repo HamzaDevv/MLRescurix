@@ -1,0 +1,106 @@
+/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/pytest_asyncio/plugin.py:208: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the fixture caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to function scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+.......F................................................................ [ 24%]
+........................................................................ [ 48%]
+........................................................................ [ 72%]
+.................................................................s...... [ 96%]
+..........                                                               [100%]
+=================================== FAILURES ===================================
+________ test_locked_folds_and_fold_local_preprocessing_remain_isolated ________
+
+tmp_path = PosixPath('/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-156/test_locked_folds_and_fold_loc0')
+
+    def test_locked_folds_and_fold_local_preprocessing_remain_isolated(tmp_path: Path):
+        dataset_path = create_synthetic_dataset(tmp_path / "data.csv")
+        budget = MockBudgetAuthority()
+
+        # Create explicit fixed locked folds: 2 folds with known indices
+        fold_splits = [
+            (list(range(0, 100)), list(range(100, 200))),
+            (list(range(100, 200)), list(range(0, 100))),
+        ]
+
+>       loop = AutonomousAgentLoop(
+            workspace_root=tmp_path / "ws",
+            project_id="test_proj",
+            session_id="run_locked_folds",
+            campaign_authority=budget,
+            dataset_path=dataset_path,
+            target_column="target",
+            locked_folds=fold_splits,
+            max_turns=0,
+        )
+
+python/tests/test_autonomous_agent_loop.py:421:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+python/src/mlrescurix_worker/scientific/autonomous_loop.py:189: in __init__
+    stage_receipt = verify_stage(self.dataset_path)
+python/src/mlrescurix_worker/scientific/development_stage.py:79: in verify_stage
+    receipt = json.loads(path.with_suffix('.stage.json').read_text())
+/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/pathlib/_local.py:546: in read_text
+    return PathBase.read_text(self, encoding, errors, newline)
+/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/pathlib/_abc.py:632: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors, newline=newline) as f:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = PosixPath('/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-156/test_locked_folds_and_fold_loc0/data.stage.json')
+mode = 'r', buffering = -1, encoding = 'locale', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+E       FileNotFoundError: [Errno 2] No such file or directory: '/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-156/test_locked_folds_and_fold_loc0/data.stage.json'
+
+/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/pathlib/_local.py:537: FileNotFoundError
+=============================== warnings summary ===============================
+tests/test_candidate_runner.py::test_diagnostic_slices_min_support_suppression
+tests/test_candidate_runner.py::test_diagnostic_slices_min_support_suppression
+  /Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/sklearn/metrics/_classification.py:620: UserWarning: A single label was found in 'y_true' and 'y_pred'. For the confusion matrix to have the correct shape, use the 'labels' parameter to pass all known labels.
+    warnings.warn(
+
+tests/test_m5_scientific.py::M5ScientificTests::test_split_aware_feature_pipeline
+  /Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/sklearn/preprocessing/_discretization.py:304: FutureWarning: The current default behavior, quantile_method='linear', will be changed to quantile_method='averaged_inverted_cdf' in scikit-learn version 1.9 to naturally support sample weight equivalence properties by default. Pass quantile_method='averaged_inverted_cdf' explicitly to silence this warning.
+    warnings.warn(
+
+tests/test_p16_critic_and_reflexive_loop.py::test_full_inference_pipeline_raw_records_and_parity
+tests/test_p16_critic_and_reflexive_loop.py::test_zero_skew_bundle_packaging
+  /Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/sklearn/linear_model/_logistic.py:406: ConvergenceWarning: lbfgs failed to converge after 1000 iteration(s) (status=1):
+  STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT
+
+  Increase the number of iterations to improve the convergence (max_iter=1000).
+  You might also want to scale the data as shown in:
+      https://scikit-learn.org/stable/modules/preprocessing.html
+  Please also refer to the documentation for alternative solver options:
+      https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression
+    n_iter_i = _check_optimize_result(
+
+tests/test_p16_critic_and_reflexive_loop.py::test_titanic_end_to_end_reflexive_loop
+tests/test_p16_critic_and_reflexive_loop.py::test_titanic_end_to_end_reflexive_loop
+tests/test_p16_critic_and_reflexive_loop.py::test_titanic_end_to_end_reflexive_loop
+  /Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/sklearn/linear_model/_logistic.py:406: ConvergenceWarning: lbfgs failed to converge after 2000 iteration(s) (status=1):
+  STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT
+
+  Increase the number of iterations to improve the convergence (max_iter=2000).
+  You might also want to scale the data as shown in:
+      https://scikit-learn.org/stable/modules/preprocessing.html
+  Please also refer to the documentation for alternative solver options:
+      https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression
+    n_iter_i = _check_optimize_result(
+
+tests/test_p7_scientific_delivery.py::TestP7ScientificDelivery::test_model_export_safetensors_and_tolerances
+tests/test_p7_scientific_delivery.py::TestP7ScientificDelivery::test_model_export_safetensors_and_tolerances
+  /Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/sklearn/utils/validation.py:2684: UserWarning: X has feature names, but LogisticRegression was fitted without feature names
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED python/tests/test_autonomous_agent_loop.py::test_locked_folds_and_fold_local_preprocessing_remain_isolated
+1 failed, 296 passed, 1 skipped, 10 warnings in 218.01s (0:03:38)

@@ -422,6 +422,7 @@ def test_locked_folds_and_fold_local_preprocessing_remain_isolated(tmp_path: Pat
         workspace_root=tmp_path / "ws",
         project_id="test_proj",
         session_id="run_locked_folds",
+        provider_is_fixture=True,
         campaign_authority=budget,
         dataset_path=dataset_path,
         target_column="target",

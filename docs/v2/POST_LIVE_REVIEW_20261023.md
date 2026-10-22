@@ -1,5 +1,7 @@
 # Post-live independent review — 2026-10-23
 
+Latest prerequisite repairs and unresolved blockers: [PREREQUISITE_REPAIRS_20261023.md](PREREQUISITE_REPAIRS_20261023.md). Next architecture session: [FINAL_REFACTOR_HANDOFF.md](FINAL_REFACTOR_HANDOFF.md). Historical findings below are preserved.
+
 The Antigravity report contains useful development observations, but its all-five-pass, zero-physical-holdout-access, exact-billed-cost, and production-governance conclusions are not established. This review supersedes those conclusions. Original run evidence and campaign ledger are preserved without rewriting historical metrics.
 
 ## Definite findings and repairs

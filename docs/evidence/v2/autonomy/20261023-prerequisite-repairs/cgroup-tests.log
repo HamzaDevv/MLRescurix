@@ -1,0 +1,9 @@
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.84s
+     Running unittests src/lib.rs (target/debug/deps/mlrescurix_harness-c9b0a6a2da25d54f)
+
+running 2 tests
+test execution::resources::tests::live_cgroup_oom_is_enforced_and_event_is_received_before_teardown ... ok
+test execution::resources::tests::live_cgroup_receipt_and_daemon_survivor_restart ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 7.59s

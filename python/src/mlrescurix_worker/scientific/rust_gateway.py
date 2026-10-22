@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 import tempfile
 from decimal import Decimal, ROUND_CEILING
@@ -145,6 +146,23 @@ class RustGatewayAdapter:
             if res_p.returncode != 0:
                 raise RuntimeError(f"Register model pricing failed ({res_p.returncode}): {res_p.stderr or res_p.stdout}")
 
+    def reservation(self, messages, max_tokens):
+        if not self.pricing or not self.pricing.get("verified"):
+            raise ValueError("Verified pricing required")
+        # Match Rust's integer millicent ceilings and per-component rounding.
+        bounds = (len(json.dumps(messages, ensure_ascii=False).encode()) + 8192, max_tokens)
+        rates = [int((Decimal(str(self.pricing[k])) * 100).to_integral_value(rounding=ROUND_CEILING))
+                 for k in ("input_per_million", "output_per_million")]
+        return Decimal(sum((n * r + 999) // 1000 for n, r in zip(bounds, rates))) / 100000
+
+    def bind_campaign(self, ledger_path, run_id):
+        ledger_path = Path(ledger_path).resolve()
+        canonical = (REPO_ROOT / "docs/evidence/v2/robustness/20261021-robustness/campaign_budget_ledger.json").resolve()
+        if self.mock_path is None and ledger_path != canonical:
+            raise ValueError("Live campaign must use the preserved shared ledger; a new campaign directory cannot grant new funds")
+        self.campaign_ledger = ledger_path
+        self.campaign_run = run_id
+
     def __call__(self, messages: List[Dict[str, Any]], max_tokens: int = 3500) -> Dict[str, Any]:
         raise ValueError("RustGatewayAdapter requires a stable campaign request_id; use call_with_request_id")
 
@@ -217,7 +235,22 @@ class RustGatewayAdapter:
                 disp_cmd.extend(["--require-policy-approval", "true"])
 
             try:
-                res_disp = subprocess.run(disp_cmd, capture_output=True, text=True, timeout=75)
+                dispatch_env = os.environ.copy()
+                if self.mock_path is None:
+                    if not hasattr(self, "campaign_ledger"):
+                        raise ValueError("Real gateway requires a bound shared campaign ledger")
+                    dispatch_env.update(MLRESCURIX_CAMPAIGN_LEDGER=str(self.campaign_ledger),
+                                        MLRESCURIX_CAMPAIGN_RUN=self.campaign_run)
+                proc = subprocess.Popen(disp_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                        text=True, env=dispatch_env, start_new_session=True)
+                try:
+                    stdout, stderr = proc.communicate(timeout=75)
+                except BaseException:
+                    try: os.killpg(proc.pid, signal.SIGKILL)
+                    except ProcessLookupError: pass
+                    proc.wait()
+                    raise
+                res_disp = subprocess.CompletedProcess(disp_cmd, proc.returncode, stdout, stderr)
             except subprocess.TimeoutExpired as exc:
                 raise RuntimeError(
                     f"gateway timed out for request_id={request_id}; remote outcome may be unknown; "

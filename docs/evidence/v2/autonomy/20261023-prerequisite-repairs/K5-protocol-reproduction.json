@@ -1,0 +1,25 @@
+{
+  "command": "python3 scripts/freeze_k5_panel_contract.py --output /tmp/K5-panel-protocol-reproduced.json; cmp docs/v2/K5_PANEL_PROTOCOL.json /tmp/K5-panel-protocol-reproduced.json",
+  "status": "passed",
+  "protocol_sha256": "b6606cfed014f1de93634077e2d5d7ad8034e788429fc7529a0b251ac089158d",
+  "required_entities": 1782,
+  "training_rows": [
+    2893968,
+    2920698,
+    2947428
+  ],
+  "horizon_dates": [
+    15,
+    15,
+    15
+  ],
+  "known_covariates": [
+    "day_of_week",
+    "day_of_month",
+    "month"
+  ],
+  "embargo_days": 0,
+  "source_split_sha256": "26387dbed0b7df7d7236f391afd8e18c4bbf626c93f8f0baa2c37a4b5404e33d",
+  "final_scored": false,
+  "trusted_import_reads_source_bytes": true
+}

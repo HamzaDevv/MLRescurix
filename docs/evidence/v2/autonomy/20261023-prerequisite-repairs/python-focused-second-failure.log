@@ -1,0 +1,170 @@
+/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/pytest_asyncio/plugin.py:208: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the fixture caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to function scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+...................F...................................                  [100%]
+=================================== FAILURES ===================================
+___________ test_changed_dataset_and_corrupt_checkpoint_fail_closed ____________
+
+tmp_path = PosixPath('/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-155/test_changed_dataset_and_corru0')
+
+    def test_changed_dataset_and_corrupt_checkpoint_fail_closed(tmp_path):
+        loop, _ = make_loop(tmp_path, [])
+        frame = pd.read_csv(loop.dataset_path); frame.loc[0, "age"] = 99; frame.to_csv(loop.dataset_path, index=False)
+        with pytest.raises(RecoveryRequired, match="binding mismatch"): make_loop(tmp_path, [])
+        loop.state_file.write_text("not-json")
+>       with pytest.raises(RecoveryRequired, match="Corrupt checkpoint"): make_loop(tmp_path, [])
+
+python/tests/test_autonomy_regressions.py:120:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+python/tests/test_autonomy_regressions.py:36: in make_loop
+    loop = AutonomousAgentLoop(tmp_path / "workspace", "p", "s", kwargs.pop("budget", Budget()), path, "y",
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <mlrescurix_worker.scientific.autonomous_loop.AutonomousAgentLoop object at 0x1220756d0>
+workspace_root = PosixPath('/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-155/test_changed_dataset_and_corru0/workspace')
+project_id = 'p', session_id = 's'
+campaign_authority = <test_autonomy_regressions.Budget object at 0x10aaca850>
+dataset_path = PosixPath('/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-155/test_changed_dataset_and_corru0/dev.csv')
+target_column = 'y', task_type = 'binary_classification'
+metric_name = 'balanced_accuracy', metric_direction = 'maximize'
+locked_folds = [(array([  3,   4,   5,   6,   7,  10,  11,  12,  14,  17,  18,  19,  20,
+        21,  22,  24,  28,  29,  35,  36,  3...      76,  77,  79,  80,  83,  88,  90,  91,  92,  93,  96, 101, 103,
+       104, 105, 110, 111, 113, 116, 117, 118]))]
+model_name = 'deepseek/deepseek-v4.1-flash-1017', endpoint = 'inference-net/fp8'
+max_turns = 0, per_run_budget_usd = 0.05
+provider_caller = <function make_loop.<locals>.provider at 0x1226731a0>
+
+    def __init__(self, workspace_root: Union[str, Path], project_id: str, session_id: str,
+        campaign_authority: Any, dataset_path: Union[str, Path], target_column: str,
+        task_type="binary_classification", metric_name="balanced_accuracy", metric_direction="maximize",
+        locked_folds=None, model_name="deepseek/deepseek-v4.1-flash-1017", endpoint="inference-net/fp8",
+        max_turns=4, per_run_budget_usd=0.05, provider_caller=None, *, require_locked_folds=False,
+        topology=None, problem_statement="", sandbox_image=None, evaluation_timeout_seconds=180,
+        evaluator=None, pricing=None, outbound_script_output_approved=False,
+        provider_is_fixture=False, allow_development_provider=False, worker_memory_bytes=2 * 1024**3):
+        self.workspace_root = Path(workspace_root).resolve()
+        self.workspace_root.mkdir(parents=True, exist_ok=True)
+        self.project_id, self.session_id = project_id, session_id
+        self.campaign_authority = campaign_authority
+        self.dataset_path = Path(dataset_path).resolve()
+        self.target_column, self.task_type = target_column, task_type
+        self.is_classification = "classification" in task_type or task_type in ("binary", "multiclass")
+        self.metric_name, self.metric_direction = metric_name, metric_direction
+        if task_type not in ("binary", "multiclass", "binary_classification", "multiclass_classification", "regression", "panel_forecasting", "forecasting"):
+            raise ValueError("Unsupported model task; use analysis/handoff with a supported tabular target")
+        if metric_direction not in ("maximize", "minimize"): raise ValueError("Invalid metric direction")
+        self.model_name, self.endpoint = model_name, endpoint
+        if not 0 <= max_turns <= 20: raise ValueError("Require 0–20 turns per run")
+        self.max_turns = max_turns
+        self.per_run_budget_usd = Decimal(str(per_run_budget_usd))
+        self.provider_caller = provider_caller
+        if callable(getattr(provider_caller, "bind_campaign", None)):
+            provider_caller.bind_campaign(campaign_authority.ledger_path, session_id)
+        self.provider_is_fixture = provider_is_fixture
+        self.allow_development_provider = allow_development_provider
+        self.worker_memory_bytes = int(worker_memory_bytes)
+        self.problem_statement = problem_statement
+        self.sandbox_image = sandbox_image
+        self.evaluation_timeout_seconds = evaluation_timeout_seconds
+        self.evaluator = evaluator  # injected deterministic offline evaluator, never provider generated code
+        # Explicit pricing contract; live callers must supply a verified price ceiling.
+        self.pricing = pricing
+        self.outbound_script_output_approved = outbound_script_output_approved
+        self.state_file = self.workspace_root / "autonomous_loop_state.json"
+        from .development_stage import verify_stage
+        input_bytes = self.dataset_path.read_bytes()
+        import io
+        self.raw_df = pd.read_csv(io.BytesIO(input_bytes))
+        if target_column not in self.raw_df: raise ValueError(f"Target column {target_column!r} missing")
+        if self.raw_df[target_column].isna().any(): raise ValueError("Missing development targets")
+        is_panel_task = task_type in ("panel_forecasting", "forecasting")
+        caller_pinned_folds = locked_folds is not None
+        if is_panel_task and locked_folds is None:
+            raise ValueError("Panel forecasting requires caller-pinned temporal folds; random fallback forbidden")
+        if locked_folds is None:
+            if require_locked_folds: raise ValueError("Pinned development folds required; random fallback forbidden")
+            from sklearn.model_selection import StratifiedKFold, KFold
+            splitter = StratifiedKFold(5, shuffle=True, random_state=42) if self.is_classification else KFold(5, shuffle=True, random_state=42)
+            locked_folds = list(splitter.split(self.raw_df, self.raw_df[target_column]))
+        self.locked_folds = []
+        for train, valid in locked_folds:
+            tr, va = np.asarray(train), np.asarray(valid)
+            if not np.issubdtype(tr.dtype, np.integer) or not np.issubdtype(va.dtype, np.integer): raise ValueError("Fold indices must be integers")
+            tr, va = tr.tolist(), va.tolist()
+            if not tr or not va or set(tr) & set(va) or min(tr + va) < 0 or max(tr + va) >= len(self.raw_df):
+                raise ValueError("Invalid or overlapping pinned fold indices")
+            if len(set(tr)) != len(tr) or len(set(va)) != len(va): raise ValueError("Duplicate fold row indices")
+            self.locked_folds.append((tr, va))
+        if not self.locked_folds: raise ValueError("At least one locked fold required")
+        self.cv_splitter = PredefinedSplitter(self.locked_folds)
+        self.topology = copy.deepcopy(topology or {})
+        self.topology.update(target_column=target_column, task_type=task_type)
+        if is_panel_task:
+            temporal_col = self.topology.get("temporal_col") or self.topology.get("time_column") or self.topology.get("time")
+            horizon = self.topology.get("forecast_horizon_dates") or self.topology.get("forecast_horizon")
+            allowlist = self.topology.get("known_at_forecast_columns")
+            if not temporal_col or temporal_col not in self.raw_df.columns:
+                raise ValueError("Panel forecasting requires an authoritative temporal column")
+            if isinstance(horizon, bool) or not isinstance(horizon, int) or horizon <= 0:
+                raise ValueError("Panel forecasting requires a positive forecast horizon in dates")
+            if not isinstance(allowlist, list) or not allowlist or any(not isinstance(c, str) for c in allowlist):
+                raise ValueError("Panel forecasting requires an explicit known_at_forecast_columns allowlist")
+            entity_columns = self.topology.get("entity_columns", [])
+            if not isinstance(entity_columns, list) or any(c not in self.raw_df.columns for c in entity_columns):
+                raise ValueError("Panel entity_columns must name existing development columns")
+            # Critic recognizes this canonical temporal split contract; the exact
+            # caller-provided assignments remain bound by folds_sha256.
+            self.topology["cv_scheme"] = "purged_time_series_split"
+        self.topology.setdefault("cv_scheme", "caller_locked" if caller_pinned_folds else "stratified_kfold" if self.is_classification else "kfold")
+        self.topology.setdefault("column_classifications", {c: "NUMERIC_CONTINUOUS" if pd.api.types.is_numeric_dtype(self.raw_df[c]) else "CATEGORICAL" for c in self.raw_df if c != target_column})
+        temporal = self.topology.get("temporal_col")
+        group = self.topology.get("entity_group_col")
+        if temporal:
+            if temporal not in self.raw_df: raise ValueError("Authoritative temporal column missing from development data")
+            clock = self.raw_df[temporal]
+            if not pd.api.types.is_numeric_dtype(clock): clock = pd.to_datetime(clock, errors="raise")
+            if clock.isna().any(): raise ValueError("Missing authoritative time values")
+            embargo = self.topology.get("split", {}).get("embargo_seconds", 0)
+            for train, valid in self.locked_folds:
+                latest, earliest = clock.iloc[train].max(), clock.iloc[valid].min()
+                gap = float((earliest - latest).total_seconds()) if isinstance(latest, pd.Timestamp) else float(earliest - latest)
+                if gap <= 0 or gap < float(embargo): raise ValueError("Pinned folds violate temporal order/embargo")
+        if group:
+            if group not in self.raw_df: raise ValueError("Authoritative entity group column missing; explicit group mapping required")
+            for train, valid in self.locked_folds:
+                if set(self.raw_df.iloc[train][group].dropna()) & set(self.raw_df.iloc[valid][group].dropna()):
+                    raise ValueError("Pinned folds violate group separation")
+        if not provider_is_fixture:
+            stage_receipt = verify_stage(self.dataset_path)
+            if hashlib.sha256(input_bytes).hexdigest() != stage_receipt["csv_sha256"]:
+                raise ValueError("Staged input changed while loading")
+        isolated = self.workspace_root / "inputs"
+        isolated.mkdir(exist_ok=True)
+        if isolated.is_symlink(): raise ValueError("Input staging directory must not be a symlink")
+        copied = isolated / "development.csv"
+        if copied.is_symlink(): raise ValueError("Staged input must not be a symlink")
+        if copied.exists() and copied.read_bytes() != input_bytes:
+>           raise RecoveryRequired("Checkpoint binding mismatch: staged development bytes changed")
+E           mlrescurix_worker.scientific.autonomous_loop.RecoveryRequired: Checkpoint binding mismatch: staged development bytes changed
+
+python/src/mlrescurix_worker/scientific/autonomous_loop.py:198: RecoveryRequired
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-155/test_changed_dataset_and_corru0')
+
+    def test_changed_dataset_and_corrupt_checkpoint_fail_closed(tmp_path):
+        loop, _ = make_loop(tmp_path, [])
+        frame = pd.read_csv(loop.dataset_path); frame.loc[0, "age"] = 99; frame.to_csv(loop.dataset_path, index=False)
+        with pytest.raises(RecoveryRequired, match="binding mismatch"): make_loop(tmp_path, [])
+        loop.state_file.write_text("not-json")
+>       with pytest.raises(RecoveryRequired, match="Corrupt checkpoint"): make_loop(tmp_path, [])
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'Corrupt checkpoint'
+E        Input: 'Checkpoint binding mismatch: staged development bytes changed'
+
+python/tests/test_autonomy_regressions.py:120: AssertionError
+=========================== short test summary info ============================
+FAILED python/tests/test_autonomy_regressions.py::test_changed_dataset_and_corrupt_checkpoint_fail_closed
+1 failed, 54 passed in 5.82s

@@ -2797,13 +2797,20 @@ fn test_dispatch_gateway_outbound_policy_approval_and_accounting() {
         tools: vec![],
         temperature: Some(0.1),
         max_tokens: Some(1024),
-        provider: None,
+        provider: Some(json!({"only":["inference-net/fp8"],"order":["inference-net/fp8"],"allow_fallbacks":false})),
         reasoning: None,
     };
 
-    struct PolicyGateway;
+    let ledger = dir.path().join("campaign_budget_ledger.json");
+    std::fs::write(&ledger, json!({"campaign_ceiling_usd":"0.30", "total_billed_usd":"0.050724020",
+        "total_reserved_usd":"0.01", "total_uncertain_usd":"0.00",
+        "active_reservations":{"campaign-1:turn:1":{"run_id":"campaign-1", "amount_usd":"0.01"}}}).to_string()).unwrap();
+    struct PolicyGateway(std::path::PathBuf);
     impl mlrescurix_harness::agents::ProviderGateway for PolicyGateway {
         fn requires_policy_approval(&self) -> bool { true }
+        fn campaign_budget_context(&self) -> mlrescurix_harness::Result<(std::path::PathBuf, String)> {
+            Ok((self.0.clone(), "campaign-1".into()))
+        }
         fn chat_completion(&self, _: &ChatCompletionRequest) -> mlrescurix_harness::Result<ChatCompletionResponse> {
             Ok(ChatCompletionResponse {
                 id: "resp-gw-1".into(),
@@ -2819,17 +2826,21 @@ fn test_dispatch_gateway_outbound_policy_approval_and_accounting() {
     mlrescurix_harness::agents::register_model_pricing(&root, "deepseek/deepseek-v4.1-flash-1017", 8, 50).unwrap();
 
     let err_unapproved = mlrescurix_harness::agents::dispatch_gateway(
-        &root, "p-gw", "t-gw", "scientific-agent", &req, &PolicyGateway, true
+        &root, "p-gw", "t-gw", "scientific-agent", &req, &PolicyGateway(ledger.clone()), true
     ).unwrap_err();
     assert!(err_unapproved.contains("outbound provider request requires a content-bound policy-approved view"));
 
     let staged = mlrescurix_harness::agents::stage_outbound_request(&root, "p-gw", &req, "controller").unwrap();
     let digest = staged["request_sha256"].as_str().unwrap();
+    let inspection = mlrescurix_harness::agents::gateway::inspect_outbound_view(&root, "p-gw", digest).unwrap();
+    assert_eq!(inspection["approved"], false);
+    assert_eq!(inspection["view"]["messages"][0]["content"], "Analyze dataset structure");
 
-    mlrescurix_harness::agents::approve_outbound_view(&root, "p-gw", digest, "controller", true, 600_000).unwrap();
+    assert!(mlrescurix_harness::agents::approve_outbound_view(&root, "p-gw", digest, "controller", true, 600_000).is_err());
+    mlrescurix_harness::agents::approve_outbound_view(&root, "p-gw", digest, "authorized-operator", true, 600_000).unwrap();
 
     let res = mlrescurix_harness::agents::dispatch_gateway_with_id(
-        &root, "p-gw", "t-gw", "scientific-agent", "campaign-1:turn:1", &req, &PolicyGateway, true
+        &root, "p-gw", "t-gw", "scientific-agent", "campaign-1:turn:1", &req, &PolicyGateway(ledger.clone()), true
     ).unwrap();
     assert_eq!(res["status"], "completed");
     assert_eq!(res["id"], "resp-gw-1");
@@ -2883,4 +2894,45 @@ fn provider_gateway_requires_prices_before_any_transport() {
     ).unwrap_err();
     assert!(err.contains("no registered pricing"));
     assert!(!gateway.0.load(Ordering::SeqCst));
+}
+
+#[test]
+fn gateway_concurrent_duplicate_and_ambiguous_receipts_never_redispatch() {
+    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+    struct CountingFixture(AtomicUsize);
+    impl mlrescurix_harness::agents::ProviderGateway for CountingFixture {
+        fn is_offline_fixture(&self) -> bool { true }
+        fn chat_completion(&self, _: &ChatCompletionRequest) -> mlrescurix_harness::Result<ChatCompletionResponse> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            Ok(ChatCompletionResponse {id:"one".into(), model:"model".into(), content:Some("response".into()),
+                tool_calls:vec![], usage:TokenUsage{prompt_tokens:1,completion_tokens:1,total_tokens:2},latency_ms:1})
+        }
+    }
+    let dir = tempfile::tempdir().unwrap(); let root = dir.path().join("state");
+    let runtime = Runtime::init(&root, m1policy(100, 2)).unwrap();
+    create_m1(&runtime, "concurrent", 100); branch_task(&runtime, "concurrent", "main", "t");
+    mlrescurix_harness::agents::register_model_pricing(&root, "model", 8, 50).unwrap();
+    let req = ChatCompletionRequest {model:"model".into(),messages:vec![ChatMessage::user("offline")],tools:vec![],
+        temperature:None,max_tokens:Some(100),provider:None,reasoning:None};
+    let provider = Arc::new(CountingFixture(AtomicUsize::new(0)));
+    std::thread::scope(|scope| {
+        let mut handles = vec![];
+        for _ in 0..8 {
+            let root = &root; let req = &req; let provider = provider.clone();
+            handles.push(scope.spawn(move || mlrescurix_harness::agents::dispatch_gateway_with_id(
+                root,"concurrent","t","agent","stable",req,provider.as_ref(),false)));
+        }
+        for handle in handles { let result = handle.join().unwrap();
+            if let Err(error) = result { assert!(error.contains("ambiguous prior outcome"), "{error}"); }
+        }
+    });
+    assert_eq!(provider.0.load(Ordering::SeqCst),1);
+    let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+    for status in ["awaiting_response", "outcome_unknown"] {
+        db.execute("UPDATE gateway_dispatch_receipts SET status=?1,response_json=NULL WHERE request_id='stable'",[status]).unwrap();
+        assert!(mlrescurix_harness::agents::dispatch_gateway_with_id(&root,"concurrent","t","agent","stable",
+            &req,provider.as_ref(),false).unwrap_err().contains("ambiguous prior outcome"));
+    }
+    assert_eq!(provider.0.load(Ordering::SeqCst),1);
 }

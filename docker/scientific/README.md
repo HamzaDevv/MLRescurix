@@ -26,3 +26,17 @@ The verified image for this completion pass is
 `mlrescurix-scientific@sha256:d094b6becbbd1a1d86b944fd39370bfe26bb96f6290b429c0a51c512faf5f1bd`.
 Build provenance and in-image dependency evidence are in `docs/evidence/m6/`.
 The tag is local and was not pushed.
+
+## 2026-10-23 dependency blocker
+
+The cached historical image above passes isolated stdlib cgroup allocation/OOM
+fixtures but cannot import the current scientific package: `jsonschema` is absent.
+The worker metadata now declares `jsonschema==4.26.0` and `psutil==6.1.1`, matching
+the versions used by the host offline regressions. The existing Linux lock and
+local wheelhouse do not yet include these dependencies and their transitive wheels.
+A fresh build must fail `pip check` rather than treating this old image as a complete
+current runtime. Restore authoritative hash-verified Linux CPython 3.13 arm64 wheels,
+extend the hash lock, rebuild, and record a new image digest before claiming full
+scientific-container execution. Do not change `image.ref` to an unbuilt image or
+remove imports/dependency checks to make the bounded-tmpfs test pass. The blocked
+attempt is recorded in `docs/evidence/v2/autonomy/20261023-prerequisite-repairs/`.

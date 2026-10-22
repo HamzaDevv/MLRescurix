@@ -120,6 +120,12 @@ class ProcessTreeSampler:
                 self.controller_cpu_samples.append(controller["cpu_percent"])
             if workers["cpu_percent"] is not None:
                 self.worker_cpu_samples.append(workers["cpu_percent"])
+            if worker_errors and workers["status"] == "available":
+                workers["status"] = "partial"
+                workers["errors"].extend(worker_errors)
+            if controller_error and controller["status"] == "available":
+                controller["status"] = "partial"
+                controller["errors"].append(controller_error)
             all_pids = controller_pids | worker_pids
             # Resource containment claims describe governed workers. If there
             # are no registered workers, inspect the controller for diagnostics
@@ -143,7 +149,7 @@ class ProcessTreeSampler:
                 "cgroup": cgroup,
                 "cgroup_enforced": self.cgroup_enforced,
                 "containment_status": self.containment_status,
-                "sampling_status": "available" if controller["status"] == "available" or workers["status"] == "available" else "unavailable",
+                "sampling_status": "partial" if "partial" in (controller["status"], workers["status"]) else "available" if "available" in (controller["status"], workers["status"]) else "unavailable",
                 "errors": [e for e in [controller_error, *worker_errors] if e],
             }
             self._last_metrics = metrics
@@ -211,7 +217,7 @@ class ProcessTreeSampler:
             "rss_bytes": rss if rss_ok else None,
             "cpu_percent": self._mean(cpu_values),
             "process_count": len(pids),
-            "status": "available" if rss_ok else "unavailable",
+            "status": ("partial" if errors else "available") if rss_ok else "unavailable",
             "errors": errors,
         }
 

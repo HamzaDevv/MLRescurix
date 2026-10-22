@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/tests/test_scheduled_pipeline.py", line 7, in <module>
+    from mlrescurix_worker.scientific.scheduled_pipeline import run_pipeline
+  File "/workspace/python/src/mlrescurix_worker/scientific/__init__.py", line 3, in <module>
+    from .critic_engine import CriticEngine, CritiqueReceipt, critic_audit_candidate
+  File "/workspace/python/src/mlrescurix_worker/scientific/critic_engine.py", line 39, in <module>
+    import jsonschema
+ModuleNotFoundError: No module named 'jsonschema'

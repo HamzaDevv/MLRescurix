@@ -222,10 +222,13 @@ def execute_candidate_cli(
     extra_env: dict[str, str] | None = None,
 ) -> tuple[int, str, str]:
     """Execute candidate fit or predict command using the candidate CLI protocol."""
-    env = os.environ.copy()
+    env = {k: v for k, v in os.environ.items() if k in ("PATH", "SYSTEMROOT", "LANG", "TMPDIR")}
     env["PYTHONPATH"] = str(candidate_dir.parent.resolve()) + (os.pathsep + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     if extra_env:
+        allowed = {"OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "PYTHONHASHSEED"}
+        if set(extra_env) - allowed:
+            raise WorkflowError("Candidate environment contains unsupported variables")
         env.update(extra_env)
 
     # Entrypoint can be a module name or script filename
@@ -238,17 +241,23 @@ def execute_candidate_cli(
     cmd.extend(cli_args)
 
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
             cwd=str(candidate_dir),
-            capture_output=True,
-            text=True,
-            timeout=timeout_s,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, start_new_session=True,
             env=env,
         )
-        return proc.returncode, proc.stdout, proc.stderr
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout_s)
+            return proc.returncode, stdout, stderr
+        finally:
+            import signal
+            try: os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError: pass
+            proc.wait()
     except subprocess.TimeoutExpired as exc:
-        return 124, exc.stdout or "", f"candidate execution exceeded deadline of {timeout_s}s"
+        return 124, "", f"candidate execution exceeded deadline of {timeout_s}s"
     except Exception as exc:
         return 1, "", str(exc)
 

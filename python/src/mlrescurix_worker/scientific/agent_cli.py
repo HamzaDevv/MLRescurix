@@ -28,7 +28,7 @@ def main(argv=None):
     parser.add_argument("--sandbox-image", help="Locally available pinned scientific Docker image")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--fixture-actions", type=Path, help="Offline deterministic actions; cannot count as live AI evidence")
-    mode.add_argument("--development-live", action="store_true", help="Explicit development transport; NOT production Rust certification")
+    mode.add_argument("--development-live", action="store_true", help="Governed Rust transport; requires separate outbound approval; not production certification")
     args = parser.parse_args(argv)
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
     from run_robustness_campaign import CampaignBudgetAuthority, verified_provider_pricing
@@ -44,6 +44,10 @@ def main(argv=None):
     pricing = verified_provider_pricing(policy) if args.development_live else None
     if args.development_live and pricing is None:
         parser.error("Current verified provider price ceilings required in BENCHMARK_SUITE.json before live dispatch")
+    if args.development_live:
+        from .rust_gateway import RustGatewayAdapter
+        provider = RustGatewayAdapter(args.workspace / "rust_harness_state", args.project,
+                                      pricing=pricing, require_policy_approval=True)
     loop = AutonomousAgentLoop(args.workspace, args.project, args.session, authority, args.development_csv,
         args.target, task_type=args.task, metric_name=args.metric, metric_direction=args.direction,
         locked_folds=locked, require_locked_folds=True, topology=topology,

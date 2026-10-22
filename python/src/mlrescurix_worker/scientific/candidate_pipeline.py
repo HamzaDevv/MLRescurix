@@ -330,6 +330,12 @@ def evaluate_candidate(spec, frame, target, task_type, folds, metric_name, topol
                     f"Panel fold {i} has {validation_dates} validation dates; expected horizon {expected_horizon}"
                 )
 
+        panel_receipt = None
+        if is_panel:
+            from .panel_contract import validate_panel_fold
+            if len(topology.get("panel_protocol", {}).get("origins", [])) != len(folds):
+                raise ValueError("Incomplete panel_protocol: exact origin count must match frozen folds")
+            panel_receipt = validate_panel_fold(frame, train, valid, topology, i, target)
         pipeline = CandidatePipeline(spec, target, task_type).fit(train_df, y[train])
         tr_pred, va_pred = pipeline.predict(train_df), pipeline.predict(valid_df)
         if metric_name in ("rmsle", "rmse_log_price"):
@@ -375,6 +381,7 @@ def evaluate_candidate(spec, frame, target, task_type, folds, metric_name, topol
             receipt["val_start"] = str(min(va_times))
             receipt["val_end"] = str(max(va_times))
             receipt["horizon_steps"] = len(set(va_times))
+            receipt["panel_protocol"] = panel_receipt
         fold_receipts.append(receipt)
         predictions.extend(va_pred.tolist()); observed.extend(y[valid].tolist())
         validation_frames.append(valid_df.drop(columns=[target]).copy())

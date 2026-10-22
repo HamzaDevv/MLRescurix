@@ -1,0 +1,65 @@
+/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/pytest_asyncio/plugin.py:208: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the fixture caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to function scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+....F................................................................... [ 80%]
+.................                                                        [100%]
+=================================== FAILURES ===================================
+____________ test_gateway_timeout_terminates_transport_descendants _____________
+
+tmp_path = PosixPath('/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-183/test_gateway_timeout_terminate0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11e0116e0>
+
+    def test_gateway_timeout_terminates_transport_descendants(tmp_path, monkeypatch):
+        import sys
+        import time
+        import psutil
+        fake = tmp_path / 'fake-harness'
+        pid_path = tmp_path / 'transport.pid'
+        fake.write_text('#!' + sys.executable + '\nimport subprocess,sys,time\n'
+                        'from pathlib import Path\n'
+                        'child=subprocess.Popen([sys.executable,"-c","import time;time.sleep(60)"])\n'
+                        f'Path({str(pid_path)!r}).write_text(str(child.pid))\n'
+                        'time.sleep(60)\n')
+        fake.chmod(0o700)
+        adapter = RustGatewayAdapter.__new__(RustGatewayAdapter)
+        adapter.binary = fake
+        adapter.state_dir = tmp_path
+        adapter.project_id, adapter.task_id, adapter.role_id = 'p', 't', 'r'
+        adapter.model_name, adapter.endpoint = 'model', 'endpoint'
+        adapter.require_policy_approval = False
+        adapter.mock_path = tmp_path / 'fixture.json'
+        original = subprocess.Popen.communicate
+        def short_timeout(proc, *args, **kwargs):
+            return original(proc, timeout=.3)
+        monkeypatch.setattr(subprocess.Popen, 'communicate', short_timeout)
+        with pytest.raises(RuntimeError, match='remote outcome may be unknown'):
+            adapter.call_with_request_id([], 10, 'stable')
+>       pid = int(pid_path.read_text())
+
+python/tests/test_rust_gateway_adapter.py:256:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/pathlib/_local.py:546: in read_text
+    return PathBase.read_text(self, encoding, errors, newline)
+/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/pathlib/_abc.py:632: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors, newline=newline) as f:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = PosixPath('/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-183/test_gateway_timeout_terminate0/transport.pid')
+mode = 'r', buffering = -1, encoding = 'locale', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+E       FileNotFoundError: [Errno 2] No such file or directory: '/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-183/test_gateway_timeout_terminate0/transport.pid'
+
+/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/pathlib/_local.py:537: FileNotFoundError
+=========================== short test summary info ============================
+FAILED python/tests/test_rust_gateway_adapter.py::test_gateway_timeout_terminates_transport_descendants
+1 failed, 88 passed in 25.32s

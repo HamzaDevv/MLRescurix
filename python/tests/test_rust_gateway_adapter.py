@@ -211,6 +211,7 @@ def test_autonomous_loop_with_rust_gateway_adapter(tmp_path: Path):
         per_run_budget_usd=0.05,
         pricing={"verified": True, "input_per_million": "0.08", "output_per_million": "0.50"},
         provider_caller=adapter,
+        provider_is_fixture=True,
     )
 
     loop_state = loop.run()
@@ -225,3 +226,51 @@ def test_autonomous_loop_with_rust_gateway_adapter(tmp_path: Path):
     status = authority.get_status()
     total_billed = Decimal(str(status["total_billed_usd"]))
     assert total_billed >= Decimal("0.00")
+
+
+def test_gateway_timeout_terminates_transport_descendants(tmp_path, monkeypatch):
+    import sys
+    import time
+    import psutil
+    fake = tmp_path / 'fake-harness'
+    pid_path = tmp_path / 'transport.pid'
+    fake.write_text('#!' + sys.executable + '\nimport subprocess,sys,time\n'
+                    'from pathlib import Path\n'
+                    'child=subprocess.Popen([sys.executable,"-c","import time;time.sleep(60)"])\n'
+                    f'Path({str(pid_path)!r}).write_text(str(child.pid))\n'
+                    'time.sleep(60)\n')
+    fake.chmod(0o700)
+    adapter = RustGatewayAdapter.__new__(RustGatewayAdapter)
+    adapter.binary = fake
+    adapter.state_dir = tmp_path
+    adapter.project_id, adapter.task_id, adapter.role_id = 'p', 't', 'r'
+    adapter.model_name, adapter.endpoint = 'model', 'endpoint'
+    adapter.require_policy_approval = False
+    adapter.mock_path = tmp_path / 'fixture.json'
+    original = subprocess.Popen.communicate
+    def short_timeout(proc, *args, **kwargs):
+        # Synchronize on the dispatch boundary rather than timing interpreter startup.
+        ready_deadline = time.monotonic() + 10
+        while not pid_path.exists() and proc.poll() is None and time.monotonic() < ready_deadline:
+            time.sleep(.01)
+        assert pid_path.exists(), "fixture never reached transport dispatch"
+        return original(proc, timeout=.1)
+    monkeypatch.setattr(subprocess.Popen, 'communicate', short_timeout)
+    with pytest.raises(RuntimeError, match='remote outcome may be unknown'):
+        adapter.call_with_request_id([], 10, 'stable')
+    pid = int(pid_path.read_text())
+    deadline = time.monotonic() + 2
+    while psutil.pid_exists(pid) and time.monotonic() < deadline:
+        if psutil.Process(pid).status() == psutil.STATUS_ZOMBIE: break
+        time.sleep(.02)
+    assert not psutil.pid_exists(pid) or psutil.Process(pid).status() == psutil.STATUS_ZOMBIE
+
+
+def test_live_binding_cannot_open_a_fresh_campaign_allowance(tmp_path):
+    adapter = RustGatewayAdapter.__new__(RustGatewayAdapter)
+    adapter.mock_path = None
+    with pytest.raises(ValueError, match='preserved shared ledger'):
+        adapter.bind_campaign(tmp_path / 'new-campaign/campaign_budget_ledger.json', 'run')
+    adapter.mock_path = tmp_path / 'offline-fixture.json'
+    adapter.bind_campaign(tmp_path / 'fixture-budget.json', 'fixture-run')
+    assert adapter.campaign_run == 'fixture-run'

@@ -76,8 +76,8 @@ def test_child_enumeration_denial_retains_readable_root(monkeypatch):
     sampler = ProcessTreeSampler(pid=456789)
     metrics = sampler.sample_now()
     assert metrics["controller"]["rss_bytes"] == 4096
-    assert metrics["controller"]["status"] == "available"
-    assert metrics["sampling_status"] == "available"
+    assert metrics["controller"]["status"] == "partial"
+    assert metrics["sampling_status"] == "partial"
     assert any("tree_enumeration_permission_denied" in error for error in metrics["errors"])
     assert metrics["cgroup"]["scope"] == "controller"
 

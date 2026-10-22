@@ -158,7 +158,7 @@ def test_blend_uses_requested_weights_and_refit_matches_audited_spec(tmp_path, m
 def test_required_locked_folds_cannot_fall_back(tmp_path):
     pd.DataFrame({"x": range(10), "y": [0,1]*5}).to_csv(tmp_path / "dev.csv", index=False)
     with pytest.raises(ValueError, match="Pinned development folds required"):
-        AutonomousAgentLoop(tmp_path / "ws", "p", "s", Budget(), tmp_path / "dev.csv", "y", require_locked_folds=True)
+        AutonomousAgentLoop(tmp_path / "ws", "p", "s", Budget(), tmp_path / "dev.csv", "y", require_locked_folds=True, provider_is_fixture=True)
 
 
 def test_stale_controller_refreshes_checkpoint_without_repeating_calls(tmp_path):
@@ -243,6 +243,20 @@ def test_temporal_contract_rejects_shuffled_pinned_folds(tmp_path):
     frame = pd.DataFrame({"time":range(10), "x":range(10), "y":[0,1]*5})
     frame.to_csv(tmp_path / "dev.csv", index=False)
     with pytest.raises(ValueError, match="temporal order"):
-        AutonomousAgentLoop(tmp_path / "ws", "p", "s", Budget(), tmp_path / "dev.csv", "y",
+        AutonomousAgentLoop(tmp_path / "ws", "p", "s", Budget(), tmp_path / "dev.csv", "y", provider_is_fixture=True,
             locked_folds=[([0,2,4,6,8],[1,3,5,7,9])], require_locked_folds=True,
             topology={"temporal_col":"time", "cv_scheme":"purged_time_series_split"})
+
+
+def test_script_repair_locations_are_bounded_without_exporting_exception_data(tmp_path, monkeypatch):
+    from mlrescurix_worker.scientific import python_tool
+    monkeypatch.setattr(python_tool, 'run_python_script', lambda *a, **k: {
+        'status': 'script_error', 'stdout': 'PRIVATE_ROW',
+        'stderr': 'File "/scripts/analysis.py", line 1\nNameError: PRIVATE_ROW', 'artifacts': []})
+    loop, prompts = make_loop(tmp_path, [action('WRITE_PYTHON', filename='analysis.py', code='print(missing)'),
+        action('RUN_PYTHON', filename='analysis.py'), action('HANDOFF', reason='repair required')])
+    loop.run()
+    result = prompts[2]['turn_history'][-1]['measurements']['python_result']
+    assert result['repair_locations'] == [{'script': 'analysis.py', 'line': 1}]
+    assert result['stderr'] == 'NameError'
+    assert 'PRIVATE_ROW' not in json.dumps(result)
