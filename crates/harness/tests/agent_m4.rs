@@ -10,7 +10,7 @@ use mlrescurix_harness::{
     agents::{
         context::AgentContextManager,
         gateway::{
-            ChatMessage, ChatCompletionResponse, FunctionCall,
+            ChatMessage, ChatCompletionRequest, ChatCompletionResponse, FunctionCall,
             OutboundFilter, ScriptedProviderFixture, TokenUsage, ToolCall,
         },
         orchestrator::{AgentOrchestrator, OrchestratorConfig},
@@ -2781,4 +2781,106 @@ fn p1_delegation_and_registration_crash_reconciliation_and_fault_regressions() {
 
     let job_count_11: i64 = db.query_row("SELECT count(*) FROM jobs WHERE id=?1", [format!("finalize-{cand_id}")], |r| r.get(0)).unwrap();
     assert_eq!(job_count_11, 1, "Must reconcile against authoritative finalize job without duplicate");
+}
+
+#[test]
+fn test_dispatch_gateway_outbound_policy_approval_and_accounting() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("state");
+    let runtime = Runtime::init(&root, m1policy(100, 2)).unwrap();
+    create_m1(&runtime, "p-gw", 100);
+    branch_task(&runtime, "p-gw", "main", "t-gw");
+
+    let req = ChatCompletionRequest {
+        model: "deepseek/deepseek-v4.1-flash-1017".into(),
+        messages: vec![ChatMessage::user("Analyze dataset structure")],
+        tools: vec![],
+        temperature: Some(0.1),
+        max_tokens: Some(1024),
+        provider: None,
+        reasoning: None,
+    };
+
+    struct PolicyGateway;
+    impl mlrescurix_harness::agents::ProviderGateway for PolicyGateway {
+        fn requires_policy_approval(&self) -> bool { true }
+        fn chat_completion(&self, _: &ChatCompletionRequest) -> mlrescurix_harness::Result<ChatCompletionResponse> {
+            Ok(ChatCompletionResponse {
+                id: "resp-gw-1".into(),
+                model: "deepseek/deepseek-v4.1-flash-1017".into(),
+                content: Some("{\"action_type\": \"ANALYZE\", \"parameters\": {}}".into()),
+                tool_calls: vec![],
+                usage: TokenUsage { prompt_tokens: 150, completion_tokens: 30, total_tokens: 180 },
+                latency_ms: 12,
+            })
+        }
+    }
+
+    mlrescurix_harness::agents::register_model_pricing(&root, "deepseek/deepseek-v4.1-flash-1017", 8, 50).unwrap();
+
+    let err_unapproved = mlrescurix_harness::agents::dispatch_gateway(
+        &root, "p-gw", "t-gw", "scientific-agent", &req, &PolicyGateway, true
+    ).unwrap_err();
+    assert!(err_unapproved.contains("outbound provider request requires a content-bound policy-approved view"));
+
+    let staged = mlrescurix_harness::agents::stage_outbound_request(&root, "p-gw", &req, "controller").unwrap();
+    let digest = staged["request_sha256"].as_str().unwrap();
+
+    mlrescurix_harness::agents::approve_outbound_view(&root, "p-gw", digest, "controller", true, 600_000).unwrap();
+
+    let res = mlrescurix_harness::agents::dispatch_gateway_with_id(
+        &root, "p-gw", "t-gw", "scientific-agent", "campaign-1:turn:1", &req, &PolicyGateway, true
+    ).unwrap();
+    assert_eq!(res["status"], "completed");
+    assert_eq!(res["id"], "resp-gw-1");
+    assert_eq!(res["usage"]["prompt_tokens"], 150);
+    assert_eq!(res["usage"]["completion_tokens"], 30);
+    assert_eq!(res["cost_millicents"], 4);
+    assert_eq!(res["cost_is_estimate"], true);
+    assert_eq!(res["replayed"], false);
+
+    let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+    let recorded_tokens: u32 = db.query_row(
+        "SELECT prompt_tokens FROM provider_accounting WHERE project='p-gw' AND model='deepseek/deepseek-v4.1-flash-1017'",
+        [], |r| r.get(0)
+    ).unwrap();
+    assert_eq!(recorded_tokens, 150);
+
+    let replay = mlrescurix_harness::agents::dispatch_gateway_with_id(
+        &root, "p-gw", "t-gw", "scientific-agent", "campaign-1:turn:1", &req,
+        &ScriptedProviderFixture::new(vec![]), true
+    ).unwrap();
+    assert_eq!(replay["replayed"], true);
+    assert_eq!(replay["id"], "resp-gw-1");
+    let accounting_rows: i64 = db.query_row(
+        "SELECT count(*) FROM provider_accounting WHERE project='p-gw'", [], |row| row.get(0)
+    ).unwrap();
+    assert_eq!(accounting_rows, 1, "stable request identity must not create duplicate charges");
+}
+
+#[test]
+fn provider_gateway_requires_prices_before_any_transport() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    struct CountingGateway(AtomicBool);
+    impl mlrescurix_harness::agents::ProviderGateway for CountingGateway {
+        fn chat_completion(&self, _: &ChatCompletionRequest) -> mlrescurix_harness::Result<ChatCompletionResponse> {
+            self.0.store(true, Ordering::SeqCst);
+            Err("must not be called".into())
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("state");
+    let runtime = Runtime::init(&root, m1policy(100, 2)).unwrap();
+    create_m1(&runtime, "p-unpriced", 100);
+    branch_task(&runtime, "p-unpriced", "main", "t-unpriced");
+    let gateway = CountingGateway(AtomicBool::new(false));
+    let req = ChatCompletionRequest {
+        model: "unpriced-model".into(), messages: vec![ChatMessage::user("safe prompt")],
+        tools: vec![], temperature: None, max_tokens: Some(100), provider: None, reasoning: None,
+    };
+    let err = mlrescurix_harness::agents::dispatch_gateway_with_id(
+        &root, "p-unpriced", "t-unpriced", "scientific-agent", "session-x:turn:1", &req, &gateway, false
+    ).unwrap_err();
+    assert!(err.contains("no registered pricing"));
+    assert!(!gateway.0.load(Ordering::SeqCst));
 }

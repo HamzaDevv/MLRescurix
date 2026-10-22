@@ -1,0 +1,2 @@
+/Users/hamza/Developer/Imp_Projects/MLRescurix/python/src/mlrescurix_worker/scientific/candidate_pipeline.py:102: FutureWarning: Downcasting behavior in `replace` is deprecated and will be removed in a future version. To retain the old behavior, explicitly call `result.infer_objects(copy=False)`. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
+  return x.replace([np.inf, -np.inf], np.nan)

@@ -1,0 +1,371 @@
+{
+  "schema_version": 3,
+  "binding": {
+    "project_id": "k1_titanic_robustness",
+    "session_id": "run_20261022_221943",
+    "data_sha256": "7d82814abff04f38cbd2681c70337264c0f0f84737a217f5cfd60c2051b2e3c1",
+    "folds_sha256": "ac6942b7b1fb9356840f6bb290e1fa97fbaf3376716e39bc9a82524628a2bddb",
+    "target": "Survived",
+    "task": "binary_classification",
+    "metric": "accuracy",
+    "direction": "maximize",
+    "topology_hash": "5f751310294f70e09f0da7760c21951d98535a18b468d4819dc3a24925729dbf",
+    "problem_statement": "Titanic; target=Survived; metric=accuracy (maximize); pinned split={\"development_folds\": 5, \"final_fraction\": 0.2, \"group\": \"frozen_family_ticket_mapping\", \"kind\": \"group_disjoint\"}",
+    "model": "deepseek/deepseek-v4.1-flash-1017",
+    "endpoint": "inference-net/fp8",
+    "provider_is_fixture": false,
+    "worker_memory_bytes": 2147483648
+  },
+  "project_id": "k1_titanic_robustness",
+  "session_id": "run_20261022_221943",
+  "target_column": "Survived",
+  "task_type": "binary_classification",
+  "metric_name": "accuracy",
+  "metric_direction": "maximize",
+  "turns_completed": 3,
+  "turns": [
+    {
+      "turn_index": 0,
+      "proposed_action": {
+        "action_type": "PARSE_ERROR",
+        "thought_rationale": "",
+        "parameters": {}
+      },
+      "disposition": "rejected",
+      "error_msg": "ValueError: Provider returned empty content (usage: {'completion_tokens': 1500, 'prompt_tokens': 926, 'total_tokens': 2426})",
+      "measurements": {
+        "error": "ValueError: Provider returned empty content (usage: {'completion_tokens': 1500, 'prompt_tokens': 926, 'total_tokens': 2426})"
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "controller": {
+          "rss_bytes": 363053056,
+          "cpu_percent": 99.2,
+          "process_count": 1,
+          "status": "available",
+          "errors": []
+        },
+        "workers": {
+          "rss_bytes": null,
+          "cpu_percent": null,
+          "process_count": 0,
+          "status": "unavailable",
+          "errors": []
+        },
+        "controller_pid": 21087,
+        "worker_pids": [],
+        "current_tree_rss_bytes": null,
+        "worker_peak_rss_bytes": null,
+        "controller_peak_rss_bytes": 363069440,
+        "avg_cpu_percent": 7.243946188340807,
+        "cgroup": {
+          "available": false,
+          "verified_limits": false,
+          "membership_verified": false,
+          "memory_limit_bytes": null,
+          "cpu_quota_cores": null,
+          "memory_current_bytes": null,
+          "memory_peak_bytes": null,
+          "oom_events": null,
+          "errors": [],
+          "scope": "controller"
+        },
+        "cgroup_enforced": false,
+        "containment_status": "unverified_or_uncontained",
+        "sampling_status": "available",
+        "errors": [],
+        "duration_seconds": 16.438157791999856
+      },
+      "provider_cost_usd": "0.00082",
+      "provider_cost_is_estimate": false,
+      "requested_token_upper_bound": 10818,
+      "provider_receipt": {
+        "content": null,
+        "usage": {
+          "completion_tokens": 1500,
+          "prompt_tokens": 926,
+          "total_tokens": 2426
+        },
+        "cost_usd": "0.00082",
+        "cost_is_estimate": false,
+        "provider_response_id": "gen-1792687785-4jKmlRVMcjAuG9qyDwyA",
+        "latency_ms": 16375,
+        "request_sha256": "eb5b549cb9e84f2e39def61d6010c2b8e07905fafc6ff100a8353a8f819f2b19",
+        "gateway_route": "rust_mlrescurix_harness"
+      }
+    },
+    {
+      "turn_index": 1,
+      "proposed_action": {
+        "thought_rationale": "No candidate has been accepted yet and the previous turn failed with a parse error. The active spec defines two model families (hist_gbdt and penalized_linear) with equal weights. The next logical step is to run a baseline experiment using the pinned group-disjoint CV scheme, applying minimal preprocessing for missing values and categorical encoding, and evaluating accuracy on the development folds.",
+        "action_type": "RUN_EXPERIMENT",
+        "parameters": {
+          "target": "Survived",
+          "metric": "accuracy",
+          "metric_direction": "maximize",
+          "families": [
+            "hist_gbdt",
+            "penalized_linear"
+          ],
+          "weights": [
+            1,
+            1
+          ],
+          "seed": 42,
+          "cv": {
+            "kind": "group_kfold",
+            "n_splits": 5,
+            "group_column": "frozen_family_ticket_mapping",
+            "shuffle": true,
+            "random_state": 42
+          },
+          "preprocessing": {
+            "drop_columns": [
+              "PassengerId",
+              "Name",
+              "Ticket",
+              "Cabin"
+            ],
+            "numeric_impute": {
+              "Age": "median",
+              "Fare": "median"
+            },
+            "categorical_impute": {
+              "Embarked": "most_frequent"
+            },
+            "encode_categorical": [
+              "Sex",
+              "Embarked",
+              "Pclass"
+            ],
+            "scale_numeric_for_linear": [
+              "Age",
+              "Fare",
+              "SibSp",
+              "Parch"
+            ]
+          },
+          "notes": "Baseline run for both active families; compare fold-wise accuracy and select best candidate for final evaluation."
+        }
+      },
+      "disposition": "rejected",
+      "error_msg": "ValueError: Unknown action type 'RUN_EXPERIMENT'",
+      "measurements": {
+        "error": "ValueError: Unknown action type 'RUN_EXPERIMENT'"
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "controller": {
+          "rss_bytes": 363102208,
+          "cpu_percent": 32.7,
+          "process_count": 1,
+          "status": "available",
+          "errors": []
+        },
+        "workers": {
+          "rss_bytes": null,
+          "cpu_percent": null,
+          "process_count": 0,
+          "status": "unavailable",
+          "errors": []
+        },
+        "controller_pid": 21087,
+        "worker_pids": [],
+        "current_tree_rss_bytes": null,
+        "worker_peak_rss_bytes": null,
+        "controller_peak_rss_bytes": 363102208,
+        "avg_cpu_percent": 7.221896383186706,
+        "cgroup": {
+          "available": false,
+          "verified_limits": false,
+          "membership_verified": false,
+          "memory_limit_bytes": null,
+          "cpu_quota_cores": null,
+          "memory_current_bytes": null,
+          "memory_peak_bytes": null,
+          "oom_events": null,
+          "errors": [],
+          "scope": "controller"
+        },
+        "cgroup_enforced": false,
+        "containment_status": "unverified_or_uncontained",
+        "sampling_status": "available",
+        "errors": [],
+        "duration_seconds": 8.6365902499997
+      },
+      "provider_cost_usd": "0.00045",
+      "provider_cost_is_estimate": false,
+      "requested_token_upper_bound": 12186,
+      "provider_receipt": {
+        "content": "{\"thought_rationale\": \"No candidate has been accepted yet and the previous turn failed with a parse error. The active spec defines two model families (hist_gbdt and penalized_linear) with equal weights. The next logical step is to run a baseline experiment using the pinned group-disjoint CV scheme, applying minimal preprocessing for missing values and categorical encoding, and evaluating accuracy on the development folds.\", \"action_type\": \"RUN_EXPERIMENT\", \"parameters\": {\"target\": \"Survived\", \"metric\": \"accuracy\", \"metric_direction\": \"maximize\", \"families\": [\"hist_gbdt\", \"penalized_linear\"], \"weights\": [1, 1], \"seed\": 42, \"cv\": {\"kind\": \"group_kfold\", \"n_splits\": 5, \"group_column\": \"frozen_family_ticket_mapping\", \"shuffle\": true, \"random_state\": 42}, \"preprocessing\": {\"drop_columns\": [\"PassengerId\", \"Name\", \"Ticket\", \"Cabin\"], \"numeric_impute\": {\"Age\": \"median\", \"Fare\": \"median\"}, \"categorical_impute\": {\"Embarked\": \"most_frequent\"}, \"encode_categorical\": [\"Sex\", \"Embarked\", \"Pclass\"], \"scale_numeric_for_linear\": [\"Age\", \"Fare\", \"SibSp\", \"Parch\"]}, \"notes\": \"Baseline run for both active families; compare fold-wise accuracy and select best candidate for final evaluation.\"}}",
+        "usage": {
+          "completion_tokens": 694,
+          "prompt_tokens": 1317,
+          "total_tokens": 2011
+        },
+        "cost_usd": "0.00045",
+        "cost_is_estimate": false,
+        "provider_response_id": "gen-1792687801-1D9TZAj7CahDBYl7uIwf",
+        "latency_ms": 8569,
+        "request_sha256": "4272efae76549e04ceb736ca8c44ff0bffcf44026906f123f0ef95e8caebc609",
+        "gateway_route": "rust_mlrescurix_harness"
+      }
+    },
+    {
+      "turn_index": 2,
+      "proposed_action": {
+        "thought_rationale": "Turn 3 of 3 is the final turn. Prior attempts were rejected: turn 0 was a parse error, and turn 1 used an unrecognized action type ('RUN_EXPERIMENT'). No candidate has been accepted yet, and the campaign budget is nearly exhausted. Given the pinned group-disjoint split on 'frozen_family_ticket_mapping', the safest terminal move is to finalize with a robust baseline rather than risk another invalid action. I will request a FINALIZE action that trains a hist_gbdt model (strong default for tabular binary classification) on the full development set using the previously specified preprocessing (drop PassengerId/Name/Ticket/Cabin, median-impute Age/Fare, most-frequent Embarked, one-hot Sex/Embarked/Pclass), then emits final predictions for the held-out final_fraction. A penalized_linear fallback is included in case hist_gbdt fails to fit.",
+        "action_type": "FINALIZE",
+        "parameters": {
+          "target": "Survived",
+          "metric": "accuracy",
+          "metric_direction": "maximize",
+          "primary_family": "hist_gbdt",
+          "fallback_family": "penalized_linear",
+          "seed": 42,
+          "cv": {
+            "kind": "group_kfold",
+            "n_splits": 5,
+            "group_column": "frozen_family_ticket_mapping",
+            "shuffle": true,
+            "random_state": 42
+          },
+          "preprocessing": {
+            "drop_columns": [
+              "PassengerId",
+              "Name",
+              "Ticket",
+              "Cabin"
+            ],
+            "numeric_impute": {
+              "Age": "median",
+              "Fare": "median"
+            },
+            "categorical_impute": {
+              "Embarked": "most_frequent"
+            },
+            "encode_categorical": [
+              "Sex",
+              "Embarked",
+              "Pclass"
+            ],
+            "scale_numeric_for_linear": [
+              "Age",
+              "Fare",
+              "SibSp",
+              "Parch"
+            ]
+          },
+          "train_on": "full_development_set",
+          "emit_final_predictions": true,
+          "notes": "Terminal action: fit hist_gbdt on all development rows, fall back to penalized_linear if fitting fails, and produce final predictions for the frozen final_fraction split."
+        }
+      },
+      "disposition": "rejected",
+      "error_msg": "ValueError: Unknown action type 'FINALIZE'",
+      "measurements": {
+        "error": "ValueError: Unknown action type 'FINALIZE'"
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "controller": {
+          "rss_bytes": 363151360,
+          "cpu_percent": 37.0,
+          "process_count": 1,
+          "status": "available",
+          "errors": []
+        },
+        "workers": {
+          "rss_bytes": null,
+          "cpu_percent": null,
+          "process_count": 0,
+          "status": "unavailable",
+          "errors": []
+        },
+        "controller_pid": 21087,
+        "worker_pids": [],
+        "current_tree_rss_bytes": null,
+        "worker_peak_rss_bytes": null,
+        "controller_peak_rss_bytes": 363151360,
+        "avg_cpu_percent": 6.922761409589833,
+        "cgroup": {
+          "available": false,
+          "verified_limits": false,
+          "membership_verified": false,
+          "memory_limit_bytes": null,
+          "cpu_quota_cores": null,
+          "memory_current_bytes": null,
+          "memory_peak_bytes": null,
+          "oom_events": null,
+          "errors": [],
+          "scope": "controller"
+        },
+        "cgroup_enforced": false,
+        "containment_status": "unverified_or_uncontained",
+        "sampling_status": "available",
+        "errors": [],
+        "duration_seconds": 17.203334249999898
+      },
+      "provider_cost_usd": "0.00082",
+      "provider_cost_is_estimate": false,
+      "requested_token_upper_bound": 14204,
+      "provider_receipt": {
+        "content": "{\"thought_rationale\": \"Turn 3 of 3 is the final turn. Prior attempts were rejected: turn 0 was a parse error, and turn 1 used an unrecognized action type ('RUN_EXPERIMENT'). No candidate has been accepted yet, and the campaign budget is nearly exhausted. Given the pinned group-disjoint split on 'frozen_family_ticket_mapping', the safest terminal move is to finalize with a robust baseline rather than risk another invalid action. I will request a FINALIZE action that trains a hist_gbdt model (strong default for tabular binary classification) on the full development set using the previously specified preprocessing (drop PassengerId/Name/Ticket/Cabin, median-impute Age/Fare, most-frequent Embarked, one-hot Sex/Embarked/Pclass), then emits final predictions for the held-out final_fraction. A penalized_linear fallback is included in case hist_gbdt fails to fit.\", \"action_type\": \"FINALIZE\", \"parameters\": {\"target\": \"Survived\", \"metric\": \"accuracy\", \"metric_direction\": \"maximize\", \"primary_family\": \"hist_gbdt\", \"fallback_family\": \"penalized_linear\", \"seed\": 42, \"cv\": {\"kind\": \"group_kfold\", \"n_splits\": 5, \"group_column\": \"frozen_family_ticket_mapping\", \"shuffle\": true, \"random_state\": 42}, \"preprocessing\": {\"drop_columns\": [\"PassengerId\", \"Name\", \"Ticket\", \"Cabin\"], \"numeric_impute\": {\"Age\": \"median\", \"Fare\": \"median\"}, \"categorical_impute\": {\"Embarked\": \"most_frequent\"}, \"encode_categorical\": [\"Sex\", \"Embarked\", \"Pclass\"], \"scale_numeric_for_linear\": [\"Age\", \"Fare\", \"SibSp\", \"Parch\"]}, \"train_on\": \"full_development_set\", \"emit_final_predictions\": true, \"notes\": \"Terminal action: fit hist_gbdt on all development rows, fall back to penalized_linear if fitting fails, and produce final predictions for the frozen final_fraction split.\"}}",
+        "usage": {
+          "completion_tokens": 1346,
+          "prompt_tokens": 1882,
+          "total_tokens": 3228
+        },
+        "cost_usd": "0.00082",
+        "cost_is_estimate": false,
+        "provider_response_id": "gen-1792687813-UYbZEHYF7ld45ZazQrG3",
+        "latency_ms": 17140,
+        "request_sha256": "56adbe4de873857d1af14f1c0820e0ba453d697ca1fe001a16b8306956632d3e",
+        "gateway_route": "rust_mlrescurix_harness"
+      }
+    }
+  ],
+  "stop_reason": "max_turns_reached",
+  "accepted_candidate_id": null,
+  "best_cv_score": null,
+  "accepted_candidate": null,
+  "candidate_identity": null,
+  "accepted_audit": null,
+  "pending_turn": null,
+  "active_spec": {
+    "families": [
+      "hist_gbdt",
+      "penalized_linear"
+    ],
+    "weights": [
+      1,
+      1
+    ],
+    "transforms": [],
+    "seed": 42
+  },
+  "current_active_features": [
+    "PassengerId",
+    "Pclass",
+    "Name",
+    "Sex",
+    "Age",
+    "SibSp",
+    "Parch",
+    "Ticket",
+    "Fare",
+    "Cabin",
+    "Embarked"
+  ],
+  "current_active_families": [
+    "hist_gbdt",
+    "penalized_linear"
+  ],
+  "bundle_verified": false,
+  "containment_status": "unverified",
+  "holdout_accesses": 0,
+  "script_registry": {},
+  "execution_path": "python_governed_workers",
+  "production_certified": false,
+  "evaluation_count": 0
+}

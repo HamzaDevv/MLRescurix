@@ -1,0 +1,410 @@
+{
+  "schema_version": 1,
+  "binding": {
+    "project_id": "k1_titanic_robustness",
+    "session_id": "run_20261022_221143",
+    "data_sha256": "7d82814abff04f38cbd2681c70337264c0f0f84737a217f5cfd60c2051b2e3c1",
+    "folds_sha256": "ac6942b7b1fb9356840f6bb290e1fa97fbaf3376716e39bc9a82524628a2bddb",
+    "target": "Survived",
+    "task": "binary_classification",
+    "metric": "accuracy",
+    "direction": "maximize",
+    "topology_hash": "5f751310294f70e09f0da7760c21951d98535a18b468d4819dc3a24925729dbf",
+    "problem_statement": "Titanic; target=Survived; metric=accuracy (maximize); pinned split={\"development_folds\": 5, \"final_fraction\": 0.2, \"group\": \"frozen_family_ticket_mapping\", \"kind\": \"group_disjoint\"}",
+    "model": "deepseek/deepseek-v4.1-flash-1017",
+    "endpoint": "inference-net/fp8",
+    "provider_is_fixture": false,
+    "worker_memory_bytes": 2147483648
+  },
+  "state_file": "/Users/hamza/Developer/Imp_Projects/MLRescurix/docs/evidence/v2/robustness/20261021-robustness/run_20261022_221143/autonomous_loop_state.json",
+  "stop_reason": "max_turns_reached",
+  "pending_turn": null,
+  "accepted_candidate_id": null,
+  "candidate_identity": null,
+  "accepted_audit": null,
+  "last_turns": [
+    {
+      "turn_index": 0,
+      "proposed_action": {
+        "action_type": "PARSE_ERROR",
+        "thought_rationale": "",
+        "parameters": {}
+      },
+      "disposition": "rejected",
+      "error_msg": "ValueError: Provider returned empty content (usage: {'completion_tokens': 3500, 'prompt_tokens': 886, 'total_tokens': 4386})",
+      "measurements": {
+        "error": "ValueError: Provider returned empty content (usage: {'completion_tokens': 3500, 'prompt_tokens': 886, 'total_tokens': 4386})"
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "controller": {
+          "rss_bytes": 363118592,
+          "cpu_percent": 21.3,
+          "process_count": 1,
+          "status": "available",
+          "errors": []
+        },
+        "workers": {
+          "rss_bytes": null,
+          "cpu_percent": null,
+          "process_count": 0,
+          "status": "unavailable",
+          "errors": []
+        },
+        "controller_pid": 20561,
+        "worker_pids": [],
+        "current_tree_rss_bytes": null,
+        "worker_peak_rss_bytes": null,
+        "controller_peak_rss_bytes": 363118592,
+        "avg_cpu_percent": 6.876055555555555,
+        "cgroup": {
+          "available": false,
+          "verified_limits": false,
+          "membership_verified": false,
+          "memory_limit_bytes": null,
+          "cpu_quota_cores": null,
+          "memory_current_bytes": null,
+          "memory_peak_bytes": null,
+          "oom_events": null,
+          "errors": [],
+          "scope": "controller"
+        },
+        "cgroup_enforced": false,
+        "containment_status": "unverified_or_uncontained",
+        "sampling_status": "available",
+        "errors": [],
+        "duration_seconds": 44.551488332999725
+      },
+      "provider_cost_usd": "0.00182",
+      "provider_cost_is_estimate": false,
+      "requested_token_upper_bound": 12693,
+      "provider_receipt": {
+        "content": null,
+        "usage": {
+          "completion_tokens": 3500,
+          "prompt_tokens": 886,
+          "total_tokens": 4386
+        },
+        "cost_usd": "0.00182",
+        "cost_is_estimate": false,
+        "provider_response_id": "gen-1792687306-gc7T7wOgJKB7eRk4wMU7",
+        "latency_ms": 44495,
+        "request_sha256": "057a2323e1680604e51caf985f27a470d7bfd6e43b55cd8bdb94047c2d652550",
+        "gateway_route": "rust_mlrescurix_harness"
+      }
+    },
+    {
+      "turn_index": 1,
+      "proposed_action": {
+        "action_type": "PARSE_ERROR",
+        "thought_rationale": "",
+        "parameters": {}
+      },
+      "disposition": "rejected",
+      "error_msg": "JSONDecodeError: Expecting value: line 1 column 1 (char 0)",
+      "measurements": {
+        "error": "JSONDecodeError: Expecting value: line 1 column 1 (char 0)"
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "controller": {
+          "rss_bytes": 363184128,
+          "cpu_percent": 38.5,
+          "process_count": 1,
+          "status": "available",
+          "errors": []
+        },
+        "workers": {
+          "rss_bytes": null,
+          "cpu_percent": null,
+          "process_count": 0,
+          "status": "unavailable",
+          "errors": []
+        },
+        "controller_pid": 20561,
+        "worker_pids": [],
+        "current_tree_rss_bytes": null,
+        "worker_peak_rss_bytes": null,
+        "controller_peak_rss_bytes": 363184128,
+        "avg_cpu_percent": 6.8909696213067,
+        "cgroup": {
+          "available": false,
+          "verified_limits": false,
+          "membership_verified": false,
+          "memory_limit_bytes": null,
+          "cpu_quota_cores": null,
+          "memory_current_bytes": null,
+          "memory_peak_bytes": null,
+          "oom_events": null,
+          "errors": [],
+          "scope": "controller"
+        },
+        "cgroup_enforced": false,
+        "containment_status": "unverified_or_uncontained",
+        "sampling_status": "available",
+        "errors": [],
+        "duration_seconds": 14.704744791999929
+      },
+      "provider_cost_usd": "0.00074",
+      "provider_cost_is_estimate": false,
+      "requested_token_upper_bound": 14061,
+      "provider_receipt": {
+        "content": "## Turn 2 Plan \u2014 Recover from parse error and run the dual-family baseline\n\nTurn 0 failed at the provider layer (empty content), so no candidate was registered. I'll issue a single, self-contained script action that (a) builds a leakage-safe feature set, (b) evaluates both active families under the pinned **group-disjoint** CV, and (c) reports OOF accuracy so the critic can score it.\n\n### Proposed action\n\n```json\n{\n  \"action\": \"RUN_SCRIPT\",\n  \"parameters\": {\n    \"script_name\": \"titanic_dual_family_cv\",\n    \"seed\": 42,\n    \"cv\": {\n      \"kind\": \"group_kfold\",\n      \"n_splits\": 5,\n      \"group_column\": \"frozen_family_ticket_mapping\",\n      \"shuffle\": true\n    },\n    \"feature_engineering\": {\n      \"drop\": [\"PassengerId\", \"Name\", \"Ticket\", \"Cabin\"],\n      \"title_from_name\": [\"Mr\", \"Mrs\", \"Miss\", \"Master\", \"Rare\"],\n      \"family_size\": \"SibSp + Parch + 1\",\n      \"is_alone\": \"family_size == 1\",\n      \"fare_log1p\": true,\n      \"age_median_impute\": true,\n      \"age_missing_indicator\": true,\n      \"embarked_mode_impute\": true,\n      \"embarked_onehot\": true,\n      \"sex_binary\": true,\n      \"cabin_present_indicator\": true,\n      \"ticket_prefix\": \"extract alpha prefix from Ticket (fallback 'NONE')\"\n    },\n    \"families\": [\n      {\n        \"name\": \"hist_gbdt\",\n        \"estimator\": \"HistGradientBoostingClassifier\",\n        \"params\": {\n          \"max_iter\": 400,\n          \"learning_rate\": 0.05,\n          \"max_depth\": null,\n          \"max_leaf_nodes\": 31,\n          \"min_samples_leaf\": 20,\n          \"l2_regularization\": 1.0,\n          \"early_stopping\": true,\n          \"validation_fraction\": 0.15,\n          \"random_state\": 42\n        },\n        \"preprocess\": \"native categorical support via ordinal encoding of low-cardinality cats\"\n      },\n      {\n        \"name\": \"penalized_linear\",\n        \"estimator\": \"LogisticRegression\",\n        \"params\": {\n          \"penalty\": \"l2\",\n          \"C\": 1.0,\n          \"solver\": \"liblinear\",\n          \"max_iter\": 2000,\n          \"random_state\": 42\n        },\n        \"preprocess\": \"StandardScaler on numeric + one-hot on categoricals (ColumnTransformer)\"\n      }\n    ],\n    \"ensemble\": {\n      \"method\": \"weighted_soft_vote\",\n      \"weights\": [1, 1]\n    },\n    \"report\": [\"per_fold_accuracy\", \"oof_accuracy\", \"family_oof_accuracy\", \"confusion_matrix\"]\n  }\n}\n```\n\n### Rationale\n- **Group-disjoint integrity**: `frozen_family_ticket_mapping` is used as the `groups` argument to `GroupKFold`, so no family/ticket group leaks across folds \u2014 matching the pinned split.\n- **Leakage-safe features**: `Name`/`Ticket`/`Cabin` are reduced to low-cardinality derived signals (title, ticket prefix, cabin-present) rather than raw high-cardinality strings, avoiding overfit on 713 rows.\n- **Both active families exercised** with equal weight, per `active_spec.weights = [1, 1]`.\n- **Deterministic**: seed 42 threaded through estimators and CV shuffle.\n\n### Expected outputs for critic\n- `oof_accuracy` per family and for the soft-vote ensemble\n- Per-fold accuracy vector (5 values) to check variance\n- Confusion matrix at 0.5 threshold\n\nIf the critic accepts, turn 3 will lock the winning family (or the ensemble) and emit the final-fit + prediction artifact. If rejected, I'll fall back to a single-family `hist_gbdt` run with reduced feature surface.\n\n**Awaiting critic disposition before executing.**",
+        "usage": {
+          "completion_tokens": 1280,
+          "prompt_tokens": 1277,
+          "total_tokens": 2557
+        },
+        "cost_usd": "0.00074",
+        "cost_is_estimate": false,
+        "provider_response_id": "gen-1792687351-I7rpVvR7EiqvHVpjReDP",
+        "latency_ms": 14635,
+        "request_sha256": "ceadc38d7d2562a7a937e2395cd3ac5b65237bee4f109e74d021500114784e4f",
+        "gateway_route": "rust_mlrescurix_harness"
+      }
+    },
+    {
+      "turn_index": 2,
+      "proposed_action": {
+        "proposed_action": "RUN_SCRIPT",
+        "parameters": {
+          "script_name": "titanic_groupcv_baseline_v1",
+          "language": "python",
+          "purpose": "Establish group-disjoint CV baseline for hist_gbdt and penalized_linear families on Titanic with engineered features; report per-fold and mean accuracy.",
+          "seed": 42,
+          "families": [
+            "hist_gbdt",
+            "penalized_linear"
+          ],
+          "cv": {
+            "kind": "group_kfold",
+            "n_splits": 5,
+            "group_column": "frozen_family_ticket_mapping",
+            "shuffle": true,
+            "seed": 42
+          },
+          "feature_engineering": [
+            "Title extracted from Name (rare titles bucketed to 'Rare')",
+            "FamilySize = SibSp + Parch + 1",
+            "IsAlone = (FamilySize == 1)",
+            "TicketPrefix = leading alpha token of Ticket, else 'NONE'",
+            "CabinDeck = first char of Cabin, else 'U'",
+            "Age imputed by median within (Sex, Pclass); AgeMissing flag",
+            "Fare log1p transform; FareMissing flag",
+            "Embarked mode-imputed",
+            "One-hot encode Sex, Embarked, Title, TicketPrefix, CabinDeck; ordinal Pclass"
+          ],
+          "models": {
+            "hist_gbdt": {
+              "estimator": "HistGradientBoostingClassifier",
+              "params": {
+                "max_iter": 300,
+                "learning_rate": 0.05,
+                "max_depth": null,
+                "max_leaf_nodes": 31,
+                "l2_regularization": 1.0,
+                "early_stopping": true,
+                "random_state": 42
+              }
+            },
+            "penalized_linear": {
+              "estimator": "LogisticRegression",
+              "params": {
+                "penalty": "l2",
+                "C": 1.0,
+                "solver": "liblinear",
+                "max_iter": 2000,
+                "random_state": 42
+              }
+            }
+          },
+          "preprocessing": "ColumnTransformer with StandardScaler on numeric, OneHotEncoder(handle_unknown='ignore') on categorical; fit inside each CV fold to avoid leakage.",
+          "outputs": [
+            "per_fold_accuracy per family",
+            "mean_accuracy and std per family",
+            "confusion matrix per family (aggregated OOF)",
+            "feature importance / coefficient summary"
+          ],
+          "notes": "Group column 'frozen_family_ticket_mapping' is assumed present in the dataset; if absent, derive from Ticket+FamilySize grouping and log a warning. Do not touch final holdout."
+        },
+        "action_type": "RUN_SCRIPT",
+        "thought_rationale": ""
+      },
+      "disposition": "rejected",
+      "error_msg": "ValueError: Unknown action type 'RUN_SCRIPT'",
+      "measurements": {
+        "error": "ValueError: Unknown action type 'RUN_SCRIPT'"
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "controller": {
+          "rss_bytes": 363233280,
+          "cpu_percent": 19.9,
+          "process_count": 1,
+          "status": "available",
+          "errors": []
+        },
+        "workers": {
+          "rss_bytes": null,
+          "cpu_percent": null,
+          "process_count": 0,
+          "status": "unavailable",
+          "errors": []
+        },
+        "controller_pid": 20561,
+        "worker_pids": [],
+        "current_tree_rss_bytes": null,
+        "worker_peak_rss_bytes": null,
+        "controller_peak_rss_bytes": 363233280,
+        "avg_cpu_percent": 6.881808731808732,
+        "cgroup": {
+          "available": false,
+          "verified_limits": false,
+          "membership_verified": false,
+          "memory_limit_bytes": null,
+          "cpu_quota_cores": null,
+          "memory_current_bytes": null,
+          "memory_peak_bytes": null,
+          "oom_events": null,
+          "errors": [],
+          "scope": "controller"
+        },
+        "cgroup_enforced": false,
+        "containment_status": "unverified_or_uncontained",
+        "sampling_status": "available",
+        "errors": [],
+        "duration_seconds": 11.83015295899986
+      },
+      "provider_cost_usd": "0.00055",
+      "provider_cost_is_estimate": false,
+      "requested_token_upper_bound": 15297,
+      "provider_receipt": {
+        "content": "{\n  \"proposed_action\": \"RUN_SCRIPT\",\n  \"parameters\": {\n    \"script_name\": \"titanic_groupcv_baseline_v1\",\n    \"language\": \"python\",\n    \"purpose\": \"Establish group-disjoint CV baseline for hist_gbdt and penalized_linear families on Titanic with engineered features; report per-fold and mean accuracy.\",\n    \"seed\": 42,\n    \"families\": [\"hist_gbdt\", \"penalized_linear\"],\n    \"cv\": {\n      \"kind\": \"group_kfold\",\n      \"n_splits\": 5,\n      \"group_column\": \"frozen_family_ticket_mapping\",\n      \"shuffle\": true,\n      \"seed\": 42\n    },\n    \"feature_engineering\": [\n      \"Title extracted from Name (rare titles bucketed to 'Rare')\",\n      \"FamilySize = SibSp + Parch + 1\",\n      \"IsAlone = (FamilySize == 1)\",\n      \"TicketPrefix = leading alpha token of Ticket, else 'NONE'\",\n      \"CabinDeck = first char of Cabin, else 'U'\",\n      \"Age imputed by median within (Sex, Pclass); AgeMissing flag\",\n      \"Fare log1p transform; FareMissing flag\",\n      \"Embarked mode-imputed\",\n      \"One-hot encode Sex, Embarked, Title, TicketPrefix, CabinDeck; ordinal Pclass\"\n    ],\n    \"models\": {\n      \"hist_gbdt\": {\n        \"estimator\": \"HistGradientBoostingClassifier\",\n        \"params\": {\"max_iter\": 300, \"learning_rate\": 0.05, \"max_depth\": null, \"max_leaf_nodes\": 31, \"l2_regularization\": 1.0, \"early_stopping\": true, \"random_state\": 42}\n      },\n      \"penalized_linear\": {\n        \"estimator\": \"LogisticRegression\",\n        \"params\": {\"penalty\": \"l2\", \"C\": 1.0, \"solver\": \"liblinear\", \"max_iter\": 2000, \"random_state\": 42}\n      }\n    },\n    \"preprocessing\": \"ColumnTransformer with StandardScaler on numeric, OneHotEncoder(handle_unknown='ignore') on categorical; fit inside each CV fold to avoid leakage.\",\n    \"outputs\": [\n      \"per_fold_accuracy per family\",\n      \"mean_accuracy and std per family\",\n      \"confusion matrix per family (aggregated OOF)\",\n      \"feature importance / coefficient summary\"\n    ],\n    \"notes\": \"Group column 'frozen_family_ticket_mapping' is assumed present in the dataset; if absent, derive from Ticket+FamilySize grouping and log a warning. Do not touch final holdout.\"\n  }\n}",
+        "usage": {
+          "completion_tokens": 850,
+          "prompt_tokens": 1630,
+          "total_tokens": 2480
+        },
+        "cost_usd": "0.00055",
+        "cost_is_estimate": false,
+        "provider_response_id": "gen-1792687367-j1Gg7zffWhMYCbtH2YKK",
+        "latency_ms": 11759,
+        "request_sha256": "503d96c093f92f9936239c816c764e4e112947db0dcbeaac25c5b93feaeb6159",
+        "gateway_route": "rust_mlrescurix_harness"
+      }
+    }
+  ],
+  "next_steps": [
+    "Inspect last receipts and unresolved critic flaws",
+    "Resume with identical dataset and locked folds"
+  ],
+  "budget": {
+    "campaign_ceiling_usd": "0.30",
+    "per_run_ceiling_usd": "0.05",
+    "contingency_usd": "0.05",
+    "total_billed_usd": "0.022084020",
+    "total_reserved_usd": "0.00",
+    "total_uncertain_usd": "0.00",
+    "remaining_campaign_usd": "0.277915980",
+    "runs": {
+      "run_20261021_172942": {
+        "billed_usd": "0.00061408",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_173653": {
+        "billed_usd": "0.00092344",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_183624": {
+        "billed_usd": "0.00070202",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_191128": {
+        "billed_usd": "0.00078304",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 2
+      },
+      "run_20261021_191510": {
+        "billed_usd": "0.00064742",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_193634": {
+        "billed_usd": "0.00111500",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_200123": {
+        "billed_usd": "0.00087326",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_200725": {
+        "billed_usd": "0.00099526",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_202038": {
+        "billed_usd": "0.00105858",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_231155": {
+        "billed_usd": "0.00252704",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_231504": {
+        "billed_usd": "0.001232948",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_231630": {
+        "billed_usd": "0.000688544",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_232806": {
+        "billed_usd": "0.001370828",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_232923": {
+        "billed_usd": "0.00107256",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261022_220628": {
+        "billed_usd": "0.00437",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261022_221143": {
+        "billed_usd": "0.00311",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      }
+    },
+    "active_reservations": {}
+  },
+  "production_certified": false
+}

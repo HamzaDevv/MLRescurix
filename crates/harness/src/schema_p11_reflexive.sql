@@ -90,3 +90,17 @@ CREATE TABLE IF NOT EXISTS critique_receipts (
 CREATE INDEX IF NOT EXISTS idx_critique_receipts_candidate ON critique_receipts(project, candidate_id);
 CREATE INDEX IF NOT EXISTS idx_critique_receipts_session_epoch ON critique_receipts(project, session_id, epoch);
 CREATE INDEX IF NOT EXISTS idx_critique_receipts_status ON critique_receipts(project, status);
+
+-- Idempotent gateway receipts remain isolated from orchestrator turn receipts.
+-- `awaiting_response` survives a process death and blocks blind remote replay.
+CREATE TABLE IF NOT EXISTS gateway_dispatch_receipts (
+    project TEXT NOT NULL REFERENCES projects(id),
+    task_id TEXT NOT NULL,
+    request_id TEXT NOT NULL,
+    request_sha256 TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('awaiting_response', 'response_received', 'outcome_unknown')),
+    response_json TEXT,
+    created_ms INTEGER NOT NULL,
+    updated_ms INTEGER NOT NULL,
+    PRIMARY KEY(project, task_id, request_id)
+);

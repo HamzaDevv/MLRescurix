@@ -125,6 +125,8 @@ fn test_live_openrouter_deepseek_call_and_accounting() {
         tools: vec![],
         temperature: Some(0.0),
         max_tokens: Some(100),
+        provider: None,
+        reasoning: None,
     };
 
     let resp = adapter.chat_completion(&req).expect("Live provider request must succeed");

@@ -2,10 +2,10 @@
   "campaign_ceiling_usd": "0.30",
   "per_run_ceiling_usd": "0.05",
   "contingency_usd": "0.05",
-  "total_billed_usd": "0.014604020",
+  "total_billed_usd": "0.050724020",
   "total_reserved_usd": "0.00",
   "total_uncertain_usd": "0.00",
-  "remaining_campaign_usd": "0.285395980",
+  "remaining_campaign_usd": "0.249275980",
   "runs": {
     "run_20261021_172942": {
       "billed_usd": "0.00061408",
@@ -87,6 +87,96 @@
     },
     "run_20261021_232923": {
       "billed_usd": "0.00107256",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 3
+    },
+    "run_20261022_220628": {
+      "billed_usd": "0.00437",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 3
+    },
+    "run_20261022_221143": {
+      "billed_usd": "0.00311",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 3
+    },
+    "run_20261022_221457": {
+      "billed_usd": "0.00400",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 3
+    },
+    "run_20261022_221943": {
+      "billed_usd": "0.00209",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 3
+    },
+    "run_20261022_222344": {
+      "billed_usd": "0.00207",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 3
+    },
+    "run_20261022_222612": {
+      "billed_usd": "0.00229",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 3
+    },
+    "run_20261022_222846": {
+      "billed_usd": "0.00351",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 3
+    },
+    "run_20261022_224238": {
+      "billed_usd": "0.00360",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 3
+    },
+    "run_20261022_225223": {
+      "billed_usd": "0.00155",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 3
+    },
+    "run_20261022_225536": {
+      "billed_usd": "0.00106",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 2
+    },
+    "run_20261022_225637": {
+      "billed_usd": "0.00102",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 2
+    },
+    "run_20261022_230312": {
+      "billed_usd": "0.00191",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 3
+    },
+    "run_20261022_230458": {
+      "billed_usd": "0.00202",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 2
+    },
+    "run_20261022_231013": {
+      "billed_usd": "0.00141",
+      "reserved_usd": "0.00",
+      "uncertain_usd": "0.00",
+      "requests": 2
+    },
+    "run_20261022_232021": {
+      "billed_usd": "0.00211",
       "reserved_usd": "0.00",
       "uncertain_usd": "0.00",
       "requests": 3

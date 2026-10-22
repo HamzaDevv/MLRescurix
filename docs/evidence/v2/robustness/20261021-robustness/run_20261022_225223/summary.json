@@ -1,0 +1,37 @@
+{
+  "campaign": "20261021-robustness",
+  "run_id": "run_20261022_225223",
+  "started_at": "2026-10-22T17:22:23.291844+00:00",
+  "updated_at": "2026-10-22T17:22:49.168139+00:00",
+  "status": "passed",
+  "git": {
+    "commit": "7d7c4479fcbd1aaf929a0f1940ae9e62fd7b5729",
+    "is_dirty": true,
+    "dirty_diff_sha256": "1e956d55a4976234a581397ed3e936128ae596062260c0de4cc2a84141de52fd"
+  },
+  "gates": {
+    "G_LIVE_DEV": {
+      "outcome": "passed",
+      "details": {
+        "status": "passed",
+        "reason": null,
+        "bundle_identity_verified": true,
+        "accepted_candidate_id": "cand_9cfd0f25bc14efa5b3cb7d8d",
+        "candidate_identity": "734fbb6a498c2363a94fa3adf993700bec6838ec61258b63dde50d077b90c4a8",
+        "task": "K1 Titanic",
+        "best_cv_score": 0.7980399881808333,
+        "holdout_accesses": 0,
+        "bundle_verified": true,
+        "provider_cost_usd": 0.00155,
+        "duration_s": 24.262047052383423,
+        "worker_peak_rss_bytes": null,
+        "controller_peak_rss_bytes": 368525312,
+        "containment_status": "unverified_or_uncontained"
+      }
+    }
+  },
+  "budget_spent_usd": 0.00155,
+  "holdout_accesses": 0,
+  "budget_reserved_usd": 0.0,
+  "budget_uncertain_usd": 0.0
+}

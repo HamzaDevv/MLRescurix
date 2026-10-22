@@ -112,6 +112,7 @@
       },
       "additionalProperties": false
     },
+    "candidate_identity": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "resource_measurements": {
       "type": "object",
       "properties": {

@@ -31,13 +31,13 @@ pub struct ToolCall {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ChatMessage {
     pub role: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
 }
 
@@ -108,12 +108,16 @@ pub struct TokenUsage {
 pub struct ChatCompletionRequest {
     pub model: String,
     pub messages: Vec<ChatMessage>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<ToolDefinition>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -127,6 +131,44 @@ pub struct ChatCompletionResponse {
 }
 
 pub struct OutboundFilter;
+
+fn is_raw_tabular_row(line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.is_empty()
+        || trimmed.starts_with('{')
+        || trimmed.starts_with('}')
+        || trimmed.starts_with('[')
+        || trimmed.starts_with(']')
+        || trimmed.starts_with('#')
+    {
+        return false;
+    }
+    // Disqualify natural sentences and markdown/bullet lines
+    if trimmed.ends_with('.')
+        || trimmed.ends_with(':')
+        || trimmed.starts_with("- ")
+        || trimmed.starts_with("* ")
+    {
+        return false;
+    }
+    let comma_count = trimmed.matches(',').count();
+    let comma_space_count = trimmed.matches(", ").count();
+    let tab_count = trimmed.matches('\t').count();
+    let pipe_count = trimmed.matches('|').count();
+
+    // In raw CSV data, commas separate unspaced values (e.g. 1.2,3.4,5.6).
+    // In prose English, commas are followed by a space (e.g. ", ").
+    if comma_count >= 2 && comma_space_count == 0 {
+        return true;
+    }
+    if tab_count >= 2 {
+        return true;
+    }
+    if pipe_count >= 2 && !trimmed.contains("||") {
+        return true;
+    }
+    false
+}
 
 impl OutboundFilter {
     /// Redact raw data rows and truncate unbounded context items to prevent leaking private row data to providers.
@@ -149,25 +191,36 @@ impl OutboundFilter {
 
         let lines: Vec<&str> = text.lines().collect();
 
-        // 2. Detect if content looks like a CSV, TSV or pipe-delimited raw table
-        let mut row_count = 0;
+        // 2. Detect if content contains CSV, TSV or pipe-delimited raw tables
         let mut cleaned_lines: Vec<String> = Vec::new();
-        for (idx, line) in lines.iter().enumerate() {
-            let comma_count = line.matches(',').count();
-            let tab_count = line.matches('\t').count();
-            let pipe_count = line.matches('|').count();
-            let is_delimited_row = (comma_count >= 2 || tab_count >= 2 || pipe_count >= 2) && idx > 0;
-            if is_delimited_row {
-                row_count += 1;
+        let mut table_rows: Vec<String> = Vec::new();
+
+        let flush_table = |cleaned: &mut Vec<String>, rows: &mut Vec<String>| {
+            if rows.len() > 3 {
+                // Keep the first row (header) and redact remaining raw data rows
+                cleaned.push(rows[0].clone());
+                cleaned.push(format!(
+                    "[REDACTED_ROW_DATA: {} raw tabular rows omitted; use aggregate diagnostics]",
+                    rows.len() - 1
+                ));
             } else {
+                cleaned.extend(rows.drain(..));
+            }
+            rows.clear();
+        };
+
+        for line in lines {
+            if is_raw_tabular_row(line) {
+                table_rows.push(line.to_string());
+            } else {
+                if !table_rows.is_empty() {
+                    flush_table(&mut cleaned_lines, &mut table_rows);
+                }
                 cleaned_lines.push(line.to_string());
             }
         }
-
-        if row_count > 3 {
-            // Keep only header row (index 0) and omit all raw data rows
-            cleaned_lines.truncate(1);
-            cleaned_lines.push(format!("[REDACTED_ROW_DATA: {} raw tabular rows omitted; use aggregate diagnostics]", row_count));
+        if !table_rows.is_empty() {
+            flush_table(&mut cleaned_lines, &mut table_rows);
         }
 
         let combined = cleaned_lines.join("\n");
@@ -202,6 +255,8 @@ impl OutboundFilter {
             tools: req.tools.clone(),
             temperature: req.temperature,
             max_tokens: req.max_tokens,
+            provider: req.provider.clone(),
+            reasoning: req.reasoning.clone(),
         }
     }
 }
@@ -477,6 +532,97 @@ pub fn approve_outbound_view(
     }))
 }
 
+fn ensure_project_record(conn: &rusqlite::Connection, project_id: &str) -> Result<()> {
+    let exists: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM projects WHERE id=?1)",
+            rusqlite::params![project_id],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if !exists {
+        // This row only satisfies receipt foreign keys. It grants no M0 budget;
+        // the campaign authority must reserve spend before calling this gateway.
+        let dummy_policy = "{\"budget\":{\"calls\":0,\"tokens\":0,\"wall_ms\":0},\"capacity\":{\"workers\":0,\"cpu_threads\":0},\"max_tasks\":0}";
+        conn.execute(
+            "INSERT INTO projects(id, revision, spec_revision, intent_revision, intent, finalization_id, state, policy)
+             VALUES(?1, 1, 1, 1, 'Auto-registered by RustGateway', ?2, 'running', ?3)",
+            rusqlite::params![project_id, format!("fin-{project_id}"), dummy_policy],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn cost_from_pricing(usage: &TokenUsage, rates: (i64, i64)) -> Result<i64> {
+    let round_up = |tokens: u32, rate: i64| -> i128 {
+        let product = i128::from(tokens) * i128::from(rate);
+        (product + 999) / 1000
+    };
+    let cost = round_up(usage.prompt_tokens, rates.0) + round_up(usage.completion_tokens, rates.1);
+    i64::try_from(cost).map_err(|_| "provider cost exceeds supported accounting range".into())
+}
+
+fn reserve_gateway_receipt(root: &Path, project: &str, task: &str, request_id: &str, digest: &str) -> Result<Option<ChatCompletionResponse>> {
+    use rusqlite::OptionalExtension;
+    if request_id.is_empty() || request_id.len() > 256 || request_id.chars().any(char::is_control) {
+        return Err("invalid gateway request id".into());
+    }
+    crate::execution::migrate(root)?;
+    let mut db = rusqlite::Connection::open(root.join("state.sqlite")).map_err(|e| e.to_string())?;
+    db.busy_timeout(Duration::from_secs(10)).map_err(|e| e.to_string())?;
+    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e| e.to_string())?;
+    ensure_project_record(&tx, project)?;
+    let existing: Option<(String, String, Option<String>)> = tx.query_row(
+        "SELECT request_sha256, status, response_json FROM gateway_dispatch_receipts WHERE project=?1 AND task_id=?2 AND request_id=?3",
+        rusqlite::params![project, task, request_id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    ).optional().map_err(|e| e.to_string())?;
+    if let Some((old_digest, status, response_json)) = existing {
+        if old_digest != digest {
+            return Err("gateway request id was already used with different content".into());
+        }
+        match status.as_str() {
+            "response_received" => {
+                let raw = response_json.ok_or("gateway response receipt is missing its response")?;
+                tx.commit().map_err(|e| e.to_string())?;
+                return serde_json::from_str(&raw).map(Some).map_err(|e| format!("invalid durable gateway response: {e}"));
+            }
+            "awaiting_response" | "outcome_unknown" => {
+                return Err(format!("gateway request {request_id} has an ambiguous prior outcome; refusing provider replay"));
+            }
+            other => return Err(format!("unsupported gateway receipt status: {other}")),
+        }
+    }
+    crate::execution::enforce_state_write_admission(root, Some(&tx),
+        (project.len() + task.len() + request_id.len() + digest.len()) as u64 * 4 + 16 * 1024,
+        crate::execution::StorageWriteKind::ProviderReceipt, Some(project))?;
+    tx.execute(
+        "INSERT INTO gateway_dispatch_receipts(project, task_id, request_id, request_sha256, status, response_json, created_ms, updated_ms)
+         VALUES(?1, ?2, ?3, ?4, 'awaiting_response', NULL, ?5, ?5)",
+        rusqlite::params![project, task, request_id, digest, now_ms()],
+    ).map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(None)
+}
+
+fn finish_gateway_receipt(root: &Path, project: &str, task: &str, request_id: &str, response: Option<&ChatCompletionResponse>) -> Result<()> {
+    let (status, json) = match response {
+        Some(resp) => ("response_received", Some(serde_json::to_string(resp).map_err(|e| e.to_string())?)),
+        None => ("outcome_unknown", None),
+    };
+    let bytes = json.as_ref().map_or(4096, |value| value.len() as u64 * 4 + 16 * 1024);
+    crate::execution::with_state_write(root, bytes, crate::execution::StorageWriteKind::ProviderReceipt,
+        Some(project), |tx| {
+            let changed = tx.execute(
+                "UPDATE gateway_dispatch_receipts SET status=?4, response_json=?5, updated_ms=?6 WHERE project=?1 AND task_id=?2 AND request_id=?3 AND status='awaiting_response'",
+                rusqlite::params![project, task, request_id, status, json, now_ms()],
+            ).map_err(|e| e.to_string())?;
+            if changed != 1 { return Err("gateway receipt was concurrently changed".into()); }
+            Ok(())
+        })
+}
+
 pub fn record_provider_accounting(
     root: &Path,
     project_id: &str,
@@ -493,6 +639,7 @@ pub fn record_provider_accounting(
     let mut connection=rusqlite::Connection::open(root.join("state.sqlite")).map_err(|e|e.to_string())?;
     connection.busy_timeout(Duration::from_secs(10)).map_err(|e|e.to_string())?;
     let db=connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e|e.to_string())?;
+    ensure_project_record(&db, project_id)?;
     crate::execution::enforce_state_write_admission(root, Some(&db), (model.len()+status.len()+request_id.len()+task_id.len()+role_id.len()) as u64*4+16*1024, crate::execution::StorageWriteKind::ProviderReceipt, Some(project_id))?;
     db.execute(
         "INSERT INTO provider_accounting(project, request_id, task_id, role_id, model, prompt_tokens, completion_tokens, cost_millicents, latency_ms, status, created_ms)
@@ -521,4 +668,148 @@ pub fn record_provider_accounting(
     db.commit().map_err(|e|e.to_string())?;
     // M0 action settlement owns charges; this table is supplemental telemetry.
     Ok(())
+}
+
+pub fn stage_outbound_request(
+    root: &Path,
+    project_id: &str,
+    request: &ChatCompletionRequest,
+    actor: &str,
+) -> Result<Value> {
+    use sha2::{Digest, Sha256};
+    crate::execution::migrate(root)?;
+    let sanitized = OutboundFilter::sanitize_request(request);
+    let request_bytes = serde_json::to_vec(&sanitized).map_err(|e| e.to_string())?;
+    let digest = format!("{:x}", Sha256::digest(&request_bytes));
+    let view_json = String::from_utf8(request_bytes).map_err(|e| e.to_string())?;
+    let db = rusqlite::Connection::open(root.join("state.sqlite")).map_err(|e| e.to_string())?;
+    ensure_project_record(&db, project_id)?;
+    db.execute(
+        "INSERT INTO outbound_views(project, request_sha256, view_json, actor, approved, expires_ms)
+         VALUES(?1, ?2, ?3, ?4, 0, 0)
+         ON CONFLICT(project, request_sha256) DO UPDATE SET view_json=excluded.view_json, actor=excluded.actor WHERE outbound_views.approved=0",
+        rusqlite::params![project_id, digest, view_json, actor],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "project_id": project_id,
+        "request_sha256": digest,
+        "actor": actor,
+        "approved": false,
+    }))
+}
+
+pub fn dispatch_gateway(
+    root: &Path,
+    project_id: &str,
+    task_id: &str,
+    role_id: &str,
+    request: &ChatCompletionRequest,
+    gateway: &dyn ProviderGateway,
+    require_policy_approval: bool,
+) -> Result<Value> {
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+    dispatch_gateway_with_id(root, project_id, task_id, role_id,
+        &format!("ephemeral-{}-{nonce}", std::process::id()), request, gateway, require_policy_approval)
+}
+
+/// Dispatch with caller-owned idempotency identity. A caller must reuse the same
+/// ID when recovering an interrupted turn and choose a new ID for every new turn.
+pub fn dispatch_gateway_with_id(
+    root: &Path,
+    project_id: &str,
+    task_id: &str,
+    role_id: &str,
+    request_id: &str,
+    request: &ChatCompletionRequest,
+    gateway: &dyn ProviderGateway,
+    require_policy_approval: bool,
+) -> Result<Value> {
+    use sha2::{Digest, Sha256};
+    crate::execution::migrate(root)?;
+    let sanitized = OutboundFilter::sanitize_request(request);
+    let sanitized_bytes = serde_json::to_vec(&sanitized).map_err(|e| e.to_string())?;
+    let digest = format!("{:x}", Sha256::digest(&sanitized_bytes));
+
+    // Refuse before transport if the campaign has no registered ceiling for the
+    // selected model. The Python campaign authority has already reserved against
+    // the same verified ceiling before this call.
+    let rates = resolve_model_pricing(root, &sanitized.model)?
+        .ok_or_else(|| format!("model '{}' has no registered pricing; refusing provider dispatch", sanitized.model))?;
+
+    if require_policy_approval || gateway.requires_policy_approval() {
+        let db = rusqlite::Connection::open(root.join("state.sqlite")).map_err(|e| e.to_string())?;
+        let approved: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM outbound_views WHERE project=?1 AND request_sha256=?2 AND approved=1 AND expires_ms>?3)",
+            rusqlite::params![project_id, digest, now_ms()],
+            |r| r.get(0),
+        ).map_err(|e| e.to_string())?;
+        if !approved {
+            ensure_project_record(&db, project_id)?;
+            let view_json = String::from_utf8(sanitized_bytes.clone()).unwrap_or_default();
+            let _ = db.execute(
+                "INSERT INTO outbound_views(project, request_sha256, view_json, actor, approved, expires_ms)
+                 VALUES(?1, ?2, ?3, 'unapproved', 0, 0)
+                 ON CONFLICT(project, request_sha256) DO UPDATE SET view_json=excluded.view_json WHERE outbound_views.approved=0",
+                rusqlite::params![project_id, digest, view_json],
+            );
+            return Err(format!("outbound provider request requires a content-bound policy-approved view ({digest}); pattern redaction is not upload authorization"));
+        }
+    }
+
+    let cached_response = reserve_gateway_receipt(root, project_id, task_id, request_id, &digest)?;
+    let replayed = cached_response.is_some();
+    let resp = match cached_response {
+        Some(response) => response,
+        None => match gateway.chat_completion(&sanitized) {
+            Ok(response) => {
+                // Persist exact response before accounting or returning it. If this
+                // write fails, the `awaiting_response` row fences retries as unknown.
+                finish_gateway_receipt(root, project_id, task_id, request_id, Some(&response))?;
+                response
+            }
+            Err(error) => {
+                finish_gateway_receipt(root, project_id, task_id, request_id, None)?;
+                return Err(error);
+            }
+        },
+    };
+
+    let cost_millicents = cost_from_pricing(&resp.usage, rates)?;
+    let cost_usd = cost_millicents as f64 / 100_000.0;
+
+    let accounting_identity = format!("{project_id}\0{task_id}\0{request_id}");
+    let request_key = format!("gw-{}", Sha256::digest(accounting_identity.as_bytes()).iter().map(|b| format!("{b:02x}")).collect::<String>());
+    record_provider_accounting(
+        root,
+        project_id,
+        &request_key,
+        task_id,
+        role_id,
+        &resp.model,
+        &resp.usage,
+        cost_millicents,
+        resp.latency_ms,
+        "ok",
+    )?;
+
+    Ok(serde_json::json!({
+        "status": "completed",
+        "id": resp.id,
+        "model": resp.model,
+        "content": resp.content,
+        "tool_calls": resp.tool_calls,
+        "usage": {
+            "prompt_tokens": resp.usage.prompt_tokens,
+            "completion_tokens": resp.usage.completion_tokens,
+            "total_tokens": resp.usage.total_tokens
+        },
+        "cost_millicents": cost_millicents,
+        "cost_usd": cost_usd,
+        "latency_ms": resp.latency_ms,
+        "request_sha256": digest,
+        "request_id": request_id,
+        "replayed": replayed,
+        "cost_is_estimate": true
+    }))
 }

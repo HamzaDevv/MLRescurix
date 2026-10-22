@@ -1,0 +1,434 @@
+{
+  "schema_version": 1,
+  "binding": {
+    "project_id": "k4_ieee_fraud_robustness",
+    "session_id": "run_20261022_230312",
+    "data_sha256": "ac36e70e30422e063990048a7ab47cb8ec5f33d6f908555c6d1d85c899d8fbd0",
+    "folds_sha256": "1b746fd844f7dd213539612826208a9114d2f559f8621e41a146d9de9726820a",
+    "target": "isFraud",
+    "task": "binary_classification",
+    "metric": "roc_auc",
+    "direction": "maximize",
+    "topology_hash": "b379c2cb49e43467edcaedfee8a7a966219423aef7c6a7bf6dc35c43cdb06f7d",
+    "problem_statement": "IEEE-CIS Fraud Detection; target=isFraud; metric=roc_auc (maximize); pinned split={\"development_origins\": 3, \"final_fraction\": 0.2, \"gap\": \"must_be_locked_from_prediction_context_before_search\", \"group_overlap\": \"report_known_vs_new_entity_assumption\", \"join_key\": \"TransactionID\", \"kind\": \"chronological_rolling_origin\", \"time\": \"TransactionDT\"}",
+    "model": "deepseek/deepseek-v4.1-flash-1017",
+    "endpoint": "inference-net/fp8",
+    "provider_is_fixture": false,
+    "worker_memory_bytes": 2147483648
+  },
+  "state_file": "/Users/hamza/Developer/Imp_Projects/MLRescurix/docs/evidence/v2/robustness/20261021-robustness/run_20261022_230312/autonomous_loop_state.json",
+  "stop_reason": "HANDOFF",
+  "pending_turn": null,
+  "accepted_candidate_id": null,
+  "candidate_identity": null,
+  "accepted_audit": null,
+  "last_turns": [
+    {
+      "turn_index": 0,
+      "proposed_action": {
+        "thought_rationale": "The dossier is already fresh, so the best first step is to measure the active model families under the pinned chronological CV before considering transforms or blending.",
+        "action_type": "EVALUATE_PORTFOLIO",
+        "parameters": {
+          "families": [
+            "hist_gbdt",
+            "penalized_linear",
+            "lgbm"
+          ]
+        }
+      },
+      "disposition": "rejected",
+      "error_msg": "RuntimeError: Candidate worker exceeded observed RSS budget; terminated (not cgroup containment)",
+      "measurements": {
+        "error": "RuntimeError: Candidate worker exceeded observed RSS budget; terminated (not cgroup containment)"
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "controller": {
+          "rss_bytes": 1903181824,
+          "cpu_percent": 100.0,
+          "process_count": 1,
+          "status": "available",
+          "errors": []
+        },
+        "workers": {
+          "rss_bytes": null,
+          "cpu_percent": null,
+          "process_count": 0,
+          "status": "unavailable",
+          "errors": []
+        },
+        "controller_pid": 30086,
+        "worker_pids": [],
+        "current_tree_rss_bytes": null,
+        "worker_peak_rss_bytes": 2178498560,
+        "controller_peak_rss_bytes": 1903181824,
+        "avg_cpu_percent": 61.39676966292135,
+        "cgroup": {
+          "available": false,
+          "verified_limits": false,
+          "membership_verified": false,
+          "memory_limit_bytes": null,
+          "cpu_quota_cores": null,
+          "memory_current_bytes": null,
+          "memory_peak_bytes": null,
+          "oom_events": null,
+          "errors": [],
+          "scope": "controller"
+        },
+        "cgroup_enforced": false,
+        "containment_status": "unverified_or_uncontained",
+        "sampling_status": "available",
+        "errors": [],
+        "duration_seconds": 9.698274833999676
+      },
+      "provider_cost_usd": "0.00043",
+      "provider_cost_is_estimate": false,
+      "requested_token_upper_bound": 19606,
+      "provider_receipt": {
+        "content": "{\"thought_rationale\": \"The dossier is already fresh, so the best first step is to measure the active model families under the pinned chronological CV before considering transforms or blending.\", \"action_type\": \"EVALUATE_PORTFOLIO\", \"parameters\": {\"families\": [\"hist_gbdt\", \"penalized_linear\", \"lgbm\"]}}",
+        "usage": {
+          "completion_tokens": 116,
+          "prompt_tokens": 4680,
+          "total_tokens": 4796
+        },
+        "cost_usd": "0.00043",
+        "cost_is_estimate": false,
+        "provider_response_id": "gen-1792690401-CnH5TNZIz6GFOU81WIcb",
+        "latency_ms": 2878,
+        "request_sha256": "da21cd8aa6fa9c983d5d1448cf8f37440be3ba5eef5adbe6ffbf48114b5f7779",
+        "gateway_route": "rust_mlrescurix_harness"
+      }
+    },
+    {
+      "turn_index": 1,
+      "proposed_action": {
+        "thought_rationale": "Prior 3-family evaluation exceeded the RSS budget (~2.18GB peak), so I must reduce memory footprint. Evaluating a single strong tabular family (hist_gbdt) alone should fit within budget and establish an accepted candidate before the final turn.",
+        "action_type": "EVALUATE_PORTFOLIO",
+        "parameters": {
+          "families": [
+            "hist_gbdt"
+          ]
+        }
+      },
+      "disposition": "rejected",
+      "error_msg": "RuntimeError: Candidate worker exceeded observed RSS budget; terminated (not cgroup containment)",
+      "measurements": {
+        "error": "RuntimeError: Candidate worker exceeded observed RSS budget; terminated (not cgroup containment)"
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "controller": {
+          "rss_bytes": 1582252032,
+          "cpu_percent": 100.0,
+          "process_count": 1,
+          "status": "available",
+          "errors": []
+        },
+        "workers": {
+          "rss_bytes": null,
+          "cpu_percent": null,
+          "process_count": 0,
+          "status": "unavailable",
+          "errors": []
+        },
+        "controller_pid": 30086,
+        "worker_pids": [],
+        "current_tree_rss_bytes": null,
+        "worker_peak_rss_bytes": 2259206144,
+        "controller_peak_rss_bytes": 1903198208,
+        "avg_cpu_percent": 52.70458383594692,
+        "cgroup": {
+          "available": false,
+          "verified_limits": false,
+          "membership_verified": false,
+          "memory_limit_bytes": null,
+          "cpu_quota_cores": null,
+          "memory_current_bytes": null,
+          "memory_peak_bytes": null,
+          "oom_events": null,
+          "errors": [],
+          "scope": "controller"
+        },
+        "cgroup_enforced": false,
+        "containment_status": "unverified_or_uncontained",
+        "sampling_status": "available",
+        "errors": [],
+        "duration_seconds": 18.91441854200002
+      },
+      "provider_cost_usd": "0.00068",
+      "provider_cost_is_estimate": false,
+      "requested_token_upper_bound": 20994,
+      "provider_receipt": {
+        "content": "{\"thought_rationale\": \"Prior 3-family evaluation exceeded the RSS budget (~2.18GB peak), so I must reduce memory footprint. Evaluating a single strong tabular family (hist_gbdt) alone should fit within budget and establish an accepted candidate before the final turn.\", \"action_type\": \"EVALUATE_PORTFOLIO\", \"parameters\": {\"families\": [\"hist_gbdt\"]}}",
+        "usage": {
+          "completion_tokens": 565,
+          "prompt_tokens": 5060,
+          "total_tokens": 5625
+        },
+        "cost_usd": "0.00068",
+        "cost_is_estimate": false,
+        "provider_response_id": "gen-1792690415-h7kfGbbh9CeFsooBiJAH",
+        "latency_ms": 12259,
+        "request_sha256": "48e0e19b1aabbd158d70e3fb3c2ed22593147a0b63af38771ce07a7db847d4a4",
+        "gateway_route": "rust_mlrescurix_harness"
+      }
+    },
+    {
+      "turn_index": 2,
+      "proposed_action": {
+        "thought_rationale": "Two consecutive portfolio evaluations were terminated for exceeding the observed RSS budget (worker peaks ~2.18-2.26 GB) with no accepted candidate and this being the final turn, so a further in-session evaluation risks another resource failure; the correct move is to export evidence and hand off with concrete memory-reduction next steps.",
+        "action_type": "HANDOFF",
+        "parameters": {
+          "reason": "Repeated candidate-worker RSS budget overruns (turn 0: 3-family portfolio peak 2.18 GB; turn 1: hist_gbdt-only peak 2.26 GB) prevented any family from completing CV on the pinned chronological rolling-origin split. No audited candidate exists, so FINALIZE_AND_STOP cannot be satisfied and no metric may be claimed.",
+          "next_steps": [
+            "Raise the worker RSS budget or enable cgroup-enforced containment so peak memory is bounded and observable rather than post-hoc terminated.",
+            "Reduce the active feature matrix before modeling: drop near-empty columns (dist2 94.8% missing, D7/D8/D9/D12/D13/D14 ~90% missing, R_emaildomain 82% missing) and prune the V-block to a low-variance subset to cut the 434-column footprint.",
+            "Evaluate a single low-memory family first (penalized_linear on a frequency-encoded, standardized subset) to establish a baseline ROC-AUC under the pinned folds before attempting hist_gbdt or lgbm.",
+            "If hist_gbdt is retried, cap max_bins, set early_stopping with a small validation fraction, and cast float64 columns to float32 to reduce resident memory.",
+            "Preserve folds_sha256 1b746fd844f7dd213539612826208a9114d2f559f8621e41a146d9de9726820a and the chronological rolling-origin split (3 development origins, 0.2 final fraction, locked gap) unchanged in the successor session.",
+            "Record the known-vs-new entity assumption for TransactionID/card1 grouping in the successor session's evidence before any search."
+          ]
+        }
+      },
+      "disposition": "applied",
+      "error_msg": null,
+      "measurements": {
+        "reason": "Repeated candidate-worker RSS budget overruns (turn 0: 3-family portfolio peak 2.18 GB; turn 1: hist_gbdt-only peak 2.26 GB) prevented any family from completing CV on the pinned chronological rolling-origin split. No audited candidate exists, so FINALIZE_AND_STOP cannot be satisfied and no metric may be claimed."
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "controller": {
+          "rss_bytes": 1513963520,
+          "cpu_percent": 23.4,
+          "process_count": 1,
+          "status": "available",
+          "errors": []
+        },
+        "workers": {
+          "rss_bytes": null,
+          "cpu_percent": null,
+          "process_count": 0,
+          "status": "unavailable",
+          "errors": []
+        },
+        "controller_pid": 30086,
+        "worker_pids": [],
+        "current_tree_rss_bytes": null,
+        "worker_peak_rss_bytes": 2259206144,
+        "controller_peak_rss_bytes": 1903198208,
+        "avg_cpu_percent": 46.13762886597938,
+        "cgroup": {
+          "available": false,
+          "verified_limits": false,
+          "membership_verified": false,
+          "memory_limit_bytes": null,
+          "cpu_quota_cores": null,
+          "memory_current_bytes": null,
+          "memory_peak_bytes": null,
+          "oom_events": null,
+          "errors": [],
+          "scope": "controller"
+        },
+        "cgroup_enforced": false,
+        "containment_status": "unverified_or_uncontained",
+        "sampling_status": "available",
+        "errors": [],
+        "duration_seconds": 10.54387591700015
+      },
+      "provider_cost_usd": "0.0008",
+      "provider_cost_is_estimate": false,
+      "requested_token_upper_bound": 22352,
+      "provider_receipt": {
+        "content": "{\"thought_rationale\": \"Two consecutive portfolio evaluations were terminated for exceeding the observed RSS budget (worker peaks ~2.18-2.26 GB) with no accepted candidate and this being the final turn, so a further in-session evaluation risks another resource failure; the correct move is to export evidence and hand off with concrete memory-reduction next steps.\", \"action_type\": \"HANDOFF\", \"parameters\": {\"reason\": \"Repeated candidate-worker RSS budget overruns (turn 0: 3-family portfolio peak 2.18 GB; turn 1: hist_gbdt-only peak 2.26 GB) prevented any family from completing CV on the pinned chronological rolling-origin split. No audited candidate exists, so FINALIZE_AND_STOP cannot be satisfied and no metric may be claimed.\", \"next_steps\": [\"Raise the worker RSS budget or enable cgroup-enforced containment so peak memory is bounded and observable rather than post-hoc terminated.\", \"Reduce the active feature matrix before modeling: drop near-empty columns (dist2 94.8% missing, D7/D8/D9/D12/D13/D14 ~90% missing, R_emaildomain 82% missing) and prune the V-block to a low-variance subset to cut the 434-column footprint.\", \"Evaluate a single low-memory family first (penalized_linear on a frequency-encoded, standardized subset) to establish a baseline ROC-AUC under the pinned folds before attempting hist_gbdt or lgbm.\", \"If hist_gbdt is retried, cap max_bins, set early_stopping with a small validation fraction, and cast float64 columns to float32 to reduce resident memory.\", \"Preserve folds_sha256 1b746fd844f7dd213539612826208a9114d2f559f8621e41a146d9de9726820a and the chronological rolling-origin split (3 development origins, 0.2 final fraction, locked gap) unchanged in the successor session.\", \"Record the known-vs-new entity assumption for TransactionID/card1 grouping in the successor session's evidence before any search.\"]}}",
+        "usage": {
+          "completion_tokens": 734,
+          "prompt_tokens": 5427,
+          "total_tokens": 6161
+        },
+        "cost_usd": "0.0008",
+        "cost_is_estimate": false,
+        "provider_response_id": "gen-1792690431-87juTCKMl1kd8mZijdVW",
+        "latency_ms": 10451,
+        "request_sha256": "c7eb0350fe9534a07b7e171bbc35a06cc991f60023521f2a8b9d09991d655fc7",
+        "gateway_route": "rust_mlrescurix_harness"
+      }
+    }
+  ],
+  "next_steps": [
+    "Raise the worker RSS budget or enable cgroup-enforced containment so peak memory is bounded and observable rather than post-hoc terminated.",
+    "Reduce the active feature matrix before modeling: drop near-empty columns (dist2 94.8% missing, D7/D8/D9/D12/D13/D14 ~90% missing, R_emaildomain 82% missing) and prune the V-block to a low-variance subset to cut the 434-column footprint.",
+    "Evaluate a single low-memory family first (penalized_linear on a frequency-encoded, standardized subset) to establish a baseline ROC-AUC under the pinned folds before attempting hist_gbdt or lgbm.",
+    "If hist_gbdt is retried, cap max_bins, set early_stopping with a small validation fraction, and cast float64 columns to float32 to reduce resident memory.",
+    "Preserve folds_sha256 1b746fd844f7dd213539612826208a9114d2f559f8621e41a146d9de9726820a and the chronological rolling-origin split (3 development origins, 0.2 final fraction, locked gap) unchanged in the successor session.",
+    "Record the known-vs-new entity assumption for TransactionID/card1 grouping in the successor session's evidence before any search."
+  ],
+  "budget": {
+    "campaign_ceiling_usd": "0.30",
+    "per_run_ceiling_usd": "0.05",
+    "contingency_usd": "0.05",
+    "total_billed_usd": "0.045184020",
+    "total_reserved_usd": "0.00",
+    "total_uncertain_usd": "0.00",
+    "remaining_campaign_usd": "0.254815980",
+    "runs": {
+      "run_20261021_172942": {
+        "billed_usd": "0.00061408",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_173653": {
+        "billed_usd": "0.00092344",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_183624": {
+        "billed_usd": "0.00070202",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_191128": {
+        "billed_usd": "0.00078304",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 2
+      },
+      "run_20261021_191510": {
+        "billed_usd": "0.00064742",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_193634": {
+        "billed_usd": "0.00111500",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_200123": {
+        "billed_usd": "0.00087326",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_200725": {
+        "billed_usd": "0.00099526",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_202038": {
+        "billed_usd": "0.00105858",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_231155": {
+        "billed_usd": "0.00252704",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_231504": {
+        "billed_usd": "0.001232948",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_231630": {
+        "billed_usd": "0.000688544",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_232806": {
+        "billed_usd": "0.001370828",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_232923": {
+        "billed_usd": "0.00107256",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261022_220628": {
+        "billed_usd": "0.00437",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261022_221143": {
+        "billed_usd": "0.00311",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261022_221457": {
+        "billed_usd": "0.00400",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261022_221943": {
+        "billed_usd": "0.00209",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261022_222344": {
+        "billed_usd": "0.00207",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261022_222612": {
+        "billed_usd": "0.00229",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261022_222846": {
+        "billed_usd": "0.00351",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261022_224238": {
+        "billed_usd": "0.00360",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261022_225223": {
+        "billed_usd": "0.00155",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261022_225536": {
+        "billed_usd": "0.00106",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 2
+      },
+      "run_20261022_225637": {
+        "billed_usd": "0.00102",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 2
+      },
+      "run_20261022_230312": {
+        "billed_usd": "0.00191",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      }
+    },
+    "active_reservations": {}
+  },
+  "production_certified": false
+}

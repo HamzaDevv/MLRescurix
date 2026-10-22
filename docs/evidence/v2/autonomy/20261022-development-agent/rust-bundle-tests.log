@@ -1,0 +1,9 @@
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.89s
+     Running unittests src/lib.rs (target/debug/deps/mlrescurix_harness-c9b0a6a2da25d54f)
+
+running 2 tests
+test bundle::tests::v2_bundle_manifest_and_dependency_isolation ... ok
+test bundle::tests::integrity_does_not_certify_execution_or_unknown_constraints ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 27 filtered out; finished in 0.01s

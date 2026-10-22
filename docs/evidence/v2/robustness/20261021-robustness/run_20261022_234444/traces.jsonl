@@ -1,0 +1,4 @@
+{"timestamp": "2026-10-22T18:14:44.894021+00:00", "event": "preflight_start", "action": "evaluating_prerequisites"}
+{"timestamp": "2026-10-22T18:14:48.221164+00:00", "event": "preflight_completed", "duration_s": 3.3229238986968994, "blocked_gates": []}
+{"timestamp": "2026-10-22T18:14:48.221668+00:00", "event": "deterministic_dev_start", "action": "evaluating_benchmarks"}
+{"timestamp": "2026-10-22T18:14:56.608697+00:00", "event": "deterministic_dev_completed", "outcome": "passed", "duration_s": 8.386173009872437}

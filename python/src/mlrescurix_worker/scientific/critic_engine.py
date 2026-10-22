@@ -241,7 +241,6 @@ class CriticEngine:
                     candidate.get("distinct_families_evaluated")
                     or candidate.get("evaluated_model_families")
                     or candidate.get("tier1_families")
-                    or candidate.get("submodels")
                 )
             if cv_scheme_used is None and isinstance(candidate, dict):
                 cv_scheme_used = candidate.get("cv_scheme") or candidate.get("cv_scheme_used")
@@ -249,8 +248,11 @@ class CriticEngine:
         candidate_id = candidate_id or "candidate"
         if error_forensics is not None and forensics_report is None:
             forensics_report = error_forensics
-        if evaluated_model_families is not None and distinct_families_evaluated is None:
-            distinct_families_evaluated = evaluated_model_families
+        if evaluated_model_families is not None:
+            if distinct_families_evaluated is None:
+                distinct_families_evaluated = evaluated_model_families
+            else:
+                distinct_families_evaluated = list(dict.fromkeys(list(distinct_families_evaluated) + list(evaluated_model_families)))
 
         blocking_flaws: List[str] = []
         soft_warnings: List[str] = []
@@ -270,11 +272,11 @@ class CriticEngine:
             if hasattr(eval_result, "mean_train_score") and hasattr(eval_result, "mean_cv_score"):
                 train_metric = float(eval_result.mean_train_score)
                 val_metric = float(eval_result.mean_cv_score)
-                if hasattr(eval_result, "feature_importances") and hasattr(eval_result, "feature_names"):
+                if getattr(eval_result, "feature_importances", None) is not None and hasattr(eval_result, "feature_names"):
                     imps = np.asarray(eval_result.feature_importances, dtype=float)
                     names = list(eval_result.feature_names)
                     total_gain = float(np.sum(imps))
-                    if total_gain > 1e-12 and len(names) == len(imps):
+                    if imps.ndim == 1 and np.all(np.isfinite(imps)) and np.all(imps >= 0) and total_gain > 1e-12 and len(names) == len(imps):
                         max_idx = int(np.argmax(imps))
                         dominant_feature = names[max_idx]
                         dominant_gain_ratio = float(imps[max_idx] / total_gain)

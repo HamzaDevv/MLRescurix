@@ -1,0 +1,111 @@
+{
+  "campaign": "20261021-robustness",
+  "run_id": "run_20261022_232147",
+  "started_at": "2026-10-22T17:51:47.909647+00:00",
+  "updated_at": "2026-10-22T17:51:51.142070+00:00",
+  "status": "inconclusive",
+  "git": {
+    "commit": "7d7c4479fcbd1aaf929a0f1940ae9e62fd7b5729",
+    "is_dirty": true,
+    "dirty_diff_sha256": "f36aefdf06068c5e9dcf45744d41782a38b4bc5bbd6e63a402e20e0ec2734574"
+  },
+  "gates": {
+    "G0_HOST_ENVIRONMENT": {
+      "outcome": "passed",
+      "details": {
+        "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+        "python_version": "3.13.3",
+        "arch": "arm64",
+        "cores": 8
+      }
+    },
+    "G1_PYTHON_SCIENTIFIC_STACK": {
+      "outcome": "passed",
+      "details": {
+        "numpy": "2.2.6",
+        "pandas": "2.3.0",
+        "scipy": "1.16.1",
+        "sklearn": "1.8.0",
+        "pytest": "8.3.4",
+        "jsonschema": "4.26.0",
+        "psutil": "6.1.1"
+      }
+    },
+    "G2_RUST_HARNESS_PROVENANCE": {
+      "outcome": "inconclusive",
+      "reason": "Binary hashes collected; source-to-build binding unverified",
+      "details": {
+        "debug_binary": {
+          "exists": true,
+          "sha256": "2441137ade3ff5fb1e739386a405415680fab30083aa4420c19b69381e9ec636"
+        },
+        "dist_binary": {
+          "exists": true,
+          "sha256": "f9ffee6b9279600c78f227c4d32d83572f5e7357f3a1e13ccdf9c490f5158f24"
+        },
+        "rust_source_sha256": "94a52b82bdb6f0f081f07d3f98b70da3d9b53daf9d2c0546c38eb703370f2e51"
+      }
+    },
+    "G3_STORAGE_SCHEMA_V11": {
+      "outcome": "inconclusive",
+      "details": {
+        "max_supported_version": 11,
+        "never_downgrade_to_v10": true,
+        "status": "unverified",
+        "reason": "Runtime database migration not exercised"
+      }
+    },
+    "G4_CONTAINER_CGROUP_V2": {
+      "outcome": "inconclusive",
+      "reason": "Daemon reports cgroup v2; per-job enforcement unverified",
+      "details": {
+        "docker_bin": "/usr/local/bin/docker",
+        "daemon_reachable": true,
+        "info": "linux 2",
+        "cgroup_v2_certified": true
+      }
+    },
+    "G5_KAGGLE_OFFICIAL_DATA": {
+      "outcome": "inconclusive",
+      "reason": "Official dataset files pinned; campaign verification required",
+      "details": {
+        "client_installed": true,
+        "credentials_present": true,
+        "official_data_status": "ready",
+        "pinned_tasks": {
+          "K1": true,
+          "K2": true,
+          "K3": true,
+          "K4": true,
+          "K5": true
+        }
+      }
+    },
+    "G6_PROVIDER_GATEWAY": {
+      "outcome": "inconclusive",
+      "reason": "Rust production gateway wired with outbound-view policy and budget accounting; live request unverified",
+      "details": {
+        "key_present": true,
+        "key_source": "local_file",
+        "rust_gateway_binary_present": true,
+        "validity_verified": false,
+        "spending_cap_usd": 0.3,
+        "per_run_cap_usd": 0.05,
+        "model_id": "deepseek/deepseek-v4.1-flash-1017",
+        "provider_routing": {
+          "only": [
+            "inference-net/fp8"
+          ],
+          "order": [
+            "inference-net/fp8"
+          ],
+          "allow_fallbacks": false
+        }
+      }
+    }
+  },
+  "budget_spent_usd": 0.0,
+  "holdout_accesses": 0,
+  "budget_reserved_usd": 0.0,
+  "budget_uncertain_usd": 0.0
+}

@@ -1,0 +1,38 @@
+{
+  "campaign": "20261021-robustness",
+  "run_id": "run_20261022_225536",
+  "started_at": "2026-10-22T17:25:36.674501+00:00",
+  "updated_at": "2026-10-22T17:25:59.135560+00:00",
+  "status": "passed",
+  "git": {
+    "commit": "7d7c4479fcbd1aaf929a0f1940ae9e62fd7b5729",
+    "is_dirty": true,
+    "dirty_diff_sha256": "0a34c8262cd7b8a3e9508953fcf258685897f22df696e0e43ae8b47cd8800a57"
+  },
+  "gates": {
+    "G_LIVE_DEV": {
+      "outcome": "passed",
+      "details": {
+        "status": "passed",
+        "reason": null,
+        "bundle_identity_verified": true,
+        "accepted_candidate_id": "cand_b4385531300f74f2e5925316",
+        "candidate_identity": "5687af9eb5fc1915d2d6b89a371f30cdff97bcbbb6aff8806995f2b75c43fa31",
+        "task": "K2 House Prices",
+        "metric": "rmse_log_price",
+        "best_cv_score": 0.137838922506486,
+        "holdout_accesses": 0,
+        "bundle_verified": true,
+        "provider_cost_usd": 0.00106,
+        "duration_s": 20.8942129611969,
+        "worker_peak_rss_bytes": null,
+        "controller_peak_rss_bytes": 381485056,
+        "containment_status": "unverified_or_uncontained"
+      }
+    }
+  },
+  "budget_spent_usd": 0.00106,
+  "holdout_accesses": 0,
+  "budget_reserved_usd": 0.0,
+  "budget_uncertain_usd": 0.0
+}

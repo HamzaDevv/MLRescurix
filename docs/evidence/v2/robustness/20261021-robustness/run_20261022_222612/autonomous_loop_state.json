@@ -1,0 +1,351 @@
+{
+  "schema_version": 3,
+  "binding": {
+    "project_id": "k1_titanic_robustness",
+    "session_id": "run_20261022_222612",
+    "data_sha256": "7d82814abff04f38cbd2681c70337264c0f0f84737a217f5cfd60c2051b2e3c1",
+    "folds_sha256": "ac6942b7b1fb9356840f6bb290e1fa97fbaf3376716e39bc9a82524628a2bddb",
+    "target": "Survived",
+    "task": "binary_classification",
+    "metric": "accuracy",
+    "direction": "maximize",
+    "topology_hash": "5f751310294f70e09f0da7760c21951d98535a18b468d4819dc3a24925729dbf",
+    "problem_statement": "Titanic; target=Survived; metric=accuracy (maximize); pinned split={\"development_folds\": 5, \"final_fraction\": 0.2, \"group\": \"frozen_family_ticket_mapping\", \"kind\": \"group_disjoint\"}",
+    "model": "deepseek/deepseek-v4.1-flash-1017",
+    "endpoint": "inference-net/fp8",
+    "provider_is_fixture": false,
+    "worker_memory_bytes": 2147483648
+  },
+  "project_id": "k1_titanic_robustness",
+  "session_id": "run_20261022_222612",
+  "target_column": "Survived",
+  "task_type": "binary_classification",
+  "metric_name": "accuracy",
+  "metric_direction": "maximize",
+  "turns_completed": 3,
+  "turns": [
+    {
+      "turn_index": 0,
+      "proposed_action": {
+        "action_type": "PARSE_ERROR",
+        "thought_rationale": "",
+        "parameters": {}
+      },
+      "disposition": "rejected",
+      "error_msg": "JSONDecodeError: Unterminated string starting at: line 6 column 5 (char 568)",
+      "measurements": {
+        "error": "JSONDecodeError: Unterminated string starting at: line 6 column 5 (char 568)"
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "controller": {
+          "rss_bytes": 363036672,
+          "cpu_percent": 74.3,
+          "process_count": 1,
+          "status": "available",
+          "errors": []
+        },
+        "workers": {
+          "rss_bytes": null,
+          "cpu_percent": null,
+          "process_count": 0,
+          "status": "unavailable",
+          "errors": []
+        },
+        "controller_pid": 22483,
+        "worker_pids": [],
+        "current_tree_rss_bytes": null,
+        "worker_peak_rss_bytes": null,
+        "controller_peak_rss_bytes": 363053056,
+        "avg_cpu_percent": 7.263475177304964,
+        "cgroup": {
+          "available": false,
+          "verified_limits": false,
+          "membership_verified": false,
+          "memory_limit_bytes": null,
+          "cpu_quota_cores": null,
+          "memory_current_bytes": null,
+          "memory_peak_bytes": null,
+          "oom_events": null,
+          "errors": [],
+          "scope": "controller"
+        },
+        "cgroup_enforced": false,
+        "containment_status": "unverified_or_uncontained",
+        "sampling_status": "available",
+        "errors": [],
+        "duration_seconds": 13.875603958000283
+      },
+      "provider_cost_usd": "0.00082",
+      "provider_cost_is_estimate": false,
+      "requested_token_upper_bound": 10818,
+      "provider_receipt": {
+        "content": "{\n  \"thought_rationale\": \"Turn 1: No candidate accepted yet. We need to establish a baseline using the active spec (hist_gbdt and penalized_linear). We will train both families with default hyperparameters using the pinned group-disjoint 5-fold CV, applying basic preprocessing (impute missing Age/Embarked, encode categoricals, drop Cabin or treat missing as category). Evaluate accuracy to compare families and set a baseline for further tuning.\",\n  \"action_type\": \"train_and_evaluate\",\n  \"parameters\": {\n    \"model_families\": [\"hist_gbdt\", \"penalized_linear\"],\n    \"cv_scheme",
+        "usage": {
+          "completion_tokens": 1500,
+          "prompt_tokens": 926,
+          "total_tokens": 2426
+        },
+        "cost_usd": "0.00082",
+        "cost_is_estimate": false,
+        "provider_response_id": "gen-1792688175-VMzXGuRVMghoZhtuFdbK",
+        "latency_ms": 13819,
+        "request_sha256": "c13e8fded1334641f1d6be22db60158627caf14ca675745aa0165a36d55f767d",
+        "gateway_route": "rust_mlrescurix_harness"
+      }
+    },
+    {
+      "turn_index": 1,
+      "proposed_action": {
+        "thought_rationale": "No candidate has been accepted yet; turn 0 failed due to a JSON parse error. The active spec defines two model families (hist_gbdt and penalized_linear) with equal weights. The next step is to run a grouped cross-validation experiment that evaluates both families with basic preprocessing and selects the best model by accuracy, respecting the frozen group split.",
+        "action_type": "run_experiment",
+        "parameters": {
+          "model_families": [
+            "hist_gbdt",
+            "penalized_linear"
+          ],
+          "weights": [
+            1,
+            1
+          ],
+          "cv_scheme": "group_kfold",
+          "n_splits": 5,
+          "group_column": "frozen_family_ticket_mapping",
+          "target": "Survived",
+          "metric": "accuracy",
+          "preprocessing": {
+            "numeric_impute": {
+              "Age": "median",
+              "Fare": "median"
+            },
+            "categorical_impute": {
+              "Embarked": "mode",
+              "Cabin": "missing"
+            },
+            "categorical_encode": [
+              "Sex",
+              "Embarked",
+              "Cabin_deck"
+            ],
+            "feature_engineering": [
+              "Title_from_Name",
+              "Cabin_deck",
+              "Ticket_prefix"
+            ]
+          },
+          "seed": 42
+        }
+      },
+      "disposition": "rejected",
+      "error_msg": "ValueError: Unknown action type 'run_experiment'",
+      "measurements": {
+        "error": "ValueError: Unknown action type 'run_experiment'"
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "controller": {
+          "rss_bytes": 363069440,
+          "cpu_percent": 49.1,
+          "process_count": 1,
+          "status": "available",
+          "errors": []
+        },
+        "workers": {
+          "rss_bytes": null,
+          "cpu_percent": null,
+          "process_count": 0,
+          "status": "unavailable",
+          "errors": []
+        },
+        "controller_pid": 22483,
+        "worker_pids": [],
+        "current_tree_rss_bytes": null,
+        "worker_peak_rss_bytes": null,
+        "controller_peak_rss_bytes": 363069440,
+        "avg_cpu_percent": 7.240229885057471,
+        "cgroup": {
+          "available": false,
+          "verified_limits": false,
+          "membership_verified": false,
+          "memory_limit_bytes": null,
+          "cpu_quota_cores": null,
+          "memory_current_bytes": null,
+          "memory_peak_bytes": null,
+          "oom_events": null,
+          "errors": [],
+          "scope": "controller"
+        },
+        "cgroup_enforced": false,
+        "containment_status": "unverified_or_uncontained",
+        "sampling_status": "available",
+        "errors": [],
+        "duration_seconds": 11.84175816700008
+      },
+      "provider_cost_usd": "0.00059",
+      "provider_cost_is_estimate": false,
+      "requested_token_upper_bound": 12090,
+      "provider_receipt": {
+        "content": "{\n  \"thought_rationale\": \"No candidate has been accepted yet; turn 0 failed due to a JSON parse error. The active spec defines two model families (hist_gbdt and penalized_linear) with equal weights. The next step is to run a grouped cross-validation experiment that evaluates both families with basic preprocessing and selects the best model by accuracy, respecting the frozen group split.\",\n  \"action_type\": \"run_experiment\",\n  \"parameters\": {\n    \"model_families\": [\"hist_gbdt\", \"penalized_linear\"],\n    \"weights\": [1, 1],\n    \"cv_scheme\": \"group_kfold\",\n    \"n_splits\": 5,\n    \"group_column\": \"frozen_family_ticket_mapping\",\n    \"target\": \"Survived\",\n    \"metric\": \"accuracy\",\n    \"preprocessing\": {\n      \"numeric_impute\": {\n        \"Age\": \"median\",\n        \"Fare\": \"median\"\n      },\n      \"categorical_impute\": {\n        \"Embarked\": \"mode\",\n        \"Cabin\": \"missing\"\n      },\n      \"categorical_encode\": [\"Sex\", \"Embarked\", \"Cabin_deck\"],\n      \"feature_engineering\": [\"Title_from_Name\", \"Cabin_deck\", \"Ticket_prefix\"]\n    },\n    \"seed\": 42\n  }\n}",
+        "usage": {
+          "completion_tokens": 982,
+          "prompt_tokens": 1286,
+          "total_tokens": 2268
+        },
+        "cost_usd": "0.00059",
+        "cost_is_estimate": false,
+        "provider_response_id": "gen-1792688191-WB50q6wRy3bSUNLPy2Nb",
+        "latency_ms": 11782,
+        "request_sha256": "563e9706409b770dce8738d5c0ad30dd06fb7f5e79b615c88c4179d94d5375df",
+        "gateway_route": "rust_mlrescurix_harness"
+      }
+    },
+    {
+      "turn_index": 2,
+      "proposed_action": {
+        "thought_rationale": "The previous attempt used an invalid action type 'run_experiment'. The active spec already defines the model families and weights. I will use the likely valid action type 'train_model' to execute cross-validation with the specified group-disjoint split and preprocessing, aiming to produce an accepted candidate before the final turn.",
+        "action_type": "train_model",
+        "parameters": {
+          "model_families": [
+            "hist_gbdt",
+            "penalized_linear"
+          ],
+          "weights": [
+            1,
+            1
+          ],
+          "cv_scheme": "group_kfold",
+          "n_splits": 5,
+          "group_column": "frozen_family_ticket_mapping",
+          "target": "Survived",
+          "metric": "accuracy",
+          "preprocessing": {
+            "numeric_impute": {
+              "Age": "median",
+              "Fare": "median"
+            },
+            "categorical_impute": {
+              "Embarked": "mode",
+              "Cabin": "missing"
+            },
+            "categorical_encode": [
+              "Sex",
+              "Embarked",
+              "Cabin_deck"
+            ],
+            "feature_engineering": [
+              "Title_from_Name",
+              "Cabin_deck",
+              "Ticket_prefix"
+            ]
+          },
+          "seed": 42
+        }
+      },
+      "disposition": "rejected",
+      "error_msg": "ValueError: Unknown action type 'train_model'",
+      "measurements": {
+        "error": "ValueError: Unknown action type 'train_model'"
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "controller": {
+          "rss_bytes": 363085824,
+          "cpu_percent": 32.5,
+          "process_count": 1,
+          "status": "available",
+          "errors": []
+        },
+        "workers": {
+          "rss_bytes": null,
+          "cpu_percent": null,
+          "process_count": 0,
+          "status": "unavailable",
+          "errors": []
+        },
+        "controller_pid": 22483,
+        "worker_pids": [],
+        "current_tree_rss_bytes": null,
+        "worker_peak_rss_bytes": null,
+        "controller_peak_rss_bytes": 363085824,
+        "avg_cpu_percent": 7.137070524412297,
+        "cgroup": {
+          "available": false,
+          "verified_limits": false,
+          "membership_verified": false,
+          "memory_limit_bytes": null,
+          "cpu_quota_cores": null,
+          "memory_current_bytes": null,
+          "memory_peak_bytes": null,
+          "oom_events": null,
+          "errors": [],
+          "scope": "controller"
+        },
+        "cgroup_enforced": false,
+        "containment_status": "unverified_or_uncontained",
+        "sampling_status": "available",
+        "errors": [],
+        "duration_seconds": 15.198687707999852
+      },
+      "provider_cost_usd": "0.00088",
+      "provider_cost_is_estimate": false,
+      "requested_token_upper_bound": 13863,
+      "provider_receipt": {
+        "content": "{\"thought_rationale\": \"The previous attempt used an invalid action type 'run_experiment'. The active spec already defines the model families and weights. I will use the likely valid action type 'train_model' to execute cross-validation with the specified group-disjoint split and preprocessing, aiming to produce an accepted candidate before the final turn.\", \"action_type\": \"train_model\", \"parameters\": {\"model_families\": [\"hist_gbdt\", \"penalized_linear\"], \"weights\": [1, 1], \"cv_scheme\": \"group_kfold\", \"n_splits\": 5, \"group_column\": \"frozen_family_ticket_mapping\", \"target\": \"Survived\", \"metric\": \"accuracy\", \"preprocessing\": {\"numeric_impute\": {\"Age\": \"median\", \"Fare\": \"median\"}, \"categorical_impute\": {\"Embarked\": \"mode\", \"Cabin\": \"missing\"}, \"categorical_encode\": [\"Sex\", \"Embarked\", \"Cabin_deck\"], \"feature_engineering\": [\"Title_from_Name\", \"Cabin_deck\", \"Ticket_prefix\"]}, \"seed\": 42}}",
+        "usage": {
+          "completion_tokens": 1478,
+          "prompt_tokens": 1789,
+          "total_tokens": 3267
+        },
+        "cost_usd": "0.00088",
+        "cost_is_estimate": false,
+        "provider_response_id": "gen-1792688200-zJLXS22VHIrWk5YOOkER",
+        "latency_ms": 15135,
+        "request_sha256": "c2cb881d5630320d68414356860ff1de95db526aa03961fabd83ba6d93ae69d7",
+        "gateway_route": "rust_mlrescurix_harness"
+      }
+    }
+  ],
+  "stop_reason": "max_turns_reached",
+  "accepted_candidate_id": null,
+  "best_cv_score": null,
+  "accepted_candidate": null,
+  "candidate_identity": null,
+  "accepted_audit": null,
+  "pending_turn": null,
+  "active_spec": {
+    "families": [
+      "hist_gbdt",
+      "penalized_linear"
+    ],
+    "weights": [
+      1,
+      1
+    ],
+    "transforms": [],
+    "seed": 42
+  },
+  "current_active_features": [
+    "PassengerId",
+    "Pclass",
+    "Name",
+    "Sex",
+    "Age",
+    "SibSp",
+    "Parch",
+    "Ticket",
+    "Fare",
+    "Cabin",
+    "Embarked"
+  ],
+  "current_active_families": [
+    "hist_gbdt",
+    "penalized_linear"
+  ],
+  "bundle_verified": false,
+  "containment_status": "unverified",
+  "holdout_accesses": 0,
+  "script_registry": {},
+  "execution_path": "python_governed_workers",
+  "production_certified": false,
+  "evaluation_count": 0
+}

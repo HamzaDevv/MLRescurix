@@ -10,9 +10,10 @@ pub mod task_contract;
 
 pub use roles::{get_consolidated_default_roles, get_role, get_standard_roles, AgentRoleSpec};
 pub use gateway::{
-    approve_outbound_view, register_model_pricing, resolve_model_pricing, ChatCompletionRequest,
-    ChatCompletionResponse, ChatMessage, FunctionCall, OpenAICompatibleAdapter, OutboundFilter,
-    ProviderGateway, ScriptedProviderFixture, TokenUsage, ToolCall, ToolDefinition, ToolFunction,
+    approve_outbound_view, dispatch_gateway, dispatch_gateway_with_id, register_model_pricing, resolve_model_pricing,
+    stage_outbound_request, ChatCompletionRequest, ChatCompletionResponse, ChatMessage,
+    FunctionCall, OpenAICompatibleAdapter, OutboundFilter, ProviderGateway, ScriptedProviderFixture,
+    TokenUsage, ToolCall, ToolDefinition, ToolFunction,
 };
 pub use context::{Achievement, ActiveJobReceipt, AgentContextManager, Handoff, ScientificFinding};
 pub use sandbox::{SandboxDetector, SandboxExecutionResult, SandboxLimits, SandboxRunner, SandboxStatus};

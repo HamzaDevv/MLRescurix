@@ -431,7 +431,7 @@ def main() -> int:
                     "train_val_gap": res.train_val_gap,
                     "cv_scores": res.cv_scores,
                     "train_scores": res.train_scores,
-                    "feature_importances": res.feature_importances.tolist() if hasattr(res.feature_importances, "tolist") else list(res.feature_importances),
+                    "feature_importances": res.feature_importances.tolist() if getattr(res, "feature_importances", None) is not None and hasattr(res.feature_importances, "tolist") else (list(res.feature_importances) if getattr(res, "feature_importances", None) is not None else None),
                     "feature_names": res.feature_names,
                     "worst_slices": [s.to_dict() for s in getattr(res, "worst_slices", [])] if hasattr(res, "worst_slices") else [],
                 }

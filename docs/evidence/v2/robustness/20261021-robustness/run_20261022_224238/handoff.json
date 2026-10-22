@@ -1,0 +1,917 @@
+{
+  "schema_version": 1,
+  "binding": {
+    "project_id": "k1_titanic_robustness",
+    "session_id": "run_20261022_224238",
+    "data_sha256": "7d82814abff04f38cbd2681c70337264c0f0f84737a217f5cfd60c2051b2e3c1",
+    "folds_sha256": "ac6942b7b1fb9356840f6bb290e1fa97fbaf3376716e39bc9a82524628a2bddb",
+    "target": "Survived",
+    "task": "binary_classification",
+    "metric": "accuracy",
+    "direction": "maximize",
+    "topology_hash": "5f751310294f70e09f0da7760c21951d98535a18b468d4819dc3a24925729dbf",
+    "problem_statement": "Titanic; target=Survived; metric=accuracy (maximize); pinned split={\"development_folds\": 5, \"final_fraction\": 0.2, \"group\": \"frozen_family_ticket_mapping\", \"kind\": \"group_disjoint\"}",
+    "model": "deepseek/deepseek-v4.1-flash-1017",
+    "endpoint": "inference-net/fp8",
+    "provider_is_fixture": false,
+    "worker_memory_bytes": 2147483648
+  },
+  "state_file": "/Users/hamza/Developer/Imp_Projects/MLRescurix/docs/evidence/v2/robustness/20261021-robustness/run_20261022_224238/autonomous_loop_state.json",
+  "stop_reason": "max_turns_reached",
+  "pending_turn": null,
+  "accepted_candidate_id": null,
+  "candidate_identity": null,
+  "accepted_audit": null,
+  "last_turns": [
+    {
+      "turn_index": 0,
+      "proposed_action": {
+        "action_type": "PARSE_ERROR",
+        "thought_rationale": "",
+        "parameters": {}
+      },
+      "disposition": "rejected",
+      "error_msg": "ValueError: Provider returned empty content (usage: {'completion_tokens': 2500, 'prompt_tokens': 934, 'total_tokens': 3434})",
+      "measurements": {
+        "error": "ValueError: Provider returned empty content (usage: {'completion_tokens': 2500, 'prompt_tokens': 934, 'total_tokens': 3434})"
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "controller": {
+          "rss_bytes": 363134976,
+          "cpu_percent": 99.4,
+          "process_count": 1,
+          "status": "available",
+          "errors": []
+        },
+        "workers": {
+          "rss_bytes": null,
+          "cpu_percent": null,
+          "process_count": 0,
+          "status": "unavailable",
+          "errors": []
+        },
+        "controller_pid": 25972,
+        "worker_pids": [],
+        "current_tree_rss_bytes": null,
+        "worker_peak_rss_bytes": null,
+        "controller_peak_rss_bytes": 363134976,
+        "avg_cpu_percent": 6.972599531615925,
+        "cgroup": {
+          "available": false,
+          "verified_limits": false,
+          "membership_verified": false,
+          "memory_limit_bytes": null,
+          "cpu_quota_cores": null,
+          "memory_current_bytes": null,
+          "memory_peak_bytes": null,
+          "oom_events": null,
+          "errors": [],
+          "scope": "controller"
+        },
+        "cgroup_enforced": false,
+        "containment_status": "unverified_or_uncontained",
+        "sampling_status": "available",
+        "errors": [],
+        "duration_seconds": 31.52306566599964
+      },
+      "provider_cost_usd": "0.00132",
+      "provider_cost_is_estimate": false,
+      "requested_token_upper_bound": 11841,
+      "provider_receipt": {
+        "content": null,
+        "usage": {
+          "completion_tokens": 2500,
+          "prompt_tokens": 934,
+          "total_tokens": 3434
+        },
+        "cost_usd": "0.00132",
+        "cost_is_estimate": false,
+        "provider_response_id": "gen-1792689161-rIpmLPy80PFHDsmT18rs",
+        "latency_ms": 31459,
+        "request_sha256": "973cb7bf1f059ea22e76c7a4626edbdf05225d20d30fda3a9972b956fbe77011",
+        "gateway_route": "rust_mlrescurix_harness"
+      }
+    },
+    {
+      "turn_index": 1,
+      "proposed_action": {
+        "action_type": "PARSE_ERROR",
+        "thought_rationale": "",
+        "parameters": {}
+      },
+      "disposition": "rejected",
+      "error_msg": "ValueError: Provider returned empty content (usage: {'completion_tokens': 2500, 'prompt_tokens': 1325, 'total_tokens': 3825})",
+      "measurements": {
+        "error": "ValueError: Provider returned empty content (usage: {'completion_tokens': 2500, 'prompt_tokens': 1325, 'total_tokens': 3825})"
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "controller": {
+          "rss_bytes": 363151360,
+          "cpu_percent": 19.6,
+          "process_count": 1,
+          "status": "available",
+          "errors": []
+        },
+        "workers": {
+          "rss_bytes": null,
+          "cpu_percent": null,
+          "process_count": 0,
+          "status": "unavailable",
+          "errors": []
+        },
+        "controller_pid": 25972,
+        "worker_pids": [],
+        "current_tree_rss_bytes": null,
+        "worker_peak_rss_bytes": null,
+        "controller_peak_rss_bytes": 363151360,
+        "avg_cpu_percent": 6.908599508599509,
+        "cgroup": {
+          "available": false,
+          "verified_limits": false,
+          "membership_verified": false,
+          "memory_limit_bytes": null,
+          "cpu_quota_cores": null,
+          "memory_current_bytes": null,
+          "memory_peak_bytes": null,
+          "oom_events": null,
+          "errors": [],
+          "scope": "controller"
+        },
+        "cgroup_enforced": false,
+        "containment_status": "unverified_or_uncontained",
+        "sampling_status": "available",
+        "errors": [],
+        "duration_seconds": 28.67901137499939
+      },
+      "provider_cost_usd": "0.00135",
+      "provider_cost_is_estimate": false,
+      "requested_token_upper_bound": 13208,
+      "provider_receipt": {
+        "content": null,
+        "usage": {
+          "completion_tokens": 2500,
+          "prompt_tokens": 1325,
+          "total_tokens": 3825
+        },
+        "cost_usd": "0.00135",
+        "cost_is_estimate": false,
+        "provider_response_id": "gen-1792689193-CBJK0ExmriEa57cc4n5R",
+        "latency_ms": 28607,
+        "request_sha256": "799328e88cdff7ab5510c4ce705deb521c2d5e411c3cc8f5012ed121c7a54c4b",
+        "gateway_route": "rust_mlrescurix_harness"
+      }
+    },
+    {
+      "turn_index": 2,
+      "proposed_action": {
+        "thought_rationale": "Final turn. Previous attempts failed due to empty provider content. I will propose a complete training and evaluation pipeline using the three specified model families (hist_gbdt, penalized_linear, lgbm) with equal weights. Preprocessing: impute Age with median, Fare with median, Embarked with mode; create FamilySize = SibSp + Parch + 1; extract Title from Name; extract Deck from Cabin (first letter, missing as 'U'); TicketGroup size and prefix. Encode categoricals with one-hot for low cardinality and target encoding for high cardinality. Use group k-fold CV with the frozen family_ticket_mapping to estimate performance, then train final models on full development set and evaluate on the 20% holdout. Select best model by CV accuracy. Output candidate metrics.",
+        "action_type": "EVALUATE_PORTFOLIO",
+        "parameters": {
+          "model_families": [
+            "hist_gbdt",
+            "penalized_linear",
+            "lgbm"
+          ],
+          "weights": [
+            1,
+            1,
+            1
+          ],
+          "preprocessing": {
+            "impute": {
+              "Age": "median",
+              "Fare": "median",
+              "Embarked": "mode"
+            },
+            "feature_engineering": [
+              "FamilySize = SibSp + Parch + 1",
+              "Title = extract from Name",
+              "Deck = first letter of Cabin, missing='U'",
+              "TicketGroupSize = count of Ticket",
+              "TicketPrefix = extract prefix from Ticket"
+            ],
+            "encoding": {
+              "categorical": "one-hot",
+              "high_cardinality": "target_encoding"
+            }
+          },
+          "cv": {
+            "scheme": "group_kfold",
+            "folds": 5,
+            "group_column": "frozen_family_ticket_mapping"
+          },
+          "final_evaluation": {
+            "holdout_fraction": 0.2,
+            "metric": "accuracy"
+          },
+          "seed": 42,
+          "families": [
+            "hist_gbdt",
+            "penalized_linear"
+          ]
+        }
+      },
+      "disposition": "applied",
+      "error_msg": null,
+      "measurements": {
+        "portfolio": {
+          "hist_gbdt": {
+            "cv_score": 0.7545848517679504,
+            "cv_scores": [
+              0.7342657342657343,
+              0.7692307692307693,
+              0.7412587412587412,
+              0.7816901408450704,
+              0.7464788732394366
+            ],
+            "fold_receipts": [
+              {
+                "fold": 0,
+                "train_rows": 570,
+                "validation_rows": 143,
+                "train_score": 0.9140350877192982,
+                "validation_score": 0.7342657342657343,
+                "critic_train_score": 0.9018716992854924,
+                "critic_validation_score": 0.7600405679513185,
+                "features": [
+                  "PassengerId",
+                  "Pclass",
+                  "Name",
+                  "Sex",
+                  "Age",
+                  "SibSp",
+                  "Parch",
+                  "Ticket",
+                  "Fare",
+                  "Cabin",
+                  "Embarked"
+                ],
+                "split_hash": "e81b0201da0c832dd2b135b3831db4cfd89c2369a8c066941c7db79324ba7d02"
+              },
+              {
+                "fold": 1,
+                "train_rows": 570,
+                "validation_rows": 143,
+                "train_score": 0.9157894736842105,
+                "validation_score": 0.7692307692307693,
+                "critic_train_score": 0.9054500412881916,
+                "critic_validation_score": 0.7753489326765188,
+                "features": [
+                  "PassengerId",
+                  "Pclass",
+                  "Name",
+                  "Sex",
+                  "Age",
+                  "SibSp",
+                  "Parch",
+                  "Ticket",
+                  "Fare",
+                  "Cabin",
+                  "Embarked"
+                ],
+                "split_hash": "982f5c55cc2e680e72bfcd30178f4380326806a20b36b6cc45d3f94f092f2d05"
+              },
+              {
+                "fold": 2,
+                "train_rows": 570,
+                "validation_rows": 143,
+                "train_score": 0.9228070175438596,
+                "validation_score": 0.7412587412587412,
+                "critic_train_score": 0.9123472397808681,
+                "critic_validation_score": 0.7396873643074251,
+                "features": [
+                  "PassengerId",
+                  "Pclass",
+                  "Name",
+                  "Sex",
+                  "Age",
+                  "SibSp",
+                  "Parch",
+                  "Ticket",
+                  "Fare",
+                  "Cabin",
+                  "Embarked"
+                ],
+                "split_hash": "69269d320cd146a53ccaee8549e1313bf723c7c907ab98d81dcb2a338f6080c1"
+              },
+              {
+                "fold": 3,
+                "train_rows": 571,
+                "validation_rows": 142,
+                "train_score": 0.9229422066549913,
+                "validation_score": 0.7816901408450704,
+                "critic_train_score": 0.910204370908716,
+                "critic_validation_score": 0.78875128998968,
+                "features": [
+                  "PassengerId",
+                  "Pclass",
+                  "Name",
+                  "Sex",
+                  "Age",
+                  "SibSp",
+                  "Parch",
+                  "Ticket",
+                  "Fare",
+                  "Cabin",
+                  "Embarked"
+                ],
+                "split_hash": "6f644267a679ebec2c0fde894f9c4194acadbe7ca1e802b06a84dc45e04e452e"
+              },
+              {
+                "fold": 4,
+                "train_rows": 571,
+                "validation_rows": 142,
+                "train_score": 0.9124343257443083,
+                "validation_score": 0.7464788732394366,
+                "critic_train_score": 0.8956941206941207,
+                "critic_validation_score": 0.7558943089430894,
+                "features": [
+                  "PassengerId",
+                  "Pclass",
+                  "Name",
+                  "Sex",
+                  "Age",
+                  "SibSp",
+                  "Parch",
+                  "Ticket",
+                  "Fare",
+                  "Cabin",
+                  "Embarked"
+                ],
+                "split_hash": "fcfeed44a15abdbeecc7413b2b6a1f79dfff770ac1311baba51afe3ca585188e"
+              }
+            ],
+            "train_score": 0.9176016222693336,
+            "critic_train_score": 0.9051134943914778,
+            "critic_validation_score": 0.7639444927736063,
+            "feature_names": [
+              "PassengerId",
+              "Pclass",
+              "Name",
+              "Sex",
+              "Age",
+              "SibSp",
+              "Parch",
+              "Ticket",
+              "Fare",
+              "Cabin",
+              "Embarked"
+            ],
+            "candidate_identity": "04f24abecbf7df6f424f14a87286148b2fd9afd411a077f80bf2174703538d3b",
+            "metric_name": "accuracy",
+            "feature_importances": null,
+            "dominant_feature": null,
+            "dominant_gain_ratio": null,
+            "feature_dominance_status": "unsupported_by_estimator",
+            "is_panel_forecasting": null,
+            "error_slices": [
+              {
+                "column": "Cabin",
+                "slice": "present",
+                "support": 166,
+                "mean_error": 0.26506024096385544
+              },
+              {
+                "column": "Age",
+                "slice": "missing",
+                "support": 141,
+                "mean_error": 0.24822695035460993
+              },
+              {
+                "column": "Embarked",
+                "slice": "present",
+                "support": 711,
+                "mean_error": 0.24613220815752462
+              },
+              {
+                "column": "PassengerId",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.24544179523141654
+              },
+              {
+                "column": "Pclass",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.24544179523141654
+              },
+              {
+                "column": "Name",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.24544179523141654
+              },
+              {
+                "column": "Sex",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.24544179523141654
+              },
+              {
+                "column": "SibSp",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.24544179523141654
+              },
+              {
+                "column": "Parch",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.24544179523141654
+              },
+              {
+                "column": "Ticket",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.24544179523141654
+              }
+            ],
+            "limitations": [
+              "Feature gain audit unsupported by estimator; no fabricated importances",
+              "Ordinal categorical encoding; specialized text/image/audio models unsupported"
+            ]
+          },
+          "penalized_linear": {
+            "cv_score": 0.7881808332512558,
+            "cv_scores": [
+              0.8321678321678322,
+              0.7762237762237763,
+              0.7832167832167832,
+              0.7464788732394366,
+              0.8028169014084507
+            ],
+            "fold_receipts": [
+              {
+                "fold": 0,
+                "train_rows": 570,
+                "validation_rows": 143,
+                "train_score": 0.8017543859649123,
+                "validation_score": 0.8321678321678322,
+                "critic_train_score": 0.7895309102205654,
+                "critic_validation_score": 0.8259634888438134,
+                "features": [
+                  "PassengerId",
+                  "Pclass",
+                  "Name",
+                  "Sex",
+                  "Age",
+                  "SibSp",
+                  "Parch",
+                  "Ticket",
+                  "Fare",
+                  "Cabin",
+                  "Embarked"
+                ],
+                "split_hash": "e81b0201da0c832dd2b135b3831db4cfd89c2369a8c066941c7db79324ba7d02"
+              },
+              {
+                "fold": 1,
+                "train_rows": 570,
+                "validation_rows": 143,
+                "train_score": 0.8175438596491228,
+                "validation_score": 0.7762237762237763,
+                "critic_train_score": 0.8048487819983485,
+                "critic_validation_score": 0.7683702791461412,
+                "features": [
+                  "PassengerId",
+                  "Pclass",
+                  "Name",
+                  "Sex",
+                  "Age",
+                  "SibSp",
+                  "Parch",
+                  "Ticket",
+                  "Fare",
+                  "Cabin",
+                  "Embarked"
+                ],
+                "split_hash": "982f5c55cc2e680e72bfcd30178f4380326806a20b36b6cc45d3f94f092f2d05"
+              },
+              {
+                "fold": 2,
+                "train_rows": 570,
+                "validation_rows": 143,
+                "train_score": 0.8087719298245614,
+                "validation_score": 0.7832167832167832,
+                "critic_train_score": 0.7978584836991917,
+                "critic_validation_score": 0.7862570560138948,
+                "features": [
+                  "PassengerId",
+                  "Pclass",
+                  "Name",
+                  "Sex",
+                  "Age",
+                  "SibSp",
+                  "Parch",
+                  "Ticket",
+                  "Fare",
+                  "Cabin",
+                  "Embarked"
+                ],
+                "split_hash": "69269d320cd146a53ccaee8549e1313bf723c7c907ab98d81dcb2a338f6080c1"
+              },
+              {
+                "fold": 3,
+                "train_rows": 571,
+                "validation_rows": 142,
+                "train_score": 0.8231173380035026,
+                "validation_score": 0.7464788732394366,
+                "critic_train_score": 0.8113950311839595,
+                "critic_validation_score": 0.7477812177502581,
+                "features": [
+                  "PassengerId",
+                  "Pclass",
+                  "Name",
+                  "Sex",
+                  "Age",
+                  "SibSp",
+                  "Parch",
+                  "Ticket",
+                  "Fare",
+                  "Cabin",
+                  "Embarked"
+                ],
+                "split_hash": "6f644267a679ebec2c0fde894f9c4194acadbe7ca1e802b06a84dc45e04e452e"
+              },
+              {
+                "fold": 4,
+                "train_rows": 571,
+                "validation_rows": 142,
+                "train_score": 0.8161120840630472,
+                "validation_score": 0.8028169014084507,
+                "critic_train_score": 0.8020784770784771,
+                "critic_validation_score": 0.8091463414634146,
+                "features": [
+                  "PassengerId",
+                  "Pclass",
+                  "Name",
+                  "Sex",
+                  "Age",
+                  "SibSp",
+                  "Parch",
+                  "Ticket",
+                  "Fare",
+                  "Cabin",
+                  "Embarked"
+                ],
+                "split_hash": "fcfeed44a15abdbeecc7413b2b6a1f79dfff770ac1311baba51afe3ca585188e"
+              }
+            ],
+            "train_score": 0.8134599195010294,
+            "critic_train_score": 0.8011423368361085,
+            "critic_validation_score": 0.7875036766435044,
+            "feature_names": [
+              "PassengerId",
+              "Pclass",
+              "Name",
+              "Sex",
+              "Age",
+              "SibSp",
+              "Parch",
+              "Ticket",
+              "Fare",
+              "Cabin",
+              "Embarked"
+            ],
+            "candidate_identity": "83224a28c3465c4bfc585b428ede5ee027116273ab4cb49a35caee1f71196b0e",
+            "metric_name": "accuracy",
+            "feature_importances": [
+              0.010805556691878857,
+              0.18560836758677676,
+              0.09253810824591018,
+              0.051366389204811805,
+              0.013984096112300838,
+              0.016904328774409068,
+              0.05778494382477466,
+              0.47502061917996524,
+              0.05609902801488034,
+              0.00018007826459591678,
+              0.03970848409969615
+            ],
+            "dominant_feature": "Ticket",
+            "dominant_gain_ratio": 0.47502061917996524,
+            "feature_dominance_status": "measured",
+            "is_panel_forecasting": null,
+            "error_slices": [
+              {
+                "column": "Cabin",
+                "slice": "present",
+                "support": 166,
+                "mean_error": 0.2469879518072289
+              },
+              {
+                "column": "Age",
+                "slice": "present",
+                "support": 572,
+                "mean_error": 0.21328671328671328
+              },
+              {
+                "column": "Embarked",
+                "slice": "present",
+                "support": 711,
+                "mean_error": 0.21237693389592124
+              },
+              {
+                "column": "PassengerId",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.211781206171108
+              },
+              {
+                "column": "Pclass",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.211781206171108
+              },
+              {
+                "column": "Name",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.211781206171108
+              },
+              {
+                "column": "Sex",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.211781206171108
+              },
+              {
+                "column": "SibSp",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.211781206171108
+              },
+              {
+                "column": "Parch",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.211781206171108
+              },
+              {
+                "column": "Ticket",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.211781206171108
+              }
+            ],
+            "limitations": [
+              "Ordinal categorical encoding; specialized text/image/audio models unsupported"
+            ]
+          }
+        }
+      },
+      "critic_result": {
+        "schema_version": "v2",
+        "critique_id": "critique_cand_3f0ab1d68b9fcabdfdb4e740_ep1_0cff2d39",
+        "candidate_id": "cand_3f0ab1d68b9fcabdfdb4e740",
+        "epoch": 1,
+        "status": "VETO",
+        "blocking_flaws": [
+          "Model monoculture veto: only 1 distinct model families evaluated (['penalized_linear']), minimum 3 distinct families required before final packaging."
+        ],
+        "soft_warnings": [],
+        "audit_checks": {
+          "target_memorization": {
+            "passed": true,
+            "train_metric": 0.8011423368361085,
+            "val_metric": 0.7875036766435044,
+            "gap": 0.013639,
+            "max_allowed_gap": 0.12,
+            "dominant_feature": null,
+            "dominant_gain_ratio": null
+          },
+          "unexploited_signals": {
+            "passed": true,
+            "dropped_signals": [],
+            "details": null
+          },
+          "model_diversity": {
+            "passed": false,
+            "distinct_families_evaluated": 1,
+            "families": [
+              "penalized_linear"
+            ],
+            "min_required": 3
+          },
+          "topology_and_imbalance": {
+            "passed": true,
+            "cv_scheme_used": "group_kfold",
+            "required_cv_scheme": "group_kfold",
+            "score_floor_met": true,
+            "score": 0.787504
+          }
+        },
+        "error_slice_hypotheses": [],
+        "reviewer_notes": "Candidate VETOED due to 1 blocking flaw(s).",
+        "timestamp_ms": 1792689240803
+      },
+      "resource_observability": {
+        "controller": {
+          "rss_bytes": 363282432,
+          "cpu_percent": 100.0,
+          "process_count": 1,
+          "status": "available",
+          "errors": []
+        },
+        "workers": {
+          "rss_bytes": null,
+          "cpu_percent": null,
+          "process_count": 0,
+          "status": "unavailable",
+          "errors": []
+        },
+        "controller_pid": 25972,
+        "worker_pids": [],
+        "current_tree_rss_bytes": null,
+        "worker_peak_rss_bytes": 363986944,
+        "controller_peak_rss_bytes": 363282432,
+        "avg_cpu_percent": 16.44608408903545,
+        "cgroup": {
+          "available": false,
+          "verified_limits": false,
+          "membership_verified": false,
+          "memory_limit_bytes": null,
+          "cpu_quota_cores": null,
+          "memory_current_bytes": null,
+          "memory_peak_bytes": null,
+          "oom_events": null,
+          "errors": [],
+          "scope": "controller"
+        },
+        "cgroup_enforced": false,
+        "containment_status": "unverified_or_uncontained",
+        "sampling_status": "available",
+        "errors": [],
+        "duration_seconds": 19.721151292000286
+      },
+      "provider_cost_usd": "0.00093",
+      "provider_cost_is_estimate": false,
+      "requested_token_upper_bound": 14579,
+      "provider_receipt": {
+        "content": "{\n  \"thought_rationale\": \"Final turn. Previous attempts failed due to empty provider content. I will propose a complete training and evaluation pipeline using the three specified model families (hist_gbdt, penalized_linear, lgbm) with equal weights. Preprocessing: impute Age with median, Fare with median, Embarked with mode; create FamilySize = SibSp + Parch + 1; extract Title from Name; extract Deck from Cabin (first letter, missing as 'U'); TicketGroup size and prefix. Encode categoricals with one-hot for low cardinality and target encoding for high cardinality. Use group k-fold CV with the frozen family_ticket_mapping to estimate performance, then train final models on full development set and evaluate on the 20% holdout. Select best model by CV accuracy. Output candidate metrics.\",\n  \"action_type\": \"RUN_EXPERIMENT\",\n  \"parameters\": {\n    \"model_families\": [\"hist_gbdt\", \"penalized_linear\", \"lgbm\"],\n    \"weights\": [1, 1, 1],\n    \"preprocessing\": {\n      \"impute\": {\n        \"Age\": \"median\",\n        \"Fare\": \"median\",\n        \"Embarked\": \"mode\"\n      },\n      \"feature_engineering\": [\n        \"FamilySize = SibSp + Parch + 1\",\n        \"Title = extract from Name\",\n        \"Deck = first letter of Cabin, missing='U'\",\n        \"TicketGroupSize = count of Ticket\",\n        \"TicketPrefix = extract prefix from Ticket\"\n      ],\n      \"encoding\": {\n        \"categorical\": \"one-hot\",\n        \"high_cardinality\": \"target_encoding\"\n      }\n    },\n    \"cv\": {\n      \"scheme\": \"group_kfold\",\n      \"folds\": 5,\n      \"group_column\": \"frozen_family_ticket_mapping\"\n    },\n    \"final_evaluation\": {\n      \"holdout_fraction\": 0.2,\n      \"metric\": \"accuracy\"\n    },\n    \"seed\": 42\n  }\n}",
+        "usage": {
+          "completion_tokens": 1592,
+          "prompt_tokens": 1717,
+          "total_tokens": 3309
+        },
+        "cost_usd": "0.00093",
+        "cost_is_estimate": false,
+        "provider_response_id": "gen-1792689221-Rc6GNH4ly3ZRI3myNwS2",
+        "latency_ms": 15685,
+        "request_sha256": "0f825fc754361616f4bdc8626c98a97e9399414bb63133cddac8d36402a01fc6",
+        "gateway_route": "rust_mlrescurix_harness"
+      }
+    }
+  ],
+  "next_steps": [
+    "Inspect last receipts and unresolved critic flaws",
+    "Resume with identical dataset and locked folds"
+  ],
+  "budget": {
+    "campaign_ceiling_usd": "0.30",
+    "per_run_ceiling_usd": "0.05",
+    "contingency_usd": "0.05",
+    "total_billed_usd": "0.039644020",
+    "total_reserved_usd": "0.00",
+    "total_uncertain_usd": "0.00",
+    "remaining_campaign_usd": "0.260355980",
+    "runs": {
+      "run_20261021_172942": {
+        "billed_usd": "0.00061408",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_173653": {
+        "billed_usd": "0.00092344",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_183624": {
+        "billed_usd": "0.00070202",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_191128": {
+        "billed_usd": "0.00078304",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 2
+      },
+      "run_20261021_191510": {
+        "billed_usd": "0.00064742",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_193634": {
+        "billed_usd": "0.00111500",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_200123": {
+        "billed_usd": "0.00087326",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_200725": {
+        "billed_usd": "0.00099526",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_202038": {
+        "billed_usd": "0.00105858",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_231155": {
+        "billed_usd": "0.00252704",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_231504": {
+        "billed_usd": "0.001232948",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_231630": {
+        "billed_usd": "0.000688544",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_232806": {
+        "billed_usd": "0.001370828",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_232923": {
+        "billed_usd": "0.00107256",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261022_220628": {
+        "billed_usd": "0.00437",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261022_221143": {
+        "billed_usd": "0.00311",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261022_221457": {
+        "billed_usd": "0.00400",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261022_221943": {
+        "billed_usd": "0.00209",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261022_222344": {
+        "billed_usd": "0.00207",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261022_222612": {
+        "billed_usd": "0.00229",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261022_222846": {
+        "billed_usd": "0.00351",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261022_224238": {
+        "billed_usd": "0.00360",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      }
+    },
+    "active_reservations": {}
+  },
+  "production_certified": false
+}

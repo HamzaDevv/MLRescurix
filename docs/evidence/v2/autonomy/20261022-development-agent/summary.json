@@ -1,0 +1,37 @@
+{
+  "implementation_date": "2026-10-22",
+  "scope": "autonomous development-agent foundation; production certification blocked",
+  "python_focused": {
+    "passed": 53,
+    "skipped": 1,
+    "skip_reason": "Docker daemon unavailable"
+  },
+  "rust_bundle": {
+    "passed": 2,
+    "filtered": 27
+  },
+  "full_python_suite": {
+    "status": "failed_native_crash",
+    "attempts": 2,
+    "exit_code": 139,
+    "location": "lightgbm/basic.py::__init_from_np2d"
+  },
+  "campaign_api_spend_this_session_usd": "0",
+  "budget": {
+    "total_billed_usd": "0.014604020",
+    "total_reserved_usd": "0.00",
+    "total_uncertain_usd": "0.00",
+    "remaining_campaign_usd": "0.285395980"
+  },
+  "live_provider_calls": 0,
+  "final_holdout_scored": false,
+  "production_certified": false,
+  "release_blockers": [
+    "Rust production gateway/orchestrator adapter",
+    "panel/horizon forecasting evaluator",
+    "live Docker integration",
+    "official development-only data staging and fold validation",
+    "native LightGBM stability",
+    "five-task autonomous live campaign and frozen final assessment"
+  ]
+}

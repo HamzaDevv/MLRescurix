@@ -126,6 +126,8 @@ impl AgentOrchestrator {
             tools,
             temperature: Some(0.2),
             max_tokens: Some(4096),
+            provider: None,
+            reasoning: None,
         };
         OutboundFilter::sanitize_request(&mut req);
         let request_bytes = serde_json::to_vec(&req).map_err(|e| e.to_string())?;

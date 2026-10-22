@@ -129,7 +129,7 @@ def test_nested_oof_eb_encoder_unique_strings_memorization_prevention():
 
     # Fit LightGBM on the encoded features + signal
     try:
-        clf = LGBMClassifier(n_estimators=30, random_state=42, verbose=-1)
+        clf = LGBMClassifier(n_estimators=30, n_jobs=1, random_state=42, verbose=-1)
     except TypeError:
         clf = LGBMClassifier(max_iter=30, random_state=42)
 

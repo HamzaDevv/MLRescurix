@@ -1,0 +1,48 @@
+{
+  "review_date": "2026-10-23",
+  "scope": "offline post-live review and regression repairs",
+  "python": {
+    "command": "python3 -m pytest python/tests -q",
+    "passed": 283,
+    "skipped": 1,
+    "warnings": 10,
+    "seconds": 198.43,
+    "skip_reason": "scheduled pipeline requires explicitly bounded 64m container tmpfs"
+  },
+  "rust": {
+    "command": "cargo test --locked --test agent_m4 --test reflexive_loop_gate --lib",
+    "passed": 60,
+    "ignored": 2,
+    "ignore_reason": "explicit digest-pinned live cgroup Docker environment required"
+  },
+  "build": {
+    "command": "cargo build --locked -p mlrescurix-harness",
+    "status": "passed"
+  },
+  "last_affected_panel_regression": {
+    "passed": 7
+  },
+  "artifact_tool_regressions": {
+    "passed": 10
+  },
+  "api_calls_this_review": 0,
+  "additional_provider_spend_usd": "0",
+  "final_holdout_scored_this_review": false,
+  "preserved_campaign_ledger": {
+    "committed_usd": "0.050724020",
+    "remaining_recorded_usd": "0.249275980",
+    "ceiling_usd": "0.30",
+    "caveat": "newer gateway charges are estimated; actual provider reconciliation remains required"
+  },
+  "production_certified": false,
+  "remaining": [
+    "development-only input staging and clean final isolation",
+    "K1 contamination history and unfrozen K1/K2 quality criteria",
+    "complete frozen K4 fold metadata",
+    "K5 panel protocol, entity coverage, known-at-origin feature validation",
+    "provider cost reconciliation and current pricing verification",
+    "separately authorized outbound approval",
+    "atomic production budget/scheduler integration and Linux per-job cgroup evidence",
+    "live repaired-revision campaign, adversarial faults/soak, clean-room delivery"
+  ]
+}

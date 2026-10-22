@@ -765,6 +765,7 @@ class ModelWrapper:
                     num_leaves=self.num_leaves,
                     random_state=2026,
                     verbose=-1,
+                    n_jobs=1,
                 )
             else:
                 self.model = lgb.LGBMClassifier(
@@ -774,6 +775,7 @@ class ModelWrapper:
                     num_leaves=self.num_leaves,
                     random_state=2026,
                     verbose=-1,
+                    n_jobs=1,
                 )
         else:
             # Fallback to standard scikit-learn HistGradientBoosting

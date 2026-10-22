@@ -1,0 +1,20 @@
+{
+  "source_provenance": {
+    "commit": "7d7c4479fcbd1aaf929a0f1940ae9e62fd7b5729",
+    "is_dirty": true,
+    "dirty_diff_sha256": "f36aefdf06068c5e9dcf45744d41782a38b4bc5bbd6e63a402e20e0ec2734574"
+  },
+  "rust_binaries": {
+    "debug_binary": {
+      "exists": true,
+      "sha256": "2441137ade3ff5fb1e739386a405415680fab30083aa4420c19b69381e9ec636"
+    },
+    "dist_binary": {
+      "exists": true,
+      "sha256": "f9ffee6b9279600c78f227c4d32d83572f5e7357f3a1e13ccdf9c490f5158f24"
+    },
+    "rust_source_sha256": "94a52b82bdb6f0f081f07d3f98b70da3d9b53daf9d2c0546c38eb703370f2e51"
+  },
+  "python_worker_sha256": "e5e731363b6dd17860c147114e08d3f7f3ce229ebd77c75681ca13c063065c5f",
+  "benchmark_manifest_sha256": "58f37954019faa68fec97797d8466efb039abbb37af084e3faa1543a5f8f3330"
+}

@@ -1,0 +1,2 @@
+{"timestamp": "2026-10-22T17:06:21.019073+00:00", "event": "faults_start", "action": "running_reproducers"}
+{"timestamp": "2026-10-22T17:06:26.672196+00:00", "event": "faults_completed", "outcome": "passed", "duration_s": 5.65237021446228}

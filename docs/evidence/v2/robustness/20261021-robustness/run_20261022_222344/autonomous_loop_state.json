@@ -1,0 +1,809 @@
+{
+  "schema_version": 3,
+  "binding": {
+    "project_id": "k1_titanic_robustness",
+    "session_id": "run_20261022_222344",
+    "data_sha256": "7d82814abff04f38cbd2681c70337264c0f0f84737a217f5cfd60c2051b2e3c1",
+    "folds_sha256": "ac6942b7b1fb9356840f6bb290e1fa97fbaf3376716e39bc9a82524628a2bddb",
+    "target": "Survived",
+    "task": "binary_classification",
+    "metric": "accuracy",
+    "direction": "maximize",
+    "topology_hash": "5f751310294f70e09f0da7760c21951d98535a18b468d4819dc3a24925729dbf",
+    "problem_statement": "Titanic; target=Survived; metric=accuracy (maximize); pinned split={\"development_folds\": 5, \"final_fraction\": 0.2, \"group\": \"frozen_family_ticket_mapping\", \"kind\": \"group_disjoint\"}",
+    "model": "deepseek/deepseek-v4.1-flash-1017",
+    "endpoint": "inference-net/fp8",
+    "provider_is_fixture": false,
+    "worker_memory_bytes": 2147483648
+  },
+  "project_id": "k1_titanic_robustness",
+  "session_id": "run_20261022_222344",
+  "target_column": "Survived",
+  "task_type": "binary_classification",
+  "metric_name": "accuracy",
+  "metric_direction": "maximize",
+  "turns_completed": 3,
+  "turns": [
+    {
+      "turn_index": 0,
+      "proposed_action": {
+        "action_type": "PARSE_ERROR",
+        "thought_rationale": "",
+        "parameters": {}
+      },
+      "disposition": "rejected",
+      "error_msg": "ValueError: Provider returned empty content (usage: {'completion_tokens': 1500, 'prompt_tokens': 926, 'total_tokens': 2426})",
+      "measurements": {
+        "error": "ValueError: Provider returned empty content (usage: {'completion_tokens': 1500, 'prompt_tokens': 926, 'total_tokens': 2426})"
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "controller": {
+          "rss_bytes": 363134976,
+          "cpu_percent": 99.3,
+          "process_count": 1,
+          "status": "available",
+          "errors": []
+        },
+        "workers": {
+          "rss_bytes": null,
+          "cpu_percent": null,
+          "process_count": 0,
+          "status": "unavailable",
+          "errors": []
+        },
+        "controller_pid": 22091,
+        "worker_pids": [],
+        "current_tree_rss_bytes": null,
+        "worker_peak_rss_bytes": null,
+        "controller_peak_rss_bytes": 363134976,
+        "avg_cpu_percent": 7.264027777777779,
+        "cgroup": {
+          "available": false,
+          "verified_limits": false,
+          "membership_verified": false,
+          "memory_limit_bytes": null,
+          "cpu_quota_cores": null,
+          "memory_current_bytes": null,
+          "memory_peak_bytes": null,
+          "oom_events": null,
+          "errors": [],
+          "scope": "controller"
+        },
+        "cgroup_enforced": false,
+        "containment_status": "unverified_or_uncontained",
+        "sampling_status": "available",
+        "errors": [],
+        "duration_seconds": 17.833242666999922
+      },
+      "provider_cost_usd": "0.00082",
+      "provider_cost_is_estimate": false,
+      "requested_token_upper_bound": 10818,
+      "provider_receipt": {
+        "content": null,
+        "usage": {
+          "completion_tokens": 1500,
+          "prompt_tokens": 926,
+          "total_tokens": 2426
+        },
+        "cost_usd": "0.00082",
+        "cost_is_estimate": false,
+        "provider_response_id": "gen-1792688028-gxOL84tZRccym5YUiHFM",
+        "latency_ms": 17759,
+        "request_sha256": "5c158ac31364d9cf13e40879123b3e93260573a1ded0a6166f2512053251cfb2",
+        "gateway_route": "rust_mlrescurix_harness"
+      }
+    },
+    {
+      "turn_index": 1,
+      "proposed_action": {
+        "thought_rationale": "No candidate has been accepted yet, and the only prior turn failed due to a provider parse error rather than a modeling result. The active spec already defines a sensible baseline ensemble over hist_gbdt and penalized_linear with equal weights, no transforms, and seed 42. The next step should be to execute this baseline under the pinned group-disjoint 5-fold CV scheme so we obtain a valid diagnostic measurement before considering feature engineering or model changes.",
+        "action_type": "EVALUATE_PORTFOLIO",
+        "parameters": {
+          "families": [
+            "hist_gbdt",
+            "penalized_linear"
+          ],
+          "weights": [
+            1,
+            1
+          ],
+          "transforms": [],
+          "seed": 42,
+          "cv_scheme": "group_kfold",
+          "development_folds": 5,
+          "group_column": "frozen_family_ticket_mapping",
+          "target_column": "Survived",
+          "metric": "accuracy",
+          "metric_direction": "maximize",
+          "notes": "Baseline run using active_spec; no feature transforms yet. Evaluate with pinned group-disjoint CV and report fold-level and aggregate accuracy."
+        }
+      },
+      "disposition": "applied",
+      "error_msg": null,
+      "measurements": {
+        "portfolio": {
+          "hist_gbdt": {
+            "cv_score": 0.7545848517679504,
+            "cv_scores": [
+              0.7342657342657343,
+              0.7692307692307693,
+              0.7412587412587412,
+              0.7816901408450704,
+              0.7464788732394366
+            ],
+            "fold_receipts": [
+              {
+                "fold": 0,
+                "train_rows": 570,
+                "validation_rows": 143,
+                "train_score": 0.9140350877192982,
+                "validation_score": 0.7342657342657343,
+                "critic_train_score": 0.9018716992854924,
+                "critic_validation_score": 0.7600405679513185,
+                "features": [
+                  "PassengerId",
+                  "Pclass",
+                  "Name",
+                  "Sex",
+                  "Age",
+                  "SibSp",
+                  "Parch",
+                  "Ticket",
+                  "Fare",
+                  "Cabin",
+                  "Embarked"
+                ],
+                "split_hash": "e81b0201da0c832dd2b135b3831db4cfd89c2369a8c066941c7db79324ba7d02"
+              },
+              {
+                "fold": 1,
+                "train_rows": 570,
+                "validation_rows": 143,
+                "train_score": 0.9157894736842105,
+                "validation_score": 0.7692307692307693,
+                "critic_train_score": 0.9054500412881916,
+                "critic_validation_score": 0.7753489326765188,
+                "features": [
+                  "PassengerId",
+                  "Pclass",
+                  "Name",
+                  "Sex",
+                  "Age",
+                  "SibSp",
+                  "Parch",
+                  "Ticket",
+                  "Fare",
+                  "Cabin",
+                  "Embarked"
+                ],
+                "split_hash": "982f5c55cc2e680e72bfcd30178f4380326806a20b36b6cc45d3f94f092f2d05"
+              },
+              {
+                "fold": 2,
+                "train_rows": 570,
+                "validation_rows": 143,
+                "train_score": 0.9228070175438596,
+                "validation_score": 0.7412587412587412,
+                "critic_train_score": 0.9123472397808681,
+                "critic_validation_score": 0.7396873643074251,
+                "features": [
+                  "PassengerId",
+                  "Pclass",
+                  "Name",
+                  "Sex",
+                  "Age",
+                  "SibSp",
+                  "Parch",
+                  "Ticket",
+                  "Fare",
+                  "Cabin",
+                  "Embarked"
+                ],
+                "split_hash": "69269d320cd146a53ccaee8549e1313bf723c7c907ab98d81dcb2a338f6080c1"
+              },
+              {
+                "fold": 3,
+                "train_rows": 571,
+                "validation_rows": 142,
+                "train_score": 0.9229422066549913,
+                "validation_score": 0.7816901408450704,
+                "critic_train_score": 0.910204370908716,
+                "critic_validation_score": 0.78875128998968,
+                "features": [
+                  "PassengerId",
+                  "Pclass",
+                  "Name",
+                  "Sex",
+                  "Age",
+                  "SibSp",
+                  "Parch",
+                  "Ticket",
+                  "Fare",
+                  "Cabin",
+                  "Embarked"
+                ],
+                "split_hash": "6f644267a679ebec2c0fde894f9c4194acadbe7ca1e802b06a84dc45e04e452e"
+              },
+              {
+                "fold": 4,
+                "train_rows": 571,
+                "validation_rows": 142,
+                "train_score": 0.9124343257443083,
+                "validation_score": 0.7464788732394366,
+                "critic_train_score": 0.8956941206941207,
+                "critic_validation_score": 0.7558943089430894,
+                "features": [
+                  "PassengerId",
+                  "Pclass",
+                  "Name",
+                  "Sex",
+                  "Age",
+                  "SibSp",
+                  "Parch",
+                  "Ticket",
+                  "Fare",
+                  "Cabin",
+                  "Embarked"
+                ],
+                "split_hash": "fcfeed44a15abdbeecc7413b2b6a1f79dfff770ac1311baba51afe3ca585188e"
+              }
+            ],
+            "train_score": 0.9176016222693336,
+            "critic_train_score": 0.9051134943914778,
+            "critic_validation_score": 0.7639444927736063,
+            "feature_names": [
+              "PassengerId",
+              "Pclass",
+              "Name",
+              "Sex",
+              "Age",
+              "SibSp",
+              "Parch",
+              "Ticket",
+              "Fare",
+              "Cabin",
+              "Embarked"
+            ],
+            "candidate_identity": "04f24abecbf7df6f424f14a87286148b2fd9afd411a077f80bf2174703538d3b",
+            "metric_name": "accuracy",
+            "feature_importances": null,
+            "dominant_feature": null,
+            "dominant_gain_ratio": null,
+            "feature_dominance_status": "unsupported_by_estimator",
+            "is_panel_forecasting": null,
+            "error_slices": [
+              {
+                "column": "Cabin",
+                "slice": "present",
+                "support": 166,
+                "mean_error": 0.26506024096385544
+              },
+              {
+                "column": "Age",
+                "slice": "missing",
+                "support": 141,
+                "mean_error": 0.24822695035460993
+              },
+              {
+                "column": "Embarked",
+                "slice": "present",
+                "support": 711,
+                "mean_error": 0.24613220815752462
+              },
+              {
+                "column": "PassengerId",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.24544179523141654
+              },
+              {
+                "column": "Pclass",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.24544179523141654
+              },
+              {
+                "column": "Name",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.24544179523141654
+              },
+              {
+                "column": "Sex",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.24544179523141654
+              },
+              {
+                "column": "SibSp",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.24544179523141654
+              },
+              {
+                "column": "Parch",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.24544179523141654
+              },
+              {
+                "column": "Ticket",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.24544179523141654
+              }
+            ],
+            "limitations": [
+              "Feature gain audit unsupported by estimator; no fabricated importances",
+              "Ordinal categorical encoding; specialized text/image/audio models unsupported"
+            ]
+          },
+          "penalized_linear": {
+            "cv_score": 0.7881808332512558,
+            "cv_scores": [
+              0.8321678321678322,
+              0.7762237762237763,
+              0.7832167832167832,
+              0.7464788732394366,
+              0.8028169014084507
+            ],
+            "fold_receipts": [
+              {
+                "fold": 0,
+                "train_rows": 570,
+                "validation_rows": 143,
+                "train_score": 0.8017543859649123,
+                "validation_score": 0.8321678321678322,
+                "critic_train_score": 0.7895309102205654,
+                "critic_validation_score": 0.8259634888438134,
+                "features": [
+                  "PassengerId",
+                  "Pclass",
+                  "Name",
+                  "Sex",
+                  "Age",
+                  "SibSp",
+                  "Parch",
+                  "Ticket",
+                  "Fare",
+                  "Cabin",
+                  "Embarked"
+                ],
+                "split_hash": "e81b0201da0c832dd2b135b3831db4cfd89c2369a8c066941c7db79324ba7d02"
+              },
+              {
+                "fold": 1,
+                "train_rows": 570,
+                "validation_rows": 143,
+                "train_score": 0.8175438596491228,
+                "validation_score": 0.7762237762237763,
+                "critic_train_score": 0.8048487819983485,
+                "critic_validation_score": 0.7683702791461412,
+                "features": [
+                  "PassengerId",
+                  "Pclass",
+                  "Name",
+                  "Sex",
+                  "Age",
+                  "SibSp",
+                  "Parch",
+                  "Ticket",
+                  "Fare",
+                  "Cabin",
+                  "Embarked"
+                ],
+                "split_hash": "982f5c55cc2e680e72bfcd30178f4380326806a20b36b6cc45d3f94f092f2d05"
+              },
+              {
+                "fold": 2,
+                "train_rows": 570,
+                "validation_rows": 143,
+                "train_score": 0.8087719298245614,
+                "validation_score": 0.7832167832167832,
+                "critic_train_score": 0.7978584836991917,
+                "critic_validation_score": 0.7862570560138948,
+                "features": [
+                  "PassengerId",
+                  "Pclass",
+                  "Name",
+                  "Sex",
+                  "Age",
+                  "SibSp",
+                  "Parch",
+                  "Ticket",
+                  "Fare",
+                  "Cabin",
+                  "Embarked"
+                ],
+                "split_hash": "69269d320cd146a53ccaee8549e1313bf723c7c907ab98d81dcb2a338f6080c1"
+              },
+              {
+                "fold": 3,
+                "train_rows": 571,
+                "validation_rows": 142,
+                "train_score": 0.8231173380035026,
+                "validation_score": 0.7464788732394366,
+                "critic_train_score": 0.8113950311839595,
+                "critic_validation_score": 0.7477812177502581,
+                "features": [
+                  "PassengerId",
+                  "Pclass",
+                  "Name",
+                  "Sex",
+                  "Age",
+                  "SibSp",
+                  "Parch",
+                  "Ticket",
+                  "Fare",
+                  "Cabin",
+                  "Embarked"
+                ],
+                "split_hash": "6f644267a679ebec2c0fde894f9c4194acadbe7ca1e802b06a84dc45e04e452e"
+              },
+              {
+                "fold": 4,
+                "train_rows": 571,
+                "validation_rows": 142,
+                "train_score": 0.8161120840630472,
+                "validation_score": 0.8028169014084507,
+                "critic_train_score": 0.8020784770784771,
+                "critic_validation_score": 0.8091463414634146,
+                "features": [
+                  "PassengerId",
+                  "Pclass",
+                  "Name",
+                  "Sex",
+                  "Age",
+                  "SibSp",
+                  "Parch",
+                  "Ticket",
+                  "Fare",
+                  "Cabin",
+                  "Embarked"
+                ],
+                "split_hash": "fcfeed44a15abdbeecc7413b2b6a1f79dfff770ac1311baba51afe3ca585188e"
+              }
+            ],
+            "train_score": 0.8134599195010294,
+            "critic_train_score": 0.8011423368361085,
+            "critic_validation_score": 0.7875036766435044,
+            "feature_names": [
+              "PassengerId",
+              "Pclass",
+              "Name",
+              "Sex",
+              "Age",
+              "SibSp",
+              "Parch",
+              "Ticket",
+              "Fare",
+              "Cabin",
+              "Embarked"
+            ],
+            "candidate_identity": "83224a28c3465c4bfc585b428ede5ee027116273ab4cb49a35caee1f71196b0e",
+            "metric_name": "accuracy",
+            "feature_importances": [
+              0.010805556691878857,
+              0.18560836758677676,
+              0.09253810824591018,
+              0.051366389204811805,
+              0.013984096112300838,
+              0.016904328774409068,
+              0.05778494382477466,
+              0.47502061917996524,
+              0.05609902801488034,
+              0.00018007826459591678,
+              0.03970848409969615
+            ],
+            "dominant_feature": "Ticket",
+            "dominant_gain_ratio": 0.47502061917996524,
+            "feature_dominance_status": "measured",
+            "is_panel_forecasting": null,
+            "error_slices": [
+              {
+                "column": "Cabin",
+                "slice": "present",
+                "support": 166,
+                "mean_error": 0.2469879518072289
+              },
+              {
+                "column": "Age",
+                "slice": "present",
+                "support": 572,
+                "mean_error": 0.21328671328671328
+              },
+              {
+                "column": "Embarked",
+                "slice": "present",
+                "support": 711,
+                "mean_error": 0.21237693389592124
+              },
+              {
+                "column": "PassengerId",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.211781206171108
+              },
+              {
+                "column": "Pclass",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.211781206171108
+              },
+              {
+                "column": "Name",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.211781206171108
+              },
+              {
+                "column": "Sex",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.211781206171108
+              },
+              {
+                "column": "SibSp",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.211781206171108
+              },
+              {
+                "column": "Parch",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.211781206171108
+              },
+              {
+                "column": "Ticket",
+                "slice": "present",
+                "support": 713,
+                "mean_error": 0.211781206171108
+              }
+            ],
+            "limitations": [
+              "Ordinal categorical encoding; specialized text/image/audio models unsupported"
+            ]
+          }
+        }
+      },
+      "critic_result": {
+        "schema_version": "v2",
+        "critique_id": "critique_cand_a2cc58e50f362c0d237ced6e_ep1_74a84a7a",
+        "candidate_id": "cand_a2cc58e50f362c0d237ced6e",
+        "epoch": 1,
+        "status": "VETO",
+        "blocking_flaws": [
+          "Model monoculture veto: only 1 distinct model families evaluated (['penalized_linear']), minimum 3 distinct families required before final packaging."
+        ],
+        "soft_warnings": [],
+        "audit_checks": {
+          "target_memorization": {
+            "passed": true,
+            "train_metric": 0.8011423368361085,
+            "val_metric": 0.7875036766435044,
+            "gap": 0.013639,
+            "max_allowed_gap": 0.12,
+            "dominant_feature": null,
+            "dominant_gain_ratio": null
+          },
+          "unexploited_signals": {
+            "passed": true,
+            "dropped_signals": [],
+            "details": null
+          },
+          "model_diversity": {
+            "passed": false,
+            "distinct_families_evaluated": 1,
+            "families": [
+              "penalized_linear"
+            ],
+            "min_required": 3
+          },
+          "topology_and_imbalance": {
+            "passed": true,
+            "cv_scheme_used": "group_kfold",
+            "required_cv_scheme": "group_kfold",
+            "score_floor_met": true,
+            "score": 0.787504
+          }
+        },
+        "error_slice_hypotheses": [],
+        "reviewer_notes": "Candidate VETOED due to 1 blocking flaw(s).",
+        "timestamp_ms": 1792688053540
+      },
+      "resource_observability": {
+        "controller": {
+          "rss_bytes": 363266048,
+          "cpu_percent": 100.1,
+          "process_count": 1,
+          "status": "available",
+          "errors": []
+        },
+        "workers": {
+          "rss_bytes": null,
+          "cpu_percent": null,
+          "process_count": 0,
+          "status": "unavailable",
+          "errors": []
+        },
+        "controller_pid": 22091,
+        "worker_pids": [],
+        "current_tree_rss_bytes": null,
+        "worker_peak_rss_bytes": 363397120,
+        "controller_peak_rss_bytes": 363266048,
+        "avg_cpu_percent": 29.876305220883534,
+        "cgroup": {
+          "available": false,
+          "verified_limits": false,
+          "membership_verified": false,
+          "memory_limit_bytes": null,
+          "cpu_quota_cores": null,
+          "memory_current_bytes": null,
+          "memory_peak_bytes": null,
+          "oom_events": null,
+          "errors": [],
+          "scope": "controller"
+        },
+        "cgroup_enforced": false,
+        "containment_status": "unverified_or_uncontained",
+        "sampling_status": "available",
+        "errors": [],
+        "duration_seconds": 9.258796582999821
+      },
+      "provider_cost_usd": "0.0003",
+      "provider_cost_is_estimate": false,
+      "requested_token_upper_bound": 12186,
+      "provider_receipt": {
+        "content": "{\"thought_rationale\": \"No candidate has been accepted yet, and the only prior turn failed due to a provider parse error rather than a modeling result. The active spec already defines a sensible baseline ensemble over hist_gbdt and penalized_linear with equal weights, no transforms, and seed 42. The next step should be to execute this baseline under the pinned group-disjoint 5-fold CV scheme so we obtain a valid diagnostic measurement before considering feature engineering or model changes.\", \"action_type\": \"RUN_EXPERIMENT\", \"parameters\": {\"families\": [\"hist_gbdt\", \"penalized_linear\"], \"weights\": [1, 1], \"transforms\": [], \"seed\": 42, \"cv_scheme\": \"group_kfold\", \"development_folds\": 5, \"group_column\": \"frozen_family_ticket_mapping\", \"target_column\": \"Survived\", \"metric\": \"accuracy\", \"metric_direction\": \"maximize\", \"notes\": \"Baseline run using active_spec; no feature transforms yet. Evaluate with pinned group-disjoint CV and report fold-level and aggregate accuracy.\"}}",
+        "usage": {
+          "completion_tokens": 397,
+          "prompt_tokens": 1317,
+          "total_tokens": 1714
+        },
+        "cost_usd": "0.0003",
+        "cost_is_estimate": false,
+        "provider_response_id": "gen-1792688045-ilLu2pP2Mp881t59OQEh",
+        "latency_ms": 5278,
+        "request_sha256": "f89b9b631955eb2662ecafbd20b719dbbb2a9291e1f5d33e3b2266f75f7bbf07",
+        "gateway_route": "rust_mlrescurix_harness"
+      }
+    },
+    {
+      "turn_index": 2,
+      "proposed_action": {
+        "thought_rationale": "Critic vetoed the previous candidate due to model monoculture: only 1 distinct family (penalized_linear) was counted, while the minimum required is 3. This is the final turn, so I must evaluate a portfolio with at least 3 distinct model families to satisfy the diversity requirement and potentially improve accuracy. I will include hist_gbdt, penalized_linear, random_forest, and extra_trees with equal weights, using the pinned group-disjoint CV scheme.",
+        "action_type": "EVALUATE_PORTFOLIO",
+        "parameters": {
+          "families": [
+            "hist_gbdt",
+            "penalized_linear",
+            "random_forest",
+            "extra_trees"
+          ],
+          "weights": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "transforms": [],
+          "seed": 42,
+          "cv_scheme": "group_kfold",
+          "development_folds": 5,
+          "group_column": "frozen_family_ticket_mapping",
+          "target_column": "Survived",
+          "metric": "accuracy",
+          "metric_direction": "maximize",
+          "notes": "Diversity portfolio with 4 distinct families to satisfy critic minimum of 3. Evaluate with pinned group-disjoint CV and report fold-level and aggregate accuracy."
+        }
+      },
+      "disposition": "rejected",
+      "error_msg": "ValueError: Unsupported model family",
+      "measurements": {
+        "error": "ValueError: Unsupported model family"
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "controller": {
+          "rss_bytes": 363298816,
+          "cpu_percent": 36.6,
+          "process_count": 1,
+          "status": "available",
+          "errors": []
+        },
+        "workers": {
+          "rss_bytes": null,
+          "cpu_percent": null,
+          "process_count": 0,
+          "status": "unavailable",
+          "errors": []
+        },
+        "controller_pid": 22091,
+        "worker_pids": [],
+        "current_tree_rss_bytes": null,
+        "worker_peak_rss_bytes": 363397120,
+        "controller_peak_rss_bytes": 363298816,
+        "avg_cpu_percent": 24.603123399897594,
+        "cgroup": {
+          "available": false,
+          "verified_limits": false,
+          "membership_verified": false,
+          "memory_limit_bytes": null,
+          "cpu_quota_cores": null,
+          "memory_current_bytes": null,
+          "memory_peak_bytes": null,
+          "oom_events": null,
+          "errors": [],
+          "scope": "controller"
+        },
+        "cgroup_enforced": false,
+        "containment_status": "unverified_or_uncontained",
+        "sampling_status": "available",
+        "errors": [],
+        "duration_seconds": 11.072911000000204
+      },
+      "provider_cost_usd": "0.00095",
+      "provider_cost_is_estimate": false,
+      "requested_token_upper_bound": 23764,
+      "provider_receipt": {
+        "content": "{\n  \"thought_rationale\": \"Critic vetoed the previous candidate due to model monoculture: only 1 distinct family (penalized_linear) was counted, while the minimum required is 3. This is the final turn, so I must evaluate a portfolio with at least 3 distinct model families to satisfy the diversity requirement and potentially improve accuracy. I will include hist_gbdt, penalized_linear, random_forest, and extra_trees with equal weights, using the pinned group-disjoint CV scheme.\",\n  \"action_type\": \"EVALUATE_PORTFOLIO\",\n  \"parameters\": {\n    \"families\": [\"hist_gbdt\", \"penalized_linear\", \"random_forest\", \"extra_trees\"],\n    \"weights\": [1, 1, 1, 1],\n    \"transforms\": [],\n    \"seed\": 42,\n    \"cv_scheme\": \"group_kfold\",\n    \"development_folds\": 5,\n    \"group_column\": \"frozen_family_ticket_mapping\",\n    \"target_column\": \"Survived\",\n    \"metric\": \"accuracy\",\n    \"metric_direction\": \"maximize\",\n    \"notes\": \"Diversity portfolio with 4 distinct families to satisfy critic minimum of 3. Evaluate with pinned group-disjoint CV and report fold-level and aggregate accuracy.\"\n  }\n}",
+        "usage": {
+          "completion_tokens": 1069,
+          "prompt_tokens": 5213,
+          "total_tokens": 6282
+        },
+        "cost_usd": "0.00095",
+        "cost_is_estimate": false,
+        "provider_response_id": "gen-1792688054-BjAgicEa9ubLVElaFmmR",
+        "latency_ms": 11013,
+        "request_sha256": "76921b2c4b6b36bb6977c3ea5d99382e99c3c9a44ba1b14d331f836776044b89",
+        "gateway_route": "rust_mlrescurix_harness"
+      }
+    }
+  ],
+  "stop_reason": "max_turns_reached",
+  "accepted_candidate_id": null,
+  "best_cv_score": null,
+  "accepted_candidate": null,
+  "candidate_identity": null,
+  "accepted_audit": null,
+  "pending_turn": null,
+  "active_spec": {
+    "families": [
+      "hist_gbdt",
+      "penalized_linear"
+    ],
+    "weights": [
+      1,
+      1
+    ],
+    "transforms": [],
+    "seed": 42
+  },
+  "current_active_features": [
+    "PassengerId",
+    "Pclass",
+    "Name",
+    "Sex",
+    "Age",
+    "SibSp",
+    "Parch",
+    "Ticket",
+    "Fare",
+    "Cabin",
+    "Embarked"
+  ],
+  "current_active_families": [
+    "hist_gbdt",
+    "penalized_linear"
+  ],
+  "bundle_verified": false,
+  "containment_status": "unverified",
+  "holdout_accesses": 0,
+  "script_registry": {},
+  "execution_path": "python_governed_workers",
+  "production_certified": false,
+  "evaluation_count": 2
+}

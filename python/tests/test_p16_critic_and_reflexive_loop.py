@@ -88,6 +88,20 @@ def get_titanic_csv() -> Path:
 # Unit Test 1: Hard Assertion 1 (Target Memorization & Leakage Veto)
 # =============================================================================
 
+def test_critic_accepts_unavailable_measured_importances():
+    from types import SimpleNamespace
+
+    result = SimpleNamespace(mean_train_score=0.85, mean_cv_score=0.80,
+                             feature_importances=None, feature_names=["signal"])
+    receipt = CriticEngine().audit(
+        eval_result=result,
+        topology={"task_type": "binary_classification", "cv_scheme": "stratified_kfold"},
+        cv_scheme_used="stratified_kfold",
+        distinct_families_evaluated=["lgbm", "penalized_linear", "hist_gbdt"],
+    )
+    assert receipt.audit_checks["target_memorization"]["dominant_gain_ratio"] is None
+
+
 def test_hard_assertion_1_target_memorization_and_leakage():
     engine = CriticEngine()
     topology = {

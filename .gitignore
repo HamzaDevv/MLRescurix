@@ -36,6 +36,13 @@ __pycache__/
 /.config/
 *.key
 
+# Keep benchmark receipts in Git; keep copied Kaggle rows and replay/runtime
+# payloads local. Model bundles have their own integrity manifests in the receipts.
+/docs/evidence/v2/robustness/*/run_*/dev_*.csv
+/docs/evidence/v2/robustness/*/run_*/evaluations/*.request.json
+/docs/evidence/v2/robustness/*/run_*/artifacts/
+/docs/evidence/v2/robustness/*/run_*/rust_harness_state/
+
 # Local editor and operating system files
 .DS_Store
 .idea/

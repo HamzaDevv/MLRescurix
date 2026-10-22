@@ -1,0 +1,4 @@
+{"timestamp": "2026-10-22T18:15:35.910447+00:00", "event": "certify_start", "action": "evaluating_certification_gates"}
+{"timestamp": "2026-10-22T18:15:35.910758+00:00", "event": "preflight_start", "action": "evaluating_prerequisites"}
+{"timestamp": "2026-10-22T18:15:38.210372+00:00", "event": "preflight_completed", "duration_s": 2.295775890350342, "blocked_gates": []}
+{"timestamp": "2026-10-22T18:15:38.210722+00:00", "event": "certify_rejected", "status": "inconclusive", "reason": "Certification requires Linux cgroup v2 and complete campaign passes", "blocked_gates": [], "failed_gates": []}

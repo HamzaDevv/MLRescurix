@@ -1,0 +1,38 @@
+{
+  "campaign": "20261021-robustness",
+  "run_id": "run_20261022_232021",
+  "started_at": "2026-10-22T17:50:21.077783+00:00",
+  "updated_at": "2026-10-22T17:51:14.826202+00:00",
+  "status": "passed",
+  "git": {
+    "commit": "7d7c4479fcbd1aaf929a0f1940ae9e62fd7b5729",
+    "is_dirty": true,
+    "dirty_diff_sha256": "91f368804e1d98b2d89185538eb30914b6d24ad8f81388dfccdd835cf86e25a6"
+  },
+  "gates": {
+    "G_LIVE_DEV": {
+      "outcome": "passed",
+      "details": {
+        "status": "passed",
+        "reason": null,
+        "bundle_identity_verified": true,
+        "accepted_candidate_id": "cand_784989b2ad0e972d5faa917c",
+        "candidate_identity": "18627bf8fdb659f326121d6a7e91b95bf4b481710947c491f6aa92a3e05abcf5",
+        "task": "K5 Store Sales Forecasting",
+        "metric": "rmsle",
+        "best_cv_score": 0.41471763109112675,
+        "holdout_accesses": 0,
+        "bundle_verified": true,
+        "provider_cost_usd": 0.00211,
+        "duration_s": 52.13585186004639,
+        "worker_peak_rss_bytes": null,
+        "controller_peak_rss_bytes": 1120567296,
+        "containment_status": "unverified_or_uncontained"
+      }
+    }
+  },
+  "budget_spent_usd": 0.00211,
+  "holdout_accesses": 0,
+  "budget_reserved_usd": 0.0,
+  "budget_uncertain_usd": 0.0
+}

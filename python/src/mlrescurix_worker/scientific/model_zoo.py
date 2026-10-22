@@ -184,8 +184,10 @@ class LightweightResidualMLPClassifier(BaseEstimator, ClassifierMixin):
                 s = self.feature_importances_.sum()
                 if s > 0:
                     self.feature_importances_ /= s
+                else:
+                    self.feature_importances_ = None
             else:
-                self.feature_importances_ = np.ones(in_features) / in_features
+                self.feature_importances_ = None
             return self
 
         if platform.system() == "Darwin":
@@ -223,7 +225,7 @@ class LightweightResidualMLPClassifier(BaseEstimator, ClassifierMixin):
             first_weight = self.model_.input_layer[0].weight.detach().cpu().numpy()
             raw_imps = np.linalg.norm(first_weight, axis=0)
             total = raw_imps.sum()
-            self.feature_importances_ = raw_imps / total if total > 0 else np.ones(in_features) / in_features
+            self.feature_importances_ = raw_imps / total if total > 0 else None
 
         return self
 
@@ -311,8 +313,10 @@ class LightweightResidualMLPRegressor(BaseEstimator, RegressorMixin):
                 s = self.feature_importances_.sum()
                 if s > 0:
                     self.feature_importances_ /= s
+                else:
+                    self.feature_importances_ = None
             else:
-                self.feature_importances_ = np.ones(in_features) / in_features
+                self.feature_importances_ = None
             return self
 
         if platform.system() == "Darwin":
@@ -348,7 +352,7 @@ class LightweightResidualMLPRegressor(BaseEstimator, RegressorMixin):
             first_weight = self.model_.input_layer[0].weight.detach().cpu().numpy()
             raw_imps = np.linalg.norm(first_weight, axis=0)
             total = raw_imps.sum()
-            self.feature_importances_ = raw_imps / total if total > 0 else np.ones(in_features) / in_features
+            self.feature_importances_ = raw_imps / total if total > 0 else None
 
         return self
 
@@ -758,10 +762,10 @@ class ModelOofResult:
     mean_cv_score: float
     mean_train_score: float
     train_val_gap: float
-    feature_importances: np.ndarray
     feature_names: List[str]
     fitted_estimators: List[Any]
     task_type: str
+    feature_importances: Optional[np.ndarray] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -773,20 +777,23 @@ class ModelOofResult:
             "mean_cv_score": float(self.mean_cv_score),
             "mean_train_score": float(self.mean_train_score),
             "train_val_gap": float(self.train_val_gap),
+            "feature_importances": self.feature_importances.tolist() if self.feature_importances is not None else None,
             "feature_names": self.feature_names,
             "task_type": self.task_type,
         }
 
 
-def extract_feature_importances(estimator: Any, n_features: int) -> np.ndarray:
-    """Extract or approximate non-negative feature importances from a fitted estimator."""
+def extract_feature_importances(estimator: Any, n_features: int) -> Optional[np.ndarray]:
+    """Extract measured non-negative feature importances from a fitted estimator, or None if unsupported."""
     # 1. Native feature_importances_ attribute (GBDTs, Random Forests, Residual MLP)
     if hasattr(estimator, "feature_importances_"):
-        imps = np.asarray(estimator.feature_importances_, dtype=float)
-        if len(imps) == n_features:
-            return np.maximum(0.0, imps)
-        elif len(imps) > n_features:
-            return np.maximum(0.0, imps[:n_features])
+        raw_attr = estimator.feature_importances_
+        if raw_attr is not None:
+            imps = np.asarray(raw_attr, dtype=float)
+            if len(imps) == n_features:
+                return np.maximum(0.0, imps)
+            elif len(imps) > n_features:
+                return np.maximum(0.0, imps[:n_features])
 
     # 2. Pipeline unwrapping
     if isinstance(estimator, Pipeline):
@@ -799,7 +806,7 @@ def extract_feature_importances(estimator: Any, n_features: int) -> np.ndarray:
                 else:
                     raw = np.abs(coefs)
                 if len(raw) >= n_features:
-                    return raw[:n_features]
+                    return np.maximum(0.0, raw[:n_features])
             sub_imp = extract_feature_importances(model_step, n_features)
             if sub_imp is not None:
                 return sub_imp
@@ -812,10 +819,10 @@ def extract_feature_importances(estimator: Any, n_features: int) -> np.ndarray:
         else:
             raw = np.abs(coefs)
         if len(raw) >= n_features:
-            return raw[:n_features]
+            return np.maximum(0.0, raw[:n_features])
 
-    # Uniform fallback
-    return np.ones(n_features, dtype=float) / max(1, n_features)
+    # Explicitly unsupported: do not manufacture uniform or synthetic importances
+    return None
 
 
 class PredefinedSplitter:
@@ -1021,19 +1028,21 @@ def evaluate_model_oof(
     else:
         train_val_gap = float(mean_train - mean_val)
 
-    # Average feature importances across folds safely
-    if fold_importances and all(len(imp) == len(fold_importances[0]) for imp in fold_importances):
-        mean_importances = np.mean(fold_importances, axis=0)
-    elif fold_importances:
-        max_len = max(len(imp) for imp in fold_importances)
-        padded = [np.pad(imp, (0, max_len - len(imp))) for imp in fold_importances]
+    # Average feature importances across folds safely if measured
+    valid_imps = [imp for imp in fold_importances if imp is not None]
+    if valid_imps and all(len(imp) == len(valid_imps[0]) for imp in valid_imps):
+        mean_importances = np.mean(valid_imps, axis=0)
+    elif valid_imps:
+        max_len = max(len(imp) for imp in valid_imps)
+        padded = [np.pad(imp, (0, max_len - len(imp))) for imp in valid_imps]
         mean_importances = np.mean(padded, axis=0)
     else:
-        mean_importances = np.ones(n_features) / max(1, n_features)
+        mean_importances = None
 
-    total_imp = float(np.sum(mean_importances))
-    if total_imp > 0:
-        mean_importances = mean_importances / total_imp
+    if mean_importances is not None:
+        total_imp = float(np.sum(mean_importances))
+        if total_imp > 0:
+            mean_importances = mean_importances / total_imp
 
     return ModelOofResult(
         family=family_name,

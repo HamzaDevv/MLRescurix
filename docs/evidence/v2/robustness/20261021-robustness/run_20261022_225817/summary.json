@@ -1,0 +1,22 @@
+{
+  "campaign": "20261021-robustness",
+  "run_id": "run_20261022_225817",
+  "started_at": "2026-10-22T17:28:17.558680+00:00",
+  "updated_at": "2026-10-22T17:28:24.465389+00:00",
+  "status": "blocked",
+  "git": {
+    "commit": "7d7c4479fcbd1aaf929a0f1940ae9e62fd7b5729",
+    "is_dirty": true,
+    "dirty_diff_sha256": "88930cc60eb546ea0b5c6e3bdadc2c276d6bbcac6385a6f88572ee5d9d57b5d0"
+  },
+  "gates": {
+    "G_LIVE_DEV": {
+      "status": "blocked",
+      "reason": "Pinned K4 folds unavailable for bounded development rows: pinned temporal folds or time column 'TransactionDT' are missing"
+    }
+  },
+  "budget_spent_usd": 0.0,
+  "holdout_accesses": 0,
+  "budget_reserved_usd": 0.0,
+  "budget_uncertain_usd": 0.0
+}

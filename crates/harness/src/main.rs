@@ -3,7 +3,7 @@
 use clap::{Parser,Subcommand};
 use mlrescurix_harness::{Runtime,Policy,Request,contracts::{decode_frame,MAX_FRAME},execution::{self,JobSpec,Supervisor},search};
 use sha2::Digest;
-use std::{path::PathBuf,io::Read};
+use std::{path::PathBuf, io::Read, fs};
 #[derive(Parser)]
 #[command(version,about="MLRescurix durable local harness")]
 struct Cli { #[command(subcommand)] command:Command }
@@ -40,7 +40,9 @@ enum Command {
     FinalizationBinding { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] candidate:String },
     StoragePolicySummary { #[arg(long)] state:PathBuf },
     RegisterModelPricing { #[arg(long)] state:PathBuf, #[arg(long)] model:String, #[arg(long)] prompt_millicents_per_1k:i64, #[arg(long)] completion_millicents_per_1k:i64 },
-    ApproveOutboundView { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] request_sha256:String, #[arg(long,default_value="local-human")] actor:String, #[arg(long,default_value_t=true)] approved:bool, #[arg(long,default_value_t=3600000)] ttl_ms:i64 },
+    StageOutboundView { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] request:PathBuf, #[arg(long,default_value="local-human")] actor:String },
+    ApproveOutboundView { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] request_sha256:String, #[arg(long,default_value="local-human")] actor:String, #[arg(long,default_value_t=true,action=clap::ArgAction::Set)] approved:bool, #[arg(long,default_value_t=3600000)] ttl_ms:i64 },
+    GatewayDispatch { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] task:String, #[arg(long)] role:String, #[arg(long)] request_id:String, #[arg(long)] request:PathBuf, #[arg(long)] endpoint:Option<String>, #[arg(long)] api_key:Option<String>, #[arg(long)] mock:Option<PathBuf>, #[arg(long,default_value_t=false,action=clap::ArgAction::Set)] require_policy_approval:bool },
     AgentRun { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] role:String, #[arg(long)] task:String, #[arg(long)] branch:String, #[arg(long,default_value="default-model")] model:String, #[arg(long,default_value_t=10)] max_turns:u32, #[arg(long)] endpoint:Option<String>, #[arg(long)] api_key:Option<String>, #[arg(long)] mock:Option<PathBuf> },
     VerifyBundle { #[arg(long)] bundle:PathBuf, #[arg(long,default_value_t=true,action=clap::ArgAction::Set)] sandbox:bool, #[arg(long)] state:Option<PathBuf> },
     EstimateFeasibility {
@@ -209,9 +211,59 @@ async fn run()->Result<(),String>{
             execution::migrate(&state)?;
             print(mlrescurix_harness::agents::gateway::register_model_pricing(&state, &model, prompt_millicents_per_1k, completion_millicents_per_1k)?)
         },
+        Command::StageOutboundView { state, project, request, actor } => {
+            let req_bytes = fs::read(&request).map_err(|e| format!("cannot read request: {e}"))?;
+            let req: mlrescurix_harness::agents::ChatCompletionRequest = serde_json::from_slice(&req_bytes)
+                .map_err(|e| format!("invalid request JSON: {e}"))?;
+            print(mlrescurix_harness::agents::stage_outbound_request(&state, &project, &req, &actor)?)
+        },
         Command::ApproveOutboundView { state, project, request_sha256, actor, approved, ttl_ms } => {
             execution::migrate(&state)?;
             print(mlrescurix_harness::agents::gateway::approve_outbound_view(&state, &project, &request_sha256, &actor, approved, ttl_ms)?)
+        },
+        Command::GatewayDispatch { state, project, task, role, request_id, request, endpoint, api_key, mock, require_policy_approval } => {
+            let req_bytes = fs::read(&request).map_err(|e| format!("cannot read request: {e}"))?;
+            let req: mlrescurix_harness::agents::ChatCompletionRequest = serde_json::from_slice(&req_bytes)
+                .map_err(|e| format!("invalid request JSON: {e}"))?;
+            let (gateway, mock_save_back): (std::sync::Arc<dyn mlrescurix_harness::agents::ProviderGateway>, Option<(PathBuf, Vec<mlrescurix_harness::agents::ChatCompletionResponse>)>) = if let Some(mock_path) = mock {
+                let mock_bytes = fs::read(&mock_path).map_err(|e| format!("cannot read mock file: {e}"))?;
+                let mut responses: Vec<mlrescurix_harness::agents::ChatCompletionResponse> = serde_json::from_slice(&mock_bytes)
+                    .map_err(|e| format!("invalid mock JSON: {e}"))?;
+                let first = if responses.is_empty() { None } else { Some(responses.remove(0)) };
+                let fixture = first.into_iter().collect();
+                (std::sync::Arc::new(mlrescurix_harness::agents::ScriptedProviderFixture::new(fixture)), Some((mock_path, responses)))
+            } else {
+                let provider_cfg: Option<serde_json::Value> = fs::read_to_string(".config/provider.json")
+                    .ok().and_then(|s: String| serde_json::from_str(&s).ok());
+                let effective_key = api_key
+                    .or_else(|| std::env::var("OPENROUTER_API_KEY").ok())
+                    .or_else(|| fs::read_to_string(".config/openrouter.key").ok().map(|s: String| s.trim().to_string()).filter(|s: &String| !s.is_empty()))
+                    .or_else(|| {
+                        let home = std::env::var("HOME").ok()?;
+                        fs::read_to_string(std::path::Path::new(&home).join(".config/mlrescurix/openrouter.key"))
+                            .ok().map(|s: String| s.trim().to_string()).filter(|s: &String| !s.is_empty())
+                    });
+                let default_ep = provider_cfg.as_ref()
+                    .and_then(|c| c["endpoint"].as_str())
+                    .unwrap_or("https://openrouter.ai/api/v1/chat/completions");
+                let effective_endpoint = endpoint
+                    .or_else(|| std::env::var("OPENROUTER_BASE_URL").ok())
+                    .unwrap_or_else(|| default_ep.to_string());
+                if let Some(key) = effective_key {
+                    (std::sync::Arc::new(mlrescurix_harness::agents::OpenAICompatibleAdapter::new(effective_endpoint, key)), None)
+                } else {
+                    return Err("GatewayDispatch requires either --mock <path> or an API key (--api-key, OPENROUTER_API_KEY, or .config/openrouter.key)".into());
+                }
+            };
+            let outcome = mlrescurix_harness::agents::dispatch_gateway_with_id(
+                &state, &project, &task, &role, &request_id, &req, gateway.as_ref(), require_policy_approval,
+            )?;
+            if outcome["replayed"] != true {
+              if let Some((save_path, remaining)) = mock_save_back {
+                let _ = fs::write(save_path, serde_json::to_string_pretty(&remaining).unwrap_or_default());
+              }
+            }
+            print(outcome)
         },
         Command::Approve { state, project, candidate, binding_sha256, rationale } => {
             execution::record_content_decision(&state,&project,&candidate,&binding_sha256,"user_approval",&format!("local-human-uid-{}",unsafe{libc::getuid()}),true,&rationale)?;

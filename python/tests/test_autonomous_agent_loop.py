@@ -117,6 +117,7 @@ def test_valid_agent_action_changes_configuration(tmp_path: Path):
         target_column="target",
         max_turns=1,
         provider_caller=mock_provider,
+        provider_is_fixture=True,
     )
     res = loop.run()
 
@@ -173,6 +174,7 @@ def test_actual_tool_results_inform_subsequent_decisions(tmp_path: Path):
         target_column="target",
         max_turns=2,
         provider_caller=mock_provider,
+        provider_is_fixture=True,
     )
     res = loop.run()
 
@@ -227,6 +229,7 @@ def test_invalid_and_unsupported_actions_rejected(tmp_path: Path):
         target_column="target",
         max_turns=2,
         provider_caller=mock_provider,
+        provider_is_fixture=True,
     )
     res = loop.run()
 
@@ -271,6 +274,7 @@ def test_critic_veto_blocks_acceptance(tmp_path: Path):
         target_column="target",
         max_turns=1,
         provider_caller=mock_provider,
+        provider_is_fixture=True,
     )
     # Force min_distinct_families to 5 so it triggers VETO
     loop.critic_engine = CriticEngine(min_distinct_families=5)
@@ -315,6 +319,7 @@ def test_state_survives_restart_without_duplicate_execution(tmp_path: Path):
         target_column="target",
         max_turns=1,
         provider_caller=mock_provider,
+        provider_is_fixture=True,
     )
     res1 = loop1.run()
     assert res1["turns_completed"] == 1
@@ -330,6 +335,7 @@ def test_state_survives_restart_without_duplicate_execution(tmp_path: Path):
         target_column="target",
         max_turns=2,
         provider_caller=mock_provider,
+        provider_is_fixture=True,
     )
     res2 = loop2.run()
     # Turn 0 must NOT be re-called; only turn 1 is called
@@ -361,6 +367,7 @@ def test_budget_admission_rejects_unaffordable_calls(tmp_path: Path):
         target_column="target",
         max_turns=2,
         provider_caller=mock_provider,
+        provider_is_fixture=True,
     )
     res = loop.run()
 
@@ -377,8 +384,9 @@ def test_budget_admission_rejects_unaffordable_calls(tmp_path: Path):
 def test_worker_failures_and_cancellation_clean_up_processes():
     sampler = ProcessTreeSampler()
     metrics = sampler.sample_now()
-    assert metrics["worker_peak_rss_bytes"] > 0
-    assert metrics["containment_status"] in ("uncontained_host_process", "cgroup_v2_contained")
+    assert metrics["controller_peak_rss_bytes"] > 0
+    assert metrics["worker_peak_rss_bytes"] is None  # no worker was registered
+    assert metrics["cgroup_enforced"] is False or metrics["cgroup"]["verified_limits"]
 
     # Spawn background sleep process in a new process group
     proc = subprocess.Popen(

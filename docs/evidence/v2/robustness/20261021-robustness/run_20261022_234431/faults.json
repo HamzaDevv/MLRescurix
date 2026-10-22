@@ -1,0 +1,7 @@
+{
+  "test_file": "test_s1_robustness_reproducers.py, test_hypothesis_executor.py",
+  "exit_code": 0,
+  "duration_s": 6.39924693107605,
+  "passed": true,
+  "stdout_summary": "22 passed in 5.59s"
+}

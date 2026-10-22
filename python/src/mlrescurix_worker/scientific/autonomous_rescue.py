@@ -393,11 +393,14 @@ def bundle_candidate(
     topology: Optional[Any] = None,
     raw_holdout_records: Optional[List[Dict[str, Any]]] = None,
     decision_threshold_override: Optional[float] = None,
+    accepted_evaluation: Optional[Dict[str, Any]] = None,
+    accepted_candidate_identity: Optional[str] = None,
 ) -> dict[str, Any]:
     """Package candidate into a verified, self-contained `mlrescurix.bundle.v2` delivery bundle.
 
-    1. Fits candidate on development rows (train + validation).
-    2. Evaluates on sealed holdout test rows with strict zero label leakage.
+    1. Packages the accepted candidate fitted on development rows.
+    2. Carries forward its audited development-CV evidence; it does not claim
+       that a fresh partition of development data is a sealed holdout.
     3. Serializes model weights (joblib) encapsulating FullInferencePipeline.
     4. Generates all required contract files:
        input_schema, output_schema, scorecard, verification, final, inference.py,
@@ -462,6 +465,22 @@ def bundle_candidate(
     reliability_curves: dict[str, Any] = {}
     decision_threshold = 0.5
 
+    is_accepted_pipeline = pipeline is not None and hasattr(pipeline, "candidate_identity")
+    candidate_identity = getattr(pipeline, "candidate_identity", None) if pipeline is not None else None
+    if is_accepted_pipeline and (not candidate_identity or not accepted_candidate_identity or accepted_evaluation is None):
+        raise FinalizationBundleError("Accepted candidate bundling requires identity and audited evaluation evidence")
+    if is_accepted_pipeline and accepted_candidate_identity is not None and candidate_identity != accepted_candidate_identity:
+        raise FinalizationBundleError("Accepted candidate identity does not match fitted pipeline")
+    if is_accepted_pipeline and accepted_evaluation is not None:
+        if accepted_evaluation.get("candidate_identity") != candidate_identity:
+            raise FinalizationBundleError("Accepted evaluation identity does not match fitted pipeline")
+        try:
+            evaluation_score = float(accepted_evaluation["cv_score"])
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise FinalizationBundleError("Accepted evaluation has no finite CV score") from exc
+        if not np.isfinite(evaluation_score):
+            raise FinalizationBundleError("Accepted evaluation has no finite CV score")
+
     if pipeline is not None:
         model = pipeline
         y_dev = dev_df[target_column]
@@ -469,14 +488,25 @@ def bundle_candidate(
         if not getattr(model, "is_fitted_", False):
             model.fit(dev_df, y_dev)
 
-        test_preds = model.predict(test_df)
+        # CandidatePipeline was accepted using caller-owned pinned folds. The
+        # packaging split is only a deterministic development partition and is
+        # not independent evaluation evidence.
+        test_preds = (np.asarray([]) if is_accepted_pipeline else model.predict(test_df)) if len(test_df) else np.asarray([])
         if hasattr(model, "categorizer"):
             decision_threshold = float(decision_threshold_override or getattr(model.categorizer, "decision_threshold", 0.5))
             calib_method = str(getattr(model.categorizer, "calibration_method", "none"))
         else:
             decision_threshold = float(decision_threshold_override or 0.5)
 
-        if is_regression:
+        if is_accepted_pipeline:
+            if accepted_evaluation is not None:
+                metric_name = str(accepted_evaluation.get("metric_name", primary_metric))
+                score = accepted_evaluation.get("cv_score")
+                test_metric_val = float(score) if score is not None and np.isfinite(float(score)) else None
+            else:
+                metric_name = primary_metric
+                test_metric_val = None
+        elif is_regression:
             test_metric_val = float(root_mean_squared_error(y_test, test_preds))
             metric_name = "rmse"
         else:
@@ -552,7 +582,20 @@ def bundle_candidate(
         shutil.rmtree(bundle_path)
     bundle_path.mkdir(parents=True, exist_ok=True)
 
-    # 1. Model weights
+    # 1. Model weights. CandidatePipeline's pickle module is vendored with
+    # minimal package initializers so loading does not import worker startup
+    # code or depend on the source checkout being installed.
+    if is_accepted_pipeline:
+        source_root = Path(__file__).resolve().parent
+        vendor_root = bundle_path / "mlrescurix_worker"
+        vendor_root.mkdir(parents=True, exist_ok=True)
+        (vendor_root / "__init__.py").write_text("\"\"\"Vendored inference runtime.\"\"\"\n", encoding="utf-8")
+        scientific_root = vendor_root / "scientific"
+        scientific_root.mkdir(parents=True, exist_ok=True)
+        (scientific_root / "__init__.py").write_text("\"\"\"Minimal vendored scientific package.\"\"\"\n", encoding="utf-8")
+        for module_name in ("candidate_pipeline.py", "model_zoo.py"):
+            shutil.copy2(source_root / module_name, scientific_root / module_name)
+
     frozen_model_path = bundle_path / "frozen_model.joblib"
     joblib.dump(model, frozen_model_path)
     frozen_model_sha = _sha256_file(frozen_model_path)
@@ -592,15 +635,23 @@ def bundle_candidate(
     dataset_sha = _sha256_file(data_path)
     scorecard_data = {
         "candidate_id": candidate_id,
+        "candidate_identity": candidate_identity,
+        "accepted_evaluation": ({
+            "metric_name": metric_name,
+            "cv_score": test_metric_val,
+            "cv_scores": accepted_evaluation.get("cv_scores", []),
+            "fold_receipts": accepted_evaluation.get("fold_receipts", []),
+        } if is_accepted_pipeline and accepted_evaluation is not None else None),
         "project_id": project_id,
         "dataset_sha256": dataset_sha,
         "test_access_id": test_access_id,
         "primary_metric": test_metric_val,
         "metrics": {metric_name: test_metric_val},
-        "constraints": {
+        "evaluation_scope": "accepted_development_cross_validation" if is_accepted_pipeline else "development_internal_split",
+        "constraints": ({ } if is_accepted_pipeline else {
             "inference_latency_ms": {"threshold": 50.0, "value": 3.5, "verdict": "pass", "enforcement": "measured"},
             "bundle_bytes": {"threshold": 10485760, "value": 25000, "verdict": "pass", "enforcement": "measured"},
-        },
+        }),
     }
     (bundle_path / "scorecard.json").write_text(json.dumps(scorecard_data, indent=2), encoding="utf-8")
 
@@ -608,6 +659,7 @@ def bundle_candidate(
     verification_data = {
         "frozen_model_sha256": frozen_model_sha,
         "bundle_candidate": candidate_id,
+        "candidate_identity": candidate_identity,
         "dataset_sha256": dataset_sha,
         "test_access_id": test_access_id,
         "raw_input_api": "predict(records)",
@@ -618,7 +670,9 @@ def bundle_candidate(
     final_data = {
         "status": "verified_development_only",
         "candidate_id": candidate_id,
-        "test_metrics": {metric_name: test_metric_val},
+        "candidate_identity": candidate_identity,
+        "development_metrics": {metric_name: test_metric_val},
+        "evaluation_scope": "accepted_development_cross_validation" if is_accepted_pipeline else "development_internal_split",
         "test_access_id": test_access_id,
         "bundle": "bundle",
     }
@@ -670,18 +724,23 @@ def predict(records):
                 raise ValueError(f"Unexpected extra feature: '{{k}}'")
 
     res = {{}}
+    is_candidate = getattr(model, "candidate_identity", None) is not None
+    frame = pd.DataFrame(records)
     try:
-        # Check if model handles raw records directly (e.g. FullInferencePipeline)
+        # CandidatePipeline requires the complete raw frame: numeric-only
+        # fallbacks silently discard categorical features and are invalid.
         if hasattr(model, "predict_proba"):
-            probs = model.predict_proba(records)
+            probs = model.predict_proba(frame if is_candidate else records)
             res["probabilities"] = probs.tolist() if hasattr(probs, "tolist") else probs
             res["classes"] = [int(c) if isinstance(c, (int, np.integer)) else str(c) for c in getattr(model, "classes_", [0, 1])]
-            preds = model.predict(records)
+            preds = model.predict(frame if is_candidate else records)
             res["prediction"] = [int(p) if isinstance(p, (int, np.integer)) else p for p in preds]
         else:
-            preds = model.predict(records)
+            preds = model.predict(frame if is_candidate else records)
             res["prediction"] = preds.tolist() if hasattr(preds, "tolist") else preds
     except Exception:
+        if is_candidate:
+            raise
         # Fallback for simple estimators expecting numeric matrix only
         df = pd.DataFrame(records)
         num_cols = [c for c in features if c in df.columns and pd.api.types.is_numeric_dtype(df[c])]
@@ -722,6 +781,15 @@ if __name__ == "__main__":
         "scikit-learn==1.8.0\n"
         "safetensors==0.7.0\n"
     )
+    if is_accepted_pipeline:
+        from importlib.metadata import version
+        packages = {"joblib", "numpy", "pandas", "scikit-learn", "scipy", "threadpoolctl"}
+        native_packages = {"lgbm": "lightgbm", "xgboost": "xgboost", "catboost": "catboost"}
+        for family in model.spec["families"]:
+            if family in native_packages: packages.add(native_packages[family])
+        if "neural_tabular" in model.spec["families"] and any(hasattr(est, "model_") for est in model.estimators_):
+            packages.add("torch")
+        inference_lock = "".join(f"{package}=={version(package)}\n" for package in sorted(packages))
     (bundle_path / "inference.lock").write_text(inference_lock, encoding="utf-8")
 
     training_lock = (
@@ -732,6 +800,8 @@ if __name__ == "__main__":
         "safetensors==0.7.0\n"
         "pytest==8.3.4\n"
     )
+    if is_accepted_pipeline:
+        training_lock = inference_lock
     (bundle_path / "training.lock").write_text(training_lock, encoding="utf-8")
 
     # 8. Standalone serve.py recipe
@@ -804,9 +874,10 @@ if __name__ == "__main__":
     (bundle_path / "examples_input.json").write_text(json.dumps(sample_rows, indent=2), encoding="utf-8")
 
     expected_out: dict[str, Any] = {}
-    if pipeline is not None and hasattr(model, "predict_proba"):
-        sample_probs = model.predict_proba(sample_rows)
-        sample_preds = model.predict(sample_rows)
+    sample_frame = pd.DataFrame(sample_rows)
+    if pipeline is not None and not is_regression and hasattr(model, "predict_proba"):
+        sample_probs = model.predict_proba(sample_frame if is_accepted_pipeline else sample_rows)
+        sample_preds = model.predict(sample_frame if is_accepted_pipeline else sample_rows)
         expected_out = {
             "prediction": [int(p) if isinstance(p, (int, np.integer)) else p for p in sample_preds],
             "probabilities": sample_probs.tolist() if hasattr(sample_probs, "tolist") else sample_probs,
@@ -826,20 +897,26 @@ if __name__ == "__main__":
         else:
             expected_out["prediction"] = model.predict(X_samp).tolist()
     else:
-        sample_df = pd.DataFrame(sample_rows)
-        num_cols_samp = [c for c in schema_features if c in sample_df.columns and pd.api.types.is_numeric_dtype(sample_df[c])]
-        X_samp = sample_df[num_cols_samp].fillna(0.0) if num_cols_samp else sample_df.fillna(0.0)
+        sample_df = sample_frame
+        if is_accepted_pipeline:
+            X_samp = sample_df
+        else:
+            num_cols_samp = [c for c in schema_features if c in sample_df.columns and pd.api.types.is_numeric_dtype(sample_df[c])]
+            X_samp = sample_df[num_cols_samp].fillna(0.0) if num_cols_samp else sample_df.fillna(0.0)
         expected_out["prediction"] = model.predict(X_samp).tolist()
 
     (bundle_path / "examples_expected.json").write_text(json.dumps(expected_out, indent=2), encoding="utf-8")
 
     # 10. README.md
+    readme_metric_line = (f"- Accepted development CV metric ({metric_name}): {test_metric_val:.4f}\n" if is_accepted_pipeline and test_metric_val is not None
+                          else ("- Accepted development CV metric: not supplied\n" if is_accepted_pipeline else f"- Development partition metric ({metric_name}): {test_metric_val:.4f}\n"))
+    readme_evaluation_line = ("- Evaluation scope: accepted development cross-validation; no sealed holdout evaluation was performed.\n" if is_accepted_pipeline
+                              else f"- Evaluation scope: deterministic development partition ({test_access_id}).\n")
     readme_text = f"""# MLRescurix Model Bundle v2: {candidate_id}
 
 - Project: {project_id}
 - Task: {task_type}
-- Primary Metric ({metric_name}): {test_metric_val:.4f}
-- Sealed Test Gate: {test_access_id}
+{readme_metric_line}{readme_evaluation_line}- Candidate Identity: {candidate_identity or 'not applicable'}
 - Decision Threshold: {decision_threshold:.4f}
 - Calibration Method: {calib_method}
 
@@ -869,6 +946,7 @@ python3 serve.py --port 8080
         "format": "mlrescurix.bundle.v2",
         "project_id": project_id,
         "candidate_id": candidate_id,
+        "candidate_identity": candidate_identity,
         "model": {
             "weights_path": "frozen_model.joblib",
             "weights_sha256": frozen_model_sha,
@@ -903,15 +981,15 @@ python3 serve.py --port 8080
             "path": "scorecard.json",
             "sha256": _sha256_file(bundle_path / "scorecard.json"),
         },
-        "resource_measurements": {
-            "cold_load_ms": 12.0,
-            "warm_p50_ms": 2.1,
-            "warm_p95_ms": 3.8,
-            "peak_rss_kb": 25000,
-            "package_bytes": sum(f["bytes"] for f in files_map.values()),
-        },
+        "resource_measurements": ({"package_bytes": sum(f["bytes"] for f in files_map.values())}
+                                  if is_accepted_pipeline else {
+            "cold_load_ms": 12.0, "warm_p50_ms": 2.1, "warm_p95_ms": 3.8,
+            "peak_rss_kb": 25000, "package_bytes": sum(f["bytes"] for f in files_map.values()),
+        }),
         "files": files_map,
     }
+    if candidate_identity is None:
+        manifest_data.pop("candidate_identity", None)
     (bundle_path / "manifest.json").write_text(json.dumps(manifest_data, indent=2), encoding="utf-8")
 
     # Verify bundle integrity
@@ -923,7 +1001,7 @@ python3 serve.py --port 8080
         "candidate_id": candidate_id,
         "format": "mlrescurix.bundle.v2",
         "primary_metric": test_metric_val,
-        "holdout_primary_metric": test_metric_val,
+        "holdout_primary_metric": None if is_accepted_pipeline else test_metric_val,
         "test_metric_name": metric_name,
         "test_access_id": test_access_id,
         "manifest_sha256": _sha256_file(bundle_path / "manifest.json"),
@@ -2045,6 +2123,20 @@ class AutonomousRescueEngine:
                 task_type=task_type,
             )
 
+            valid_p_imps = [
+                np.asarray(p.feature_importances, dtype=float)
+                for p in portfolio.values()
+                if getattr(p, "feature_importances", None) is not None
+            ]
+            if valid_p_imps and all(len(imp) == len(valid_p_imps[0]) for imp in valid_p_imps):
+                ens_imps = np.mean(valid_p_imps, axis=0)
+            elif valid_p_imps:
+                max_len = max(len(imp) for imp in valid_p_imps)
+                padded = [np.pad(imp, (0, max_len - len(imp))) for imp in valid_p_imps]
+                ens_imps = np.mean(padded, axis=0)
+            else:
+                ens_imps = None
+
             # M2-Critic Audit with strictly measured quantities
             cand_eval = {
                 "candidate_id": f"cand_epoch_{epoch}",
@@ -2054,7 +2146,7 @@ class AutonomousRescueEngine:
                 "cv_scores": ensemble_fold_scores,
                 "features": feat_names,
                 "feature_names": feat_names,
-                "feature_importances": np.mean([p.feature_importances for p in portfolio.values()], axis=0),
+                "feature_importances": ens_imps,
                 "submodels": families,
             }
             critique = critic_engine.audit(

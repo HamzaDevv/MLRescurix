@@ -1600,7 +1600,7 @@ impl Supervisor {
                     let base=self.root.join("scientific-sources");ensure_dir(&self.root,&base)?;
                     let snapshot=base.join(&source_hash);
                     if !snapshot.exists() {
-                        if fs::read_dir(&base).map_err(|e|e.to_string())?.count()>=8||tree_size(&pythonpath)?>1024*1024{return Err("bounded scientific source snapshot storage ceiling reached".into());}
+                        if fs::read_dir(&base).map_err(|e|e.to_string())?.count()>=8||tree_size(&pythonpath)?>4*1024*1024{return Err("bounded scientific source snapshot storage ceiling reached".into());}
                         crate::agents::workspace::BranchWorkspaceManager::copy_dir_recursive(&pythonpath,&snapshot)?;
                     }
                     if crate::agents::workspace::BranchWorkspaceManager::compute_dir_hash(&snapshot)?!=source_hash{return Err("scientific source snapshot failed content verification".into());}

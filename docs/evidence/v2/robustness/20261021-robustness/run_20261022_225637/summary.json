@@ -1,0 +1,38 @@
+{
+  "campaign": "20261021-robustness",
+  "run_id": "run_20261022_225637",
+  "started_at": "2026-10-22T17:26:37.019782+00:00",
+  "updated_at": "2026-10-22T17:27:33.295171+00:00",
+  "status": "passed",
+  "git": {
+    "commit": "7d7c4479fcbd1aaf929a0f1940ae9e62fd7b5729",
+    "is_dirty": true,
+    "dirty_diff_sha256": "bc73f8f8921f15d482d2598c4faa9c93417438db80aae26833c97f78bda33f0b"
+  },
+  "gates": {
+    "G_LIVE_DEV": {
+      "outcome": "passed",
+      "details": {
+        "status": "passed",
+        "reason": null,
+        "bundle_identity_verified": true,
+        "accepted_candidate_id": "cand_84510bc13a2af6e8a1dd05fd",
+        "candidate_identity": "bd2668cd6a3ad11692d25da533298eced41c15aae59e11d5ff51cce5e127df0a",
+        "task": "K3 Forest Cover Type",
+        "metric": "accuracy",
+        "best_cv_score": 0.8094421914663187,
+        "holdout_accesses": 0,
+        "bundle_verified": true,
+        "provider_cost_usd": 0.00102,
+        "duration_s": 54.71745991706848,
+        "worker_peak_rss_bytes": null,
+        "controller_peak_rss_bytes": 435404800,
+        "containment_status": "unverified_or_uncontained"
+      }
+    }
+  },
+  "budget_spent_usd": 0.00102,
+  "holdout_accesses": 0,
+  "budget_reserved_usd": 0.0,
+  "budget_uncertain_usd": 0.0
+}

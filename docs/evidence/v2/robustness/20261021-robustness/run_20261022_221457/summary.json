@@ -1,0 +1,37 @@
+{
+  "campaign": "20261021-robustness",
+  "run_id": "run_20261022_221457",
+  "started_at": "2026-10-22T16:44:57.812543+00:00",
+  "updated_at": "2026-10-22T16:46:22.242931+00:00",
+  "status": "failed",
+  "git": {
+    "commit": "7d7c4479fcbd1aaf929a0f1940ae9e62fd7b5729",
+    "is_dirty": true,
+    "dirty_diff_sha256": "9e3de3777c0b8d5938947e646628abf5565726cee8fe9466909606ee091e5530"
+  },
+  "gates": {
+    "G_LIVE_DEV": {
+      "outcome": "failed",
+      "details": {
+        "status": "failed",
+        "reason": "no accepted candidate id; measured score did not meet the required threshold; bundle verification failed",
+        "bundle_identity_verified": false,
+        "accepted_candidate_id": null,
+        "candidate_identity": null,
+        "task": "K1 Titanic",
+        "best_cv_score": null,
+        "holdout_accesses": 0,
+        "bundle_verified": false,
+        "provider_cost_usd": 0.004,
+        "duration_s": 82.86857414245605,
+        "worker_peak_rss_bytes": null,
+        "controller_peak_rss_bytes": 363216896,
+        "containment_status": "unverified_or_uncontained"
+      }
+    }
+  },
+  "budget_spent_usd": 0.004,
+  "holdout_accesses": 0,
+  "budget_reserved_usd": 0.0,
+  "budget_uncertain_usd": 0.0
+}

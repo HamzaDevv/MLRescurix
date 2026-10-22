@@ -1,0 +1,366 @@
+{
+  "schema_version": 3,
+  "binding": {
+    "project_id": "k1_titanic_robustness",
+    "session_id": "run_20261022_221457",
+    "data_sha256": "7d82814abff04f38cbd2681c70337264c0f0f84737a217f5cfd60c2051b2e3c1",
+    "folds_sha256": "ac6942b7b1fb9356840f6bb290e1fa97fbaf3376716e39bc9a82524628a2bddb",
+    "target": "Survived",
+    "task": "binary_classification",
+    "metric": "accuracy",
+    "direction": "maximize",
+    "topology_hash": "5f751310294f70e09f0da7760c21951d98535a18b468d4819dc3a24925729dbf",
+    "problem_statement": "Titanic; target=Survived; metric=accuracy (maximize); pinned split={\"development_folds\": 5, \"final_fraction\": 0.2, \"group\": \"frozen_family_ticket_mapping\", \"kind\": \"group_disjoint\"}",
+    "model": "deepseek/deepseek-v4.1-flash-1017",
+    "endpoint": "inference-net/fp8",
+    "provider_is_fixture": false,
+    "worker_memory_bytes": 2147483648
+  },
+  "project_id": "k1_titanic_robustness",
+  "session_id": "run_20261022_221457",
+  "target_column": "Survived",
+  "task_type": "binary_classification",
+  "metric_name": "accuracy",
+  "metric_direction": "maximize",
+  "turns_completed": 3,
+  "turns": [
+    {
+      "turn_index": 0,
+      "proposed_action": {
+        "action_type": "PARSE_ERROR",
+        "thought_rationale": "",
+        "parameters": {}
+      },
+      "disposition": "rejected",
+      "error_msg": "ValueError: Provider returned empty content (usage: {'completion_tokens': 3500, 'prompt_tokens': 886, 'total_tokens': 4386})",
+      "measurements": {
+        "error": "ValueError: Provider returned empty content (usage: {'completion_tokens': 3500, 'prompt_tokens': 886, 'total_tokens': 4386})"
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "controller": {
+          "rss_bytes": 363134976,
+          "cpu_percent": 89.5,
+          "process_count": 1,
+          "status": "available",
+          "errors": []
+        },
+        "workers": {
+          "rss_bytes": null,
+          "cpu_percent": null,
+          "process_count": 0,
+          "status": "unavailable",
+          "errors": []
+        },
+        "controller_pid": 20745,
+        "worker_pids": [],
+        "current_tree_rss_bytes": null,
+        "worker_peak_rss_bytes": null,
+        "controller_peak_rss_bytes": 363134976,
+        "avg_cpu_percent": 6.8377853881278545,
+        "cgroup": {
+          "available": false,
+          "verified_limits": false,
+          "membership_verified": false,
+          "memory_limit_bytes": null,
+          "cpu_quota_cores": null,
+          "memory_current_bytes": null,
+          "memory_peak_bytes": null,
+          "oom_events": null,
+          "errors": [],
+          "scope": "controller"
+        },
+        "cgroup_enforced": false,
+        "containment_status": "unverified_or_uncontained",
+        "sampling_status": "available",
+        "errors": [],
+        "duration_seconds": 43.16232725000009
+      },
+      "provider_cost_usd": "0.00182",
+      "provider_cost_is_estimate": false,
+      "requested_token_upper_bound": 12611,
+      "provider_receipt": {
+        "content": null,
+        "usage": {
+          "completion_tokens": 3500,
+          "prompt_tokens": 886,
+          "total_tokens": 4386
+        },
+        "cost_usd": "0.00182",
+        "cost_is_estimate": false,
+        "provider_response_id": "gen-1792687500-urh1bKhP6yXiD9dmAnQf",
+        "latency_ms": 43102,
+        "request_sha256": "7b75b0ef81860f5f055e368e14a32973b53ff725a4d56a91921c33fd815f705d",
+        "gateway_route": "rust_mlrescurix_harness"
+      }
+    },
+    {
+      "turn_index": 1,
+      "proposed_action": {
+        "action_type": "PARSE_ERROR",
+        "thought_rationale": "",
+        "parameters": {}
+      },
+      "disposition": "rejected",
+      "error_msg": "JSONDecodeError: Expecting value: line 1 column 1 (char 0)",
+      "measurements": {
+        "error": "JSONDecodeError: Expecting value: line 1 column 1 (char 0)"
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "controller": {
+          "rss_bytes": 363184128,
+          "cpu_percent": 20.8,
+          "process_count": 1,
+          "status": "available",
+          "errors": []
+        },
+        "workers": {
+          "rss_bytes": null,
+          "cpu_percent": null,
+          "process_count": 0,
+          "status": "unavailable",
+          "errors": []
+        },
+        "controller_pid": 20745,
+        "worker_pids": [],
+        "current_tree_rss_bytes": null,
+        "worker_peak_rss_bytes": null,
+        "controller_peak_rss_bytes": 363184128,
+        "avg_cpu_percent": 6.8075692963752665,
+        "cgroup": {
+          "available": false,
+          "verified_limits": false,
+          "membership_verified": false,
+          "memory_limit_bytes": null,
+          "cpu_quota_cores": null,
+          "memory_current_bytes": null,
+          "memory_peak_bytes": null,
+          "oom_events": null,
+          "errors": [],
+          "scope": "controller"
+        },
+        "cgroup_enforced": false,
+        "containment_status": "unverified_or_uncontained",
+        "sampling_status": "available",
+        "errors": [],
+        "duration_seconds": 26.045219458000247
+      },
+      "provider_cost_usd": "0.00151",
+      "provider_cost_is_estimate": false,
+      "requested_token_upper_bound": 13979,
+      "provider_receipt": {
+        "content": "## Proposed Action: `TRAIN_AND_SELECT` (turn 2/3)\n\n**Rationale.** Turn 0 failed on a provider parse error (no measurements produced), so no candidate exists yet. The active spec pins two families \u2014 `hist_gbdt` and `penalized_linear` \u2014 with equal weight, no transforms, seed 42, and a **group-disjoint** 5-fold CV keyed on `frozen_family_ticket_mapping`. I will build a single feature matrix, evaluate both families under `GroupKFold` on the family/ticket group key, and select the higher-accuracy model. No leakage: all imputation/encoding is fit inside folds via pipelines where it matters; group key is derived deterministically from `Name`+`Ticket`.\n\n**Group key.** `surname = Name.split(',')[0]`, `group = surname + '|' + Ticket` \u2014 this is the frozen family/ticket mapping; it keeps relatives and shared-ticket parties in the same fold.\n\n**Feature engineering (deterministic, no target leakage):**\n- `Sex` \u2192 binary; `Pclass`; `Age` (+ missing indicator); `SibSp`, `Parch`, `FamilySize`, `IsAlone`\n- `Fare` \u2192 `log1p` (median-imputed)\n- `Embarked` \u2192 mode-imputed, one-hot\n- `Cabin` \u2192 deck letter (`U` if missing), one-hot\n- `Name` \u2192 title extraction (Mr/Mrs/Miss/Master/Rare), one-hot\n- `Ticket` \u2192 prefix extraction, one-hot\n\n**Models.**\n- `hist_gbdt`: `HistGradientBoostingClassifier` (native NaN handling, `max_iter=300`, `learning_rate=0.05`, `max_leaf_nodes=31`, `l2_regularization=1.0`, `random_state=42`)\n- `penalized_linear`: `Pipeline(SimpleImputer(median) \u2192 StandardScaler \u2192 LogisticRegression(C=1.0, max_iter=2000, random_state=42))`\n\n**Selection.** Mean 5-fold group-CV accuracy per family; pick argmax. Report per-fold and mean\u00b1std for both, plus the chosen family. Final 20% holdout is **not** touched this turn (reserved for turn 3 confirmation).\n\n```python\nimport numpy as np, pandas as pd\nfrom sklearn.model_selection import GroupKFold\nfrom sklearn.ensemble import HistGradientBoostingClassifier\nfrom sklearn.linear_model import LogisticRegression\nfrom sklearn.pipeline import Pipeline\nfrom sklearn.preprocessing import StandardScaler\nfrom sklearn.impute import SimpleImputer\nfrom sklearn.metrics import accuracy_score\n\nSEED = 42\n\ndef group_key(df):\n    surname = df[\"Name\"].str.split(\",\").str[0].str.strip()\n    return surname + \"|\" + df[\"Ticket\"].astype(str)\n\ndef build_features(df):\n    X = pd.DataFrame(index=df.index)\n    X[\"Sex\"]      = (df[\"Sex\"] == \"male\").astype(int)\n    X[\"Pclass\"]   = df[\"Pclass\"].astype(int)\n    X[\"Age\"]      = df[\"Age\"]\n    X[\"AgeMiss\"]  = df[\"Age\"].isna().astype(int)\n    X[\"SibSp\"]    = df[\"SibSp\"].astype(int)\n    X[\"Parch\"]    = df[\"Parch\"].astype(int)\n    X[\"FamilySize\"] = X[\"SibSp\"] + X[\"Parch\"] + 1\n    X[\"IsAlone\"]  = (X[\"FamilySize\"] == 1).astype(int)\n    X[\"Fare\"]     = np.log1p(df[\"Fare\"].fillna(df[\"Fare\"].median()))\n    X[\"Embarked\"] = df[\"Embarked\"].fillna(\"S\")\n    X = pd.get_dummies(X, columns=[\"Embarked\"], drop_first=True)\n    X[\"Deck\"] = df[\"Cabin\"].fillna(\"U\").str[0]\n    X = pd.get_dummies(X, columns=[\"Deck\"], drop_first=True)\n    title = df[\"Name\"].str.extract(r\",\\s*([^\\.]+)\\.\")[0].str.strip()\n    title = title.replace([\"Lady\",\"Countess\",\"Capt\",\"Col\",\"Don\",\"Dr\",\"Major\",\n                           \"Rev\",\"Sir\",\"Jonkheer\",\"Dona\"], \"Rare\")\n    title = title.replace([\"Mlle\",\"Ms\"], \"Miss\").replace([\"Mme\"], \"Mrs\")\n    X[\"Title\"] = title\n    X = pd.get_dummies(X, columns=[\"Title\"], drop_first=True)\n    tpref = (df[\"Ticket\"].str.replace(r\"[\\d\\/\\.]\", \"\", regex=True)\n             .str.strip().str.split().str[0].fillna(\"NONE\").replace(\"\", \"NONE\"))\n    X[\"TicketPrefix\"] = tpref\n    X = pd.get_dummies(X, columns=[\"TicketPrefix\"], drop_first=True)\n    return X.astype(float)\n\ndef make_models():\n    return {\n        \"hist_gbdt\": HistGradientBoostingClassifier(\n            max_iter=300, learning_rate=0.05, max_leaf_nodes=31,\n            l2_regularization=1.0, random_state=SEED),\n        \"penalized_linear\": Pipeline([\n            (\"imp\", SimpleImputer(strategy=\"median\")),\n            (\"sc\",  StandardScaler()),\n            (\"lr\",  LogisticRegression(C=1.0, max_iter=2000, random_state=SEED)),\n        ]),\n    }\n\ndef evaluate(df):\n    y = df[\"Survived\"].values\n    groups = group_key(df).values\n    X = build_features(df)\n    gkf = GroupKFold(n_splits=5)\n    results = {}\n    for name, model in make_models().items():\n        accs = []\n        for tr, va in gkf.split(X, y, groups):\n            m = model.__class__(**model.get_params()) if name == \"hist_gbdt\" else model\n            m.fit(X.iloc[tr], y[tr])\n            accs.append(accuracy_score(y[va], m.predict(X.iloc[va])))\n        results[name] = (float(np.mean(accs)), float(np.std(accs)), accs)\n    best = max(results, key=lambda k: results[k][0])\n    return results, best\n\n# df = load_development_split()   # provided by harness\n# results, best = evaluate(df)\n# print(results, \"->\", best)\n```\n\n**Expected outcome.** `hist_gbdt` typically edges out the linear model on this feature set (~0.82\u20130.84 group-CV accuracy vs ~0.80\u20130.82), but selection is data-driven. I will report both means and the chosen family, then reserve the frozen 20% holdout for turn 3.\n\n**Guardrails.** Group key is derived only from `Name`/`Ticket` (no target); all encoders are fold-safe; no holdout peeking; seed fixed at 42. Metrics from this script are candidate evidence only \u2014 not self-certifying acceptance.",
+        "usage": {
+          "completion_tokens": 2816,
+          "prompt_tokens": 1278,
+          "total_tokens": 4094
+        },
+        "cost_usd": "0.00151",
+        "cost_is_estimate": false,
+        "provider_response_id": "gen-1792687543-cXzZOWZSc6G7Afh4wfyt",
+        "latency_ms": 25973,
+        "request_sha256": "d2d12ca3ce4651ca3a4e8741c7d40557657b23b36c1f90403ccf33f2d10af39d",
+        "gateway_route": "rust_mlrescurix_harness"
+      }
+    },
+    {
+      "turn_index": 2,
+      "proposed_action": {
+        "proposed_action": "RUN_EXPERIMENT",
+        "rationale": "Prior turns failed on parse errors, not on modeling. This is the final turn, so I will submit one concrete, self-contained experiment that honors the active spec (hist_gbdt + penalized_linear, equal weights, seed 42) and the pinned group-disjoint CV on frozen_family_ticket_mapping. Feature engineering targets the known Titanic signal (Sex, Pclass, Age, Fare, family size, cabin deck, ticket prefix) while keeping the pipeline leakage-safe inside each GroupKFold fold.",
+        "parameters": {
+          "script_name": "titanic_groupcv_hgb_logreg",
+          "seed": 42,
+          "cv": {
+            "kind": "group_kfold",
+            "n_splits": 5,
+            "group_column": "frozen_family_ticket_mapping",
+            "shuffle": true
+          },
+          "target": "Survived",
+          "id_columns_to_drop": [
+            "PassengerId",
+            "Name",
+            "Ticket"
+          ],
+          "feature_engineering": {
+            "Sex": "map {male:0, female:1}",
+            "Embarked": "mode-impute then one-hot (drop first)",
+            "Age": "median-impute within fold; add Age_missing indicator",
+            "Fare": "median-impute within fold; log1p transform",
+            "Cabin": "first-letter deck; fill 'U' for missing; one-hot",
+            "FamilySize": "SibSp + Parch + 1",
+            "IsAlone": "FamilySize == 1",
+            "TicketPrefix": "regex alpha prefix from Ticket; fill 'NONE'; one-hot top-k",
+            "Pclass": "keep as ordinal numeric"
+          },
+          "models": [
+            {
+              "family": "hist_gbdt",
+              "weight": 1,
+              "estimator": "HistGradientBoostingClassifier",
+              "params": {
+                "max_iter": 400,
+                "learning_rate": 0.05,
+                "max_depth": 6,
+                "min_samples_leaf": 20,
+                "l2_regularization": 1.0,
+                "early_stopping": true,
+                "validation_fraction": 0.1,
+                "random_state": 42
+              }
+            },
+            {
+              "family": "penalized_linear",
+              "weight": 1,
+              "estimator": "LogisticRegression",
+              "params": {
+                "penalty": "l2",
+                "C": 1.0,
+                "solver": "liblinear",
+                "max_iter": 2000,
+                "random_state": 42
+              },
+              "preprocessing": "StandardScaler on numeric, one-hot on categorical (fit inside fold)"
+            }
+          ],
+          "ensemble": {
+            "method": "weighted_soft_vote",
+            "weights": [
+              1,
+              1
+            ],
+            "threshold": 0.5
+          },
+          "evaluation": {
+            "metric": "accuracy",
+            "report_per_fold": true,
+            "report_mean_std": true,
+            "report_oof_confusion_matrix": true
+          },
+          "outputs": {
+            "save_oof_predictions": true,
+            "save_fold_metrics": true,
+            "save_model_artifacts": false
+          }
+        },
+        "expected_artifacts": [
+          "per_fold_accuracy",
+          "mean_accuracy",
+          "std_accuracy",
+          "oof_predictions",
+          "confusion_matrix"
+        ],
+        "notes": "All imputers, scalers, and encoders are fit strictly within each training fold to preserve group-disjoint integrity. No target leakage from Ticket/Name/PassengerId. If mean CV accuracy is below a naive Sex-only baseline (~0.78), fall back to the single penalized_linear model with Sex+Pclass+Age+Fare only.",
+        "action_type": "RUN_EXPERIMENT",
+        "thought_rationale": "Prior turns failed on parse errors, not on modeling. This is the final turn, so I will submit one concrete, self-contained experiment that honors the active spec (hist_gbdt + penalized_linear, equal weights, seed 42) and the pinned group-disjoint CV on frozen_family_ticket_mapping. Feature engineering targets the known Titanic signal (Sex, Pclass, Age, Fare, family size, cabin deck, ticket prefix) while keeping the pipeline leakage-safe inside each GroupKFold fold."
+      },
+      "disposition": "rejected",
+      "error_msg": "ValueError: Unknown action type 'RUN_EXPERIMENT'",
+      "measurements": {
+        "error": "ValueError: Unknown action type 'RUN_EXPERIMENT'"
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "controller": {
+          "rss_bytes": 363216896,
+          "cpu_percent": 99.1,
+          "process_count": 1,
+          "status": "available",
+          "errors": []
+        },
+        "workers": {
+          "rss_bytes": null,
+          "cpu_percent": null,
+          "process_count": 0,
+          "status": "unavailable",
+          "errors": []
+        },
+        "controller_pid": 20745,
+        "worker_pids": [],
+        "current_tree_rss_bytes": null,
+        "worker_peak_rss_bytes": null,
+        "controller_peak_rss_bytes": 363216896,
+        "avg_cpu_percent": 7.003799346987236,
+        "cgroup": {
+          "available": false,
+          "verified_limits": false,
+          "membership_verified": false,
+          "memory_limit_bytes": null,
+          "cpu_quota_cores": null,
+          "memory_current_bytes": null,
+          "memory_peak_bytes": null,
+          "oom_events": null,
+          "errors": [],
+          "scope": "controller"
+        },
+        "cgroup_enforced": false,
+        "containment_status": "unverified_or_uncontained",
+        "sampling_status": "available",
+        "errors": [],
+        "duration_seconds": 13.57904683300012
+      },
+      "provider_cost_usd": "0.00067",
+      "provider_cost_is_estimate": false,
+      "requested_token_upper_bound": 15218,
+      "provider_receipt": {
+        "content": "{\n  \"proposed_action\": \"RUN_EXPERIMENT\",\n  \"rationale\": \"Prior turns failed on parse errors, not on modeling. This is the final turn, so I will submit one concrete, self-contained experiment that honors the active spec (hist_gbdt + penalized_linear, equal weights, seed 42) and the pinned group-disjoint CV on frozen_family_ticket_mapping. Feature engineering targets the known Titanic signal (Sex, Pclass, Age, Fare, family size, cabin deck, ticket prefix) while keeping the pipeline leakage-safe inside each GroupKFold fold.\",\n  \"parameters\": {\n    \"script_name\": \"titanic_groupcv_hgb_logreg\",\n    \"seed\": 42,\n    \"cv\": {\n      \"kind\": \"group_kfold\",\n      \"n_splits\": 5,\n      \"group_column\": \"frozen_family_ticket_mapping\",\n      \"shuffle\": true\n    },\n    \"target\": \"Survived\",\n    \"id_columns_to_drop\": [\"PassengerId\", \"Name\", \"Ticket\"],\n    \"feature_engineering\": {\n      \"Sex\": \"map {male:0, female:1}\",\n      \"Embarked\": \"mode-impute then one-hot (drop first)\",\n      \"Age\": \"median-impute within fold; add Age_missing indicator\",\n      \"Fare\": \"median-impute within fold; log1p transform\",\n      \"Cabin\": \"first-letter deck; fill 'U' for missing; one-hot\",\n      \"FamilySize\": \"SibSp + Parch + 1\",\n      \"IsAlone\": \"FamilySize == 1\",\n      \"TicketPrefix\": \"regex alpha prefix from Ticket; fill 'NONE'; one-hot top-k\",\n      \"Pclass\": \"keep as ordinal numeric\"\n    },\n    \"models\": [\n      {\n        \"family\": \"hist_gbdt\",\n        \"weight\": 1,\n        \"estimator\": \"HistGradientBoostingClassifier\",\n        \"params\": {\n          \"max_iter\": 400,\n          \"learning_rate\": 0.05,\n          \"max_depth\": 6,\n          \"min_samples_leaf\": 20,\n          \"l2_regularization\": 1.0,\n          \"early_stopping\": true,\n          \"validation_fraction\": 0.1,\n          \"random_state\": 42\n        }\n      },\n      {\n        \"family\": \"penalized_linear\",\n        \"weight\": 1,\n        \"estimator\": \"LogisticRegression\",\n        \"params\": {\n          \"penalty\": \"l2\",\n          \"C\": 1.0,\n          \"solver\": \"liblinear\",\n          \"max_iter\": 2000,\n          \"random_state\": 42\n        },\n        \"preprocessing\": \"StandardScaler on numeric, one-hot on categorical (fit inside fold)\"\n      }\n    ],\n    \"ensemble\": {\n      \"method\": \"weighted_soft_vote\",\n      \"weights\": [1, 1],\n      \"threshold\": 0.5\n    },\n    \"evaluation\": {\n      \"metric\": \"accuracy\",\n      \"report_per_fold\": true,\n      \"report_mean_std\": true,\n      \"report_oof_confusion_matrix\": true\n    },\n    \"outputs\": {\n      \"save_oof_predictions\": true,\n      \"save_fold_metrics\": true,\n      \"save_model_artifacts\": false\n    }\n  },\n  \"expected_artifacts\": [\n    \"per_fold_accuracy\",\n    \"mean_accuracy\",\n    \"std_accuracy\",\n    \"oof_predictions\",\n    \"confusion_matrix\"\n  ],\n  \"notes\": \"All imputers, scalers, and encoders are fit strictly within each training fold to preserve group-disjoint integrity. No target leakage from Ticket/Name/PassengerId. If mean CV accuracy is below a naive Sex-only baseline (~0.78), fall back to the single penalized_linear model with Sex+Pclass+Age+Fare only.\"\n}",
+        "usage": {
+          "completion_tokens": 1082,
+          "prompt_tokens": 1632,
+          "total_tokens": 2714
+        },
+        "cost_usd": "0.00067",
+        "cost_is_estimate": false,
+        "provider_response_id": "gen-1792687571-WjILQLrdS0teAgct0pEN",
+        "latency_ms": 13502,
+        "request_sha256": "1f309c9e16f7a0a92e7084808e4270b4bb1724c5d2cc41dc17d5abf7e60405dc",
+        "gateway_route": "rust_mlrescurix_harness"
+      }
+    }
+  ],
+  "stop_reason": "max_turns_reached",
+  "accepted_candidate_id": null,
+  "best_cv_score": null,
+  "accepted_candidate": null,
+  "candidate_identity": null,
+  "accepted_audit": null,
+  "pending_turn": null,
+  "active_spec": {
+    "families": [
+      "hist_gbdt",
+      "penalized_linear"
+    ],
+    "weights": [
+      1,
+      1
+    ],
+    "transforms": [],
+    "seed": 42
+  },
+  "current_active_features": [
+    "PassengerId",
+    "Pclass",
+    "Name",
+    "Sex",
+    "Age",
+    "SibSp",
+    "Parch",
+    "Ticket",
+    "Fare",
+    "Cabin",
+    "Embarked"
+  ],
+  "current_active_families": [
+    "hist_gbdt",
+    "penalized_linear"
+  ],
+  "bundle_verified": false,
+  "containment_status": "unverified",
+  "holdout_accesses": 0,
+  "script_registry": {},
+  "execution_path": "python_governed_workers",
+  "production_certified": false,
+  "evaluation_count": 0
+}

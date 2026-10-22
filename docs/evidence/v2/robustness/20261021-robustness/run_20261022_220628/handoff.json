@@ -1,0 +1,344 @@
+{
+  "schema_version": 1,
+  "binding": {
+    "project_id": "k1_titanic_robustness",
+    "session_id": "run_20261022_220628",
+    "data_sha256": "7d82814abff04f38cbd2681c70337264c0f0f84737a217f5cfd60c2051b2e3c1",
+    "folds_sha256": "ac6942b7b1fb9356840f6bb290e1fa97fbaf3376716e39bc9a82524628a2bddb",
+    "target": "Survived",
+    "task": "binary_classification",
+    "metric": "accuracy",
+    "direction": "maximize",
+    "topology_hash": "5f751310294f70e09f0da7760c21951d98535a18b468d4819dc3a24925729dbf",
+    "problem_statement": "Titanic; target=Survived; metric=accuracy (maximize); pinned split={\"development_folds\": 5, \"final_fraction\": 0.2, \"group\": \"frozen_family_ticket_mapping\", \"kind\": \"group_disjoint\"}",
+    "model": "deepseek/deepseek-v4.1-flash-1017",
+    "endpoint": "inference-net/fp8",
+    "provider_is_fixture": false,
+    "worker_memory_bytes": 2147483648
+  },
+  "state_file": "/Users/hamza/Developer/Imp_Projects/MLRescurix/docs/evidence/v2/robustness/20261021-robustness/run_20261022_220628/autonomous_loop_state.json",
+  "stop_reason": "max_turns_reached",
+  "pending_turn": null,
+  "accepted_candidate_id": null,
+  "candidate_identity": null,
+  "accepted_audit": null,
+  "last_turns": [
+    {
+      "turn_index": 0,
+      "proposed_action": {
+        "action_type": "PARSE_ERROR",
+        "thought_rationale": "",
+        "parameters": {}
+      },
+      "disposition": "rejected",
+      "error_msg": "AttributeError: 'NoneType' object has no attribute 'strip'",
+      "measurements": {
+        "error": "AttributeError: 'NoneType' object has no attribute 'strip'"
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "controller": {
+          "rss_bytes": 363053056,
+          "cpu_percent": 20.3,
+          "process_count": 1,
+          "status": "available",
+          "errors": []
+        },
+        "workers": {
+          "rss_bytes": null,
+          "cpu_percent": null,
+          "process_count": 0,
+          "status": "unavailable",
+          "errors": []
+        },
+        "controller_pid": 20244,
+        "worker_pids": [],
+        "current_tree_rss_bytes": null,
+        "worker_peak_rss_bytes": null,
+        "controller_peak_rss_bytes": 363053056,
+        "avg_cpu_percent": 7.005250737463127,
+        "cgroup": {
+          "available": false,
+          "verified_limits": false,
+          "membership_verified": false,
+          "memory_limit_bytes": null,
+          "cpu_quota_cores": null,
+          "memory_current_bytes": null,
+          "memory_peak_bytes": null,
+          "oom_events": null,
+          "errors": [],
+          "scope": "controller"
+        },
+        "cgroup_enforced": false,
+        "containment_status": "unverified_or_uncontained",
+        "sampling_status": "available",
+        "errors": [],
+        "duration_seconds": 40.94288020800013
+      },
+      "provider_cost_usd": "0.00181",
+      "provider_cost_is_estimate": false,
+      "requested_token_upper_bound": 12156,
+      "provider_receipt": {
+        "content": null,
+        "usage": {
+          "completion_tokens": 3500,
+          "prompt_tokens": 861,
+          "total_tokens": 4361
+        },
+        "cost_usd": "0.00181",
+        "cost_is_estimate": false,
+        "provider_response_id": "gen-1792686990-QjUQ00lJTdQTzjNXiiM5",
+        "latency_ms": 40870,
+        "request_sha256": "38b57407e32f2da5ada613b98fd737b5ba3f88599f0e138f7a259d83848b9454",
+        "gateway_route": "rust_mlrescurix_harness"
+      }
+    },
+    {
+      "turn_index": 1,
+      "proposed_action": {
+        "action_type": "PARSE_ERROR",
+        "thought_rationale": "",
+        "parameters": {}
+      },
+      "disposition": "rejected",
+      "error_msg": "AttributeError: 'NoneType' object has no attribute 'strip'",
+      "measurements": {
+        "error": "AttributeError: 'NoneType' object has no attribute 'strip'"
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "controller": {
+          "rss_bytes": 363085824,
+          "cpu_percent": 30.8,
+          "process_count": 1,
+          "status": "available",
+          "errors": []
+        },
+        "workers": {
+          "rss_bytes": null,
+          "cpu_percent": null,
+          "process_count": 0,
+          "status": "unavailable",
+          "errors": []
+        },
+        "controller_pid": 20244,
+        "worker_pids": [],
+        "current_tree_rss_bytes": null,
+        "worker_peak_rss_bytes": null,
+        "controller_peak_rss_bytes": 363085824,
+        "avg_cpu_percent": 6.934053884711779,
+        "cgroup": {
+          "available": false,
+          "verified_limits": false,
+          "membership_verified": false,
+          "memory_limit_bytes": null,
+          "cpu_quota_cores": null,
+          "memory_current_bytes": null,
+          "memory_peak_bytes": null,
+          "oom_events": null,
+          "errors": [],
+          "scope": "controller"
+        },
+        "cgroup_enforced": false,
+        "containment_status": "unverified_or_uncontained",
+        "sampling_status": "available",
+        "errors": [],
+        "duration_seconds": 36.9281040840001
+      },
+      "provider_cost_usd": "0.00184",
+      "provider_cost_is_estimate": false,
+      "requested_token_upper_bound": 13391,
+      "provider_receipt": {
+        "content": null,
+        "usage": {
+          "completion_tokens": 3500,
+          "prompt_tokens": 1204,
+          "total_tokens": 4704
+        },
+        "cost_usd": "0.00184",
+        "cost_is_estimate": false,
+        "provider_response_id": "gen-1792687031-4EdZBMEsarQZfBC0HnH5",
+        "latency_ms": 36843,
+        "request_sha256": "5049ed8812aaaabae1eb8a13d547ba52fb82468a72dd626917ed0c580e5c7aa8",
+        "gateway_route": "rust_mlrescurix_harness"
+      }
+    },
+    {
+      "turn_index": 2,
+      "proposed_action": {
+        "action_type": "PARSE_ERROR",
+        "thought_rationale": "",
+        "parameters": {}
+      },
+      "disposition": "rejected",
+      "error_msg": "ValueError: Action requires exactly thought_rationale, action_type, parameters",
+      "measurements": {
+        "error": "ValueError: Action requires exactly thought_rationale, action_type, parameters"
+      },
+      "critic_result": {},
+      "resource_observability": {
+        "controller": {
+          "rss_bytes": 363118592,
+          "cpu_percent": 20.1,
+          "process_count": 1,
+          "status": "available",
+          "errors": []
+        },
+        "workers": {
+          "rss_bytes": null,
+          "cpu_percent": null,
+          "process_count": 0,
+          "status": "unavailable",
+          "errors": []
+        },
+        "controller_pid": 20244,
+        "worker_pids": [],
+        "current_tree_rss_bytes": null,
+        "worker_peak_rss_bytes": null,
+        "controller_peak_rss_bytes": 363118592,
+        "avg_cpu_percent": 6.906818181818182,
+        "cgroup": {
+          "available": false,
+          "verified_limits": false,
+          "membership_verified": false,
+          "memory_limit_bytes": null,
+          "cpu_quota_cores": null,
+          "memory_current_bytes": null,
+          "memory_peak_bytes": null,
+          "oom_events": null,
+          "errors": [],
+          "scope": "controller"
+        },
+        "cgroup_enforced": false,
+        "containment_status": "unverified_or_uncontained",
+        "sampling_status": "available",
+        "errors": [],
+        "duration_seconds": 12.287395000000288
+      },
+      "provider_cost_usd": "0.00072",
+      "provider_cost_is_estimate": false,
+      "requested_token_upper_bound": 14627,
+      "provider_receipt": {
+        "content": "{\"proposed_action\": \"RUN_SCRIPT\", \"parameters\": {\"language\": \"python\", \"purpose\": \"Baseline group-disjoint CV for hist_gbdt and penalized_linear on Titanic with family/ticket group mapping\", \"script\": \"import numpy as np, pandas as pd\\nfrom sklearn.model_selection import GroupKFold\\nfrom sklearn.ensemble import HistGradientBoostingClassifier\\nfrom sklearn.linear_model import LogisticRegression\\nfrom sklearn.pipeline import Pipeline\\nfrom sklearn.compose import ColumnTransformer\\nfrom sklearn.preprocessing import OneHotEncoder, StandardScaler\\nfrom sklearn.impute import SimpleImputer\\n\\n# Load data (path resolved by harness)\\ndf = pd.read_csv(DATA_PATH)\\n\\n# --- Feature engineering ---\\ndef family_ticket_group(row):\\n    # frozen_family_ticket_mapping: surname + ticket prefix grouping\\n    name = str(row['Name'])\\n    surname = name.split(',')[0].strip() if ',' in name else name\\n    ticket = str(row['Ticket'])\\n    tprefix = ticket.split()[0] if ' ' in ticket else 'NUM'\\n    return f\\\"{surname}|{tprefix}\\\"\\n\\ndf['family_ticket_group'] = df.apply(family_ticket_group, axis=1)\\ndf['CabinDeck'] = df['Cabin'].astype(str).str[0].fillna('U').replace('n','U')\\ndf['CabinKnown'] = df['Cabin'].notna().astype(int)\\ndf['FamilySize'] = df['SibSp'] + df['Parch'] + 1\\ndf['IsAlone'] = (df['FamilySize'] == 1).astype(int)\\ndf['FarePerPerson'] = df['Fare'] / df['FamilySize']\\ndf['TicketPrefix'] = df['Ticket'].astype(str).apply(lambda t: t.split()[0] if ' ' in t else 'NUM')\\n\\nnum_cols = ['Pclass','Age','SibSp','Parch','Fare','FamilySize','IsAlone','FarePerPerson','CabinKnown']\\ncat_cols = ['Sex','Embarked','CabinDeck','TicketPrefix']\\n\\nX = df[num_cols + cat_cols].copy()\\ny = df['Survived'].values\\ngroups = df['family_ticket_group'].values\\n\\npre = ColumnTransformer([\\n    ('num', Pipeline([('imp', SimpleImputer(strategy='median')),('sc', StandardScaler())]), num_cols),\\n    ('cat', Pipeline([('imp', SimpleImputer(strategy='most_frequent')),('oh', OneHotEncoder(handle_unknown='ignore'))]), cat_cols),\\n])\\n\\nmodels = {\\n    'hist_gbdt': HistGradientBoostingClassifier(max_iter=300, learning_rate=0.05, max_depth=None, random_state=42),\\n    'penalized_linear': Pipeline([('pre', pre), ('clf', LogisticRegression(C=1.0, max_iter=2000, random_state=42))]),\\n}\\n\\n# hist_gbdt needs its own preprocessing (no scaling needed but needs encoding)\\nfrom sklearn.pipeline import Pipeline as P\\nmodels['hist_gbdt'] = P([('pre', pre), ('clf', HistGradientBoostingClassifier(max_iter=300, learning_rate=0.05, random_state=42))])\\n\\ngkf = GroupKFold(n_splits=5)\\nresults = {}\\nfor name, model in models.items():\\n    accs = []\\n    for tr, va in gkf.split(X, y, groups):\\n        m = model\\n        m.fit(X.iloc[tr], y[tr])\\n        pred = m.predict(X.iloc[va])\\n        accs.append((pred == y[va]).mean())\\n    results[name] = {'mean_acc': float(np.mean(accs)), 'fold_accs': [float(a) for a in accs]}\\n\\nprint('RESULTS', results)\\n\", \"expected_outputs\": [\"RESULTS dict with mean_acc and fold_accs per model\"]}, \"rationale\": \"Prior turns failed on parse errors; this turn submits a concrete, self-contained script that builds the frozen family/ticket group mapping, engineers standard Titanic features, and evaluates both active_spec families (hist_gbdt, penalized_linear) under 5-fold GroupKFold to establish a valid baseline before any tuning.\"}",
+        "usage": {
+          "completion_tokens": 1197,
+          "prompt_tokens": 1546,
+          "total_tokens": 2743
+        },
+        "cost_usd": "0.00072",
+        "cost_is_estimate": false,
+        "provider_response_id": "gen-1792687068-8fO6MgxVgBzr5SDsysoj",
+        "latency_ms": 12203,
+        "request_sha256": "585d276a9e54c3f6bbeb1d9b51f45bf26ef731db4ca9e5dcebf2bc8895a8fa96",
+        "gateway_route": "rust_mlrescurix_harness"
+      }
+    }
+  ],
+  "next_steps": [
+    "Inspect last receipts and unresolved critic flaws",
+    "Resume with identical dataset and locked folds"
+  ],
+  "budget": {
+    "campaign_ceiling_usd": "0.30",
+    "per_run_ceiling_usd": "0.05",
+    "contingency_usd": "0.05",
+    "total_billed_usd": "0.018974020",
+    "total_reserved_usd": "0.00",
+    "total_uncertain_usd": "0.00",
+    "remaining_campaign_usd": "0.281025980",
+    "runs": {
+      "run_20261021_172942": {
+        "billed_usd": "0.00061408",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_173653": {
+        "billed_usd": "0.00092344",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_183624": {
+        "billed_usd": "0.00070202",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_191128": {
+        "billed_usd": "0.00078304",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 2
+      },
+      "run_20261021_191510": {
+        "billed_usd": "0.00064742",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_193634": {
+        "billed_usd": "0.00111500",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_200123": {
+        "billed_usd": "0.00087326",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_200725": {
+        "billed_usd": "0.00099526",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_202038": {
+        "billed_usd": "0.00105858",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_231155": {
+        "billed_usd": "0.00252704",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_231504": {
+        "billed_usd": "0.001232948",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_231630": {
+        "billed_usd": "0.000688544",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_232806": {
+        "billed_usd": "0.001370828",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261021_232923": {
+        "billed_usd": "0.00107256",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      },
+      "run_20261022_220628": {
+        "billed_usd": "0.00437",
+        "reserved_usd": "0.00",
+        "uncertain_usd": "0.00",
+        "requests": 3
+      }
+    },
+    "active_reservations": {}
+  },
+  "production_certified": false
+}

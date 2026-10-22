@@ -1,0 +1,2 @@
+{"timestamp": "2026-10-22T17:05:58.430217+00:00", "event": "preflight_start", "action": "evaluating_prerequisites"}
+{"timestamp": "2026-10-22T17:06:06.438780+00:00", "event": "preflight_completed", "duration_s": 8.002362966537476, "blocked_gates": []}
