@@ -195,7 +195,7 @@ class RustGatewayAdapter:
             req_file = tmp_path / "chat_request.json"
             req_file.write_text(json.dumps(req_payload), encoding="utf-8")
 
-            # If policy approval is required, stage and approve outbound view
+            # Stage exact bytes; only the separate operator can approve the outbound view
             if self.require_policy_approval:
                 stage_cmd = [
                     str(self.binary),

@@ -1,0 +1,52 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running tests/reflexive_loop_gate.rs (target/debug/deps/reflexive_loop_gate-10b63956389ed83c)
+
+running 8 tests
+test test_scientific_tools_registry_exposure ... ok
+test test_scientific_tools_role_rbac_and_unauthorized_rejection ... ok
+test test_critic_audit_veto_steering_and_attempt_epoch_fencing ... ok
+test test_reflexive_orchestrate_end_to_end_and_sqlite_v11_sync ... FAILED
+test test_eda_forensics_tool_dispatch_and_sqlite_sync ... FAILED
+test test_ablation_sprint_tool_dispatch_and_sqlite_sync ... FAILED
+test test_critic_audit_tool_dispatch_and_sqlite_sync ... FAILED
+test test_model_portfolio_eval_tool_dispatch ... FAILED
+
+failures:
+
+---- test_reflexive_orchestrate_end_to_end_and_sqlite_v11_sync stdout ----
+
+thread 'test_reflexive_orchestrate_end_to_end_and_sqlite_v11_sync' (74791) panicked at crates/harness/tests/reflexive_loop_gate.rs:679:78:
+called `Result::unwrap()` on an `Err` value: "reflexive-orchestrate failed: Traceback (most recent call last):\n  File \"<frozen runpy>\", line 189, in _run_module_as_main\n  File \"<frozen runpy>\", line 112, in _get_module_details\n  File \"/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/.tmpCRRSdm/state/runtime-assets/ad816bcafa184d1216831bd5f3c32a3fa4ea289878f33675611e0d26be317582/python/src/mlrescurix_worker/scientific/__init__.py\", line 5, in <module>\n    from .autonomous_loop import AutonomousAgentLoop, ProcessTreeSampler, get_controller_rss_bytes\n  File \"/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/.tmpCRRSdm/state/runtime-assets/ad816bcafa184d1216831bd5f3c32a3fa4ea289878f33675611e0d26be317582/python/src/mlrescurix_worker/scientific/autonomous_loop.py\", line 54, in <module>\n    from .evidence import atomic_json, source_identity, verify_result\nModuleNotFoundError: No module named 'mlrescurix_worker.scientific.evidence'\n"
+
+---- test_eda_forensics_tool_dispatch_and_sqlite_sync stdout ----
+
+thread 'test_eda_forensics_tool_dispatch_and_sqlite_sync' (74789) panicked at crates/harness/tests/reflexive_loop_gate.rs:412:70:
+called `Result::unwrap()` on an `Err` value: "eda-forensics failed: Traceback (most recent call last):\n  File \"<frozen runpy>\", line 189, in _run_module_as_main\n  File \"<frozen runpy>\", line 112, in _get_module_details\n  File \"/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/.tmp87K26s/state/runtime-assets/ad816bcafa184d1216831bd5f3c32a3fa4ea289878f33675611e0d26be317582/python/src/mlrescurix_worker/scientific/__init__.py\", line 5, in <module>\n    from .autonomous_loop import AutonomousAgentLoop, ProcessTreeSampler, get_controller_rss_bytes\n  File \"/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/.tmp87K26s/state/runtime-assets/ad816bcafa184d1216831bd5f3c32a3fa4ea289878f33675611e0d26be317582/python/src/mlrescurix_worker/scientific/autonomous_loop.py\", line 54, in <module>\n    from .evidence import atomic_json, source_identity, verify_result\nModuleNotFoundError: No module named 'mlrescurix_worker.scientific.evidence'\n"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- test_ablation_sprint_tool_dispatch_and_sqlite_sync stdout ----
+
+thread 'test_ablation_sprint_tool_dispatch_and_sqlite_sync' (74786) panicked at crates/harness/tests/reflexive_loop_gate.rs:489:72:
+called `Result::unwrap()` on an `Err` value: "ablation-sprint failed: Traceback (most recent call last):\n  File \"<frozen runpy>\", line 189, in _run_module_as_main\n  File \"<frozen runpy>\", line 112, in _get_module_details\n  File \"/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/.tmpAUxaa1/state/runtime-assets/ad816bcafa184d1216831bd5f3c32a3fa4ea289878f33675611e0d26be317582/python/src/mlrescurix_worker/scientific/__init__.py\", line 5, in <module>\n    from .autonomous_loop import AutonomousAgentLoop, ProcessTreeSampler, get_controller_rss_bytes\n  File \"/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/.tmpAUxaa1/state/runtime-assets/ad816bcafa184d1216831bd5f3c32a3fa4ea289878f33675611e0d26be317582/python/src/mlrescurix_worker/scientific/autonomous_loop.py\", line 54, in <module>\n    from .evidence import atomic_json, source_identity, verify_result\nModuleNotFoundError: No module named 'mlrescurix_worker.scientific.evidence'\n"
+
+---- test_critic_audit_tool_dispatch_and_sqlite_sync stdout ----
+
+thread 'test_critic_audit_tool_dispatch_and_sqlite_sync' (74787) panicked at crates/harness/tests/reflexive_loop_gate.rs:621:69:
+called `Result::unwrap()` on an `Err` value: "critic-audit failed: Traceback (most recent call last):\n  File \"<frozen runpy>\", line 189, in _run_module_as_main\n  File \"<frozen runpy>\", line 112, in _get_module_details\n  File \"/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/.tmpZeVcAV/state/runtime-assets/ad816bcafa184d1216831bd5f3c32a3fa4ea289878f33675611e0d26be317582/python/src/mlrescurix_worker/scientific/__init__.py\", line 5, in <module>\n    from .autonomous_loop import AutonomousAgentLoop, ProcessTreeSampler, get_controller_rss_bytes\n  File \"/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/.tmpZeVcAV/state/runtime-assets/ad816bcafa184d1216831bd5f3c32a3fa4ea289878f33675611e0d26be317582/python/src/mlrescurix_worker/scientific/autonomous_loop.py\", line 54, in <module>\n    from .evidence import atomic_json, source_identity, verify_result\nModuleNotFoundError: No module named 'mlrescurix_worker.scientific.evidence'\n"
+
+---- test_model_portfolio_eval_tool_dispatch stdout ----
+
+thread 'test_model_portfolio_eval_tool_dispatch' (74790) panicked at crates/harness/tests/reflexive_loop_gate.rs:546:77:
+called `Result::unwrap()` on an `Err` value: "model-portfolio-eval failed: Traceback (most recent call last):\n  File \"<frozen runpy>\", line 189, in _run_module_as_main\n  File \"<frozen runpy>\", line 112, in _get_module_details\n  File \"/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/.tmpEYij7z/state/runtime-assets/ad816bcafa184d1216831bd5f3c32a3fa4ea289878f33675611e0d26be317582/python/src/mlrescurix_worker/scientific/__init__.py\", line 5, in <module>\n    from .autonomous_loop import AutonomousAgentLoop, ProcessTreeSampler, get_controller_rss_bytes\n  File \"/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/.tmpEYij7z/state/runtime-assets/ad816bcafa184d1216831bd5f3c32a3fa4ea289878f33675611e0d26be317582/python/src/mlrescurix_worker/scientific/autonomous_loop.py\", line 54, in <module>\n    from .evidence import atomic_json, source_identity, verify_result\nModuleNotFoundError: No module named 'mlrescurix_worker.scientific.evidence'\n"
+
+
+failures:
+    test_ablation_sprint_tool_dispatch_and_sqlite_sync
+    test_critic_audit_tool_dispatch_and_sqlite_sync
+    test_eda_forensics_tool_dispatch_and_sqlite_sync
+    test_model_portfolio_eval_tool_dispatch
+    test_reflexive_orchestrate_end_to_end_and_sqlite_v11_sync
+
+test result: FAILED. 3 passed; 5 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.36s
+
+error: test failed, to rerun pass `--test reflexive_loop_gate`

@@ -51,16 +51,7 @@ def get_controller_rss_bytes():
     return int(raw if sys.platform == "darwin" else raw * 1024)
 
 
-def atomic_json(path, value):
-    path = Path(path)
-    tmp = path.with_suffix(f".tmp.{os.getpid()}")
-    with tmp.open("w") as f:
-        json.dump(value, f, indent=2, allow_nan=False, default=str)
-        f.flush(); os.fsync(f.fileno())
-    tmp.replace(path)
-    fd = os.open(str(path.parent), os.O_RDONLY)
-    try: os.fsync(fd)
-    finally: os.close(fd)
+from .evidence import atomic_json, source_identity, verify_result
 
 
 def exclusive_workspace(method):
@@ -93,6 +84,12 @@ class AutonomousAgentLoop:
         topology=None, problem_statement="", sandbox_image=None, evaluation_timeout_seconds=180,
         evaluator=None, pricing=None, outbound_script_output_approved=False,
         provider_is_fixture=False, allow_development_provider=False, worker_memory_bytes=2 * 1024**3):
+        from .execution_service import ExecutionService
+        from .governance import GovernanceService
+        from .task_adapters import task_adapter
+        self.execution = ExecutionService()
+        self.governance = GovernanceService()
+        self.task_adapter = task_adapter(task_type)
         self.workspace_root = Path(workspace_root).resolve()
         self.workspace_root.mkdir(parents=True, exist_ok=True)
         self.project_id, self.session_id = project_id, session_id
@@ -153,47 +150,8 @@ class AutonomousAgentLoop:
         self.cv_splitter = PredefinedSplitter(self.locked_folds)
         self.topology = copy.deepcopy(topology or {})
         self.topology.update(target_column=target_column, task_type=task_type)
-        if is_panel_task:
-            temporal_col = self.topology.get("temporal_col") or self.topology.get("time_column") or self.topology.get("time")
-            horizon = self.topology.get("forecast_horizon_dates") or self.topology.get("forecast_horizon")
-            allowlist = self.topology.get("known_at_forecast_columns")
-            if not temporal_col or temporal_col not in self.raw_df.columns:
-                raise ValueError("Panel forecasting requires an authoritative temporal column")
-            if isinstance(horizon, bool) or not isinstance(horizon, int) or horizon <= 0:
-                raise ValueError("Panel forecasting requires a positive forecast horizon in dates")
-            if not isinstance(allowlist, list) or not allowlist or any(not isinstance(c, str) for c in allowlist):
-                raise ValueError("Panel forecasting requires an explicit known_at_forecast_columns allowlist")
-            entity_columns = self.topology.get("entity_columns", [])
-            if not isinstance(entity_columns, list) or any(c not in self.raw_df.columns for c in entity_columns):
-                raise ValueError("Panel entity_columns must name existing development columns")
-            # Critic recognizes this canonical temporal split contract; the exact
-            # caller-provided assignments remain bound by folds_sha256.
-            self.topology["cv_scheme"] = "purged_time_series_split"
-        self.topology.setdefault("cv_scheme", "caller_locked" if caller_pinned_folds else "stratified_kfold" if self.is_classification else "kfold")
-        self.topology.setdefault("column_classifications", {c: "NUMERIC_CONTINUOUS" if pd.api.types.is_numeric_dtype(self.raw_df[c]) else "CATEGORICAL" for c in self.raw_df if c != target_column})
-        temporal = self.topology.get("temporal_col")
-        group = self.topology.get("entity_group_col")
-        if temporal:
-            if temporal not in self.raw_df: raise ValueError("Authoritative temporal column missing from development data")
-            clock = self.raw_df[temporal]
-            if not pd.api.types.is_numeric_dtype(clock): clock = pd.to_datetime(clock, errors="raise")
-            if clock.isna().any(): raise ValueError("Missing authoritative time values")
-            embargo = self.topology.get("split", {}).get("embargo_seconds", 0)
-            for train, valid in self.locked_folds:
-                latest, earliest = clock.iloc[train].max(), clock.iloc[valid].min()
-                gap = float((earliest - latest).total_seconds()) if isinstance(latest, pd.Timestamp) else float(earliest - latest)
-                if gap <= 0 or gap < float(embargo): raise ValueError("Pinned folds violate temporal order/embargo")
-        if group:
-            if group not in self.raw_df: raise ValueError("Authoritative entity group column missing; explicit group mapping required")
-            for train, valid in self.locked_folds:
-                if set(self.raw_df.iloc[train][group].dropna()) & set(self.raw_df.iloc[valid][group].dropna()):
-                    raise ValueError("Pinned folds violate group separation")
-        if is_panel_task:
-            from .panel_contract import validate_panel_fold
-            if len(self.topology.get("panel_protocol", {}).get("origins", [])) != len(self.locked_folds):
-                raise ValueError("Incomplete panel_protocol: exact origin count must match frozen folds")
-            for i, (train, valid) in enumerate(self.locked_folds):
-                validate_panel_fold(self.raw_df, train, valid, self.topology, i, target_column)
+        self.topology = self.task_adapter.configure_topology(self.raw_df, self.locked_folds,
+            self.topology, target_column, caller_pinned_folds)
         isolated = self.workspace_root / "inputs"
         isolated.mkdir(exist_ok=True)
         if isolated.is_symlink(): raise ValueError("Input staging directory must not be a symlink")
@@ -211,10 +169,25 @@ class AutonomousAgentLoop:
             "folds_sha256": identity(self.locked_folds), "target": target_column, "task": task_type,
             "metric": metric_name, "direction": metric_direction, "topology_hash": identity(self.topology),
             "problem_statement": problem_statement, "model": model_name, "endpoint": endpoint,
-            "provider_is_fixture": provider_is_fixture, "worker_memory_bytes": self.worker_memory_bytes}
+            "provider_is_fixture": provider_is_fixture, "worker_memory_bytes": self.worker_memory_bytes,
+            "source_sha256": source_identity(REPO_ROOT),
+            "source_scope": "checkout" if (REPO_ROOT / 'Cargo.lock').is_file() else "installed_python_assets",
+            "transport_binary_sha256": hashlib.sha256(Path(provider_caller.binary).read_bytes()).hexdigest() if getattr(provider_caller, 'binary', None) else None,
+            "stage_receipt": stage_receipt, "evaluation_timeout_seconds": evaluation_timeout_seconds,
+            "sandbox_image": sandbox_image, "pricing": pricing}
         self.critic_engine = CriticEngine(max_allowed_gap=0.12, min_distinct_families=3)
         self.sampler = ProcessTreeSampler()
         self.state = self._load_or_init_state()
+        from .agent_interface import AgentInterface
+        self.interface = AgentInterface(self.workspace_root)
+
+    def _apply_human_controls(self):
+        before = identity(self.state)
+        self.interface.apply(self.state)
+        if identity(self.state) != before:
+            self._save_state(self.state)
+            self._event('human_control_applied', command_ids=self.state.get('human_commands_applied', []),
+                        stop_reason=self.state.get('stop_reason'))
 
     def _load_or_init_state(self):
         if self.state_file.exists():
@@ -231,14 +204,17 @@ class AutonomousAgentLoop:
                 spec, audit = state.get("accepted_candidate"), state.get("accepted_audit")
                 if not isinstance(spec, dict) or identity(spec) != state.get("candidate_identity") or not isinstance(audit, dict) or audit.get("status") != "APPROVED" or audit.get("candidate_id") != state["accepted_candidate_id"]:
                     raise RecoveryRequired("Checkpoint accepted candidate identity/audit mismatch")
+                try:
+                    measured = state.get('accepted_evaluation', {})
+                    verify_result(measured, self.binding)
+                    if measured.get('candidate_identity') != state['candidate_identity'] or measured.get('cv_score') != state['best_cv_score'] or audit.get('evaluation_identity') != measured['receipt_identity']:
+                        raise ValueError('Accepted audit/score differs from measured evaluation')
+                except (ValueError, KeyError) as exc:
+                    raise RecoveryRequired(f'Checkpoint evaluation receipt identity mismatch: {exc}') from exc
             if state.get("binding") != self.binding: raise RecoveryRequired("Checkpoint dataset/folds/config binding mismatch")
             if state.get("pending_turn") is not None: raise RecoveryRequired("Interrupted dispatch; reconcile pending_turn and budget receipts before resume")
             return state
-        active_spec = {"families": ["hist_gbdt", "penalized_linear", "lgbm"], "weights": [1, 1, 1], "transforms": [], "seed": 42}
-        if self.metric_name == "rmse_log_price":
-            active_spec["target_transform"] = "log"
-        elif self.metric_name == "rmsle":
-            active_spec["target_transform"] = "log1p"
+        active_spec = self.task_adapter.initial_spec(self.metric_name)
         state = {"schema_version": 3, "binding": self.binding, "project_id": self.project_id, "session_id": self.session_id,
             "target_column": self.target_column, "task_type": self.task_type, "metric_name": self.metric_name,
             "metric_direction": self.metric_direction, "turns_completed": 0, "turns": [], "stop_reason": None,
@@ -257,97 +233,13 @@ class AutonomousAgentLoop:
 
     def _event(self, kind, **payload):
         event = {"timestamp_unix": time.time(), "event": kind, "session_id": self.session_id, **payload}
+        event["event_id"] = identity(event)
         with (self.workspace_root / "autonomous_trace.jsonl").open("a") as trace:
             trace.write(json.dumps(event, default=str, allow_nan=False) + "\n")
             trace.flush(); os.fsync(trace.fileno())
 
     def _evaluate(self, spec, operation="evaluate"):
-        if hashlib.sha256(self.dataset_path.read_bytes()).hexdigest() != self.binding["data_sha256"]:
-            raise ValueError("Development data changed since checkpoint binding")
-        if operation == "evaluate" and self.state.get("evaluation_count", 0) >= 12:
-            raise ValueError("Candidate evaluation limit (12) reached; handoff required")
-        if operation == "evaluate":
-            self.state["evaluation_count"] = self.state.get("evaluation_count", 0) + 1
-            if "evaluated_families" not in self.state:
-                self.state["evaluated_families"] = []
-            for fam in spec.get("families", []):
-                if fam not in self.state["evaluated_families"]:
-                    self.state["evaluated_families"].append(fam)
-            self._save_state(self.state)
-        if self.evaluator is not None and operation == "evaluate":
-            return self.evaluator(copy.deepcopy(spec), self.raw_df.copy(), self.locked_folds, self.metric_name)
-        # Only trusted installed evaluator code runs on host; generated Python uses Docker tool.
-        token = identity({"spec": spec, "binding": self.binding, "operation": operation})
-        jobs = self.workspace_root / "evaluations"; jobs.mkdir(exist_ok=True)
-        request, output = jobs / f"{token}.request.json", jobs / f"{token}.result.json"
-        if output.exists():
-            payload = json.loads(output.read_text())
-            if "error" in payload: raise ValueError(payload["error"])
-            return payload["result"]
-        atomic_json(request, {"spec": spec, "dataset": str(self.dataset_path), "target": self.target_column,
-            "task_type": self.task_type, "metric": self.metric_name, "folds": self.locked_folds,
-            "topology": self.topology,
-            "cpu_seconds": int(self.evaluation_timeout_seconds), "memory_bytes": self.worker_memory_bytes,
-            "operation": operation, "model_path": str(jobs / f"{token}.joblib") })
-        env = {k: v for k, v in os.environ.items() if k in ("PATH", "SYSTEMROOT", "LANG", "TMPDIR")}
-        env.update(PYTHONPATH=str(REPO_ROOT / "python" / "src"), OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1", MKL_NUM_THREADS="1")
-        with (jobs / f"{token}.worker.log").open("w") as log:
-            proc = subprocess.Popen([sys.executable, "-m", "mlrescurix_worker.scientific.candidate_worker", str(request), str(output)],
-                env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-            self.sampler.register_worker(proc.pid)
-            worker_rss_peak = None
-            worker_sample_count = 0
-            worker_sample_status = "unavailable"
-            worker_cgroup = None
-            try:
-                deadline = time.monotonic() + self.evaluation_timeout_seconds
-                while proc.poll() is None:
-                    if time.monotonic() >= deadline: raise subprocess.TimeoutExpired(proc.args, self.evaluation_timeout_seconds)
-                    metrics = self.sampler.sample_now()
-                    worker_metrics = metrics.get("workers", {})
-                    observed_memory = worker_metrics.get("rss_bytes")
-                    worker_sample_count += 1
-                    worker_sample_status = worker_metrics.get("status", "unavailable")
-                    if observed_memory is not None:
-                        worker_rss_peak = max(worker_rss_peak or 0, observed_memory)
-                    if metrics.get("cgroup", {}).get("scope") == "workers":
-                        worker_cgroup = metrics["cgroup"]
-                    if observed_memory is not None and observed_memory > self.worker_memory_bytes:
-                        raise RuntimeError("Candidate worker exceeded observed RSS budget; terminated (not cgroup containment)")
-                    try: proc.wait(timeout=.1)
-                    except subprocess.TimeoutExpired: pass
-                if proc.returncode != 0 or not output.exists(): raise RuntimeError(f"Candidate worker failed ({proc.returncode}); see {token}.worker.log")
-            except subprocess.TimeoutExpired as exc: raise RuntimeError("Candidate worker wall-time limit exceeded") from exc
-            finally:
-                try: os.killpg(proc.pid, signal.SIGKILL)
-                except ProcessLookupError: pass
-                proc.wait()
-                final_metrics = self.sampler.sample_now()
-                final_worker_metrics = final_metrics.get("workers", {})
-                final_rss = final_worker_metrics.get("rss_bytes")
-                if final_rss is not None:
-                    worker_rss_peak = max(worker_rss_peak or 0, final_rss)
-                if final_metrics.get("cgroup", {}).get("scope") == "workers":
-                    worker_cgroup = final_metrics["cgroup"]
-                if not hasattr(self, "_turn_worker_resource_receipts"):
-                    self._turn_worker_resource_receipts = []
-                self._turn_worker_resource_receipts.append({
-                    "sampling_status": worker_sample_status,
-                    "sample_count": worker_sample_count,
-                    "observed_rss_peak_bytes": worker_rss_peak,
-                    "configured_memory_budget_bytes": self.worker_memory_bytes,
-                    "memory_enforcement": "RLIMIT_AS plus sampled RSS terminate on Linux" if sys.platform.startswith("linux") else "sampled RSS terminate only",
-                    "cpu_limit_seconds": int(self.evaluation_timeout_seconds),
-                    "cpu_enforcement": "RLIMIT_CPU in candidate worker",
-                    "wall_limit_seconds": self.evaluation_timeout_seconds,
-                    "wall_enforcement": "controller deadline with process-group termination",
-                    "cgroup": worker_cgroup or {"scope": "workers", "verified_limits": False, "available": False},
-                    "cgroup_enforced": bool(worker_cgroup and worker_cgroup.get("scope") == "workers" and worker_cgroup.get("verified_limits")),
-                })
-                self.sampler.unregister_worker(proc.pid)
-        payload = json.loads(output.read_text())
-        if "error" in payload: raise ValueError(payload["error"])
-        return payload["result"]
+        return self.execution.evaluate(self, spec, operation)
 
     def build_diagnostic_dossier(self):
         df = self.raw_df
@@ -359,60 +251,10 @@ class AutonomousAgentLoop:
             "limitations": ["Tabular model backend; other modalities require explicit handoff", "Generated script metrics cannot self-certify candidate acceptance"]}
 
     def _reservation(self, messages, max_tokens):
-        if callable(getattr(self.provider_caller, "reservation", None)):
-            return self.provider_caller.reservation(messages, max_tokens)
-        if self.provider_caller is not None and self.provider_is_fixture and self.pricing is None: return Decimal("0.005")
-        if not self.pricing or not self.pricing.get("verified"):
-            raise ValueError("Live dispatch requires verified input/output price ceilings; no stale guessed rates")
-        # UTF-8 bytes upper bound token count, plus conservative chat framing allowance.
-        input_bound = len(json.dumps(messages, ensure_ascii=False).encode()) + 4096
-        for rate in ("input_per_million", "output_per_million"):
-            value = Decimal(str(self.pricing[rate]))
-            if not value.is_finite() or value < 0: raise ValueError("Verified price ceilings must be finite and nonnegative")
-        return max(Decimal("0.000001"), (Decimal(input_bound) * Decimal(str(self.pricing["input_per_million"])) +
-            Decimal(max_tokens) * Decimal(str(self.pricing["output_per_million"])))) / Decimal(1000000)
+        return self.governance.reservation(self, messages, max_tokens)
 
     def _call_provider(self, messages, max_tokens=2500):
-        pending = self.state["pending_turn"]
-        request_id = pending["request_id"]
-        if not self.provider_is_fixture:
-            from .rust_gateway import RustGatewayAdapter
-            if not isinstance(self.provider_caller, RustGatewayAdapter):
-                raise ValueError("Live dispatch requires the campaign-bound Rust gateway adapter")
-        amount = self._reservation(messages, max_tokens)
-        # Upper-bound context and requested output across all turns, including repair calls.
-        requested_bound = len(json.dumps(messages).encode()) + 4096 + max_tokens
-        prior_bound = sum(t.get("requested_token_upper_bound", 0) for t in self.state["turns"])
-        if prior_bound + requested_bound > 80000: raise ValueError("Run token admission limit (80000) exceeded")
-        pending["requested_token_upper_bound"] = requested_bound
-        spent = sum(Decimal(str(t["provider_cost_usd"])) for t in self.state["turns"])
-        if spent + amount > self.per_run_budget_usd: raise ValueError("Per-run budget admission rejected")
-        status = self.campaign_authority.get_status()
-        if Decimal(str(status.get("campaign_ceiling_usd", ".30"))) > Decimal(".30"):
-            raise ValueError("Campaign authority exceeds authorized $0.30 ceiling")
-        self.campaign_authority.reserve(self.session_id, request_id, amount)
-        self._event("provider_reserved", request_id=request_id, reserved_usd=str(amount), fixture=self.provider_is_fixture)
-        pending.update(phase="provider_dispatching", reserved_usd=str(amount)); self._save_state(self.state)
-        try:
-            if self.provider_caller is not None:
-                stable_call = getattr(self.provider_caller, "call_with_request_id", None)
-                res = stable_call(messages, max_tokens, request_id) if callable(stable_call) else self.provider_caller(messages, max_tokens)
-            else: res = self._http_provider(messages, max_tokens)
-            if "cost_usd" not in res: raise ValueError("Provider must return billed cost or marked conservative cost estimate")
-            cost = Decimal(str(res["cost_usd"]))
-            if not cost.is_finite() or cost < 0: raise ValueError("Invalid provider cost")
-            # Durable response precedes settlement, so an interrupted settlement is reconciled, never resent.
-            pending.update(phase="provider_received", provider_receipt=res); self._save_state(self.state)
-            self.campaign_authority.settle(self.session_id, request_id, cost) if self.provider_is_fixture else self.campaign_authority.settle(
-                self.session_id, request_id, cost, cost_kind="calculated_estimate" if res.get("cost_is_estimate", True) else "unverified")
-            pending["phase"] = "provider_settled"; self._save_state(self.state)
-            if cost > amount: raise RecoveryRequired("Provider charge exceeded verified reservation; reconcile pricing before continuation")
-            self._event("provider_settled", request_id=request_id, cost_usd=str(cost), estimated=res.get("cost_is_estimate", False))
-            return res
-        except BaseException:
-            if pending["phase"] == "provider_dispatching":
-                self.campaign_authority.mark_uncertain(self.session_id, request_id, amount)
-            raise
+        return self.governance.dispatch(self, messages, max_tokens)
 
     def _http_provider(self, messages, max_tokens):
         raise ValueError("Direct transport disabled; bind the shared campaign authority to RustGatewayAdapter")
@@ -459,6 +301,7 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
                     result["repair_locations"] = [{"script": name, "line": int(line)} for name, line in locations[-8:]
                                                 if name in self.state["script_registry"]]
         user = {
+            "human_guidance": self.state.get("human_guidance", []),
             "instruction": "Review task context, diagnostic dossier, and turn history. Choose your next action and return strictly a single valid JSON object with keys: thought_rationale, action_type, parameters.",
             "task_context": {"problem_statement": self.problem_statement, "target": self.target_column,
                 "metric": self.metric_name, "metric_direction": self.metric_direction, "turn": turn + 1,
@@ -573,7 +416,7 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
                     if improves:
                         self.state.update(
                             accepted_candidate_id=candidate_id, accepted_candidate=win_spec,
-                            candidate_identity=identity(win_spec), accepted_audit=audit,
+                            candidate_identity=identity(win_spec), accepted_audit=dict(audit, evaluation_identity=win_res.get("receipt_identity")),
                             accepted_evaluation=win_res, best_cv_score=win_res["cv_score"]
                         )
             return {"portfolio": scores}, last_audit
@@ -604,7 +447,7 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
                 improves = old is None or (result["cv_score"] > old if self.metric_direction == "maximize" else result["cv_score"] < old)
                 if improves:
                     self.state.update(accepted_candidate_id=candidate_id, accepted_candidate=spec,
-                        candidate_identity=identity(spec), accepted_audit=audit, accepted_evaluation=result, best_cv_score=result["cv_score"])
+                        candidate_identity=identity(spec), accepted_audit=dict(audit, evaluation_identity=result.get("receipt_identity")), accepted_evaluation=result, best_cv_score=result["cv_score"])
             return result, audit
         if kind == "WRITE_PYTHON":
             filename = self._script_name(params.get("filename"))
@@ -620,22 +463,7 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
             self.state["script_registry"][filename] = {"sha256": sha, "turn": turn}
             return {"script": filename, "sha256": sha, "bytes": len(code.encode())}, {}
         if kind == "RUN_PYTHON":
-            from .python_tool import run_python_script
-            filename = self._script_name(params.get("filename"))
-            registered = self.state["script_registry"].get(filename)
-            path = self.workspace_root / "scripts" / filename
-            if not registered or path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest() != registered["sha256"]:
-                raise ValueError("Script missing or changed since governed write")
-            # Dedicated mount contains only development CSV, never repo keys or full source data.
-            data = self.workspace_root / "script_data"; data.mkdir(exist_ok=True)
-            if data.is_symlink() or data.resolve().parent != self.workspace_root: raise ValueError("Development mount must be confined to workspace")
-            script_bytes = self.dataset_path.read_bytes()
-            if hashlib.sha256(script_bytes).hexdigest() != self.binding["data_sha256"]:
-                raise ValueError("Development data changed since checkpoint binding")
-            (data / "development.csv").write_bytes(script_bytes)
-            result = run_python_script(path, self.workspace_root / "scripts", data_root=data, sandbox_image=self.sandbox_image)
-            if hasattr(result, "to_dict"): result = result.to_dict()
-            return {"python_result": result, "advisory_only": True}, {}
+            return self.execution.run_script(self, params), {}
         if kind == "FINALIZE_AND_STOP":
             if not self.state["accepted_candidate_id"]: raise ValueError("Finalization blocked: no accepted audited candidate")
             self.state["stop_reason"] = kind
@@ -654,6 +482,8 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
 
     @exclusive_workspace
     def execute_turn(self, turn_index, dossier):
+        self._apply_human_controls()
+        if self.state.get('stop_reason') in ('human_pause', 'human_stop'): return None
         if len(self.state["turns"]) > turn_index: return self.state["turns"][turn_index]
         if turn_index != len(self.state["turns"]): raise ValueError("Turns must execute in order")
         if self.state.get("pending_turn"): raise RecoveryRequired("Pending dispatch requires reconciliation")
@@ -773,7 +603,7 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
                 disposition = "unsupported" if "Unavailable model family" in str(exc) else "rejected"
                 measurements = {"error": error}
             resource_metrics = self.sampler.sample_now()
-            turn = {"turn_index": turn_index, "proposed_action": action, "disposition": disposition,
+            turn = {"turn_index": turn_index, "request_id": self.state["pending_turn"]["request_id"], "proposed_action": action, "disposition": disposition,
                 "error_msg": error, "measurements": measurements, "critic_result": audit,
                 "resource_observability": {**resource_metrics, "controller_peak_rss_bytes": get_controller_rss_bytes(),
                     "worker_executions": self._turn_worker_resource_receipts,
@@ -793,6 +623,12 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
         spec = self.state.get("accepted_candidate")
         if not spec or self.state.get("accepted_audit", {}).get("status") != "APPROVED": raise ValueError("No accepted audited candidate to refit")
         if identity(spec) != self.state["candidate_identity"]: raise ValueError("Candidate spec identity mismatch")
+        measured = self.state.get("accepted_evaluation", {})
+        verify_result(measured, self.binding)
+        if measured.get("candidate_identity") != identity(spec) or measured.get("cv_score") != self.state.get("best_cv_score"):
+            raise ValueError("Accepted measurement differs from candidate or score")
+        if self.state['accepted_audit'].get('evaluation_identity') != measured['receipt_identity']:
+            raise ValueError("Accepted audit differs from measured evaluation")
         frame = self.raw_df if df_dev is None else df_dev
         # Compare raw values and column order while allowing caller indices to differ.
         if not frame.reset_index(drop=True).equals(self.raw_df.reset_index(drop=True)):
@@ -817,6 +653,7 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
             "accepted_candidate_id": self.state["accepted_candidate_id"], "candidate_identity": self.state["candidate_identity"],
             "accepted_audit": self.state["accepted_audit"], "last_turns": self.state["turns"][-3:],
             "next_steps": self.state.get("handoff_request", {}).get("next_steps", ["Inspect last receipts and unresolved critic flaws", "Resume with identical dataset and locked folds"]),
+            "human_control": self.interface.status(),
             "budget": self.campaign_authority.get_status(), "production_certified": False}
         atomic_json(self.workspace_root / "handoff.json", payload)
         lines = ["# MLRescurix session handoff", "", f"Session: {self.session_id}", f"Stop: {self.state['stop_reason']}",
@@ -828,6 +665,7 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
 
     @exclusive_workspace
     def run(self):
+        self._apply_human_controls()
         dossier = self.build_diagnostic_dossier()
         if (self.task_type in ("panel_forecasting", "forecasting") or
             self.topology.get("forecast_horizon") or self.topology.get("forecast_horizon_dates") or
@@ -845,6 +683,7 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
         if self.state["stop_reason"] == "max_turns_reached": self.state["stop_reason"] = None
         try:
             for i in range(self.state["turns_completed"], self.max_turns):
+                self._apply_human_controls()
                 if self.state["stop_reason"]: break
                 messages = self._messages(i, dossier)
                 amount = self._reservation(messages, 3500)

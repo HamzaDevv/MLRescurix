@@ -1,0 +1,470 @@
+/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/pytest_asyncio/plugin.py:208: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the fixture caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to function scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+...........F.......................FFFF............F.....FF.F..          [100%]
+=================================== FAILURES ===================================
+______ test_live_provider_pricing_requires_explicit_current_revalidation _______
+
+    def test_live_provider_pricing_requires_explicit_current_revalidation():
+        stale_policy = {"provider": {"pricing_snapshot": {
+            "checked_local_date": "2026-10-21", "input_usd_per_million": "0.08",
+            "output_usd_per_million": "0.50", "must_revalidate_before_live": True,
+        }}}
+        assert runner.verified_provider_pricing(stale_policy, checked_date="2026-10-22") is None
+        fresh_policy = {"provider": {"pricing_snapshot": {
+            "checked_local_date": "2026-10-22", "verified_for_live": True, "must_revalidate_before_live": False,
+            "input_usd_per_million": "0.08", "output_usd_per_million": "0.50",
+        }}}
+>       assert runner.verified_provider_pricing(fresh_policy, checked_date="2026-10-22") == {
+            "verified": True, "input_per_million": "0.08", "output_per_million": "0.50",
+        }
+
+python/tests/test_robustness_runner_gates.py:181:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+policy = {'provider': {'pricing_snapshot': {'checked_local_date': '2026-10-22', 'input_usd_per_million': '0.08', 'must_revalidate_before_live': False, 'output_usd_per_million': '0.50', ...}}}
+checked_date = '2026-10-22'
+
+    def verified_provider_pricing(policy: Dict[str, Any], checked_date: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Return only pricing explicitly revalidated for live use on the current date."""
+        snapshot = policy.get("provider", {}).get("pricing_snapshot", {})
+        today = checked_date or datetime.now().astimezone().date().isoformat()
+        if (snapshot.get("verified_for_live") is not True
+                or snapshot.get("must_revalidate_before_live") is not False
+                or snapshot.get("checked_local_date") != today):
+            return None
+        try:
+>           input_price = Decimal(str(snapshot["input_usd_per_million"]))
+E           NameError: name 'Decimal' is not defined
+
+python/src/mlrescurix_worker/scientific/benchmark_contracts.py:47: NameError
+________________ test_valid_agent_action_changes_configuration _________________
+
+tmp_path = PosixPath('/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-2/test_valid_agent_action_change0')
+
+    def test_valid_agent_action_changes_configuration(tmp_path: Path):
+        dataset_path = create_synthetic_dataset(tmp_path / "data.csv")
+        budget = MockBudgetAuthority()
+
+        def mock_provider(messages: List[Dict[str, str]], max_tokens: int) -> Dict[str, Any]:
+            # Return valid typed hypothesis action
+            return {
+                "content": json.dumps({
+                    "thought_rationale": "Add missingness indicator for cabin to exploit MNAR signal.",
+                    "action_type": "HYPOTHESIS_TRANSFORM",
+                    "parameters": {
+                        "action": "ADD_MNAR_INDICATOR",
+                        "parameters": {"columns": ["cabin"]},
+                    },
+                }),
+                "cost_usd": 0.0005,
+            }
+
+        loop = AutonomousAgentLoop(
+            workspace_root=tmp_path / "ws",
+            project_id="test_proj",
+            session_id="run_test_1",
+            campaign_authority=budget,
+            dataset_path=dataset_path,
+            target_column="target",
+            max_turns=1,
+            provider_caller=mock_provider,
+            provider_is_fixture=True,
+        )
+        res = loop.run()
+
+        assert res["turns_completed"] == 1
+        turn = res["turns"][0]
+>       assert turn["disposition"] == "applied"
+E       AssertionError: assert 'rejected' == 'applied'
+E
+E         - applied
+E         + rejected
+
+python/tests/test_autonomous_agent_loop.py:126: AssertionError
+_____________ test_actual_tool_results_inform_subsequent_decisions _____________
+
+tmp_path = PosixPath('/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-2/test_actual_tool_results_infor0')
+
+    def test_actual_tool_results_inform_subsequent_decisions(tmp_path: Path):
+        dataset_path = create_synthetic_dataset(tmp_path / "data.csv")
+        budget = MockBudgetAuthority()
+        prompts_seen: List[str] = []
+
+        def mock_provider(messages: List[Dict[str, str]], max_tokens: int) -> Dict[str, Any]:
+            user_msg = messages[-1]["content"]
+            prompts_seen.append(user_msg)
+            turn_num = len(prompts_seen)
+
+            if turn_num == 1:
+                # Turn 1: evaluate portfolio
+                return {
+                    "content": json.dumps({
+                        "thought_rationale": "Evaluate baseline model families.",
+                        "action_type": "EVALUATE_PORTFOLIO",
+                        "parameters": {"candidate_families": ["hist_gbdt", "penalized_linear"]},
+                    }),
+                    "cost_usd": 0.0005,
+                }
+            else:
+                # Turn 2: agent inspects turn 1 results and decides to blend and audit
+                return {
+                    "content": json.dumps({
+                        "thought_rationale": "Based on measured portfolio results, blend candidates.",
+                        "action_type": "BLEND_AND_AUDIT",
+                        "parameters": {},
+                    }),
+                    "cost_usd": 0.0005,
+                }
+
+        loop = AutonomousAgentLoop(
+            workspace_root=tmp_path / "ws",
+            project_id="test_proj",
+            session_id="run_test_2",
+            campaign_authority=budget,
+            dataset_path=dataset_path,
+            target_column="target",
+            max_turns=2,
+            provider_caller=mock_provider,
+            provider_is_fixture=True,
+        )
+        res = loop.run()
+
+        assert res["turns_completed"] == 2
+        # Verify turn 2 prompt actually contained turn 1's measured portfolio scores
+        turn2_prompt = json.loads(prompts_seen[1])
+        assert len(turn2_prompt["turn_history"]) == 1
+        t1_hist = turn2_prompt["turn_history"][0]
+        assert t1_hist["proposed_action"] == "EVALUATE_PORTFOLIO"
+>       assert t1_hist["disposition"] == "applied"
+E       AssertionError: assert 'rejected' == 'applied'
+E
+E         - applied
+E         + rejected
+
+python/tests/test_autonomous_agent_loop.py:187: AssertionError
+________________ test_invalid_and_unsupported_actions_rejected _________________
+
+tmp_path = PosixPath('/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-2/test_invalid_and_unsupported_a0')
+
+    def test_invalid_and_unsupported_actions_rejected(tmp_path: Path):
+        dataset_path = create_synthetic_dataset(tmp_path / "data.csv")
+        budget = MockBudgetAuthority()
+        call_idx = 0
+
+        def mock_provider(messages: List[Dict[str, str]], max_tokens: int) -> Dict[str, Any]:
+            nonlocal call_idx
+            call_idx += 1
+            if call_idx == 1:
+                # Propose unsupported model family (catboost when native is uninstalled)
+                return {
+                    "content": json.dumps({
+                        "thought_rationale": "Train catboost gradient trees.",
+                        "action_type": "EVALUATE_PORTFOLIO",
+                        "parameters": {"candidate_families": ["catboost"]},
+                    }),
+                    "cost_usd": 0.0005,
+                }
+            else:
+                # Propose invalid action type
+                return {
+                    "content": json.dumps({
+                        "thought_rationale": "Attempt arbitrary non-existent action.",
+                        "action_type": "EXECUTE_ARBITRARY_SHELL",
+                        "parameters": {"cmd": "rm -rf /"},
+                    }),
+                    "cost_usd": 0.0005,
+                }
+
+        loop = AutonomousAgentLoop(
+            workspace_root=tmp_path / "ws",
+            project_id="test_proj",
+            session_id="run_test_3",
+            campaign_authority=budget,
+            dataset_path=dataset_path,
+            target_column="target",
+            max_turns=2,
+            provider_caller=mock_provider,
+            provider_is_fixture=True,
+        )
+        res = loop.run()
+
+        # Turn 1 should be unsupported (if CatBoost is not installed) or applied (if installed)
+        turn1 = res["turns"][0]
+        from mlrescurix_worker.scientific.model_zoo import HAS_CATBOOST
+        if not HAS_CATBOOST:
+>           assert turn1["disposition"] == "unsupported"
+E           AssertionError: assert 'rejected' == 'unsupported'
+E
+E             - unsupported
+E             + rejected
+
+python/tests/test_autonomous_agent_loop.py:240: AssertionError
+______________________ test_critic_veto_blocks_acceptance ______________________
+
+tmp_path = PosixPath('/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-2/test_critic_veto_blocks_accept0')
+
+    def test_critic_veto_blocks_acceptance(tmp_path: Path):
+        dataset_path = create_synthetic_dataset(tmp_path / "data.csv")
+        budget = MockBudgetAuthority()
+
+        def mock_provider(messages: List[Dict[str, str]], max_tokens: int) -> Dict[str, Any]:
+            # Agent attempts single-family monoculture
+            return {
+                "content": json.dumps({
+                    "thought_rationale": "Blend single family candidate.",
+                    "action_type": "BLEND_AND_AUDIT",
+                    "parameters": {},
+                }),
+                "cost_usd": 0.0005,
+            }
+
+        loop = AutonomousAgentLoop(
+            workspace_root=tmp_path / "ws",
+            project_id="test_proj",
+            session_id="run_test_4",
+            campaign_authority=budget,
+            dataset_path=dataset_path,
+            target_column="target",
+            max_turns=1,
+            provider_caller=mock_provider,
+            provider_is_fixture=True,
+        )
+        # Force min_distinct_families to 5 so it triggers VETO
+        loop.critic_engine = CriticEngine(min_distinct_families=5)
+        res = loop.run()
+
+        turn = res["turns"][0]
+>       assert turn["critic_result"]["status"] == "VETO"
+E       KeyError: 'status'
+
+python/tests/test_autonomous_agent_loop.py:284: KeyError
+_______ test_blend_uses_requested_weights_and_refit_matches_audited_spec _______
+
+tmp_path = PosixPath('/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-2/test_blend_uses_requested_weig0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11e4e58b0>
+
+    def test_blend_uses_requested_weights_and_refit_matches_audited_spec(tmp_path, monkeypatch):
+        calls = []
+        def evaluator(spec, frame, folds, metric):
+            calls.append(copy.deepcopy(spec))
+            return {"cv_score": .8, "cv_scores": [.79,.81], "fold_receipts": [{"critic_validation_score": .79}, {"critic_validation_score": .81}],
+                "critic_train_score": .83, "critic_validation_score": .8, "feature_names": ["age", "cabin"], "candidate_identity": identity(spec)}
+        class Receipt:
+            def __init__(self, candidate): self.candidate = candidate
+            def to_dict(self): return {"status": "APPROVED", "candidate_id": self.candidate["candidate_id"], "blocking_flaws": []}
+        loop, _ = make_loop(tmp_path, [action("BLEND_AND_AUDIT", families=["penalized_linear", "hist_gbdt"], weights=[.9,.1])], evaluator=evaluator)
+        monkeypatch.setattr(loop.critic_engine, "audit", lambda **kw: Receipt(kw["candidate"]))
+        state = loop.run()
+>       pipeline = loop.fit_accepted_candidate()
+
+python/tests/test_autonomy_regressions.py:150:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+python/src/mlrescurix_worker/scientific/autonomous_loop.py:76: in guarded
+    return method(self, *args, **kwargs)
+python/src/mlrescurix_worker/scientific/autonomous_loop.py:655: in fit_accepted_candidate
+    fitted = self._evaluate(spec, operation="refit")
+python/src/mlrescurix_worker/scientific/autonomous_loop.py:266: in _evaluate
+    return self.execution.evaluate(self, spec, operation)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <mlrescurix_worker.scientific.execution_service.ExecutionService object at 0x11e538e10>
+session = <mlrescurix_worker.scientific.autonomous_loop.AutonomousAgentLoop object at 0x11de57c50>
+spec = {'families': ['penalized_linear', 'hist_gbdt'], 'seed': 42, 'transforms': [], 'weights': [0.9, 0.1]}
+operation = 'refit'
+
+    def evaluate(self, session, spec, operation="evaluate"):
+        if hashlib.sha256(session.dataset_path.read_bytes()).hexdigest() != session.binding["data_sha256"]:
+            raise ValueError("Development data changed since checkpoint binding")
+        if operation == "evaluate" and session.state.get("evaluation_count", 0) >= 12:
+            raise ValueError("Candidate evaluation limit (12) reached; handoff required")
+        if operation == "evaluate":
+            session.state["evaluation_count"] = session.state.get("evaluation_count", 0) + 1
+            if "evaluated_families" not in session.state:
+                session.state["evaluated_families"] = []
+            for fam in spec.get("families", []):
+                if fam not in session.state["evaluated_families"]:
+                    session.state["evaluated_families"].append(fam)
+            session._save_state(session.state)
+        if session.evaluator is not None and operation == "evaluate":
+            return session.evaluator(copy.deepcopy(spec), session.raw_df.copy(), session.locked_folds, session.metric_name)
+        # Only trusted installed evaluator code runs on host; generated Python uses Docker tool.
+        token = identity({"spec": spec, "binding": session.binding, "operation": operation})
+        jobs = session.workspace_root / "evaluations"; jobs.mkdir(exist_ok=True)
+        request, output = jobs / f"{token}.request.json", jobs / f"{token}.result.json"
+        if output.exists():
+            payload = json.loads(output.read_text())
+            if "error" in payload: raise ValueError(payload["error"])
+            return payload["result"]
+>       atomic_json(request, {"spec": spec, "dataset": str(session.dataset_path), "target": session.target_column,
+            "task_type": session.task_type, "metric": session.metric_name, "folds": session.locked_folds,
+            "topology": session.topology,
+            "cpu_seconds": int(session.evaluation_timeout_seconds), "memory_bytes": session.worker_memory_bytes,
+            "operation": operation, "model_path": str(jobs / f"{token}.joblib") })
+E       NameError: name 'atomic_json' is not defined
+
+python/src/mlrescurix_worker/scientific/execution_service.py:43: NameError
+___________ test_real_worker_is_terminated_on_resource_limit[memory] ___________
+
+tmp_path = PosixPath('/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-2/test_real_worker_is_terminated0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11e5d8ad0>
+limit = 'memory'
+
+    @pytest.mark.parametrize("limit", ["memory", "wall"])
+    def test_real_worker_is_terminated_on_resource_limit(tmp_path, monkeypatch, limit):
+        import subprocess
+        import sys
+        from mlrescurix_worker.scientific import autonomous_loop
+        loop, _ = make_loop(tmp_path, [])
+        actual_popen = subprocess.Popen
+        children = []
+        def sleeping_worker(*args, **kwargs):
+            process = actual_popen([sys.executable, "-c", "import time; time.sleep(30)"], **kwargs)
+            children.append(process)
+            return process
+        monkeypatch.setattr(autonomous_loop.subprocess, "Popen", sleeping_worker)
+        monkeypatch.setattr(loop.sampler, "sample_now", lambda: {"workers":{"rss_bytes": 9999999999 if limit == "memory" else 1}})
+        loop.evaluation_timeout_seconds = .2
+        with pytest.raises(RuntimeError, match="RSS budget|wall-time"):
+>           loop._evaluate(loop.state["active_spec"])
+
+python/tests/test_autonomy_regressions.py:212:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+python/src/mlrescurix_worker/scientific/autonomous_loop.py:266: in _evaluate
+    return self.execution.evaluate(self, spec, operation)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <mlrescurix_worker.scientific.execution_service.ExecutionService object at 0x11e62c5f0>
+session = <mlrescurix_worker.scientific.autonomous_loop.AutonomousAgentLoop object at 0x11e4d4550>
+spec = {'families': ['hist_gbdt', 'penalized_linear', 'lgbm'], 'seed': 42, 'transforms': [], 'weights': [1, 1, 1]}
+operation = 'evaluate'
+
+    def evaluate(self, session, spec, operation="evaluate"):
+        if hashlib.sha256(session.dataset_path.read_bytes()).hexdigest() != session.binding["data_sha256"]:
+            raise ValueError("Development data changed since checkpoint binding")
+        if operation == "evaluate" and session.state.get("evaluation_count", 0) >= 12:
+            raise ValueError("Candidate evaluation limit (12) reached; handoff required")
+        if operation == "evaluate":
+            session.state["evaluation_count"] = session.state.get("evaluation_count", 0) + 1
+            if "evaluated_families" not in session.state:
+                session.state["evaluated_families"] = []
+            for fam in spec.get("families", []):
+                if fam not in session.state["evaluated_families"]:
+                    session.state["evaluated_families"].append(fam)
+            session._save_state(session.state)
+        if session.evaluator is not None and operation == "evaluate":
+            return session.evaluator(copy.deepcopy(spec), session.raw_df.copy(), session.locked_folds, session.metric_name)
+        # Only trusted installed evaluator code runs on host; generated Python uses Docker tool.
+        token = identity({"spec": spec, "binding": session.binding, "operation": operation})
+        jobs = session.workspace_root / "evaluations"; jobs.mkdir(exist_ok=True)
+        request, output = jobs / f"{token}.request.json", jobs / f"{token}.result.json"
+        if output.exists():
+            payload = json.loads(output.read_text())
+            if "error" in payload: raise ValueError(payload["error"])
+            return payload["result"]
+>       atomic_json(request, {"spec": spec, "dataset": str(session.dataset_path), "target": session.target_column,
+            "task_type": session.task_type, "metric": session.metric_name, "folds": session.locked_folds,
+            "topology": session.topology,
+            "cpu_seconds": int(session.evaluation_timeout_seconds), "memory_bytes": session.worker_memory_bytes,
+            "operation": operation, "model_path": str(jobs / f"{token}.joblib") })
+E       NameError: name 'atomic_json' is not defined
+
+python/src/mlrescurix_worker/scientific/execution_service.py:43: NameError
+____________ test_real_worker_is_terminated_on_resource_limit[wall] ____________
+
+tmp_path = PosixPath('/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-2/test_real_worker_is_terminated1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11e4c7af0>
+limit = 'wall'
+
+    @pytest.mark.parametrize("limit", ["memory", "wall"])
+    def test_real_worker_is_terminated_on_resource_limit(tmp_path, monkeypatch, limit):
+        import subprocess
+        import sys
+        from mlrescurix_worker.scientific import autonomous_loop
+        loop, _ = make_loop(tmp_path, [])
+        actual_popen = subprocess.Popen
+        children = []
+        def sleeping_worker(*args, **kwargs):
+            process = actual_popen([sys.executable, "-c", "import time; time.sleep(30)"], **kwargs)
+            children.append(process)
+            return process
+        monkeypatch.setattr(autonomous_loop.subprocess, "Popen", sleeping_worker)
+        monkeypatch.setattr(loop.sampler, "sample_now", lambda: {"workers":{"rss_bytes": 9999999999 if limit == "memory" else 1}})
+        loop.evaluation_timeout_seconds = .2
+        with pytest.raises(RuntimeError, match="RSS budget|wall-time"):
+>           loop._evaluate(loop.state["active_spec"])
+
+python/tests/test_autonomy_regressions.py:212:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+python/src/mlrescurix_worker/scientific/autonomous_loop.py:266: in _evaluate
+    return self.execution.evaluate(self, spec, operation)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <mlrescurix_worker.scientific.execution_service.ExecutionService object at 0x11e50f770>
+session = <mlrescurix_worker.scientific.autonomous_loop.AutonomousAgentLoop object at 0x11de57c50>
+spec = {'families': ['hist_gbdt', 'penalized_linear', 'lgbm'], 'seed': 42, 'transforms': [], 'weights': [1, 1, 1]}
+operation = 'evaluate'
+
+    def evaluate(self, session, spec, operation="evaluate"):
+        if hashlib.sha256(session.dataset_path.read_bytes()).hexdigest() != session.binding["data_sha256"]:
+            raise ValueError("Development data changed since checkpoint binding")
+        if operation == "evaluate" and session.state.get("evaluation_count", 0) >= 12:
+            raise ValueError("Candidate evaluation limit (12) reached; handoff required")
+        if operation == "evaluate":
+            session.state["evaluation_count"] = session.state.get("evaluation_count", 0) + 1
+            if "evaluated_families" not in session.state:
+                session.state["evaluated_families"] = []
+            for fam in spec.get("families", []):
+                if fam not in session.state["evaluated_families"]:
+                    session.state["evaluated_families"].append(fam)
+            session._save_state(session.state)
+        if session.evaluator is not None and operation == "evaluate":
+            return session.evaluator(copy.deepcopy(spec), session.raw_df.copy(), session.locked_folds, session.metric_name)
+        # Only trusted installed evaluator code runs on host; generated Python uses Docker tool.
+        token = identity({"spec": spec, "binding": session.binding, "operation": operation})
+        jobs = session.workspace_root / "evaluations"; jobs.mkdir(exist_ok=True)
+        request, output = jobs / f"{token}.request.json", jobs / f"{token}.result.json"
+        if output.exists():
+            payload = json.loads(output.read_text())
+            if "error" in payload: raise ValueError(payload["error"])
+            return payload["result"]
+>       atomic_json(request, {"spec": spec, "dataset": str(session.dataset_path), "target": session.target_column,
+            "task_type": session.task_type, "metric": session.metric_name, "folds": session.locked_folds,
+            "topology": session.topology,
+            "cpu_seconds": int(session.evaluation_timeout_seconds), "memory_bytes": session.worker_memory_bytes,
+            "operation": operation, "model_path": str(jobs / f"{token}.joblib") })
+E       NameError: name 'atomic_json' is not defined
+
+python/src/mlrescurix_worker/scientific/execution_service.py:43: NameError
+__________ test_abrupt_worker_exit_is_feedback_and_agent_can_continue __________
+
+tmp_path = PosixPath('/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-2/test_abrupt_worker_exit_is_fee0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11dedfad0>
+
+    def test_abrupt_worker_exit_is_feedback_and_agent_can_continue(tmp_path, monkeypatch):
+        import subprocess
+        import sys
+        from mlrescurix_worker.scientific import autonomous_loop
+        loop, prompts = make_loop(tmp_path, [action("EVALUATE_PORTFOLIO", families=["hist_gbdt"]), action("ANALYZE")])
+        actual_popen = subprocess.Popen
+        def killed_worker(*args, **kwargs):
+            return actual_popen([sys.executable, "-c", "import os,signal; os.kill(os.getpid(),signal.SIGKILL)"], **kwargs)
+        monkeypatch.setattr(autonomous_loop.subprocess, "Popen", killed_worker)
+        state = loop.run()
+        assert state["turns"][0]["disposition"] == "rejected"
+>       assert "Candidate worker failed" in prompts[1]["turn_history"][0]["error"]
+E       assert 'Candidate worker failed' in "NameError: name 'atomic_json' is not defined"
+
+python/tests/test_autonomy_regressions.py:237: AssertionError
+=========================== short test summary info ============================
+FAILED python/tests/test_robustness_runner_gates.py::test_live_provider_pricing_requires_explicit_current_revalidation
+FAILED python/tests/test_autonomous_agent_loop.py::test_valid_agent_action_changes_configuration
+FAILED python/tests/test_autonomous_agent_loop.py::test_actual_tool_results_inform_subsequent_decisions
+FAILED python/tests/test_autonomous_agent_loop.py::test_invalid_and_unsupported_actions_rejected
+FAILED python/tests/test_autonomous_agent_loop.py::test_critic_veto_blocks_acceptance
+FAILED python/tests/test_autonomy_regressions.py::test_blend_uses_requested_weights_and_refit_matches_audited_spec
+FAILED python/tests/test_autonomy_regressions.py::test_real_worker_is_terminated_on_resource_limit[memory]
+FAILED python/tests/test_autonomy_regressions.py::test_real_worker_is_terminated_on_resource_limit[wall]
+FAILED python/tests/test_autonomy_regressions.py::test_abrupt_worker_exit_is_feedback_and_agent_can_continue
+9 failed, 54 passed in 7.93s

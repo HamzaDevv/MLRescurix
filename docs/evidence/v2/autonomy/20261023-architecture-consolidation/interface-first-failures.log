@@ -1,0 +1,191 @@
+/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/pytest_asyncio/plugin.py:208: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the fixture caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to function scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+.........F.FFF                                                           [100%]
+=================================== FAILURES ===================================
+______ test_controller_cache_and_approved_measurement_tamper_fail_closed _______
+
+tmp_path = PosixPath('/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-9/test_controller_cache_and_appr0')
+
+    def test_controller_cache_and_approved_measurement_tamper_fail_closed(tmp_path):
+        loop, _ = make_loop(tmp_path, [action('BLEND_AND_AUDIT', families=['penalized_linear'])])
+        loop.critic_engine.audit = lambda **kw: SimpleNamespace(to_dict=lambda: {'status': 'APPROVED', 'candidate_id': kw['candidate']['candidate_id']})
+        state = loop.run()
+        assert state['accepted_candidate_id']
+        spec = state['accepted_candidate']
+        token = identity({'spec': spec, 'binding': loop.binding, 'operation': 'evaluate'})
+        output = loop.workspace_root / 'evaluations' / f'{token}.result.json'
+        payload = json.loads(output.read_text()); payload['result']['cv_score'] = .99
+        atomic_json(output, payload)
+        with pytest.raises(ValueError, match='content identity'): loop._evaluate(spec)
+        state['accepted_evaluation']['cv_score'] = .99
+>       with pytest.raises(ValueError, match='receipt identity'): loop.fit_accepted_candidate()
+E       Failed: DID NOT RAISE <class 'ValueError'>
+
+python/tests/test_architecture_consolidation.py:124: Failed
+_______ test_common_lifecycle_real_workers_and_identity_bound_bundle[K2] _______
+
+tmp_path = PosixPath('/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-9/test_common_lifecycle_real_wor0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11e7eacf0>
+task_id = 'K2'
+
+    @pytest.mark.parametrize('task_id', ['K2', 'K3', 'K5'])
+    def test_common_lifecycle_real_workers_and_identity_bound_bundle(tmp_path, monkeypatch, task_id):
+        campaign = fixture_campaign(tmp_path, task_id)
+        monkeypatch.setattr(benchmark_runner, 'benchmark_adapter', lambda policy, task, root: benchmark_adapter(policy, task, tmp_path))
+        monkeypatch.setattr(benchmark_runner, 'verified_provider_pricing', lambda policy: {'verified': True, 'input_per_million': 0, 'output_per_million': 0})
+        monkeypatch.setattr(benchmark_runner, 'RustGatewayAdapter', lambda **kw: None)
+        prompts = []
+        def factory(**kw):
+            def provider(messages, tokens):
+                prompts.append(messages)
+                a = action('BLEND_AND_AUDIT', families=['penalized_linear']) if len(prompts) == 1 else action('FINALIZE_AND_STOP')
+                return {'content': json.dumps(a), 'cost_usd': 0}
+            kw.update(provider_caller=provider, provider_is_fixture=True)
+            loop = AutonomousAgentLoop(**kw)
+            loop.critic_engine.audit = lambda **args: SimpleNamespace(to_dict=lambda: {'status': 'APPROVED', 'candidate_id': args['candidate']['candidate_id']})
+            return loop
+        monkeypatch.setattr(benchmark_runner, 'AutonomousAgentLoop', factory)
+        outcome = benchmark_runner.run_benchmark(campaign, task_id)
+        assert outcome['status'] == 'passed', outcome
+        bundle = campaign.run_dir / 'artifacts/bundle'
+        evidence = json.loads((bundle / 'delivery_evidence.json').read_text())
+        manifest = json.loads((bundle / 'manifest.json').read_text())
+        assert manifest['files']['delivery_evidence.json']['sha256'] == sha256(bundle / 'delivery_evidence.json')
+        assert evidence['model_sha256'] == manifest['model']['weights_sha256']
+        assert evidence['approved_audit']['evaluation_identity'] == evidence['evaluation']['receipt_identity']
+        assert evidence['binding'] == evidence['evaluation']['execution_binding']
+        assert evidence['binding']['stage_receipt'] is None  # explicitly synthetic fixture
+        assert evidence['candidate_identity'] == outcome['candidate_identity']
+        assert outcome['holdout_score'] is None and not outcome['production_certified']
+        # Existing standalone bundle test harness independently exercises exported CLI;
+        # here verify actual raw-input predictions outside the training data frame.
+        import subprocess, sys
+        result = subprocess.run([sys.executable, '-c', 'import inference; print(len(inference.predict(__import__("json").load(open("examples_input.json")))))'],
+            cwd=bundle, capture_output=True, text=True)
+>       assert result.returncode == 0, result.stderr
+E       AssertionError: Traceback (most recent call last):
+E           File "<string>", line 1, in <module>
+E             import inference; print(len(inference.predict(__import__("json").load(open("examples_input.json")))))
+E                                         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-9/test_common_lifecycle_real_wor0/run/artifacts/bundle/inference.py", line 43, in predict
+E             raise ValueError(f"Unexpected extra feature: '{k}'")
+E         ValueError: Unexpected extra feature: 'y'
+E
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['/Library/Frameworks/Python.framework/Versions/3.13/bin/python3', '-c', 'import inference; prin...in predict\n    raise ValueError(f"Unexpected extra feature: \'{k}\'")\nValueError: Unexpected extra feature: \'y\'\n').returncode
+
+python/tests/test_architecture_consolidation.py:208: AssertionError
+_______ test_common_lifecycle_real_workers_and_identity_bound_bundle[K3] _______
+
+tmp_path = PosixPath('/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-9/test_common_lifecycle_real_wor1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11e8bc650>
+task_id = 'K3'
+
+    @pytest.mark.parametrize('task_id', ['K2', 'K3', 'K5'])
+    def test_common_lifecycle_real_workers_and_identity_bound_bundle(tmp_path, monkeypatch, task_id):
+        campaign = fixture_campaign(tmp_path, task_id)
+        monkeypatch.setattr(benchmark_runner, 'benchmark_adapter', lambda policy, task, root: benchmark_adapter(policy, task, tmp_path))
+        monkeypatch.setattr(benchmark_runner, 'verified_provider_pricing', lambda policy: {'verified': True, 'input_per_million': 0, 'output_per_million': 0})
+        monkeypatch.setattr(benchmark_runner, 'RustGatewayAdapter', lambda **kw: None)
+        prompts = []
+        def factory(**kw):
+            def provider(messages, tokens):
+                prompts.append(messages)
+                a = action('BLEND_AND_AUDIT', families=['penalized_linear']) if len(prompts) == 1 else action('FINALIZE_AND_STOP')
+                return {'content': json.dumps(a), 'cost_usd': 0}
+            kw.update(provider_caller=provider, provider_is_fixture=True)
+            loop = AutonomousAgentLoop(**kw)
+            loop.critic_engine.audit = lambda **args: SimpleNamespace(to_dict=lambda: {'status': 'APPROVED', 'candidate_id': args['candidate']['candidate_id']})
+            return loop
+        monkeypatch.setattr(benchmark_runner, 'AutonomousAgentLoop', factory)
+        outcome = benchmark_runner.run_benchmark(campaign, task_id)
+        assert outcome['status'] == 'passed', outcome
+        bundle = campaign.run_dir / 'artifacts/bundle'
+        evidence = json.loads((bundle / 'delivery_evidence.json').read_text())
+        manifest = json.loads((bundle / 'manifest.json').read_text())
+        assert manifest['files']['delivery_evidence.json']['sha256'] == sha256(bundle / 'delivery_evidence.json')
+        assert evidence['model_sha256'] == manifest['model']['weights_sha256']
+        assert evidence['approved_audit']['evaluation_identity'] == evidence['evaluation']['receipt_identity']
+        assert evidence['binding'] == evidence['evaluation']['execution_binding']
+        assert evidence['binding']['stage_receipt'] is None  # explicitly synthetic fixture
+        assert evidence['candidate_identity'] == outcome['candidate_identity']
+        assert outcome['holdout_score'] is None and not outcome['production_certified']
+        # Existing standalone bundle test harness independently exercises exported CLI;
+        # here verify actual raw-input predictions outside the training data frame.
+        import subprocess, sys
+        result = subprocess.run([sys.executable, '-c', 'import inference; print(len(inference.predict(__import__("json").load(open("examples_input.json")))))'],
+            cwd=bundle, capture_output=True, text=True)
+>       assert result.returncode == 0, result.stderr
+E       AssertionError: Traceback (most recent call last):
+E           File "<string>", line 1, in <module>
+E             import inference; print(len(inference.predict(__import__("json").load(open("examples_input.json")))))
+E                                         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-9/test_common_lifecycle_real_wor1/run/artifacts/bundle/inference.py", line 43, in predict
+E             raise ValueError(f"Unexpected extra feature: '{k}'")
+E         ValueError: Unexpected extra feature: 'y'
+E
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['/Library/Frameworks/Python.framework/Versions/3.13/bin/python3', '-c', 'import inference; prin...in predict\n    raise ValueError(f"Unexpected extra feature: \'{k}\'")\nValueError: Unexpected extra feature: \'y\'\n').returncode
+
+python/tests/test_architecture_consolidation.py:208: AssertionError
+_______ test_common_lifecycle_real_workers_and_identity_bound_bundle[K5] _______
+
+tmp_path = PosixPath('/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-9/test_common_lifecycle_real_wor2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11e8bc450>
+task_id = 'K5'
+
+    @pytest.mark.parametrize('task_id', ['K2', 'K3', 'K5'])
+    def test_common_lifecycle_real_workers_and_identity_bound_bundle(tmp_path, monkeypatch, task_id):
+        campaign = fixture_campaign(tmp_path, task_id)
+        monkeypatch.setattr(benchmark_runner, 'benchmark_adapter', lambda policy, task, root: benchmark_adapter(policy, task, tmp_path))
+        monkeypatch.setattr(benchmark_runner, 'verified_provider_pricing', lambda policy: {'verified': True, 'input_per_million': 0, 'output_per_million': 0})
+        monkeypatch.setattr(benchmark_runner, 'RustGatewayAdapter', lambda **kw: None)
+        prompts = []
+        def factory(**kw):
+            def provider(messages, tokens):
+                prompts.append(messages)
+                a = action('BLEND_AND_AUDIT', families=['penalized_linear']) if len(prompts) == 1 else action('FINALIZE_AND_STOP')
+                return {'content': json.dumps(a), 'cost_usd': 0}
+            kw.update(provider_caller=provider, provider_is_fixture=True)
+            loop = AutonomousAgentLoop(**kw)
+            loop.critic_engine.audit = lambda **args: SimpleNamespace(to_dict=lambda: {'status': 'APPROVED', 'candidate_id': args['candidate']['candidate_id']})
+            return loop
+        monkeypatch.setattr(benchmark_runner, 'AutonomousAgentLoop', factory)
+        outcome = benchmark_runner.run_benchmark(campaign, task_id)
+        assert outcome['status'] == 'passed', outcome
+        bundle = campaign.run_dir / 'artifacts/bundle'
+        evidence = json.loads((bundle / 'delivery_evidence.json').read_text())
+        manifest = json.loads((bundle / 'manifest.json').read_text())
+        assert manifest['files']['delivery_evidence.json']['sha256'] == sha256(bundle / 'delivery_evidence.json')
+        assert evidence['model_sha256'] == manifest['model']['weights_sha256']
+        assert evidence['approved_audit']['evaluation_identity'] == evidence['evaluation']['receipt_identity']
+        assert evidence['binding'] == evidence['evaluation']['execution_binding']
+        assert evidence['binding']['stage_receipt'] is None  # explicitly synthetic fixture
+        assert evidence['candidate_identity'] == outcome['candidate_identity']
+        assert outcome['holdout_score'] is None and not outcome['production_certified']
+        # Existing standalone bundle test harness independently exercises exported CLI;
+        # here verify actual raw-input predictions outside the training data frame.
+        import subprocess, sys
+        result = subprocess.run([sys.executable, '-c', 'import inference; print(len(inference.predict(__import__("json").load(open("examples_input.json")))))'],
+            cwd=bundle, capture_output=True, text=True)
+>       assert result.returncode == 0, result.stderr
+E       AssertionError: Traceback (most recent call last):
+E           File "<string>", line 1, in <module>
+E             import inference; print(len(inference.predict(__import__("json").load(open("examples_input.json")))))
+E                                         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-9/test_common_lifecycle_real_wor2/run/artifacts/bundle/inference.py", line 43, in predict
+E             raise ValueError(f"Unexpected extra feature: '{k}'")
+E         ValueError: Unexpected extra feature: 'sales'
+E
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['/Library/Frameworks/Python.framework/Versions/3.13/bin/python3', '-c', 'import inference; prin...redict\n    raise ValueError(f"Unexpected extra feature: \'{k}\'")\nValueError: Unexpected extra feature: \'sales\'\n').returncode
+
+python/tests/test_architecture_consolidation.py:208: AssertionError
+=========================== short test summary info ============================
+FAILED python/tests/test_architecture_consolidation.py::test_controller_cache_and_approved_measurement_tamper_fail_closed
+FAILED python/tests/test_architecture_consolidation.py::test_common_lifecycle_real_workers_and_identity_bound_bundle[K2]
+FAILED python/tests/test_architecture_consolidation.py::test_common_lifecycle_real_workers_and_identity_bound_bundle[K3]
+FAILED python/tests/test_architecture_consolidation.py::test_common_lifecycle_real_workers_and_identity_bound_bundle[K5]
+4 failed, 10 passed in 23.09s

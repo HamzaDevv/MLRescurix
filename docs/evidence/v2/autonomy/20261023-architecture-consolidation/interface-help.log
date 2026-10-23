@@ -1,0 +1,15 @@
+usage: agent_interface.py [-h] --workspace WORKSPACE [--message MESSAGE]
+                          [--command-id COMMAND_ID]
+                          {status,pause,resume,steer,stop}
+
+Common human control point for every MLRescurix task
+
+positional arguments:
+  {status,pause,resume,steer,stop}
+
+options:
+  -h, --help            show this help message and exit
+  --workspace WORKSPACE
+  --message MESSAGE
+  --command-id COMMAND_ID
+                        Stable id for safe submission retries

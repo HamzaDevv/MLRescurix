@@ -1,5 +1,7 @@
 # Architecture consolidation handoff — 2026-10-23
 
+Current update: consolidation and the common human-control interface are implemented in [ARCHITECTURE_CONSOLIDATION_20261023.md](ARCHITECTURE_CONSOLIDATION_20261023.md). See [SESSION_PROMPT.md](SESSION_PROMPT.md) for remaining work and exact current validation/blockers. The original handoff below is preserved as the implementation specification, not a claim that external certification gates passed.
+
 Prerequisite implementation is described in [PREREQUISITE_REPAIRS_20261023.md](PREREQUISITE_REPAIRS_20261023.md); exact checks are in `docs/evidence/v2/autonomy/20261023-prerequisite-repairs/summary.json`. Read the current branch/worktree first. Historical evidence and the shared ledger are authoritative records, not reusable passing scores. The preceding architecture has not been broadly consolidated in this session.
 
 ## Target architecture for the following session

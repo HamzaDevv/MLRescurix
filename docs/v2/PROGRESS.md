@@ -1,5 +1,15 @@
 # Persistent progress and session handoff
 
+## Latest architecture consolidation — 2026-10-23
+
+Implemented: one active feedback controller with classification/regression/panel adapters; shared execution and governance services; one contract-driven K1–K5 runner with compatibility delegates; source/config/staging/measurement/audit/model-bound evidence and delivery. The common `AgentInterface` supports durable status, steering, pause/resume and stop across every task. Independent approval, frozen split/panel contracts and conservative uncertain-liability accounting remain enforced. Legacy direct provider smoke helpers fail closed. Embedded Rust Python assets now include the complete service/adapters/staging/panel dependency closure.
+
+Validation: full Python suite **325 passed / 2 skipped / 10 warnings (220.03s)** before final source-binding guards; final affected suite **105 passed (50.17s)** includes the final guards and 18 new architecture regressions. Final Rust checks **63 passed / 2 ignored / 1 filtered**; the filtered Docker-dependent scheduler fixture was first attempted and failed admission, with its log retained. Rust build, Python compilation and whitespace checks passed. Exact commands and scope limits are in the evidence summary.
+
+Read [the implementation record](ARCHITECTURE_CONSOLIDATION_20261023.md), [human interface guide](HUMAN_CONTROL_INTERFACE.md) and `docs/evidence/v2/autonomy/20261023-architecture-consolidation/summary.json` for exact checks and retained initial failures. Synthetic provider/critic fixtures establish control/identity behavior only; real local worker and fresh-interpreter bundle tests do not establish official benchmark quality or production certification.
+
+Preserved ledger: USD 0.050724020 committed / USD 0.249275980 recorded remaining / USD 0.30 ceiling; byte-identical SHA-256 `827abd984dd960f91cd39725d7dcbdb78d47c114322a0358cbbb08a5b30d0b52`. Zero paid calls, zero additional spend, zero final scoring. K1 contamination, null K1/K2 requirements, K4 provenance, K5 full-scale feasibility/quality, billing/authorization/pricing and production/image dependency blockers remain explicit. Current Docker unavailability additionally blocks an unchanged Rust scheduler recovery fixture; its failed admission is retained, not counted as a pass.
+
 Last updated: 2026-10-21 (Asia/Kolkata); historical runtime entries below end on 2026-10-17.
 Baseline source commit: `abf1f235030a79f9a606b429e34608431e37603d`.
 

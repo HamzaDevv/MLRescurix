@@ -19,7 +19,7 @@ def main(argv=None):
     parser.add_argument("--project", required=True)
     parser.add_argument("--session", required=True)
     parser.add_argument("--target", required=True)
-    parser.add_argument("--task", choices=["binary_classification", "multiclass_classification", "regression"], default="binary_classification")
+    parser.add_argument("--task", choices=["binary_classification", "multiclass_classification", "regression", "panel_forecasting"], default="binary_classification")
     parser.add_argument("--metric", default="accuracy")
     parser.add_argument("--direction", choices=["maximize", "minimize"], default="maximize")
     parser.add_argument("--problem", default="Analyze this development dataset and build a validated candidate or hand off unresolved work.")
@@ -30,13 +30,14 @@ def main(argv=None):
     mode.add_argument("--fixture-actions", type=Path, help="Offline deterministic actions; cannot count as live AI evidence")
     mode.add_argument("--development-live", action="store_true", help="Governed Rust transport; requires separate outbound approval; not production certification")
     args = parser.parse_args(argv)
-    sys.path.insert(0, str(REPO_ROOT / "scripts"))
-    from run_robustness_campaign import CampaignBudgetAuthority, verified_provider_pricing
+    from .governance import CampaignBudgetAuthority
+    from .benchmark_contracts import verified_provider_pricing
     policy = json.loads((REPO_ROOT / "docs/v2/BENCHMARK_SUITE.json").read_text())
     folds = json.loads(args.folds.read_text())
     locked = [(f["train_indices"], f["val_indices"]) for f in folds]
     topology = json.loads(args.topology.read_text()) if args.topology else {"cv_scheme": "caller_locked"}
-    authority = CampaignBudgetAuthority(REPO_ROOT / "docs/evidence/v2/robustness/20261021-robustness", policy)
+    authority = (CampaignBudgetAuthority(args.workspace / 'offline_fixture_budget', policy) if args.fixture_actions else
+        CampaignBudgetAuthority.open_preserved(REPO_ROOT / "docs/evidence/v2/robustness/20261021-robustness", policy))
     provider = None
     if args.fixture_actions:
         actions = iter(json.loads(args.fixture_actions.read_text()))

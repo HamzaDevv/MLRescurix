@@ -395,6 +395,7 @@ def bundle_candidate(
     decision_threshold_override: Optional[float] = None,
     accepted_evaluation: Optional[Dict[str, Any]] = None,
     accepted_candidate_identity: Optional[str] = None,
+    delivery_evidence: Optional[Dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Package candidate into a verified, self-contained `mlrescurix.bundle.v2` delivery bundle.
 
@@ -931,6 +932,14 @@ python3 serve.py --port 8080
 ```
 """
     (bundle_path / "README.md").write_text(readme_text, encoding="utf-8")
+
+    if delivery_evidence is not None:
+        from .candidate_pipeline import identity
+        if delivery_evidence.get('candidate_identity') != candidate_identity:
+            raise FinalizationBundleError('Delivery candidate evidence mismatch')
+        payload = dict(delivery_evidence, model_sha256=frozen_model_sha)
+        payload['delivery_identity'] = identity(payload)
+        (bundle_path / 'delivery_evidence.json').write_text(json.dumps(payload, indent=2, allow_nan=False))
 
     # 11. Manifest.json
     all_files = sorted(p for p in bundle_path.rglob("*") if p.is_file() and p.name != "manifest.json")

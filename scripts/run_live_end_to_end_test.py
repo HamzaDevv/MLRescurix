@@ -118,40 +118,11 @@ def call_deepseek_flash(
     temperature: float = 0.1,
     expect_json: bool = False,
 ) -> tuple[str, dict[str, Any], int]:
-    """Call OpenRouter DeepSeek-V4.1 flash and return (response_text, usage_dict, latency_ms)."""
-    api_key = load_openrouter_key()
-    url = "https://openrouter.ai/api/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://github.com/HamzaDevv/MLRescurix",
-        "X-Title": "MLRescurix Live Integration Test",
-    }
-    payload: dict[str, Any] = {
-        "model": model,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-    }
-
-    t0 = time.time()
-    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers)
-
-    last_err = None
-    for attempt in range(1, 4):
-        try:
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                res_data = json.loads(resp.read().decode("utf-8"))
-            lat_ms = int((time.time() - t0) * 1000)
-            choice = res_data["choices"][0]
-            content = choice["message"].get("content", "") or ""
-            usage = res_data.get("usage", {})
-            return content, usage, lat_ms
-        except Exception as e:
-            last_err = e
-            print(f"  [OpenRouter API attempt {attempt}/3 failed] {e}. Retrying in {attempt * 3}s...")
-            time.sleep(attempt * 3)
-    raise RuntimeError(f"OpenRouter call failed after 3 attempts: {last_err}")
+    """Retired direct transport; use the shared governed controller."""
+    raise RuntimeError(
+        "Legacy paid transport retired. Use scientific.agent_cli or the contract-driven "
+        "run_robustness_campaign.py runner with the preserved campaign authority and separate outbound approval."
+    )
 
 
 def extract_json(text: str) -> dict[str, Any]:

@@ -51,6 +51,8 @@ def test_ledger_write_failure_is_not_silent(tmp_path):
 
 def test_corrupt_run_summary_cannot_reset_spending(tmp_path, monkeypatch):
     monkeypatch.setattr(runner_module, "EVIDENCE_BASE", tmp_path)
+    fixture_policy = json.loads((ROOT / 'docs/v2/BENCHMARK_SUITE.json').read_text())
+    runner_module.CampaignBudgetAuthority(tmp_path / '20261021-robustness', fixture_policy)
     directory = tmp_path / "campaign" / "run"
     directory.mkdir(parents=True)
     (directory / "summary.json").write_text('{"budget_spent_usd":')
@@ -61,6 +63,8 @@ def test_corrupt_run_summary_cannot_reset_spending(tmp_path, monkeypatch):
 @pytest.mark.parametrize("value", ["..", "../escape", "/absolute"])
 def test_run_paths_cannot_escape_campaign(tmp_path, monkeypatch, value):
     monkeypatch.setattr(runner_module, "EVIDENCE_BASE", tmp_path)
+    fixture_policy = json.loads((ROOT / 'docs/v2/BENCHMARK_SUITE.json').read_text())
+    runner_module.CampaignBudgetAuthority(tmp_path / '20261021-robustness', fixture_policy)
     with pytest.raises(ValueError, match="Invalid"):
         runner_module.CampaignRunner(value, "run")
 
@@ -78,6 +82,8 @@ def test_campaign_policy_pins_requested_endpoint_and_budget():
 def test_preflight_does_not_certify_presence_and_preserves_spend(tmp_path, monkeypatch):
     import types
     monkeypatch.setattr(runner_module, "EVIDENCE_BASE", tmp_path)
+    fixture_policy = json.loads((ROOT / 'docs/v2/BENCHMARK_SUITE.json').read_text())
+    runner_module.CampaignBudgetAuthority(tmp_path / '20261021-robustness', fixture_policy)
     monkeypatch.setattr(runner_module, "get_git_provenance", lambda: {"commit": "test"})
     monkeypatch.setattr(runner_module.platform, "platform", lambda: "test-platform")
     monkeypatch.setitem(__import__("sys").modules, "kaggle", types.SimpleNamespace())

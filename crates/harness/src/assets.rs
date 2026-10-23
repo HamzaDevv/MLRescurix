@@ -12,6 +12,15 @@ use sha2::{Digest, Sha256};
 use crate::Result;
 
 pub const EMBEDDED_PYTHON_FILES: &[(&str, &str)] = &[
+    ("src/mlrescurix_worker/scientific/agent_interface.py", include_str!("../../../python/src/mlrescurix_worker/scientific/agent_interface.py")),
+    ("src/mlrescurix_worker/scientific/benchmark_contracts.py", include_str!("../../../python/src/mlrescurix_worker/scientific/benchmark_contracts.py")),
+    ("src/mlrescurix_worker/scientific/benchmark_runner.py", include_str!("../../../python/src/mlrescurix_worker/scientific/benchmark_runner.py")),
+    ("src/mlrescurix_worker/scientific/development_stage.py", include_str!("../../../python/src/mlrescurix_worker/scientific/development_stage.py")),
+    ("src/mlrescurix_worker/scientific/evidence.py", include_str!("../../../python/src/mlrescurix_worker/scientific/evidence.py")),
+    ("src/mlrescurix_worker/scientific/execution_service.py", include_str!("../../../python/src/mlrescurix_worker/scientific/execution_service.py")),
+    ("src/mlrescurix_worker/scientific/governance.py", include_str!("../../../python/src/mlrescurix_worker/scientific/governance.py")),
+    ("src/mlrescurix_worker/scientific/panel_contract.py", include_str!("../../../python/src/mlrescurix_worker/scientific/panel_contract.py")),
+    ("src/mlrescurix_worker/scientific/task_adapters.py", include_str!("../../../python/src/mlrescurix_worker/scientific/task_adapters.py")),
     ("pyproject.toml", include_str!("../../../python/pyproject.toml")),
     ("scientific-requirements.txt", include_str!("../../../python/scientific-requirements.txt")),
     ("search-requirements.txt", include_str!("../../../python/search-requirements.txt")),
@@ -163,6 +172,39 @@ pub fn ensure_python_src(state_root: &Path) -> Result<PathBuf> {
 mod tests {
     use super::*;
     use std::os::unix::fs::symlink;
+    #[test]
+    fn installed_runtime_supports_common_controller_and_human_interface_without_checkout() {
+        let temp = tempfile::tempdir().unwrap();
+        let assets = ensure_python_root(&temp.path().join("state")).unwrap();
+        let script = r#"
+from pathlib import Path
+from mlrescurix_worker.scientific.autonomous_loop import AutonomousAgentLoop
+from mlrescurix_worker.scientific.agent_interface import AgentInterface
+from mlrescurix_worker.scientific.task_adapters import task_adapter
+source = Path.cwd() / 'development.csv'
+source.write_text('x,y\n1,0\n2,1\n3,0\n4,1\n')
+class Budget:
+    def get_status(self): return {'remaining_campaign_usd': '.30', 'campaign_ceiling_usd': '.30'}
+loop = AutonomousAgentLoop(Path.cwd() / 'session', 'installed', 'offline', Budget(), source, 'y',
+    locked_folds=[([0,1], [2,3])], provider_is_fixture=True, max_turns=0)
+assert loop.binding['source_scope'] == 'installed_python_assets'
+interface = AgentInterface(loop.workspace_root)
+interface.submit('steer', 'Inspect measured feedback', command_id='installed-guidance')
+interface.submit('pause', command_id='installed-pause')
+assert loop.run()['stop_reason'] == 'human_pause'
+assert interface.status()['pending_commands'] == []
+assert task_adapter('panel_forecasting') is not None
+print('installed controller/interface ready')
+"#;
+        let output = std::process::Command::new("python3")
+            .args(["-c", script])
+            .current_dir(temp.path())
+            .env("PYTHONPATH", assets.join("src"))
+            .output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        assert!(String::from_utf8_lossy(&output.stdout).contains("installed controller/interface ready"));
+    }
+
     #[test]
     fn runtime_assets_reject_directory_and_file_symlink_escape(){
         let temp=tempfile::tempdir().unwrap();let root=temp.path().join("state");let outside=temp.path().join("outside");

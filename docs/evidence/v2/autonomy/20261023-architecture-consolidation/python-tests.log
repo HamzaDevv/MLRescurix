@@ -1,0 +1,51 @@
+/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/pytest_asyncio/plugin.py:208: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the fixture caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to function scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+........................................................................ [ 22%]
+........................................................................ [ 44%]
+........................................................................ [ 66%]
+.............................................s.......................... [ 88%]
+......................s................                                  [100%]
+=============================== warnings summary ===============================
+tests/test_candidate_runner.py::test_diagnostic_slices_min_support_suppression
+tests/test_candidate_runner.py::test_diagnostic_slices_min_support_suppression
+  /Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/sklearn/metrics/_classification.py:620: UserWarning: A single label was found in 'y_true' and 'y_pred'. For the confusion matrix to have the correct shape, use the 'labels' parameter to pass all known labels.
+    warnings.warn(
+
+tests/test_m5_scientific.py::M5ScientificTests::test_split_aware_feature_pipeline
+  /Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/sklearn/preprocessing/_discretization.py:304: FutureWarning: The current default behavior, quantile_method='linear', will be changed to quantile_method='averaged_inverted_cdf' in scikit-learn version 1.9 to naturally support sample weight equivalence properties by default. Pass quantile_method='averaged_inverted_cdf' explicitly to silence this warning.
+    warnings.warn(
+
+tests/test_p16_critic_and_reflexive_loop.py::test_full_inference_pipeline_raw_records_and_parity
+tests/test_p16_critic_and_reflexive_loop.py::test_zero_skew_bundle_packaging
+  /Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/sklearn/linear_model/_logistic.py:406: ConvergenceWarning: lbfgs failed to converge after 1000 iteration(s) (status=1):
+  STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT
+
+  Increase the number of iterations to improve the convergence (max_iter=1000).
+  You might also want to scale the data as shown in:
+      https://scikit-learn.org/stable/modules/preprocessing.html
+  Please also refer to the documentation for alternative solver options:
+      https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression
+    n_iter_i = _check_optimize_result(
+
+tests/test_p16_critic_and_reflexive_loop.py::test_titanic_end_to_end_reflexive_loop
+tests/test_p16_critic_and_reflexive_loop.py::test_titanic_end_to_end_reflexive_loop
+tests/test_p16_critic_and_reflexive_loop.py::test_titanic_end_to_end_reflexive_loop
+  /Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/sklearn/linear_model/_logistic.py:406: ConvergenceWarning: lbfgs failed to converge after 2000 iteration(s) (status=1):
+  STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT
+
+  Increase the number of iterations to improve the convergence (max_iter=2000).
+  You might also want to scale the data as shown in:
+      https://scikit-learn.org/stable/modules/preprocessing.html
+  Please also refer to the documentation for alternative solver options:
+      https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression
+    n_iter_i = _check_optimize_result(
+
+tests/test_p7_scientific_delivery.py::TestP7ScientificDelivery::test_model_export_safetensors_and_tolerances
+tests/test_p7_scientific_delivery.py::TestP7ScientificDelivery::test_model_export_safetensors_and_tolerances
+  /Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/sklearn/utils/validation.py:2684: UserWarning: X has feature names, but LogisticRegression was fitted without feature names
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+325 passed, 2 skipped, 10 warnings in 220.03s (0:03:40)

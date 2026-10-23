@@ -1,0 +1,170 @@
+{
+  "date": "2026-10-23",
+  "source_parent": "6fb55abab1cd2af69063ae653a70fc455941ee24",
+  "initial_branch": "main",
+  "initial_worktree": "clean",
+  "scope": "offline architecture consolidation and common human control interface",
+  "python": {
+    "command": "python3 -m pytest python/tests -q",
+    "exit_code": 0,
+    "passed": 325,
+    "skipped": 2,
+    "warnings": 10,
+    "seconds": 220.03,
+    "log": "python-tests.log",
+    "scope_note": "Full suite completed before final installed-source scope/worker-source guards and additional regression; final affected suite below validates those changes. No full-suite 326-test pass is claimed.",
+    "skip_reasons": [
+      "bounded 64m tmpfs not configured",
+      "Docker daemon unavailable"
+    ]
+  },
+  "python_final_affected": {
+    "command": "python3 -m pytest python/tests/test_architecture_consolidation.py python/tests/test_autonomous_agent_loop.py python/tests/test_autonomy_regressions.py python/tests/test_rust_gateway_adapter.py python/tests/test_prerequisite_repairs.py python/tests/test_panel_evaluator_and_critic.py python/tests/test_robustness_runner_gates.py python/tests/test_s1_followup_guards.py -q",
+    "exit_code": 0,
+    "passed": 105,
+    "seconds": 50.17,
+    "log": "python-final-affected-tests.log",
+    "new_architecture_regressions": 18
+  },
+  "rust": {
+    "command": "cargo test --locked --offline --lib --test agent_m4 --test reflexive_loop_gate -- --skip p1_scheduler_job_submission_crash_reconciliation_and_fault_regressions",
+    "exit_code": 0,
+    "passed": 63,
+    "ignored": 2,
+    "filtered_out": 1,
+    "groups": [
+      {
+        "name": "lib",
+        "passed": 30,
+        "ignored": 2,
+        "seconds": 3.79
+      },
+      {
+        "name": "agent_m4",
+        "passed": 25,
+        "filtered_out": 1,
+        "seconds": 21.85
+      },
+      {
+        "name": "reflexive_loop_gate",
+        "passed": 8,
+        "seconds": 41.88
+      }
+    ],
+    "log": "rust-final-tests.log",
+    "ignored_reason": "explicit digest-pinned Linux Docker cgroup fixtures; not rerun here",
+    "filtered_reason": "Unchanged scheduler crash-recovery fixture already attempted and failed scientific-container admission because Docker is unavailable; retained in rust-docker-blocker.log. Not counted as a pass."
+  },
+  "rust_initial_failures": {
+    "command": "cargo test --locked --offline --test agent_m4 --test reflexive_loop_gate --lib",
+    "log": "rust-docker-blocker.log",
+    "passed": 54,
+    "failed": 1,
+    "ignored": 2,
+    "reason": "Docker environment unavailable; execution halted before reflexive group"
+  },
+  "runtime_asset_repair": {
+    "initial_log": "runtime-asset-first-failures.log",
+    "initial_passed": 3,
+    "initial_failed": 5,
+    "reason": "new module omitted from Rust embedded package",
+    "repair": "Embed all nine missing service/interface/staging/panel dependencies; final reflexive 8/8 and new installed controller/human-interface test passed"
+  },
+  "build": {
+    "command": "cargo build --locked --offline -p mlrescurix-harness",
+    "exit_code": 0,
+    "log": "rust-build.log"
+  },
+  "static_checks": {
+    "python_compileall": "passed",
+    "git_diff_check": "passed",
+    "credential_and_runtime_artifact_scan": "passed: 39 staged source/document/evidence files; no matching secret patterns or runtime dataset/model/database files"
+  },
+  "human_interface": {
+    "api": "AgentInterface(workspace).status()/submit(command, message, command_id=...)",
+    "cli": "python3 -m mlrescurix_worker.scientific.agent_interface",
+    "commands": [
+      "status",
+      "steer",
+      "pause",
+      "resume",
+      "stop"
+    ],
+    "durable": true,
+    "effective_at": "safe controller turn boundaries",
+    "approval_authority": false,
+    "can_reset_pending_dispatch": false
+  },
+  "implemented": [
+    "one feedback controller and scientific task adapters",
+    "shared execution lifecycle for evaluation/refit and Docker generated scripts",
+    "shared governance boundary preserving JSON authority and Rust approval/response fence",
+    "one contract-driven K1-K5 runner with public compatibility delegates",
+    "source/config/stage/data/folds/evaluation/audit/model/delivery identity chain",
+    "durable idempotent session-bound human steering and flow control",
+    "standalone embedded-runtime dependency closure",
+    "retired historical direct paid HTTP paths"
+  ],
+  "accounting": {
+    "campaign_ledger_unchanged": true,
+    "ledger_sha256": "827abd984dd960f91cd39725d7dcbdb78d47c114322a0358cbbb08a5b30d0b52",
+    "campaign_ceiling_usd": "0.30",
+    "recorded_committed_usd": "0.050724020",
+    "recorded_remaining_usd": "0.249275980",
+    "historical_runs": 29,
+    "runs_with_matching_local_turn_accounting": 20,
+    "local_turn_records": 56,
+    "verified_provider_charge_usd": null,
+    "receipt": "docs/evidence/v2/autonomy/20261023-prerequisite-repairs/accounting-reconciliation.json",
+    "additional_provider_spend_usd": "0",
+    "paid_provider_calls": 0
+  },
+  "frozen_splits_regenerated": false,
+  "K1_contamination_preserved": true,
+  "K5_protocol_unchanged": true,
+  "final_holdout_scored": false,
+  "production_certified": false,
+  "blocked": [
+    "independent K1/K2 absolute acceptance requirements; thresholds remain null",
+    "authoritative K4 fold index-space/gap/training bounds/subset mapping",
+    "verified historical provider charges without invoice/provider-charge receipts",
+    "future explicit upload authorization and current provider route availability/pricing verification",
+    "hashed Linux jsonschema/psutil dependency wheel lock and rebuilt scientific image for bounded-tmpfs pipeline check",
+    "full production campaign scheduling/resources/concurrent isolation/fault/soak/clean-room delivery and repaired-revision live quality evidence",
+    "current Docker daemon unavailable; unchanged Rust scientific scheduler recovery fixture fails admission"
+  ],
+  "verification_limits": [
+    "Synthetic providers and stubbed critic approvals establish wiring and identity behavior, not official model quality.",
+    "Real local worker evaluation/refit and fresh-interpreter bundle inference do not establish full production clean-room delivery certification.",
+    "No paid provider calls, availability/pricing checks or official final scoring."
+  ],
+  "source_files_sha256": {
+    "crates/harness/src/assets.rs": "26ec2a7c92ddb313c9ac675761a57898f90d0b86ba8b90601bd5de2512a6a7f5",
+    "python/src/mlrescurix_worker/scientific/agent_cli.py": "fb2dc597245d77a1849bac32c82e015cf080a18a511e48164727490b98294d6c",
+    "python/src/mlrescurix_worker/scientific/agent_interface.py": "78c6a8d8639395a0b8c677737d3cb9cf622450e2c51c974ac02dbe7d38730ace",
+    "python/src/mlrescurix_worker/scientific/autonomous_loop.py": "3179adf716858d0881d80d1017f4a7f17534c9867f187de92c345f3f17c5d13a",
+    "python/src/mlrescurix_worker/scientific/autonomous_rescue.py": "c632dc1249582f81560c2905f11d0d93d1d50aeb529f174f57c6bfbfdf4acb87",
+    "python/src/mlrescurix_worker/scientific/benchmark_contracts.py": "899f75d63b28629a6dedf03d88fe57ee7f21394fb28aef0a83d569e16c870ac1",
+    "python/src/mlrescurix_worker/scientific/benchmark_runner.py": "2279baa97a83986e714b28862b9f11b4bdc7b2ce4d735992dafc96f6eaf1fe3d",
+    "python/src/mlrescurix_worker/scientific/candidate_worker.py": "ab1dcfb3925f4b966e777a9516d23e19df1bf9edc129cafc9f3d9780d004df16",
+    "python/src/mlrescurix_worker/scientific/evidence.py": "4444a8b35a3099ea7fe6da5f49ad4ecd9bd960180b23fa4ff45fb8deb577ce8d",
+    "python/src/mlrescurix_worker/scientific/execution_service.py": "d394f39876c8de90f156a8b09ec5fcf0d6e8aa1b58ecf35944d76787597fe43f",
+    "python/src/mlrescurix_worker/scientific/governance.py": "a1f97bece02565c85a74f43ebcc95ce432f25cd586fbb6ba7bb163bb687239b8",
+    "python/src/mlrescurix_worker/scientific/rust_gateway.py": "c9563501d157eb4fbb00c958bb5f99f3bc834718d50e9916f7d2a0acfb1c4b12",
+    "python/src/mlrescurix_worker/scientific/task_adapters.py": "35c7b6268cbf403a798d642a4f11e028fbb55c0677f0ea79b666a14977765425",
+    "python/tests/test_architecture_consolidation.py": "574f8551a96f7117aa24970d513e59e3e4cc28d800973b2e818d2e157a85f327",
+    "python/tests/test_s1_followup_guards.py": "c022d109661ba72725e0a6fa3563678e7713f0e9c83846f94d7b71fa0f5564e4",
+    "scripts/run_kaggle_titanic_live.py": "187161553b8edc0fbb03a6057a783664254cf08db145c0035d2a3e3f7a40172a",
+    "scripts/run_live_end_to_end_test.py": "781cccdb11b9a084f9f3e7987fe20f37e6396c46f018acd6b897a48f0064a321",
+    "scripts/run_robustness_campaign.py": "15018cf8f94419dcb4c4b0e03adf9c3a3c40106cfcfaa8f9991cb029fb51e6f9"
+  },
+  "log_normalization": "Only new logs stripped of trailing whitespace. Two extracted modules had redundant final blank lines removed after main test runs; no functional changes.",
+  "installed_runtime_final_recheck": {
+    "command": "cargo test --locked --offline --lib assets::tests::installed_runtime_supports_common_controller_and_human_interface_without_checkout",
+    "passed": 1,
+    "exit_code": 0,
+    "seconds": 3.21,
+    "log": "installed-runtime-final-test.log",
+    "scope": "after whitespace-only EOF normalization"
+  }
+}
