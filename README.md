@@ -1,171 +1,165 @@
 # MLRescurix
 
-Current upgrade plan (2026-10-21): [refined architecture and five-problem robustness campaign](docs/v2/ROBUSTNESS_MASTER_PLAN.md).
-Continue across 3–5 sessions using the [persistent ledger](docs/v2/ROBUSTNESS_PROGRESS.md)
-and [session prompt](docs/v2/SESSION_PROMPT.md). This new campaign is not yet certified;
-release badges and evidence below describe the historical M6 release.
-
-[![Release](https://img.shields.io/badge/release-v0.1.0--m6-blue.svg)](RELEASE_NOTES.md)
-[![Status](https://img.shields.io/badge/status-READY_FOR_RELEASE-brightgreen.svg)](docs/m6-completion-status.md)
-[![Tests](https://img.shields.io/badge/tests-346_passed-success.svg)](CHANGELOG.md)
-[![Gates](https://img.shields.io/badge/release_gates-5%2F5_closed-success.svg)](docs/m6-completion-status.md)
-[![Schema](https://img.shields.io/badge/schema-v10-informational.svg)](crates/harness/src/schema.rs)
-[![Platform](https://img.shields.io/badge/platform-macOS_arm64_%7C_Linux_x86__64-informational.svg)](RELEASE_NOTES.md)
-
-MLRescurix is a dual-tier, context-bounded autonomous machine learning harness engineered to solve one tabular machine-learning problem per project. It autonomously discovers, synthesizes, executes, debugs, and refines machine learning models within deterministic sandbox guardrails, producing a certified, standalone, zero-dependency deployment bundle (`mlrescurix.bundle.v2`).
-
-The control plane is implemented in high-performance Rust (`mlrescurix-harness`) and integrates a sub-50ms warm worker pool, Content-Addressed Storage (CAS), a multi-project resource broker, and an integrated native HTTP/SSE observability dashboard. The scientific kernel executes inside an digest-pinned Docker container with Linux cgroup v2 memory certification.
+Governed dual-tier autonomous machine learning harness and context firewall for tabular and panel forecasting problems.
 
 ---
 
-## Current Status: READY FOR RELEASE
+## 1. System Overview & Purpose
 
-The official **M6 Milestone** is **READY FOR RELEASE** on branch `main`. All five historical release gates and all twelve v2 architectural phases (Phases P1 through P12) are **100% CLOSED AND VERIFIED**:
+MLRescurix is engineered to solve machine learning problems within strict computational, environmental, and financial constraints. It integrates an authoritative Rust control plane (`mlrescurix-harness`) with a specialized Python scientific kernel (`mlrescurix_worker.scientific`).
 
-- **Release Gate 1 (Specialist Reconciliation & Audit Parity)**: **CLOSED** (Durable pre-dispatch intent binding and authoritative crash reconciliation).
-- **Release Gate 2 (Managed State Bounds & ENOSPC Recovery)**: **CLOSED** (Hard 128 MiB state admission ceiling, multi-process file locking, and crash/restart recovery on bounded tmpfs).
-- **Release Gate 3 (Clean Installed Delivery Outside Git)**: **CLOSED** (Complete end-to-end autonomous model rescue, dataset profiling, candidate synthesis, bundle compilation, and CLI/HTTP inference executed outside git checkouts).
-- **Release Gate 4 (Prospective Matched Benchmarks & Scorecards)**: **CLOSED** (Multi-seed OpenML benchmarks across seeds `[2026, 42, 101]` with matched compute/memory budgets, transparent scorecards, single-use sealed holdouts, and overfit candidate rejection).
-- **Release Gate 5 (Platform Memory Certification & Cgroup v2)**: **CLOSED** (Real-time cgroup v2 peak memory tracking, sub-50ms warm worker pool dispatch, and structured `DiagnosticBridge` OOM receipts).
-
-Full repository sweeps pass cleanly: **346 tests passing** (220 Rust + 126 Python), 0 failures.
-
----
-
-## Key Innovations
-
-1. **Context Firewall & Token Economics**: Enforces economical ~16K default token windows (64K hard cap), 80%–98% context compression ratio (CCR), and strict outbound data redaction, shielding frontier LLM reasoning from high-entropy raw terminal and matrix bloat.
-2. **Sub-50ms Warm Worker Container Pool**: Eliminates Docker cold-start delays by maintaining pre-warmed idle containers (`mlrescurix-scientific@sha256:...`) with two-tier clean state isolation and instant IPC dispatch.
-3. **Autonomous Model Rescue & Diagnostic Bridge**: Intercepts 8 runtime failure classes (`cgroup_oom`, `non_finite_loss`, `shape_mismatch`, `class_order_mismatch`, `execution_timeout`, `missing_dependency`, `syntax_error`, `runtime_exception`) and emits bounded 32KB diagnostic receipts for autonomous self-healing.
-4. **Hard Verification Ladder & Two-Key Handoff**: Deterministic L0–L4 multi-gate verification (AST, Diff, Typecheck, Lint, Test), two-key release gates requiring registered approvals, and cryptographic tamper detection.
+### Architecture Baseline (Commit `441762f`)
+The repository is consolidated into six core architectural components:
+1. **Feedback Controller (`AutonomousAgentLoop`)**: Multi-turn adaptive controller executing schema-validated hypothesis actions, fold-local evaluations, and critic audits.
+2. **Scientific Task Adapters (`task_adapters.py`)**: Dedicated adapters for Classification, Regression, and Panel Forecasting (`K5_PANEL_PROTOCOL.json`). Purely scientific; strictly zero provider or worker loops.
+3. **Execution Service (`ExecutionService`)**: Lifecycle management, evaluation count caps ($\le 12$), process-group isolation, and Docker-only script execution with no host fallback.
+4. **Governance Service (`GovernanceService`)**: Transactional POSIX-locked spend authority governing the single **USD 0.30 campaign ceiling**, pre-dispatch reservation math, 3-phase dispatch fencing, and Rust replay protection.
+5. **Contract-Driven Benchmark Runner (`benchmark_runner.py`)**: Unified lifecycle for K1–K5 tasks, rejecting incomplete contracts before budget spend.
+6. **Identity-Bound Evidence & Delivery (`evidence.py`)**: Standalone `mlrescurix.bundle.v2` distribution format with 13 contracts and cryptographic lineage in `delivery_evidence.json`.
 
 ---
 
-## Quickstart & Installation
+## 2. Authoritative Budget Ledger
 
-### Option 1: Standalone Release Archive (Recommended)
+Financial governance is strictly enforced via a single POSIX-locked JSON ledger:
+- **Ledger Location**: [`docs/evidence/v2/robustness/20261021-robustness/campaign_budget_ledger.json`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/docs/evidence/v2/robustness/20261021-robustness/campaign_budget_ledger.json)
+- **SHA-256 Digest**: `827abd984dd960f91cd39725d7dcbdb78d47c114322a0358cbbb08a5b30d0b52`
+- **Total Campaign Ceiling**: **USD 0.30** (Shared across all tasks, sessions, retries, and uncertain outcomes; **not** a per-problem allowance).
+- **Cumulative Committed Spend**: **USD 0.050724020** across 29 historical runs (56 local turn records).
+- **Recorded Remaining Budget**: **USD 0.249275980** (83.09% remaining).
+- **Consolidation Baseline Spend**: **USD 0.00** (Zero paid provider calls, zero additional spend, zero holdout scoring).
 
-Download and extract the pre-built distribution archive for your platform:
+> [!IMPORTANT]
+> Historical ledger entries are **calculated estimates** based on registered token rates and rounding; they are **not verified provider invoices**.
+
+---
+
+## 3. Supported Workflows
+
+### Workflow 1: Governed Development Agent
+Execute an offline or governed development session using `scientific.agent_cli`:
 
 ```sh
-# Extract release distribution archive
-tar -xzf dist/mlrescurix-v0.1.0-m6-darwin-arm64.tar.gz
-cd mlrescurix-0.1.0-m6
+PYTHONPATH=python/src python3 -m mlrescurix_worker.scientific.agent_cli \
+  --development-csv /path/to/dev_data.csv \
+  --folds /path/to/folds.json \
+  --workspace /path/to/workspace \
+  --project my_project \
+  --session sess_001 \
+  --target target_col \
+  --task binary_classification \
+  --metric balanced_accuracy \
+  --direction maximize \
+  --max-turns 3 \
+  --fixture-actions /path/to/fixture_actions.json
+```
 
-# Run standalone installer (installs binary to ~/.local/bin by default)
-./install.sh
+### Workflow 2: Robustness Campaign Benchmarking
+Execute benchmark tasks (K1–K5) through the contract-driven runner:
 
-# Verify binary installation and capability matrix
+```sh
+# Run benchmark in live_dev mode (requires verified contracts and pricing)
+python3 scripts/run_robustness_campaign.py --mode live_dev --task K3
+```
+
+*Note*: K1/K2 block due to null quality thresholds; K4 blocks due to missing fold provenance.
+
+### Workflow 3: Human Session Steering & Monitoring
+Inspect, steer, pause, resume, or terminate any running task via `AgentInterface`:
+
+```sh
+# Inspect session status without provider calls (zero LLM tokens)
+PYTHONPATH=python/src python3 -m mlrescurix_worker.scientific.agent_interface \
+  --workspace /path/to/workspace status
+
+# Submit guidance to active session
+PYTHONPATH=python/src python3 -m mlrescurix_worker.scientific.agent_interface \
+  --workspace /path/to/workspace steer \
+  --message "Prune correlated features and evaluate gradient boosting." \
+  --command-id steer-001
+
+# Pause / Resume / Stop
+PYTHONPATH=python/src python3 -m mlrescurix_worker.scientific.agent_interface --workspace /path/to/workspace pause --command-id p-1
+PYTHONPATH=python/src python3 -m mlrescurix_worker.scientific.agent_interface --workspace /path/to/workspace resume --command-id r-1
+PYTHONPATH=python/src python3 -m mlrescurix_worker.scientific.agent_interface --workspace /path/to/workspace stop --command-id s-1
+```
+
+### Workflow 4: Bundle Verification & Standalone Serving
+Delivered candidate models are 100% self-contained distributions runnable without git or harness dependencies:
+
+```sh
+# Verify candidate bundle integrity against authoritative state
+mlrescurix-harness verify-bundle --bundle /path/to/bundle --sandbox false
+
+# Standalone CLI inference
+python3 -B /path/to/bundle/inference.py --input /path/to/input.json --output /path/to/preds.json
+
+# Zero-dependency HTTP serving microservice (/health and /predict)
+python3 -B /path/to/bundle/serve.py --port 8080
+```
+
+---
+
+## 4. Setup and Installation
+
+### Prerequisites
+- **Rust Toolchain**: Rust 1.80+ (stable, 2021 edition)
+- **Python**: CPython 3.11+ (tested with 3.13)
+- **Docker**: Optional for host development; required for script isolation. (Verified **unavailable / daemon not running** on current host).
+
+### Build from Source
+
+```sh
+# 1. Compile Rust control plane
+cargo build --release --locked
+
+# 2. Add binary to path
+cp target/release/mlrescurix-harness ~/.local/bin/
+
+# 3. Verify capabilities
 mlrescurix-harness capabilities
 ```
 
-### Option 2: Build From Source
+---
 
-```sh
-# Prerequisites: Rust 1.94+ and Python 3.13+
-cargo build --release --locked
+## 5. Validation Status & Limits
 
-# Copy binary to system path
-cp target/release/mlrescurix-harness ~/.local/bin/
+Validation at baseline commit `441762f` (recorded in [`docs/evidence/v2/autonomy/20261023-architecture-consolidation/summary.json`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/docs/evidence/v2/autonomy/20261023-architecture-consolidation/summary.json)):
 
-# Build and install Python worker protocol wheel
-python3 -m pip install dist/mlrescurix_worker_protocol-0.1.0-py3-none-any.whl
-```
+- **Full Python Suite**: **325 passed, 2 skipped, 10 warnings** (220.03s), run before final source guards.
+- **Final Affected Python Suite**: **105 passed** (50.17s), including 18 new architecture regressions and final source-binding guards.
+- **Rust Lib & Integration Suite**: **63 passed, 2 ignored, 1 filtered** (~67s). The filtered Docker-dependent scheduler fixture was first attempted and failed container admission; its log is retained in `rust-docker-blocker.log`.
+- **Installed-Runtime Recheck**: **1 passed** (3.21s), exercising controller creation and human interface outside the git tree.
+- **Static Checks**: Python `compileall` passed; `cargo build --locked --offline` passed.
+
+> [!WARNING]
+> Offline test passes establish architectural wiring, identity tracking, and boundary enforcement; they do **not** establish an entirely passing production suite, model quality, or production clean-room certification.
 
 ---
 
-## End-to-End Workflow
+## 6. Explicit Unresolved Blockers
 
-### 1. Initialize Project & Profile Dataset
-
-```sh
-# Initialize state directory under PRAGMA user_version = 10
-mlrescurix-harness init --state /path/to/state --policy /path/to/policy.json
-
-# Profile tabular dataset without private row leakage
-mlrescurix-harness profile-dataset \
-  --state /path/to/state \
-  --csv /path/to/dataset.csv \
-  --target churn
-```
-
-### 2. Autonomous Rescue & Bundle Compilation
-
-```sh
-# Package certified candidate delivery bundle
-mlrescurix-harness package-candidate-bundle \
-  --state /path/to/state \
-  --candidate-dir /path/to/candidate \
-  --bundle-dir /path/to/bundle \
-  --dataset /path/to/dataset.csv \
-  --test-access-id access-001 \
-  --project p-prod-01 \
-  --candidate cand-apex-01 \
-  --task-type binary \
-  --target churn \
-  --metric balanced_accuracy
-```
-
-### 3. Verify Bundle Integrity Against Authoritative State
-
-```sh
-mlrescurix-harness verify-bundle \
-  --bundle /path/to/bundle \
-  --sandbox=false
-```
-
-### 4. Standalone Inference & Zero-Dependency HTTP Serving
-
-The generated bundle is 100% self-contained and runnable without harness or developer dependencies:
-
-```sh
-# Standalone CLI inference
-python -B /path/to/bundle/inference.py \
-  --input /path/to/input.json \
-  --output /path/to/predictions.json
-
-# Zero-dependency HTTP serving microservice (/health and /predict)
-python -B /path/to/bundle/serve.py --port 8080
-```
-
-### 5. Launch Native Observability Dashboard
-
-```sh
-# Launch native Rust HTTP/SSE dashboard with interactive DAG, Pareto frontier, and telemetry
-mlrescurix-harness serve-dashboard \
-  --state /path/to/state \
-  --port 8765 \
-  --token my-secure-token
-```
-
-Open `http://127.0.0.1:8765` in your browser and enter your session token.
+1. **K1 Final Contamination & Ticket Overlap**: Reused 178-row final partition and 18 shared Ticket values remain permanent historical records; staging cannot restore clean status.
+2. **K1 & K2 Null Quality Thresholds**: Independent absolute quality requirements are absent; thresholds remain `null`, blocking benchmark execution.
+3. **K4 Missing Provenance**: Authoritative fold index-space, prediction-context gaps, and per-origin training bounds are absent; execution remains blocked.
+4. **K5 Unverified Feasibility & Quality**: Complete 1,782-entity observation calendar protocol is intact ([`docs/v2/K5_PANEL_PROTOCOL.json`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/docs/v2/K5_PANEL_PROTOCOL.json)); full-scale compute feasibility (2.9M+ rows) and model quality remain unverified.
+5. **Absence of Provider Invoices**: Provider charge receipts are absent; recorded local amounts cannot be promoted to verified charges.
+6. **Future Paid Calls Requirement**: Requires verified current route availability/pricing (`deepseek/deepseek-v4.1-flash-1017` via `inference-net/fp8`, no fallback) and independent content-bound operator authorization (`approve-outbound-view`).
+7. **Human Steering Authority Limits**: Human steering cannot authorize uploads, approve models, alter frozen contracts, reset budgets, or clear ambiguous dispatches.
+8. **Docker & Image Dependency Gaps**: Docker daemon is currently unreachable; scientific container image lacks Linux wheels for `jsonschema==4.26.0` and `psutil==6.1.1`.
+9. **Production Evidence Deficits**: Production scheduling, Linux cgroup containment, concurrent isolation, resource/fault/soak coverage, and clean-room delivery are not certified by offline tests.
 
 ---
 
-## Test & Verification Suites
+## 7. Documentation Navigation
 
-```sh
-# Run full Rust test suite across all 20+ integration binaries (220 tests)
-cargo test --locked -- --test-threads=4
-
-# Run scientific Python test suite (126 tests)
-PYTHONPATH=python/src pytest python/tests/ -k "not test_real_container_tmpfs_enospc_never_publishes"
-
-# Run end-to-end clean-room release smoke test
-python3 scripts/run_standalone_smoke_test.py
-```
-
----
-
-## Documentation & Architecture References
-
-- [Official Release Notes](RELEASE_NOTES.md)
-- [Changelog & Milestones](CHANGELOG.md)
-- [M6 Completion Status & Gate Audit](docs/m6-completion-status.md)
-- [v2 Phased Roadmap & Architecture Specification](docs/v2/README.md)
-- [Persistent Progress & Session Handoff](docs/v2/PROGRESS.md)
-- [Architectural Decisions Log (D1–D50)](docs/v2/DECISIONS.md)
-- [M1 Execution & Storage Engine](docs/m1-execution-storage.md)
-- [M2 Tabular Kernel & Limits](docs/m2-scientific-kernel.md)
-- [M3 Constrained Resumable Search](docs/m3-constrained-search.md)
-- [M4 Agent-Led Coding Harness](docs/m4-agent-harness.md)
+- [`docs/ARCHITECTURE.md`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/docs/ARCHITECTURE.md): Complete architecture specification, component boundaries, and contracts.
+- [`docs/HUMAN_CONTROL_INTERFACE.md`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/docs/HUMAN_CONTROL_INTERFACE.md): Specification for `AgentInterface`, CLI usage, and approval boundaries.
+- [`docs/DECISIONS.md`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/docs/DECISIONS.md): Architectural decision register (D01–D60) and superseded decisions.
+- [`docs/DEVELOPMENT_AND_TESTING.md`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/docs/DEVELOPMENT_AND_TESTING.md): Reproducible test commands, environments, and validation limits.
+- [`docs/STATUS_AND_ROADMAP.md`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/docs/STATUS_AND_ROADMAP.md): Detailed implementation status, blockers, and phased roadmap.
+- [`docs/CONTINUATION_GUIDE.md`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/docs/CONTINUATION_GUIDE.md): Operating instructions and prime directives for continuing engineering work.
+- [`docs/MIGRATION_MAP.md`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/docs/MIGRATION_MAP.md): Mapping of removed narrative documents and minimal compatibility pointers.
+- [`docs/v2/BENCHMARK_SUITE.json`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/docs/v2/BENCHMARK_SUITE.json): Machine contract for benchmark suite and split commitments.
+- [`docs/v2/K5_PANEL_PROTOCOL.json`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/docs/v2/K5_PANEL_PROTOCOL.json): Machine contract for K5 Store Sales panel protocol.
+- [`CHANGELOG.md`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/CHANGELOG.md) & [`RELEASE_NOTES.md`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/RELEASE_NOTES.md): Project changelog and historical release records.

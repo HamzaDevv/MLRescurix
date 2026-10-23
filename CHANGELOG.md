@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.0-consolidation] - 2026-10-23
+
+### Consolidated
+- **Governed Agent Architecture**: Consolidated runtime into one feedback controller (`AutonomousAgentLoop`), pure scientific task adapters (`ClassificationAdapter`, `RegressionAdapter`, `PanelAdapter`), execution service (`ExecutionService`), governance service (`GovernanceService` with `CampaignBudgetAuthority`), contract-driven benchmark runner (`benchmark_runner.py`), and identity-bound delivery (`evidence.py`).
+- **Common Human Control Interface**: Implemented `AgentInterface` in `agent_interface.py` providing turn-boundary `status`, `steer`, `pause`, `resume`, and `stop` operations under independent `.human_control.lock`.
+- **Documentation Consolidation**: Consolidated and reorganized repository documentation into a concise, coherent set (`README.md`, `docs/ARCHITECTURE.md`, `docs/HUMAN_CONTROL_INTERFACE.md`, `docs/DECISIONS.md`, `docs/DEVELOPMENT_AND_TESTING.md`, `docs/STATUS_AND_ROADMAP.md`, `docs/CONTINUATION_GUIDE.md`, `docs/MIGRATION_MAP.md`).
+- **Preserved Accounting & Contracts**: Retained canonical campaign budget ledger (USD 0.30 ceiling, USD 0.050724020 committed, USD 0.249275980 remaining, SHA-256 `827abd98...`), `BENCHMARK_SUITE.json`, `K5_PANEL_PROTOCOL.json`, and all historical evidence.
+
+---
+
 ## [0.1.0-m6] - 2026-10-17
 
 ### Added

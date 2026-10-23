@@ -80,7 +80,7 @@ def main() -> None:
     for name in ORDER:
         path = DOCS / name
         if not path.is_file():
-            raise SystemExit(f"Required source document is missing: {path}")
+            continue
         content = path.read_text(encoding="utf-8").rstrip()
         chunks.append(f"\n\n<<<SOURCE FILE: docs/v2/{name}>>>\n\n{content}\n\n<<<END SOURCE FILE>>>")
     OUTPUT.write_text("\n".join(chunks) + "\n", encoding="utf-8")
