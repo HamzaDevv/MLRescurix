@@ -114,7 +114,7 @@ fn test_live_openrouter_deepseek_call_and_accounting() {
         }
     };
 
-    let model = "deepseek/deepseek-v4.1-flash";
+    let model = "deepseek/deepseek-v4.1-flash-1017";
     let endpoint = "https://openrouter.ai/api/v1/chat/completions";
     let adapter = OpenAICompatibleAdapter::new(endpoint.to_string(), api_key);
 
@@ -124,8 +124,12 @@ fn test_live_openrouter_deepseek_call_and_accounting() {
         messages: vec![ChatMessage::user("Respond with the exact word: ACKNOWLEDGED")],
         tools: vec![],
         temperature: Some(0.0),
-        max_tokens: Some(100),
-        provider: None,
+        max_tokens: Some(50),
+        provider: Some(serde_json::json!({
+            "only": ["deepinfra/fp8/flex"],
+            "order": ["deepinfra/fp8/flex"],
+            "allow_fallbacks": false,
+        })),
         reasoning: None,
     };
 
@@ -145,6 +149,8 @@ fn test_live_openrouter_deepseek_call_and_accounting() {
     let r = Runtime::init(&root, m1policy(10, 2)).unwrap();
     create_m1(&r, "p-live", 10);
     branch_task(&r, "p-live", "branch-live", "task-live");
+
+    mlrescurix_harness::agents::gateway::register_model_pricing(&root, model, 16, 48).unwrap();
 
     let config = OrchestratorConfig {
         project_id: "p-live".into(),
@@ -171,7 +177,7 @@ fn test_live_openrouter_deepseek_call_and_accounting() {
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     ).unwrap();
 
-    assert_eq!(status, "success_cost_unpriced");
+    assert_eq!(status, "priced");
     assert!(prompt_tok > 0, "Prompt tokens must be accounted");
     assert!(comp_tok > 0, "Completion tokens must be accounted");
     eprintln!("Live provider accounting verified: model={acct_model}, prompt_tokens={prompt_tok}, completion_tokens={comp_tok}");

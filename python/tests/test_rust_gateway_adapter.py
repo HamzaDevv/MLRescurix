@@ -83,19 +83,64 @@ def test_rust_gateway_adapter_mock_dispatch_and_accounting(tmp_path: Path):
     assert replay["provider_response_id"] == "resp-mock-1"
     assert replay["usage"] == receipt["usage"]
 
+
+def test_rust_gateway_adapter_deepinfra_endpoint_mock_dispatch(tmp_path: Path):
+    state_dir = tmp_path / "harness_state"
+    mock_file = tmp_path / "mock_deepinfra.json"
+    mock_responses = [
+        {
+            "id": "resp-deepinfra-1",
+            "model": "deepseek/deepseek-v4.1-flash-1017",
+            "content": json.dumps({"action_type": "ANALYZE", "parameters": {}}),
+            "tool_calls": [],
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 20,
+                "total_tokens": 120,
+            },
+            "latency_ms": 25,
+        }
+    ]
+    mock_file.write_text(json.dumps(mock_responses), encoding="utf-8")
+
+    pricing = {
+        "verified": True,
+        "input_per_million": "0.16",
+        "output_per_million": "0.48",
+    }
+
+    adapter = RustGatewayAdapter(
+        state_dir=state_dir,
+        project_id="test_proj_deepinfra",
+        task_id="task_gw_di",
+        role_id="scientific-agent",
+        endpoint="deepinfra/fp8/flex",
+        mock_path=mock_file,
+        pricing=pricing,
+        require_policy_approval=False,
+    )
+
+    messages = [{"role": "user", "content": "Analyze"}]
+    receipt = adapter.call_with_request_id(messages, 500, "session-di:turn:1")
+    assert receipt["gateway_route"] == "rust_mlrescurix_harness"
+    assert receipt["provider_response_id"] == "resp-deepinfra-1"
+    assert receipt["usage"]["prompt_tokens"] == 100
+    assert receipt["usage"]["completion_tokens"] == 20
+
+
     # Verify SQLite provider_accounting in state_dir
     db_path = state_dir / "state.sqlite"
     assert db_path.is_file()
     with sqlite3.connect(db_path) as conn:
         row = conn.execute(
-            "SELECT prompt_tokens, completion_tokens, status FROM provider_accounting WHERE project='test_proj_gateway'"
+            "SELECT prompt_tokens, completion_tokens, status FROM provider_accounting WHERE project='test_proj_deepinfra'"
         ).fetchone()
         assert row is not None
-        assert row[0] == 120
-        assert row[1] == 25
+        assert row[0] == 100
+        assert row[1] == 20
         assert row[2] == "ok"
         count = conn.execute(
-            "SELECT count(*) FROM provider_accounting WHERE project='test_proj_gateway'"
+            "SELECT count(*) FROM provider_accounting WHERE project='test_proj_deepinfra'"
         ).fetchone()[0]
         assert count == 1
 

@@ -144,9 +144,9 @@ Validation at baseline commit `441762f` (recorded in [`docs/evidence/v2/autonomy
 3. **K4 Missing Provenance**: Authoritative fold index-space, prediction-context gaps, and per-origin training bounds are absent; execution remains blocked.
 4. **K5 Unverified Feasibility & Quality**: Complete 1,782-entity observation calendar protocol is intact ([`docs/v2/K5_PANEL_PROTOCOL.json`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/docs/v2/K5_PANEL_PROTOCOL.json)); full-scale compute feasibility (2.9M+ rows) and model quality remain unverified.
 5. **Absence of Provider Invoices**: Provider charge receipts are absent; recorded local amounts cannot be promoted to verified charges.
-6. **Future Paid Calls Requirement**: Requires verified current route availability/pricing (`deepseek/deepseek-v4.1-flash-1017` via `inference-net/fp8`, no fallback) and independent content-bound operator authorization (`approve-outbound-view`).
+6. **Future Paid Calls Requirement**: Requires verified current route availability/pricing (`deepseek/deepseek-v4.1-flash-1017` via authorized routes `inference-net/fp8` or `deepinfra/fp8/flex`, no fallback) and independent content-bound operator authorization (`approve-outbound-view`).
 7. **Human Steering Authority Limits**: Human steering cannot authorize uploads, approve models, alter frozen contracts, reset budgets, or clear ambiguous dispatches.
-8. **Docker & Image Dependency Gaps**: Docker daemon is currently unreachable; scientific container image lacks Linux wheels for `jsonschema==4.26.0` and `psutil==6.1.1`.
+8. **Docker & Image Dependency Status**: Docker daemon was activated and verified passing scheduler crash-recovery and container isolation tests; images were cleared post-verification per operational policy. Scientific container base lacks Linux wheels for `jsonschema==4.26.0` and `psutil==6.1.1` in offline mode.
 9. **Production Evidence Deficits**: Production scheduling, Linux cgroup containment, concurrent isolation, resource/fault/soak coverage, and clean-room delivery are not certified by offline tests.
 
 ---

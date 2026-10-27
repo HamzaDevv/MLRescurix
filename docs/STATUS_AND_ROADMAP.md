@@ -65,10 +65,10 @@ The following scientific, environmental, and contractual blockers remain open an
    - Actual provider invoices and charge receipts are absent. Local ledger amounts cannot be promoted to verified billing.
 6. **Future Live Outbound Authorization & Pricing Verification**:
    - Future live calls require explicit independent operator approval (`approve-outbound-view`) and current route availability/pricing verification.
-   - Endpoint is pinned strictly to `deepseek/deepseek-v4.1-flash-1017` via OpenRouter `inference-net/fp8` with no fallback.
-7. **Docker Daemon Unavailability & Container Image Dependency Gaps**:
-   - The Docker daemon is currently unreachable on this development host; the Rust scheduler recovery fixture fails container admission as expected.
-   - The cached historical scientific image (`mlrescurix-scientific@sha256:d094b6be...`) lacks `jsonschema==4.26.0` and `psutil==6.1.1` Linux wheels, preventing in-container bounded tmpfs pipeline tests.
+   - Authorized routes supported by the gateway are pinned strictly to `deepseek/deepseek-v4.1-flash-1017` via OpenRouter `inference-net/fp8` or `deepinfra/fp8/flex` with no fallback.
+7. **Docker Daemon Status & Container Image Dependency Gaps**:
+   - The Docker daemon was started and verified for offline scheduler crash recovery and live sandbox tests; images were cleared post-verification per operational policy.
+   - The scientific container base image lacks `jsonschema==4.26.0` and `psutil==6.1.1` Linux wheels, preventing in-container bounded tmpfs pipeline tests in offline mode.
 8. **Production Certification Deficits**:
    - Full campaign production scheduling, per-job Linux cgroup v2 measurements, concurrent sibling isolation, fault/soak testing, and clean-room delivery remain unverified by offline test suites.
 
@@ -103,9 +103,8 @@ flowchart TD
 ```
 
 ### Phase A: Prerequisite Resolution & Environment Restoration
-- Revalidate OpenRouter endpoint pricing and route availability (`deepseek/deepseek-v4.1-flash-1017` on `inference-net/fp8`).
-- Restore Docker Desktop daemon on the execution host.
-- Rebuild the scientific container image with Linux wheels for `jsonschema==4.26.0` and `psutil==6.1.1` to pass `pip check`.
+- Revalidate OpenRouter endpoint pricing and route availability (`deepseek/deepseek-v4.1-flash-1017` on `inference-net/fp8` or `deepinfra/fp8/flex`).
+- Build reproducible clean-room container images with pre-installed `jsonschema==4.26.0` and `psutil==6.1.1` wheels.
 - Domain owners independently freeze absolute quality thresholds for K1 and K2.
 
 ### Phase B: Contract Repairs & Provenance

@@ -831,9 +831,12 @@ pub fn dispatch_gateway_with_id(
 
     let _campaign_lock = if !gateway.is_offline_fixture() {
         let provider = sanitized.provider.as_ref().ok_or("explicit campaign provider route required")?;
-        if sanitized.model != "deepseek/deepseek-v4.1-flash-1017" || provider["only"] != serde_json::json!(["inference-net/fp8"])
-            || provider["order"] != serde_json::json!(["inference-net/fp8"]) || provider["allow_fallbacks"] != false {
-            return Err("campaign requires the authorized model and inference-net/fp8 route without fallback".into());
+        let authorized_route = (provider["only"] == serde_json::json!(["inference-net/fp8"])
+            && provider["order"] == serde_json::json!(["inference-net/fp8"]))
+            || (provider["only"] == serde_json::json!(["deepinfra/fp8/flex"])
+            && provider["order"] == serde_json::json!(["deepinfra/fp8/flex"]));
+        if sanitized.model != "deepseek/deepseek-v4.1-flash-1017" || !authorized_route || provider["allow_fallbacks"] != false {
+            return Err("campaign requires the authorized model and authorized route (inference-net/fp8 or deepinfra/fp8/flex) without fallback".into());
         }
         let input_bound = u32::try_from(serde_json::to_vec(&sanitized.messages).map_err(|e| e.to_string())?.len() + 4096).map_err(|_| "request too large")?;
         let maximum = TokenUsage { prompt_tokens: input_bound, completion_tokens: sanitized.max_tokens.ok_or("explicit max_tokens required")?, total_tokens: 0 };

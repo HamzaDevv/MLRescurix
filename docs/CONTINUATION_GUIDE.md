@@ -123,7 +123,7 @@ PYTHONPATH=python/src python3 -m mlrescurix_worker.scientific.agent_cli \
 
 If the user explicitly authorizes live execution in a future prompt, satisfy all of the following gates prior to dispatch:
 
-1. **Verify Endpoint & Route**: Verify that OpenRouter model `deepseek/deepseek-v4.1-flash-1017` is available on route `inference-net/fp8` with no fallback.
+1. **Verify Endpoint & Route**: Verify that OpenRouter model `deepseek/deepseek-v4.1-flash-1017` is available on authorized route `inference-net/fp8` or `deepinfra/fp8/flex` with no fallback.
 2. **Revalidate Pricing**: Update and explicitly revalidate input/output price ceilings in the campaign policy before execution.
 3. **Inspect & Approve Outbound Views**:
    ```sh

@@ -106,7 +106,7 @@ The governance boundary enforces campaign spending limits, token admission caps,
   2. `provider_received`: Checkpoints provider response body before financial settlement.
   3. `provider_settled`: Settles reservation against calculated token rates. Interrupted settlements are reconciled from checkpoints, never resent.
 - **Accounting Categories**: Distinguishes calculated estimates (`cost_is_estimate=true`) and unverified accounting from authentic provider invoices. Unused reservations on interrupted calls are marked `uncertain` rather than released.
-- **Rust Gateway Adapter**: Live non-fixture dispatches require [`RustGatewayAdapter`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/python/src/mlrescurix_worker/scientific/rust_gateway.py), which enforces route matching (`deepseek/deepseek-v4.1-flash-1017` via `inference-net/fp8`, no fallback) and content-bound operator approval.
+- **Rust Gateway Adapter**: Live non-fixture dispatches require [`RustGatewayAdapter`](file:///Users/hamza/Developer/Imp_Projects/MLRescurix/python/src/mlrescurix_worker/scientific/rust_gateway.py), which enforces route matching (`deepseek/deepseek-v4.1-flash-1017` via authorized route `inference-net/fp8` or `deepinfra/fp8/flex`, no fallback) and content-bound operator approval.
 
 ### 2.5 Contract-Driven Benchmark Runner: `benchmark_runner.py`
 

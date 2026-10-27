@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.1-deepinfra] - 2026-10-27
+
+### Added
+- **DeepInfra Provider Route Support**: Added `deepinfra/fp8/flex` to authorized provider routes in `crates/harness/src/agents/gateway.rs` on model `deepseek/deepseek-v4.1-flash-1017`.
+- **Live Provider Verification**: Verified direct gateway transport, orchestrator step, SQLite provider accounting, and M0 charges ledger using OpenRouter `deepinfra/fp8/flex` with active key from `.config/openrouter.key`.
+- **Docker Testing & Clean Up**: Validated Rust scheduler crash reconciliation (`p1_scheduler_job_submission_crash_reconciliation_and_fault_regressions`) and container isolation with active Docker daemon; purged and pruned all test images upon completion.
+
+---
+
 ## [0.2.0-consolidation] - 2026-10-23
 
 ### Consolidated
