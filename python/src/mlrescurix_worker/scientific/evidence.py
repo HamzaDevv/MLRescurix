@@ -6,6 +6,15 @@ from pathlib import Path
 from .candidate_pipeline import identity
 
 
+def streaming_file_sha256(path, chunk_size=65536):
+    """Compute SHA-256 hash across a file in bounded chunks (avoids eager full-file reads)."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(chunk_size):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def atomic_json(path, value):
     path = Path(path)
     tmp = path.with_suffix(f'.tmp.{os.getpid()}')

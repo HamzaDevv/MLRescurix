@@ -439,3 +439,151 @@ def test_locked_folds_and_fold_local_preprocessing_remain_isolated(tmp_path: Pat
     assert np.array_equal(splits[1][1], fold_splits[1][1])
     # Zero holdout access
     assert loop.state["holdout_accesses"] == 0
+
+
+# =============================================================================
+# Test 9: Model Creation Journey & Apex Iteration Selection
+# =============================================================================
+
+def test_apex_iteration_journey_and_selection(tmp_path: Path):
+    dataset_path = create_synthetic_dataset(tmp_path / "data.csv")
+    budget = MockBudgetAuthority()
+
+    loop = AutonomousAgentLoop(
+        workspace_root=tmp_path / "ws_apex",
+        project_id="test_proj",
+        session_id="run_apex_test",
+        provider_is_fixture=True,
+        campaign_authority=budget,
+        dataset_path=dataset_path,
+        target_column="target",
+        max_turns=0,
+    )
+
+    # Initial state should have empty iterations and apex trajectory
+    assert loop.state["iterations"] == []
+    assert loop.state["apex_trajectory"] == []
+    assert loop.state["latest_apex_iteration"] is None
+    assert loop.state["selected_apex_iteration"] is None
+
+    # Simulate Iteration 1: Baseline model (CV 0.70)
+    spec1 = {"families": ["penalized_linear"], "weights": [1], "transforms": []}
+    eval1 = {
+        "cv_score": 0.70,
+        "critic_validation_score": 0.70,
+        "critic_train_score": 0.75,
+        "fold_receipts": [{"critic_validation_score": 0.69}, {"critic_validation_score": 0.71}],
+        "feature_names": ["age", "fare"],
+        "receipt_identity": "rcpt_1",
+    }
+    audit1 = {"status": "APPROVED", "candidate_id": "cand_1", "evaluation_identity": "rcpt_1"}
+    rec1 = loop._record_iteration(
+        turn_index=0,
+        action_type="EVALUATE_PORTFOLIO",
+        iteration_type="baseline",
+        description="Initial baseline model",
+        spec=spec1,
+        eval_result=eval1,
+        audit=audit1,
+        candidate_id="cand_1",
+    )
+    assert rec1["is_apex"] is True
+    assert rec1["apex_number"] == 1
+    assert loop.state["latest_apex_iteration"] == 1
+    assert loop.state["selected_apex_iteration"] == 1
+
+    # Simulate Iteration 2: Feature engineering that fails audit/worse score (CV 0.68)
+    spec2 = {"families": ["penalized_linear"], "weights": [1], "transforms": [{"action": "ADD_MNAR_INDICATOR"}]}
+    eval2 = {
+        "cv_score": 0.68,
+        "critic_validation_score": 0.68,
+        "critic_train_score": 0.76,
+        "fold_receipts": [{"critic_validation_score": 0.67}, {"critic_validation_score": 0.69}],
+        "feature_names": ["age", "fare", "fare_isna"],
+        "receipt_identity": "rcpt_2",
+    }
+    audit2 = {"status": "APPROVED", "candidate_id": "cand_2", "evaluation_identity": "rcpt_2"}
+    rec2 = loop._record_iteration(
+        turn_index=1,
+        action_type="HYPOTHESIS_TRANSFORM",
+        iteration_type="feature_engineering",
+        description="MNAR indicator experiment",
+        spec=spec2,
+        eval_result=eval2,
+        audit=audit2,
+        candidate_id="cand_2",
+    )
+    assert rec2["is_apex"] is False
+    assert loop.state["latest_apex_iteration"] == 1
+    assert loop.state["selected_apex_iteration"] == 1
+
+    # Simulate Iteration 3: Advanced ensemble breakthrough (CV 0.82)
+    spec3 = {"families": ["hist_gbdt", "lgbm"], "weights": [1, 1], "transforms": []}
+    eval3 = {
+        "cv_score": 0.82,
+        "critic_validation_score": 0.82,
+        "critic_train_score": 0.85,
+        "fold_receipts": [{"critic_validation_score": 0.81}, {"critic_validation_score": 0.83}],
+        "feature_names": ["age", "fare"],
+        "receipt_identity": "rcpt_3",
+    }
+    audit3 = {"status": "APPROVED", "candidate_id": "cand_3", "evaluation_identity": "rcpt_3"}
+    rec3 = loop._record_iteration(
+        turn_index=2,
+        action_type="BLEND_AND_AUDIT",
+        iteration_type="blend_ensemble",
+        description="Ensemble GBDT + LGBM",
+        spec=spec3,
+        eval_result=eval3,
+        audit=audit3,
+        candidate_id="cand_3",
+    )
+    assert rec3["is_apex"] is True
+    assert rec3["apex_number"] == 2
+    assert loop.state["latest_apex_iteration"] == 3
+    assert loop.state["selected_apex_iteration"] == 3
+
+    # Now verify user can explicitly select an earlier iteration (e.g. Iteration 1)
+    selection = loop.select_apex_iteration(1)
+    assert selection["status"] == "success"
+    assert selection["selected_iteration"] == 1
+    assert loop.state["selected_apex_iteration"] == 1
+    assert loop.state["accepted_candidate_id"] == "cand_1"
+    assert loop.state["selected_cv_score"] == 0.70
+    # Best CV score across search is preserved, not overwritten by older selection
+    assert loop.state["best_cv_score"] == 0.82
+
+    # Verify invalid iteration number raises error
+    with pytest.raises(ValueError, match="Iteration 99 not found"):
+        loop.select_apex_iteration(99)
+
+    # Verify rejected iteration cannot be selected (Gate S1)
+    rec_rejected = loop._record_iteration(
+        turn_index=3,
+        action_type="EVALUATE_PORTFOLIO",
+        iteration_type="broken_model",
+        description="Failing audit experiment",
+        spec={"families": ["hist_gbdt"], "weights": [1], "transforms": []},
+        eval_result={"cv_score": 0.89, "receipt_identity": "rcpt_bad"},
+        audit={"status": "REJECTED", "candidate_id": "cand_bad"},
+        candidate_id="cand_bad",
+    )
+    assert rec_rejected["is_apex"] is False
+    with pytest.raises(ValueError, match="not eligible for selection/deployment: critic status is 'REJECTED'"):
+        loop.select_apex_iteration(rec_rejected["iteration_number"])
+
+    # Verify handoff exports the journey
+    loop.state["stop_reason"] = "FINALIZE_AND_STOP"
+    handoff = loop.export_handoff()
+    assert handoff["selected_apex_iteration"] == 1
+    assert handoff["pinned_iteration"] == 1
+    assert handoff["latest_apex_iteration"] == 3
+    assert handoff["iterations_count"] == 4
+    assert len(handoff["apex_trajectory"]) == 2
+
+    # Check HANDOFF.md contains the Model Creation Journey table and pin badge
+    handoff_md = (tmp_path / "ws_apex" / "HANDOFF.md").read_text()
+    assert "Model Creation Journey (Apex Iterations)" in handoff_md
+    assert "Selected Apex Iteration: 1" in handoff_md
+    assert "👑 Apex #1 (Pinned & Selected)" in handoff_md
+    assert "👑 Apex #2" in handoff_md

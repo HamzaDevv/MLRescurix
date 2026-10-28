@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:training-checkpoint:2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "checkpoint_id",
+    "job_id",
+    "step",
+    "epoch",
+    "batch_offset",
+    "sampler_position",
+    "files",
+    "timestamp_unix"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "v2" },
+    "checkpoint_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "job_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "step": { "type": "integer", "minimum": 0 },
+    "epoch": { "type": "integer", "minimum": 0 },
+    "batch_offset": { "type": "integer", "minimum": 0 },
+    "sampler_position": { "type": "integer", "minimum": 0 },
+    "loss": { "type": ["number", "null"] },
+    "files": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      }
+    },
+    "training_state": {
+      "type": "object"
+    },
+    "timestamp_unix": { "type": "number", "minimum": 0.0 }
+  },
+  "additionalProperties": false
+}

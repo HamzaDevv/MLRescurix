@@ -51,7 +51,7 @@ def get_controller_rss_bytes():
     return int(raw if sys.platform == "darwin" else raw * 1024)
 
 
-from .evidence import atomic_json, source_identity, verify_result
+from .evidence import atomic_json, source_identity, verify_result, streaming_file_sha256
 
 
 def exclusive_workspace(method):
@@ -165,14 +165,14 @@ class AutonomousAgentLoop:
         copied.write_bytes(input_bytes)
         self.dataset_path = copied
         self.binding = {"project_id": project_id, "session_id": session_id,
-            "data_sha256": hashlib.sha256(self.dataset_path.read_bytes()).hexdigest(),
+            "data_sha256": streaming_file_sha256(self.dataset_path),
             "folds_sha256": identity(self.locked_folds), "target": target_column, "task": task_type,
             "metric": metric_name, "direction": metric_direction, "topology_hash": identity(self.topology),
             "problem_statement": problem_statement, "model": model_name, "endpoint": endpoint,
             "provider_is_fixture": provider_is_fixture, "worker_memory_bytes": self.worker_memory_bytes,
             "source_sha256": source_identity(REPO_ROOT),
             "source_scope": "checkout" if (REPO_ROOT / 'Cargo.lock').is_file() else "installed_python_assets",
-            "transport_binary_sha256": hashlib.sha256(Path(provider_caller.binary).read_bytes()).hexdigest() if getattr(provider_caller, 'binary', None) else None,
+            "transport_binary_sha256": streaming_file_sha256(Path(provider_caller.binary)) if getattr(provider_caller, 'binary', None) else None,
             "stage_receipt": stage_receipt, "evaluation_timeout_seconds": evaluation_timeout_seconds,
             "sandbox_image": sandbox_image, "pricing": pricing}
         self.critic_engine = CriticEngine(max_allowed_gap=0.12, min_distinct_families=3)
@@ -213,6 +213,14 @@ class AutonomousAgentLoop:
                     raise RecoveryRequired(f'Checkpoint evaluation receipt identity mismatch: {exc}') from exc
             if state.get("binding") != self.binding: raise RecoveryRequired("Checkpoint dataset/folds/config binding mismatch")
             if state.get("pending_turn") is not None: raise RecoveryRequired("Interrupted dispatch; reconcile pending_turn and budget receipts before resume")
+            state.setdefault("iterations", [])
+            state.setdefault("apex_trajectory", [])
+            state.setdefault("latest_apex_iteration", None)
+            state.setdefault("selected_apex_iteration", None)
+            state.setdefault("pinned_iteration", None)
+            state.setdefault("selected_cv_score", None)
+            state.setdefault("best_eligible_cv_score", state.get("best_cv_score"))
+            state.setdefault("best_observed_cv_score", state.get("best_cv_score"))
             return state
         active_spec = self.task_adapter.initial_spec(self.metric_name)
         state = {"schema_version": 3, "binding": self.binding, "project_id": self.project_id, "session_id": self.session_id,
@@ -225,6 +233,8 @@ class AutonomousAgentLoop:
             "current_active_families": ["hist_gbdt", "penalized_linear", "lgbm"],
             "evaluated_families": ["hist_gbdt", "penalized_linear", "lgbm"], "bundle_verified": False,
             "containment_status": "unverified", "holdout_accesses": 0, "script_registry": {},
+            "iterations": [], "apex_trajectory": [], "latest_apex_iteration": None, "selected_apex_iteration": None,
+            "pinned_iteration": None, "selected_cv_score": None, "best_eligible_cv_score": None, "best_observed_cv_score": None,
             "execution_path": "python_governed_workers", "production_certified": False, "evaluation_count": 0}
         self._save_state(state)
         return state
@@ -341,6 +351,174 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
         validate_spec(spec)
         return spec
 
+    def _record_iteration(self, turn_index: int, action_type: str, iteration_type: str,
+                           description: str, spec: dict, eval_result: dict, audit: dict, candidate_id: str) -> dict:
+        """Record an iteration in the model creation journey, tracking apex breakthroughs."""
+        cv_score = eval_result.get("cv_score", float("nan"))
+        fold_receipts = eval_result.get("fold_receipts", [])
+
+        # Primary metric fold scores & dispersion: prefer validation_score (primary) over critic_validation_score
+        primary_fold_scores = [f.get("validation_score", f.get("critic_validation_score", float("nan"))) for f in fold_receipts]
+        finite_primary_folds = [float(s) for s in primary_fold_scores if np.isfinite(s)]
+        fold_std = float(np.std(finite_primary_folds)) if len(finite_primary_folds) > 1 else 0.0
+
+        # Primary train score and train-val gap (measured on identical primary metric)
+        primary_train_score = eval_result.get("train_score", eval_result.get("critic_train_score", float("nan")))
+        train_val_gap = abs(primary_train_score - cv_score) if np.isfinite(primary_train_score) and np.isfinite(cv_score) else None
+
+        # Secondary critic diagnostics recorded separately
+        sec_train = eval_result.get("critic_train_score")
+        sec_val = eval_result.get("critic_validation_score")
+        sec_gap = abs(sec_train - sec_val) if (sec_train is not None and sec_val is not None and np.isfinite(sec_train) and np.isfinite(sec_val)) else None
+
+        # Track best observed score across all iterations (even unapproved)
+        if np.isfinite(cv_score):
+            cur_best_obs = self.state.get("best_observed_cv_score")
+            if cur_best_obs is None or (cv_score > cur_best_obs if self.metric_direction == "maximize" else cv_score < cur_best_obs):
+                self.state["best_observed_cv_score"] = float(cv_score)
+
+        approved = audit.get("status") == "APPROVED" and np.isfinite(cv_score)
+        best_so_far = self.state.get("best_eligible_cv_score", self.state.get("best_cv_score"))
+        if best_so_far is None and self.state.get("apex_trajectory"):
+            best_so_far = self.state["apex_trajectory"][-1]["cv_score"]
+
+        improves = approved and (best_so_far is None or (
+            cv_score > best_so_far if self.metric_direction == "maximize" else cv_score < best_so_far
+        ))
+        is_apex = approved and improves
+
+        iter_num = len(self.state.get("iterations", [])) + 1
+        prev_apex_score = best_so_far
+
+        rel_gain = 0.0
+        if prev_apex_score is not None and prev_apex_score != 0 and np.isfinite(cv_score):
+            delta = cv_score - prev_apex_score
+            rel_gain = float(delta if self.metric_direction == "maximize" else -delta) / max(abs(prev_apex_score), 1e-9)
+
+        apex_number = None
+        if is_apex:
+            apex_number = len(self.state.get("apex_trajectory", [])) + 1
+            self.state["best_eligible_cv_score"] = float(cv_score)
+            self.state["best_cv_score"] = float(cv_score)
+            apex_milestone = {
+                "apex_number": apex_number,
+                "iteration_number": iter_num,
+                "turn_index": turn_index,
+                "candidate_id": candidate_id,
+                "cv_score": float(cv_score),
+                "fold_std": float(fold_std),
+                "train_val_gap": float(train_val_gap) if train_val_gap is not None else None,
+                "relative_gain": float(rel_gain),
+                "spec": copy.deepcopy(spec),
+                "timestamp_unix": time.time(),
+            }
+            self.state.setdefault("apex_trajectory", []).append(apex_milestone)
+            self.state["latest_apex_iteration"] = iter_num
+            # Only update selected apex if NO iteration is explicitly pinned
+            if self.state.get("pinned_iteration") is None:
+                self.state["selected_apex_iteration"] = iter_num
+                self.state["selected_cv_score"] = float(cv_score)
+
+        rec = {
+            "iteration_number": iter_num,
+            "turn_index": turn_index,
+            "action_type": action_type,
+            "iteration_type": iteration_type,
+            "description": description,
+            "candidate_id": candidate_id,
+            "cv_score": float(cv_score) if np.isfinite(cv_score) else None,
+            "fold_scores": finite_primary_folds,
+            "fold_std": float(fold_std),
+            "train_score": float(primary_train_score) if np.isfinite(primary_train_score) else None,
+            "train_val_gap": float(train_val_gap) if train_val_gap is not None else None,
+            "secondary_train_score": float(sec_train) if sec_train is not None and np.isfinite(sec_train) else None,
+            "secondary_validation_score": float(sec_val) if sec_val is not None and np.isfinite(sec_val) else None,
+            "secondary_train_val_gap": float(sec_gap) if sec_gap is not None else None,
+            "critic_status": audit.get("status", "UNAUDITED"),
+            "is_apex": is_apex,
+            "apex_number": apex_number,
+            "relative_gain": float(rel_gain),
+            "spec": copy.deepcopy(spec),
+            "receipt_identity": eval_result.get("receipt_identity"),
+            "evaluation_receipt": eval_result,
+            "audit": audit,
+            "timestamp_unix": time.time(),
+        }
+        self.state.setdefault("iterations", []).append(rec)
+        self._event("iteration_completed", iteration_number=iter_num, is_apex=bool(is_apex),
+                    cv_score=float(cv_score) if np.isfinite(cv_score) else None, action_type=action_type)
+        return rec
+
+    def pin_iteration(self, iteration_number: int) -> dict[str, Any]:
+        """Explicitly pin an iteration as the deployment and handoff target."""
+        return self.select_apex_iteration(iteration_number, pin=True)
+
+    def unpin_iteration(self) -> dict[str, Any]:
+        """Unpin iteration, restoring selection to the latest eligible apex iteration."""
+        self.state["pinned_iteration"] = None
+        latest = self.state.get("latest_apex_iteration")
+        if latest is not None:
+            res = self.select_apex_iteration(latest, pin=False)
+            self._save_state(self.state)
+            return res
+        self._save_state(self.state)
+        return {"status": "unpinned", "selected_apex_iteration": self.state.get("selected_apex_iteration")}
+
+    def select_apex_iteration(self, iteration_number: int, pin: bool = True) -> dict[str, Any]:
+        """Explicitly select an iteration number as the chosen apex for deployment and handoff."""
+        iterations = self.state.get("iterations", [])
+        matching = [it for it in iterations if it["iteration_number"] == iteration_number]
+        if not matching:
+            available = [it["iteration_number"] for it in iterations]
+            raise ValueError(f"Iteration {iteration_number} not found. Available iterations: {available}")
+
+        selected = matching[0]
+        critic_status = selected.get("critic_status") or (selected.get("audit") or {}).get("status")
+        if critic_status != "APPROVED":
+            raise ValueError(
+                f"Iteration {iteration_number} is not eligible for selection/deployment: "
+                f"critic status is {critic_status!r}, must be 'APPROVED'"
+            )
+        cv_score = selected.get("cv_score")
+        if cv_score is None or not np.isfinite(cv_score):
+            raise ValueError(
+                f"Iteration {iteration_number} is not eligible for selection/deployment: "
+                f"CV score {cv_score!r} is not a finite value"
+            )
+        spec = selected.get("spec")
+        if not spec:
+            raise ValueError(f"Iteration {iteration_number} does not contain a valid candidate specification")
+
+        if pin:
+            self.state["pinned_iteration"] = iteration_number
+        self.state["selected_apex_iteration"] = iteration_number
+        self.state["selected_cv_score"] = float(cv_score)
+        self.state["accepted_candidate_id"] = selected["candidate_id"]
+        self.state["accepted_candidate"] = copy.deepcopy(spec)
+        self.state["candidate_identity"] = identity(spec)
+        if self.state.get("best_cv_score") is None:
+            self.state["best_cv_score"] = float(cv_score)
+        if selected.get("evaluation_receipt"):
+            self.state["accepted_evaluation"] = selected["evaluation_receipt"]
+        if selected.get("audit"):
+            self.state["accepted_audit"] = selected["audit"]
+
+        self._save_state(self.state)
+        self._event("apex_iteration_selected", selected_iteration=iteration_number,
+                    candidate_id=selected["candidate_id"], cv_score=float(cv_score), pinned=pin)
+
+        return {
+            "status": "success",
+            "selected_iteration": iteration_number,
+            "pinned": pin,
+            "candidate_id": selected["candidate_id"],
+            "cv_score": float(cv_score),
+            "fold_std": selected.get("fold_std"),
+            "train_val_gap": selected.get("train_val_gap"),
+            "is_apex": selected.get("is_apex", False),
+            "apex_number": selected.get("apex_number"),
+        }
+
     def _execute(self, action, turn):
         kind, params = action["action_type"], action["parameters"]
         if kind == "ANALYZE": return self.build_diagnostic_dossier(), {}
@@ -366,6 +544,17 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
             if confirmed:
                 self.state["active_spec"]["transforms"].append(tr)
                 self.state["current_active_features"] = after["feature_names"]
+                tr_cand_id = "cand_" + identity({"spec": after_spec, "binding": self.binding})[:24]
+                self._record_iteration(
+                    turn_index=turn,
+                    action_type=kind,
+                    iteration_type="feature_engineering",
+                    description=action.get("thought_rationale", f"Feature transform {name} on {referenced}"),
+                    spec=after_spec,
+                    eval_result=after,
+                    audit={"status": "APPROVED"},
+                    candidate_id=tr_cand_id,
+                )
             return {"action_status": "confirmed" if confirmed else "refuted", "relative_gain": improvement / max(abs(before["cv_score"]), 1e-12),
                 "paired_metric_delta": delta, "cv_score": after["cv_score"], "before": before, "after": after,
                 "pipeline_updated": confirmed}, {}
@@ -410,14 +599,26 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
                 critique = self.critic_engine.audit(candidate=candidate, topology=self.topology, evaluated_model_families=evaluated_fams)
                 audit = critique.to_dict()
                 last_audit = audit
-                if audit["status"] == "APPROVED":
-                    old = self.state["best_cv_score"]
-                    improves = old is None or (win_res["cv_score"] > old if self.metric_direction == "maximize" else win_res["cv_score"] < old)
-                    if improves:
+                old = self.state.get("best_eligible_cv_score", self.state["best_cv_score"])
+                improves = old is None or (win_res["cv_score"] > old if self.metric_direction == "maximize" else win_res["cv_score"] < old)
+                self._record_iteration(
+                    turn_index=turn,
+                    action_type=kind,
+                    iteration_type="model_portfolio",
+                    description=action.get("thought_rationale", f"Evaluate portfolio {spec['families']}"),
+                    spec=win_spec,
+                    eval_result=win_res,
+                    audit=audit,
+                    candidate_id=candidate_id,
+                )
+                if audit["status"] == "APPROVED" and improves:
+                    self.state["best_cv_score"] = float(win_res["cv_score"])
+                    self.state["best_eligible_cv_score"] = float(win_res["cv_score"])
+                    if self.state.get("pinned_iteration") is None:
                         self.state.update(
                             accepted_candidate_id=candidate_id, accepted_candidate=win_spec,
                             candidate_identity=identity(win_spec), accepted_audit=dict(audit, evaluation_identity=win_res.get("receipt_identity")),
-                            accepted_evaluation=win_res, best_cv_score=win_res["cv_score"]
+                            accepted_evaluation=win_res, selected_cv_score=float(win_res["cv_score"])
                         )
             return {"portfolio": scores}, last_audit
         if kind == "BLEND_AND_AUDIT":
@@ -442,12 +643,27 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
             if result.get("split_gain_importances") is None:
                 audit.setdefault("soft_warnings", []).append("Native split gain unavailable; no fabricated gain values")
             finite = np.isfinite(result["cv_score"])
-            if audit["status"] == "APPROVED" and finite:
-                old = self.state["best_cv_score"]
-                improves = old is None or (result["cv_score"] > old if self.metric_direction == "maximize" else result["cv_score"] < old)
-                if improves:
-                    self.state.update(accepted_candidate_id=candidate_id, accepted_candidate=spec,
-                        candidate_identity=identity(spec), accepted_audit=dict(audit, evaluation_identity=result.get("receipt_identity")), accepted_evaluation=result, best_cv_score=result["cv_score"])
+            old = self.state.get("best_eligible_cv_score", self.state["best_cv_score"])
+            improves = finite and (old is None or (result["cv_score"] > old if self.metric_direction == "maximize" else result["cv_score"] < old))
+            self._record_iteration(
+                turn_index=turn,
+                action_type=kind,
+                iteration_type="blend_ensemble",
+                description=action.get("thought_rationale", f"Blend families {spec['families']} with weights {spec.get('weights')}"),
+                spec=spec,
+                eval_result=result,
+                audit=audit,
+                candidate_id=candidate_id,
+            )
+            if audit["status"] == "APPROVED" and improves:
+                self.state["best_cv_score"] = float(result["cv_score"])
+                self.state["best_eligible_cv_score"] = float(result["cv_score"])
+                if self.state.get("pinned_iteration") is None:
+                    self.state.update(
+                        accepted_candidate_id=candidate_id, accepted_candidate=spec,
+                        candidate_identity=identity(spec), accepted_audit=dict(audit, evaluation_identity=result.get("receipt_identity")),
+                        accepted_evaluation=result, selected_cv_score=float(result["cv_score"])
+                    )
             return result, audit
         if kind == "WRITE_PYTHON":
             filename = self._script_name(params.get("filename"))
@@ -639,7 +855,7 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
         try:
             fitted = self._evaluate(spec, operation="refit")
             model_path = Path(fitted["model_path"])
-            if hashlib.sha256(model_path.read_bytes()).hexdigest() != fitted["model_sha256"]:
+            if streaming_file_sha256(model_path) != fitted["model_sha256"]:
                 raise ValueError("Refit model artifact hash mismatch")
             pipeline = joblib.load(model_path)
             if pipeline.candidate_identity != self.state["candidate_identity"]:
@@ -652,13 +868,47 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
             "stop_reason": self.state["stop_reason"], "pending_turn": self.state.get("pending_turn"),
             "accepted_candidate_id": self.state["accepted_candidate_id"], "candidate_identity": self.state["candidate_identity"],
             "accepted_audit": self.state["accepted_audit"], "last_turns": self.state["turns"][-3:],
+            "pinned_iteration": self.state.get("pinned_iteration"),
+            "selected_apex_iteration": self.state.get("selected_apex_iteration"),
+            "latest_apex_iteration": self.state.get("latest_apex_iteration"),
+            "best_cv_score": self.state.get("best_cv_score"),
+            "selected_cv_score": self.state.get("selected_cv_score"),
+            "apex_trajectory": self.state.get("apex_trajectory", []),
+            "iterations_count": len(self.state.get("iterations", [])),
             "next_steps": self.state.get("handoff_request", {}).get("next_steps", ["Inspect last receipts and unresolved critic flaws", "Resume with identical dataset and locked folds"]),
             "human_control": self.interface.status(),
             "budget": self.campaign_authority.get_status(), "production_certified": False}
         atomic_json(self.workspace_root / "handoff.json", payload)
         lines = ["# MLRescurix session handoff", "", f"Session: {self.session_id}", f"Stop: {self.state['stop_reason']}",
             f"Checkpoint: {self.state_file}", f"Accepted candidate: {self.state['accepted_candidate_id']}",
-            "", "Production certification: false. Preserve data/fold hashes and shared campaign budget.", "", "Next steps:"]
+            f"Selected Apex Iteration: {self.state.get('selected_apex_iteration')} (Latest Apex: {self.state.get('latest_apex_iteration')})",
+            f"Pinned Iteration: {self.state.get('pinned_iteration')}",
+            "", "Production certification: false. Preserve data/fold hashes and shared campaign budget."]
+
+        if self.state.get("iterations"):
+            lines.extend([
+                "",
+                "## Model Creation Journey (Apex Iterations)",
+                "| Iteration | Type | Description | CV Score | Fold Std | Gap | Status | Apex? |",
+                "|---|---|---|---|---|---|---|---|",
+            ])
+            for it in self.state.get("iterations", []):
+                apex_badge = f"👑 Apex #{it['apex_number']}" if it.get("is_apex") else "-"
+                is_selected = it["iteration_number"] == self.state.get("selected_apex_iteration")
+                is_pinned = it["iteration_number"] == self.state.get("pinned_iteration")
+                if is_pinned and is_selected:
+                    apex_badge += " (Pinned & Selected)"
+                elif is_selected:
+                    apex_badge += " (Selected)"
+                elif is_pinned:
+                    apex_badge += " (Pinned)"
+                cv_fmt = f"{it['cv_score']:.4f}" if it.get("cv_score") is not None else "N/A"
+                fold_std_fmt = f"{it.get('fold_std', 0.0):.4f}"
+                gap_fmt = f"{it.get('train_val_gap', 0.0):.4f}" if it.get("train_val_gap") is not None else "N/A"
+                desc = (it.get("description") or "")[:35].replace("|", "/")
+                lines.append(f"| {it['iteration_number']} | {it.get('iteration_type', 'model')} | {desc} | {cv_fmt} | {fold_std_fmt} | {gap_fmt} | {it.get('critic_status', 'N/A')} | {apex_badge} |")
+
+        lines.extend(["", "Next steps:"])
         lines.extend(f"- {step}" for step in payload["next_steps"])
         (self.workspace_root / "HANDOFF.md").write_text("\n".join(lines) + "\n")
         return payload

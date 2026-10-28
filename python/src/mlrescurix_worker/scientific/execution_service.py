@@ -7,21 +7,32 @@ import copy
 import hashlib
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
 import time
 from pathlib import Path
 from .candidate_pipeline import identity
-from .evidence import atomic_json, read_worker_result, seal_result, source_identity
+from .evidence import atomic_json, read_worker_result, seal_result, source_identity, streaming_file_sha256
 REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 class ExecutionService:
+    def __init__(self, backends: dict | None = None, admission_controller: object | None = None):
+        self.backends = backends or {}
+        self.admission_controller = admission_controller
+
+    def register_backend(self, backend: object) -> None:
+        self.backends[getattr(backend, "backend_id", str(backend))] = backend
+
+    def get_backend(self, backend_id: str) -> object | None:
+        return self.backends.get(backend_id)
+
     def evaluate(self, session, spec, operation="evaluate"):
         if source_identity(REPO_ROOT) != session.binding['source_sha256']:
             raise ValueError('Worker source changed since session binding')
-        if hashlib.sha256(session.dataset_path.read_bytes()).hexdigest() != session.binding["data_sha256"]:
+        if streaming_file_sha256(session.dataset_path) != session.binding["data_sha256"]:
             raise ValueError("Development data changed since checkpoint binding")
         if operation == "evaluate" and session.state.get("evaluation_count", 0) >= 12:
             raise ValueError("Candidate evaluation limit (12) reached; handoff required")
@@ -116,15 +127,14 @@ class ExecutionService:
         filename = session._script_name(params.get("filename"))
         registered = session.state["script_registry"].get(filename)
         path = session.workspace_root / "scripts" / filename
-        if not registered or path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest() != registered["sha256"]:
+        if not registered or path.is_symlink() or streaming_file_sha256(path) != registered["sha256"]:
             raise ValueError("Script missing or changed since governed write")
         # Dedicated mount contains only development CSV, never repo keys or full source data.
         data = session.workspace_root / "script_data"; data.mkdir(exist_ok=True)
         if data.is_symlink() or data.resolve().parent != session.workspace_root: raise ValueError("Development mount must be confined to workspace")
-        script_bytes = session.dataset_path.read_bytes()
-        if hashlib.sha256(script_bytes).hexdigest() != session.binding["data_sha256"]:
+        if streaming_file_sha256(session.dataset_path) != session.binding["data_sha256"]:
             raise ValueError("Development data changed since checkpoint binding")
-        (data / "development.csv").write_bytes(script_bytes)
+        shutil.copyfile(session.dataset_path, data / "development.csv")
         result = run_python_script(path, session.workspace_root / "scripts", data_root=data, sandbox_image=session.sandbox_image)
         if hasattr(result, "to_dict"): result = result.to_dict()
         return {"python_result": result, "advisory_only": True}

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:worker-handshake:2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "protocol",
+    "worker_id",
+    "capabilities",
+    "dependency_profile",
+    "device",
+    "platform"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "v2" },
+    "protocol": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "worker_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "capabilities": {
+      "type": "array",
+      "items": { "type": "string", "maxLength": 128 }
+    },
+    "dependency_profile": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "device": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "platform": { "type": "string", "minLength": 1, "maxLength": 64 }
+  },
+  "additionalProperties": false
+}

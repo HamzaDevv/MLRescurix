@@ -2,6 +2,8 @@
 
 This guide provides instructions and operating rules for any AI coding agent or human engineer continuing work in the MLRescurix repository.
 
+For the current general ML/deep-learning infrastructure build, read [IMPLEMENTATION_REVIEW_20261028.md](IMPLEMENTATION_REVIEW_20261028.md) first for corrected implementation status, then [ARCHITECTURE_BUILD_HANDOFF.md](ARCHITECTURE_BUILD_HANDOFF.md) for scope and plans. [ANTIGRAVITY_IMPLEMENTATION_PROMPT.md](ANTIGRAVITY_IMPLEMENTATION_PROMPT.md) provides the reusable implementation prompt. These documents do not change the historical campaign constraints below.
+
 ---
 
 ## 1. Prime Directives (Non-Negotiable Rules)

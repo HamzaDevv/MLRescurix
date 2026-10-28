@@ -17,6 +17,21 @@ dependencies = [
   "psutil==6.1.1",
 ]
 
+[project.optional-dependencies]
+deep-learning = [
+  "torch>=2.0.0",
+  "accelerate>=1.0.0",
+  "safetensors>=0.4.0",
+]
+tuning = [
+  "optuna>=3.6.0",
+]
+all = [
+  "torch>=2.0.0",
+  "accelerate>=1.0.0",
+  "safetensors>=0.4.0",
+]
+
 [project.scripts]
 mlrescurix-scientific = "mlrescurix_worker.scientific.cli:main"
 mlrescurix-dashboard = "mlrescurix_worker.scientific.dashboard:main"

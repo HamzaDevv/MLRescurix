@@ -15,11 +15,11 @@ def main():
     import pandas as pd
     from .candidate_pipeline import identity
     from .task_adapters import task_adapter
-    from .evidence import atomic_json, seal_result, source_identity
+    from .evidence import atomic_json, seal_result, source_identity, streaming_file_sha256
     try:
         if source_identity(Path(__file__).resolve().parents[4]) != request['binding']['source_sha256']:
             raise ValueError('Worker source differs from bound source')
-        if hashlib.sha256(Path(request['dataset']).read_bytes()).hexdigest() != request['binding']['data_sha256']:
+        if streaming_file_sha256(request['dataset']) != request['binding']['data_sha256']:
             raise ValueError('Worker development bytes differ from bound input')
         frame = pd.read_csv(request["dataset"])
         adapter = task_adapter(request['task_type'])

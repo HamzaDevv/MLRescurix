@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:training-result:2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "job_id",
+    "status",
+    "step_reached",
+    "epoch_reached",
+    "artifacts"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "v2" },
+    "job_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "status": {
+      "type": "string",
+      "enum": ["succeeded", "failed", "timed_out", "needs_resources", "interrupted"]
+    },
+    "step_reached": { "type": "integer", "minimum": 0 },
+    "epoch_reached": { "type": "integer", "minimum": 0 },
+    "primary_metric_name": { "type": ["string", "null"], "maxLength": 128 },
+    "primary_metric_score": { "type": ["number", "null"] },
+    "validation_loss": { "type": ["number", "null"] },
+    "peak_memory_bytes": { "type": "integer", "minimum": 0 },
+    "duration_seconds": { "type": "number", "minimum": 0.0 },
+    "artifacts": {
+      "type": "array",
+      "items": { "type": "string", "maxLength": 256 }
+    },
+    "limitations": {
+      "type": "array",
+      "items": { "type": "string", "maxLength": 1024 }
+    },
+    "reason": { "type": ["string", "null"], "maxLength": 4096 }
+  },
+  "additionalProperties": false
+}

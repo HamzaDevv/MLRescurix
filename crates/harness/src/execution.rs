@@ -182,7 +182,7 @@ pub fn validate_spec(s:&JobSpec)->Result<()> {
     }
     if let Probe::Scientific{operation,dataset_id,spec,candidate_id,test_access_id}=&s.probe {
         valid_id(dataset_id)?;
-        if !matches!(operation.as_str(),"audit"|"baselines"|"finalize"|"trial"|"pipeline"){return Err("unsupported scientific operation".into());}
+        if !matches!(operation.as_str(),"audit"|"baselines"|"finalize"|"trial"|"pipeline"|"custom_train"|"custom_resume"|"custom_evaluate"|"custom_export"){return Err("unsupported scientific operation".into());}
         if *operation=="audit" && spec.is_none(){return Err("audit requires an immutable project spec".into());}
         if *operation=="trial" && spec.is_none(){return Err("trial requires an experiment spec".into());}
         if *operation=="pipeline" {
@@ -193,6 +193,9 @@ pub fn validate_spec(s:&JobSpec)->Result<()> {
         if *operation=="finalize" {
             let candidate=candidate_id.as_deref().ok_or("finalize requires candidate identity")?;let access=test_access_id.as_deref().ok_or("finalize requires test access identity")?;
             valid_id(candidate)?;valid_id(access)?;
+        }
+        if operation.starts_with("custom_") {
+            return Err("custom scientific execution is experimental and unavailable pending governed isolation and evaluation".into());
         }
         if s.environment_id.is_none(){return Err("scientific jobs require a managed scientific environment".into());}
     }
@@ -1723,6 +1726,9 @@ impl Supervisor {
             let result_path=if operation=="trial"||operation=="pipeline"{
                 let exp_id=spec.as_ref().and_then(|s|s.get("experiment_id")).and_then(|v|v.as_str()).unwrap_or("");
                 workflow.join("trials").join(exp_id).join("trial.json")
+            } else if operation.starts_with("custom_") {
+                let art_dir = self.root.join("artifacts").join(&v.spec.project_id).join(&v.spec.job_id);
+                art_dir.join("result.json")
             } else {
                 let result_name=match operation.as_str(){"audit"=>"dataset_manifest.json","baselines"=>"results.json","finalize"=>"final.json",_=>""};
                 workflow.join(result_name)
@@ -2105,12 +2111,103 @@ pub fn worker(spec_path:&Path,output:&Path)->Result<i32>{
         Probe::Write{name,content}=>{if !alive.load(Ordering::Acquire){return Ok(125)}let p=output.join(name);let mut f=fs::OpenOptions::new().write(true).create_new(true).open(p).map_err(|e|e.to_string())?;f.write_all(content.as_bytes()).map_err(|e|e.to_string())?;f.sync_all().map_err(|e|e.to_string())?;},
         Probe::Scientific{operation,dataset_id:_,spec,candidate_id,test_access_id}=>{
             if !alive.load(Ordering::Acquire){return Ok(125)}
+            if operation.starts_with("custom_") {
+                return local_custom_scientific_worker(&worker_spec,&operation,spec.as_ref(),candidate_id.as_deref(),test_access_id.as_deref(),output,s.timeout_ms,s.threads,alive);
+            }
             if let Ok(image)=std::env::var("MLRESCURIX_SCIENTIFIC_IMAGE") {
                 return container_scientific_worker(&worker_spec,&operation,spec.as_ref(),candidate_id.as_deref(),test_access_id.as_deref(),output,&image,s.timeout_ms,s.threads,alive);
             }
             return Err("scientific host execution prohibited; verified Docker environment required".into());
         }
     }
+    Ok(0)
+}
+
+fn local_custom_scientific_worker(
+    _job_spec: &JobSpec,
+    operation: &str,
+    spec: Option<&Value>,
+    candidate: Option<&str>,
+    access: Option<&str>,
+    output: &Path,
+    timeout: u64,
+    threads: u32,
+    alive: Arc<AtomicBool>,
+) -> Result<i32> {
+    let python = std::env::var("MLRRESCURIX_PYTHON").map_err(|e| format!("custom worker requires MLRRESCURIX_PYTHON: {e}"))?;
+    let dataset = std::env::var("MLRRESCURIX_DATASET").map_err(|e| format!("custom worker requires MLRRESCURIX_DATASET: {e}"))?;
+    let workflow = std::env::var("MLRRESCURIX_WORKFLOW").map_err(|e| format!("custom worker requires MLRRESCURIX_WORKFLOW: {e}"))?;
+    let pythonpath = std::env::var("MLRRESCURIX_PYTHONPATH").map_err(|e| format!("custom worker requires MLRRESCURIX_PYTHONPATH: {e}"))?;
+
+    let req_spec_path = output.join("custom-job-spec.json");
+    if let Some(value) = spec {
+        fs::write(&req_spec_path, serde_json::to_vec(value).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    } else {
+        return Err("custom operation requires specification payload".into());
+    }
+
+    let mut cmd = Command::new(&python);
+    cmd.args(["-m", "mlrescurix_worker.custom.worker"])
+        .arg("--operation").arg(operation)
+        .arg("--spec").arg(&req_spec_path)
+        .arg("--output").arg(output)
+        .arg("--dataset").arg(&dataset)
+        .arg("--workflow").arg(&workflow);
+
+    if let Some(cand) = candidate {
+        cmd.arg("--candidate").arg(cand);
+    }
+    if let Some(acc) = access {
+        cmd.arg("--test-access-id").arg(acc);
+    }
+
+    cmd.env("PYTHONPATH", &pythonpath)
+        .env("PYTHONDONTWRITEBYTECODE", "1")
+        .env("MLRESCURIX_NUM_THREADS", threads.to_string())
+        .env("OMP_NUM_THREADS", threads.to_string())
+        .env("OPENBLAS_NUM_THREADS", threads.to_string())
+        .env("MKL_NUM_THREADS", threads.to_string())
+        .env("VECLIB_MAXIMUM_THREADS", threads.to_string())
+        .env("NUMEXPR_NUM_THREADS", threads.to_string())
+        .env("POLARS_MAX_THREADS", threads.to_string());
+
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::inherit());
+    cmd.stderr(Stdio::inherit());
+
+    let mut child = cmd.spawn().map_err(|e| format!("custom worker process launch: {e}"))?;
+    let deadline = Instant::now() + Duration::from_millis(timeout);
+    let code = loop {
+        if !alive.load(Ordering::Acquire) || Instant::now() >= deadline {
+            let _ = terminate(&mut child);
+            let _ = child.wait();
+            break 124;
+        }
+        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+            break status.code().unwrap_or(1);
+        }
+        thread::sleep(Duration::from_millis(50));
+    };
+
+    if req_spec_path.exists() {
+        let _ = fs::remove_file(req_spec_path);
+    }
+
+    if code != 0 {
+        return Ok(code);
+    }
+
+    let result_file = output.join("result.json");
+    if !result_file.is_file() {
+        return Err("custom worker produced no result.json receipt".into());
+    }
+
+    let result_bytes = fs::read(&result_file).map_err(|e| e.to_string())?;
+    let res: Value = serde_json::from_slice(&result_bytes).map_err(|e| e.to_string())?;
+    if res["status"] != "succeeded" {
+        return Ok(1);
+    }
+
     Ok(0)
 }
 

@@ -68,11 +68,189 @@ impl Checkpoint {
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct CustomJobResources {
+    pub memory_bytes: u64,
+    pub cpu_threads: u32,
+    pub timeout_ms: u64,
+}
+impl CustomJobResources {
+    pub fn validate(&self) -> Result<()> {
+        if self.memory_bytes < 64 * 1024 * 1024 { return Err("memory limit must be at least 64 MiB".into()); }
+        if self.cpu_threads == 0 || self.cpu_threads > 64 { return Err("cpu threads must be 1..=64".into()); }
+        if self.timeout_ms < 100 { return Err("timeout must be at least 100 ms".into()); }
+        Ok(())
+    }
+}
+fn default_v2_schema_version() -> Option<String> {
+    Some("v2".into())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct CustomJobSpec {
+    pub job_id: String,
+    pub project_id: String,
+    pub task_id: String,
+    pub generation: u64,
+    pub intent_revision: u64,
+    pub operation: String,
+    pub model_plugin: String,
+    pub dataset_id: String,
+    #[serde(default = "default_v2_schema_version")]
+    pub schema_version: Option<String>,
+    #[serde(default)]
+    pub target_column: Option<String>,
+    pub metric_name: String,
+    pub metric_direction: String,
+    pub max_steps: u64,
+    pub batch_size: u32,
+    #[serde(default)]
+    pub resume_checkpoint: Option<String>,
+    #[serde(default)]
+    pub learning_rate: Option<f64>,
+    #[serde(default)]
+    pub hidden_dim: Option<u32>,
+    #[serde(default)]
+    pub seed: Option<u64>,
+    #[serde(default)]
+    pub resources: Option<CustomJobResources>,
+}
+impl CustomJobSpec {
+    pub fn validate(&self) -> Result<()> {
+        for s in [&self.job_id, &self.project_id, &self.task_id, &self.dataset_id, &self.model_plugin] { id(s)?; }
+        if self.generation == 0 || self.generation > MAX_INTEGER || self.intent_revision == 0 || self.intent_revision > MAX_INTEGER {
+            return Err("invalid revision/generation".into());
+        }
+        if self.schema_version.as_deref() != Some("v2") {
+            return Err("schema_version must be 'v2'".into());
+        }
+        if !["custom_train", "custom_resume", "custom_evaluate", "custom_export"].contains(&self.operation.as_str()) {
+            return Err("unsupported custom operation".into());
+        }
+        if !["maximize", "minimize"].contains(&self.metric_direction.as_str()) {
+            return Err("invalid metric direction".into());
+        }
+        if self.max_steps == 0 || self.max_steps > 1_000_000 {
+            return Err("invalid max_steps".into());
+        }
+        if self.batch_size == 0 || self.batch_size > 65536 {
+            return Err("invalid batch_size".into());
+        }
+        if let Some(res) = &self.resources { res.validate()?; }
+        Ok(())
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct TrainingCheckpoint {
+    pub checkpoint_id: String,
+    pub job_id: String,
+    #[serde(default = "default_v2_schema_version")]
+    pub schema_version: Option<String>,
+    pub step: u64,
+    pub epoch: u64,
+    pub batch_offset: u64,
+    pub sampler_position: u64,
+    #[serde(default)]
+    pub loss: Option<f64>,
+    pub files: BTreeMap<String, String>,
+    #[serde(default)]
+    pub training_state: Option<serde_json::Value>,
+    pub timestamp_unix: f64,
+}
+impl TrainingCheckpoint {
+    pub fn validate(&self) -> Result<()> {
+        for s in [&self.checkpoint_id, &self.job_id] { id(s)?; }
+        if self.schema_version.as_deref() != Some("v2") {
+            return Err("schema_version must be 'v2'".into());
+        }
+        if self.files.is_empty() { return Err("checkpoint files cannot be empty".into()); }
+        for (f, sha) in &self.files {
+            text(f)?;
+            if sha.len() != 64 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err("invalid file sha256 in checkpoint manifest".into());
+            }
+        }
+        Ok(())
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct TrainingResult {
+    pub job_id: String,
+    pub status: String,
+    #[serde(default = "default_v2_schema_version")]
+    pub schema_version: Option<String>,
+    pub step_reached: u64,
+    pub epoch_reached: u64,
+    #[serde(default)]
+    pub primary_metric_name: Option<String>,
+    #[serde(default)]
+    pub primary_metric_score: Option<f64>,
+    #[serde(default)]
+    pub validation_loss: Option<f64>,
+    pub peak_memory_bytes: u64,
+    pub duration_seconds: f64,
+    pub artifacts: Vec<String>,
+    #[serde(default)]
+    pub limitations: Vec<String>,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+impl TrainingResult {
+    pub fn validate(&self) -> Result<()> {
+        id(&self.job_id)?;
+        if self.schema_version.as_deref() != Some("v2") {
+            return Err("schema_version must be 'v2'".into());
+        }
+        if !["succeeded", "failed", "timed_out", "needs_resources", "interrupted"].contains(&self.status.as_str()) {
+            return Err("invalid training result status".into());
+        }
+        if self.artifacts.len() > 64 { return Err("too many artifacts in result".into()); }
+        for a in &self.artifacts { text(a)?; }
+        Ok(())
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct WorkerHandshake {
+    pub protocol: String,
+    pub worker_id: String,
+    #[serde(default = "default_v2_schema_version")]
+    pub schema_version: Option<String>,
+    pub capabilities: Vec<String>,
+    pub dependency_profile: String,
+    pub device: String,
+    pub platform: String,
+}
+impl WorkerHandshake {
+    pub fn validate(&self) -> Result<()> {
+        id(&self.worker_id)?;
+        if self.schema_version.as_deref() != Some("v2") {
+            return Err("schema_version must be 'v2'".into());
+        }
+        text(&self.protocol)?;
+        text(&self.dependency_profile)?;
+        text(&self.device)?;
+        text(&self.platform)?;
+        if self.capabilities.is_empty() || self.capabilities.len() > 64 {
+            return Err("worker capabilities must be 1..=64 items".into());
+        }
+        for c in &self.capabilities { text(c)?; }
+        Ok(())
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag="kind", content="payload", rename_all="snake_case", deny_unknown_fields)]
 pub enum Message {
     Hello { protocol: String, worker_id: String },
     Observation { project_id: String, task_id: String, action_id: String, generation: u64, phase: String, detail: String },
     Checkpoint(Checkpoint),
+    CustomJob(CustomJobSpec),
+    TrainingCheckpoint(TrainingCheckpoint),
+    TrainingResult(TrainingResult),
+    WorkerHandshake(WorkerHandshake),
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -91,5 +269,9 @@ pub fn decode_frame(bytes: &[u8]) -> Result<Frame> {
             for s in [project_id,task_id,action_id] {id(s)?;} if *generation==0 || *generation>MAX_INTEGER {return Err("invalid generation".into());} text(phase)?;text(detail)?;
         }
         Message::Checkpoint(c) => c.validate()?,
+        Message::CustomJob(j) => j.validate()?,
+        Message::TrainingCheckpoint(tc) => tc.validate()?,
+        Message::TrainingResult(tr) => tr.validate()?,
+        Message::WorkerHandshake(wh) => wh.validate()?,
     } Ok(Frame{version:1,message:m})
 }
