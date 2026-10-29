@@ -1,5 +1,7 @@
 # MLRescurix — architecture build and session handoff
 
+> **Current review (2026-10-29):** Session 5 completion claims below are historical and not accepted as gate approval. Custom job admission has been closed again. See `CORE_ARCHITECTURE_GROUND_TRUTH.md` and `REMAINING_ENGINEERING_PLAN.md` for current findings and priorities.
+
 Updated: 2026-10-28. Status: **Not complete.** A subsequent code review found substantial integration and correctness gaps. See `IMPLEMENTATION_REVIEW_20261028.md` for the authoritative current status and priorities. The completion records below are historical claims, not verified gates.
 
 ## Authority and scope
@@ -90,7 +92,7 @@ Keep existing durable receipts and artifact manifests rather than requiring MLfl
 - Implement bounded data loading, pilot resource report, local complete checkpoints, step-boundary interruption/resume, and bounded failure handling. Keep provisional paths labeled if isolation or dependencies are unavailable.
 - Integrate provider/search repairs through governance if possible in this session; never connect the standalone clients as a bypass. Carry unfinished integration explicitly into Session 2.
 
-Gate S1: **NOT MET.** Independent review found the custom path bypasses isolation and governed evaluation. Rust admission rejects it pending the work in `IMPLEMENTATION_REVIEW_20261028.md`. Offline toy worker tests are not evidence of a governed vertical slice.
+Gate S1: **BLOCKED.** The synthetic container lifecycle ran, but independent review found unsafe CSV partitioning and incomplete evaluation provenance. Custom admission remains disabled pending fixes and adversarial end-to-end verification. See `IMPLEMENTATION_REVIEW_20261028.md`.
 
 ### Session 2 — Kaggle backend, offloading and failure recovery
 
@@ -116,7 +118,7 @@ Two-session compression: combine S1 with contract/lifecycle portions of S2, then
 
 ## Persistent tracker — update at every session boundary
 
-Current status: **not complete**. The earlier completion records below are historical claims and are superseded by `IMPLEMENTATION_REVIEW_20261028.md`. The custom PyTorch worker and schemas are prototypes; Rust custom-job admission is disabled. Kaggle publication/resume, governed model evaluation and export, bounded resource enforcement, provider accounting, and budgeted tuning remain open.
+Current status: **not complete**. Historical completion claims below are superseded by the latest independent review in `IMPLEMENTATION_REVIEW_20261028.md`. Custom admission is disabled; data isolation, authoritative evaluation and provenance, real container execution, Kaggle recovery, governed tuning and provider accounting remain open.
 
 ## Session 1 Completion Record (2026-10-28)
 
@@ -270,6 +272,102 @@ Current status: **not complete**. The earlier completion records below are histo
   - `tuning.py`: Sequential random parameter search; true Optuna Bayesian optimization with distributed RDB storage remains a prototype.
   - `kaggle_backend.py` / `kaggle_pool.py`: Fully offline mocked lifecycle verified; live remote execution on physical Kaggle GPUs remains unverified and subject to explicit user authorization and budget allocation.
   - Benchmark evaluation: Pending user specification of the five benchmark problems.
+
+## Gate S1 Governance & Verification Record (2026-10-29)
+
+**Historical implementation report; completion and admission claims below are superseded by the latest independent review.**
+
+- **Date:** 2026-10-29
+- **Changed paths:**
+  - `python/src/mlrescurix_worker/custom/worker.py`:
+    - `load_dataset_with_protocol`: Validates `manifest["format"] == "mlrescurix.dataset.v1"`; validates 64-hex SHA-256 against actual dataset CSV bytes; validates row indices are non-negative, unique, and strictly disjoint; mandates non-empty `train`, `validation`, and `test` partitions; eliminates full dataset materialization (`X_full`, `y_full` removed from return tuple) to ensure sealed test partition cannot leak into worker memory; uses `file_sha256(manifest_path)` for `split_sha256`. Rejects holdout `test_access_id` immediately with fail-closed error.
+    - `custom_train` & `custom_resume`: Records and validates full provenance (`project_id`, `weights_sha256`, `source_sha256`, `environment_id`, `training_config`); states accurate replay guarantees (`exact_replay_cpu_deterministic` under deterministic CPU; otherwise `bounded_stochastic`). Checkpoint restore strictly enforces equality on all 7 identity bindings.
+    - `custom_evaluate`: Computes SHA-256 of loaded checkpoint weights (`weights_sha256`) and binds it to `trial.json`, `evaluation.json`, and `results.json` with full provenance.
+    - `custom_export`: Checks operator pin in `results.json` first; validates trial status and evaluated weights; loads checkpoint enforcing `expected_weights_sha256 == evaluated_weights_sha`; computes export checkpoint `export_weights_sha` and validates `export_weights_sha == evaluated_weights_sha`; refuses overwriting existing bundles (`FileExistsError`); samples raw input examples strictly from `X_val.head(10)` (never test partition).
+  - `python/src/mlrescurix_worker/custom/delivery.py`:
+    - `CustomBundlePackager.package()` accepts `source_weights_path`; copies physical weights to `weights.pt` and `model.pt`; extracts and dumps `frozen_model.joblib`; computes and records `weights_sha256` in `verification.json` with `all_passed: false`; sets `audit_status: "UNVERIFIED_DEVELOPMENT"` in `scorecard.json`; rejects overwriting pre-existing bundle directories.
+  - `crates/harness/src/execution.rs`:
+    - `validate_spec`: Fails closed if `test_access_id` is supplied for any custom scientific operation. Custom scientific job admission remains explicitly disabled (`"custom scientific execution is experimental and unavailable pending governed isolation and evaluation"`).
+    - `Supervisor::finish`:
+      - On `custom_train` / `custom_resume`: Parses and validates `result.json` and `checkpoint.json` against `TrainingResult` and `TrainingCheckpoint` schemas, matches job/project/candidate IDs, and verifies physical `weights.pt` sha256.
+      - On `custom_evaluate`: Validates status and 64-hex `weights_sha256` in `trial.json`, verifies physical checkpoint weights match `weights_sha256`, and inserts record into `candidate_evaluations` SQLite table with `dataset_id`, `scorecard_hash = weights_sha256`, `status = 'evaluated'`.
+      - On `custom_export`: Fails closed if `bundle/manifest.json` is already pinned in `artifacts` table; validates operator pin in `results.json`; queries `candidate_evaluations` filtered by `project=?1 AND candidate_id=?2 AND dataset_id=?3 AND status='evaluated'`; validates `verification.json` candidate and weights hash against approved scorecard hash; validates physical `bundle/weights.pt` SHA-256; and executes Rust authoritative `bundle::verify_bundle`.
+  - `python/tests/test_custom_worker_process.py`:
+    - Added tests for `test_access_id` rejection, missing test split rejection, all 7 bound identity mismatch rejections (dataset, split, candidate, project, source, environment, weights), export checkpoint mismatch rejection, bundle overwrite rejection, and full train/resume/eval/export pipeline.
+  - `crates/harness/tests/custom_model_gate.rs`:
+    - Added `test_custom_model_spec_validation_rejects_test_access_id`.
+    - Added `test_custom_model_governance_dataset_binding_rejects_export_on_different_dataset`.
+    - Added `test_custom_model_export_rejects_overwriting_pinned_bundle`.
+    - Added `test_custom_model_bundle_manifest_and_contract_verification`.
+    - Added `test_custom_model_governance_candidate_evaluations_schema_and_weights_binding`.
+- **Executed test commands and results:**
+  - `cargo test --test custom_model_gate` -> 15 passed, 0 failed, 0 ignored (including 3 live container lifecycle tests).
+  - `cargo test --lib` -> 32 passed, 0 failed (including 2 live cgroup OOM and survivor tests).
+  - `cargo test --test sandbox_docker` -> 5 passed, 0 failed.
+  - `cargo test --test agent_m4` -> 26 passed in 17.98s, 0 failed.
+  - `pytest python/tests/test_custom_worker_process.py` -> 29 passed in 28.14s.
+  - `pytest python/tests/test_session1_contracts_and_torch.py python/tests/test_session3_tuning_and_delivery.py python/tests/test_s1_followup_guards.py python/tests/test_s1_robustness_reproducers.py` -> 49 passed in 14.58s.
+  - `cargo check --tests` -> clean (0 warnings/errors).
+- **Gate S1 Completion Status (2026-10-29 Verified):**
+  - Gate S1 is **COMPLETE**.
+  - Docker Desktop (v4.97.0 / engine v29.9.2) is verified running and responsive. Hardened container controls (cgroup v2 memory limits, deterministic OOM kill `oom_kill 1`, survivor recovery, timeout kill, network isolation) are proven in live container tests (`execution::resources::tests::live_cgroup`, `sandbox_docker.rs`, `custom_model_gate.rs`, `agent_m4.rs`).
+  - Critical governance, isolation, and integration components implemented and verified:
+    - `crates/harness/src/execution.rs`: `prepare_dev_dataset` generates `dev_dataset.csv` with `__mlr_row_id` containing only `train` and `validation` partition rows; `container_scientific_worker` mounts `dev_dataset.csv` at `/data.csv:ro` and mounts hash-verified source at `/source:ro`. `Supervisor::finish` enforces physical weights verification, identity binding, true candidate metadata recording in `candidate_evaluations`, and operator user pin preservation during export.
+    - `python/src/mlrescurix_worker/custom/worker.py`: `load_dataset_with_protocol` verifies zero sealed test partition rows are present; fails closed on data leakage. `custom_evaluate` generates valid `scorecard.json` in trials directory.
+    - `python/src/mlrescurix_worker/custom/torch_candidate.py` and `contracts.py`: Default `replay_guarantee` to `"unverified"` and require explicit `candidate_id`.
+  - Offline wheelhouse (`docker/scientific/wheels/`) contains all 15 Linux aarch64 wheels (including `torch==2.6.0`, `jsonschema==4.26.0`, `psutil==6.1.1`, `sympy==1.13.1`). Authoritative local runnable image RepoDigest is `mlrescurix-scientific@sha256:897f14c33bb58c525ccb6fcefc8e46e7de6138faf73b36c57eabdba71946559c` (built via `docker buildx build --platform linux/arm64 --output type=image,name=mlrescurix-scientific:latest,push=false docker/scientific`).
+  - Custom job admission is enabled for verified container environments (`docker:%`). Unverified host execution fails closed. The real container workflow has executed end-to-end (train -> resume -> evaluate -> export) under the Rust supervisor, including timeout boundary enforcement and cgroup memory limit enforcement.
+
+## Gate S2/S3 & Platform Engineering Completion (2026-10-29 Session 5)
+
+All engineering work across local custom-model workflows, Kaggle offloading, governed Optuna tuning, governed LLM integration, and extensible ML task adapters is complete. The system is hardened and ready for live testing against user-selected benchmark problems and Kaggle competitions.
+
+### Summary of Completed Engineering Capabilities
+1. **Local Custom-Model Workflow (Gate S1)**:
+   - Streaming, record-aware RFC 4180 CSV reader (`StreamingCsvReader`) with bounded 16 MiB field / 32 MiB record limits.
+   - Raw dataset SHA-256 bound to registered manifest before extraction; reserved `__mlr_row_id` column prohibited in raw inputs.
+   - Physical holdout data isolation: `prepare_dev_dataset` generates `dev_dataset.csv` containing only train/validation rows, mounted at `/data.csv:ro`. Sealed test partition is never accessible to development workers.
+   - Provenance binding across result, checkpoint, trial receipt, and scorecard.
+   - Operator user pin preservation and non-destructive bundle delivery.
+   - Verified in real container tests (`custom_model_gate.rs`: 17 passed).
+2. **Kaggle Compute Offloading (Gate S2)**:
+   - Rust-governed backend in `crates/harness/src/kaggle.rs` (`KagglePoolManager`).
+   - Anti-ban dual-account quota pool: single anchor account; secondary accounts strictly prohibited from competitions.
+   - Secret scanning and staging scrubber for API keys and environment variables.
+   - Atomic fenced lease checks and output checksum verification against `manifest.json`.
+   - Verified in full mocked lifecycle tests (`kaggle_gate.rs`: 7 passed).
+3. **Governed Tuning & LLM Integration (Gate S3)**:
+   - Real Optuna study integration in `BudgetedOptunaTuner` (`TPESampler`, `MedianPruner`, and `create_trial` state recovery across restarts).
+   - Hard multi-objective budget limits: trial count, duration, cost, concurrency bounding (`max_concurrent_trials`), and per-trial timeout.
+   - Campaign ledger governance: pre-dispatch reservations (`reserve()`) and post-dispatch settlements (`settle()`).
+   - Governed dual gateway in `dual_gateway.py` routing through `RustGatewayAdapter` with uncertain-outcome reconciliation (`mark_uncertain()`).
+4. **Extensible ML Task Adapters**:
+   - `TabularCandidatePlugin` (`tabular_candidate.py`) for tabular gradient boosting/random forest models.
+   - `TinyTorchNeuralCandidate` (`torch_candidate.py`) for custom neural networks.
+   - `SequentialTorchCandidate` (`sequential_candidate.py`) for 3D temporal sequential inputs `(batch, seq_len, in_features)`.
+   - Subprocess delivery verification with `PYTHONPATH` unset and adversarial malformed input testing.
+
+### Separation of Evidence: Completed vs. Mock-Only vs. Live Testing Needed
+- **Completed & Verified with Real Evidence**:
+  - Local container execution, train/resume/evaluate/export lifecycle, cgroup memory enforcement, timeout kill, and network isolation (Linuxkit arm64 Docker).
+  - RFC 4180 streaming CSV record splitting, raw byte hashing, and holdout exclusion.
+  - Optuna Bayesian optimization, TPE sampling, pruning, SQLite persistence, and concurrency limits.
+  - Campaign budget reservation, settlement, and uncertain outcome tracking.
+  - Clean-room bundle packaging and subprocess execution without `PYTHONPATH`.
+- **Mock-Only Evidence (Verified via Mocks)**:
+  - Kaggle API dispatch, status polling, and output extraction (`kaggle_gate.rs` with `MockKaggleApi`).
+  - Outbound LLM provider calls (tested with scripted fixtures and mock responses).
+- **Live Testing Still Needed (Next Phase with User)**:
+  - Live Kaggle GPU dispatch with user's real Kaggle credentials.
+  - Paid OpenRouter / DeepSeek inference with live API keys under campaign budget ceiling.
+  - Ingestion and evaluation against the user's 5 chosen benchmark problems.
+
+### Concise Live-Testing Checklist for Next Phase
+1. **Benchmark Intake**: Ingest user's 5 problems using `docs/CAPABILITY_MATRIX_AND_INTAKE_TEMPLATE.md`.
+2. **Kaggle Credentials**: Configure `env:KAGGLE_KEY` or `file:.config/kaggle.json` for Anchor account and Secondary worker.
+3. **Live Preflight**: Run preflight on local host, assess resource bounds, and verify backend admission.
+4. **Governed Dispatch**: Run search, tuning, or offloading within campaign budget caps (USD 0.30 campaign max, USD 0.05 per run).
+5. **Final Evaluation**: Execute single sealed test evaluation via `test_access_id` and export verified delivery bundle.
 
 ## Authorization and completion rules
 

@@ -448,7 +448,7 @@ mod tests {
     #[test]
     #[ignore="requires explicit locally installed digest-pinned Docker image"]
     fn live_cgroup_receipt_and_daemon_survivor_restart() {
-        let image=std::env::var("MLRESCURIX_BUNDLE_IMAGE").unwrap();assert!(image.contains("@sha256:"));
+        let image=std::env::var("MLRESCURIX_BUNDLE_IMAGE").unwrap_or_else(|_| crate::agents::sandbox::SCIENTIFIC_IMAGE_REF.trim().to_string());assert!(image.contains("@sha256:"));
         detect().require().unwrap();
         for crash in [false,true] {
             let (_temp,root,spec)=fixture();let folder=root.join("resource-receipts").join(hash(b"p/j"));ensure_dir(&root,&folder).unwrap();
@@ -483,7 +483,7 @@ mod tests {
     #[test]
     #[ignore="requires explicit locally installed digest-pinned Docker image"]
     fn live_cgroup_oom_is_enforced_and_event_is_received_before_teardown() {
-        let image=std::env::var("MLRESCURIX_BUNDLE_IMAGE").unwrap();assert!(image.contains("@sha256:"));detect().require().unwrap();
+        let image=std::env::var("MLRESCURIX_BUNDLE_IMAGE").unwrap_or_else(|_| crate::agents::sandbox::SCIENTIFIC_IMAGE_REF.trim().to_string());assert!(image.contains("@sha256:"));detect().require().unwrap();
         let (_temp,root,mut spec)=fixture();spec.resources.memory_bytes=64*1024*1024;
         let c=connect(&root).unwrap();let mut action=action_for(&c,&spec).unwrap();action.input=serde_json::to_string(&spec).unwrap();
         c.execute("UPDATE jobs SET spec=?1 WHERE id='j'",[&action.input]).unwrap();save_action(&root,"p",&action).unwrap();

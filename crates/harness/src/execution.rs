@@ -195,6 +195,39 @@ pub fn validate_spec(s:&JobSpec)->Result<()> {
             valid_id(candidate)?;valid_id(access)?;
         }
         if operation.starts_with("custom_") {
+            if test_access_id.is_some() {
+                return Err("custom development operations cannot access sealed test partition or receive test access id".into());
+            }
+            let custom_spec_val = spec.as_ref().ok_or("custom operation requires specification payload")?;
+            let custom_spec: crate::contracts::CustomJobSpec = serde_json::from_value(custom_spec_val.clone())
+                .map_err(|e| format!("invalid custom job spec: {e}"))?;
+            custom_spec.validate()?;
+            if custom_spec.operation != *operation {
+                return Err("custom operation mismatch between probe and spec".into());
+            }
+            if custom_spec.dataset_id != *dataset_id {
+                return Err("dataset identity mismatch between probe and spec".into());
+            }
+            if custom_spec.job_id != s.job_id {
+                return Err("job identity mismatch between job and spec".into());
+            }
+            if custom_spec.project_id != s.project_id {
+                return Err("project identity mismatch between job and spec".into());
+            }
+            if custom_spec.task_id != s.task_id {
+                return Err("task identity mismatch between job and spec".into());
+            }
+            if let Some(cand) = candidate_id {
+                valid_id(cand)?;
+            } else {
+                return Err("custom scientific operations require candidate identity".into());
+            }
+            if let Some(spec_cand) = &custom_spec.candidate_id {
+                valid_id(spec_cand)?;
+            }
+            if candidate_id.as_deref() != custom_spec.candidate_id.as_deref() {
+                return Err("candidate identity mismatch between probe and spec".into());
+            }
             return Err("custom scientific execution is experimental and unavailable pending governed isolation and evaluation".into());
         }
         if s.environment_id.is_none(){return Err("scientific jobs require a managed scientific environment".into());}
@@ -310,7 +343,7 @@ pub fn submit(root:&Path,mut s:JobSpec)->Result<JobView>{
     if let Probe::Scientific{operation,dataset_id,spec:scientific_spec,candidate_id,test_access_id}=&s.probe {
         let closed:bool=sql(tx.query_row("SELECT EXISTS(SELECT 1 FROM final_test_gates WHERE project=?1)",[&s.project_id],|r|r.get(0)))?;
         if closed{return Err("scientific research is closed by the durable final-test gate".into());}
-        if operation=="pipeline"||operation=="finalize" {
+        if operation=="pipeline"||operation=="finalize"||operation.starts_with("custom_") {
             let ready:bool=sql(tx.query_row("SELECT EXISTS(SELECT 1 FROM environments WHERE id=?1 AND status='ready' AND python LIKE 'docker:%')",[s.environment_id.as_deref().ok_or("scientific container environment missing")?],|r|r.get(0)))?;
             if !ready{return Err(format!("{operation} requires a verified ready container environment; host fallback prohibited"));}
             if operation=="pipeline" {
@@ -1613,8 +1646,8 @@ impl Supervisor {
                     .env("MLRRESCURIX_WORKFLOW",workflow).env("MLRRESCURIX_PYTHONPATH",runtime_source);
                 if let Some((image,identity))=container {
                     cmd.env("MLRESCURIX_SCIENTIFIC_IMAGE",image.trim_start_matches("docker:")).env("MLRESCURIX_ENVIRONMENT_IDENTITY",identity);
-                } else if matches!(&s.probe,Probe::Scientific{operation,..} if operation=="pipeline"||operation=="finalize") {
-                    return Err("full pipelines and finalization require a verified container environment; host fallback prohibited".into());
+                } else if matches!(&s.probe,Probe::Scientific{operation,..} if operation=="pipeline"||operation=="finalize"||operation.starts_with("custom_")) {
+                    return Err("full pipelines, finalization, and custom scientific jobs require a verified container environment; host fallback prohibited".into());
                 }
             }
             cmd.process_group(0);
@@ -1676,7 +1709,7 @@ impl Supervisor {
             if child.try_wait().map_err(|e|e.to_string())?.is_some(){
                 let status=child.wait().map_err(|e|e.to_string())?;control.close_logs();
                 let _ = crate::broker::transition_lease(&c, &format!("lease-{}-{}", view.spec.project_id, view.spec.job_id), crate::broker::LeaseStatus::Reaped, Some("process exited"));
-                let reason=if cancel{Some("cancelled".to_string())}else if timed_out||status.code()==Some(124){Some("deadline exceeded".to_string())}else if !status.success(){Some(format!("worker exited with {status}"))}else{None};
+                let reason=if cancel{Some("cancelled".to_string())}else if timed_out||status.code()==Some(124){Some("deadline exceeded".to_string())}else if status.code()==Some(137){if view.spec.resources.memory_bytes>0{Some("memory limit exceeded".to_string())}else{Some("worker terminated by SIGKILL (exit 137); cause unverified".to_string())}}else if !status.success(){Some(format!("worker exited with {status}"))}else{None};
                 let (artifacts,final_reason)=if reason.is_none(){match self.publish(&view){Ok(a)=>(a,None),Err(e)=>{let stage=self.root.join("artifacts").join(&view.spec.project_id).join(format!(".{}.staging",view.spec.job_id));if stage.exists(){let _=safe_remove(&self.root,&stage);} (vec![],Some(format!("artifact validation: {e}")))}}}else{(vec![],reason)};
                 let ok=final_reason.is_none();if !ok{let stage=self.root.join("artifacts").join(&view.spec.project_id).join(format!(".{}.staging",view.spec.job_id));if stage.exists(){safe_remove(&self.root,&stage)?;}}
                 self.finish(&view,if ok{"succeeded"}else if cancel{"cancelled"}else if timed_out||status.code()==Some(124){"timed_out"}else{"failed"},final_reason,artifacts,elapsed.as_millis().max(1) as u64)?;
@@ -1717,11 +1750,11 @@ impl Supervisor {
         let spec_path=stage.join("job.json");if spec_path.exists(){fs::remove_file(spec_path).map_err(|e|e.to_string())?;}
         fs::rename(&stage,&final_dir).map_err(|e|e.to_string())?;Ok(artifacts)
     }
-    fn finish(&self,v:&JobView,status:&str,reason:Option<String>,artifacts:Vec<Value>,elapsed_ms:u64)->Result<()>{
+    pub fn finish(&self,v:&JobView,status:&str,reason:Option<String>,artifacts:Vec<Value>,elapsed_ms:u64)->Result<()>{
         resources::confirm_job_exit(&self.root,&v.spec)?;
         let c=connect(&self.root)?;let tx=sql(rusqlite::Transaction::new_unchecked(&c,rusqlite::TransactionBehavior::Immediate))?;
         enforce_state_write_admission(&self.root,Some(&tx),32*1024,StorageWriteKind::EmergencyRecovery,Some(&v.spec.project_id))?;
-        if let Probe::Scientific{operation,dataset_id:_,candidate_id,test_access_id,spec}=&v.spec.probe {
+        if let Probe::Scientific{operation,dataset_id,candidate_id,test_access_id,spec}=&v.spec.probe {
             let workflow=self.root.join("workflows").join(&v.spec.project_id);
             let result_path=if operation=="trial"||operation=="pipeline"{
                 let exp_id=spec.as_ref().and_then(|s|s.get("experiment_id")).and_then(|v|v.as_str()).unwrap_or("");
@@ -1779,6 +1812,424 @@ impl Supervisor {
                 let test_hash=gate["dataset_sha256"].as_str().ok_or("test gate lacks dataset hash")?;
                 sql(tx.execute("UPDATE final_test_gates SET frozen_model_sha256=?4,status='consumed',result_sha256=?5 WHERE project=?1 AND access_id=?2 AND dataset_sha256=?3 AND status='reserved'",params![v.spec.project_id,access,test_hash,gate["frozen_model_sha256"].as_str().unwrap_or(""),hash(&fs::read(&result_path).map_err(|e|e.to_string())?)]))?;
                 sql(tx.execute("INSERT INTO events(project,kind,payload) VALUES(?1,'final_test.consumed',?2)",params![v.spec.project_id,json!({"job_id":v.spec.job_id,"candidate_id":candidate,"test_access_id":access,"result_sha256":result_hash}).to_string()]))?;
+            } else if (operation=="custom_train"||operation=="custom_resume")&&status=="succeeded" {
+                let art_dir = self.root.join("artifacts").join(&v.spec.project_id).join(&v.spec.job_id);
+                let result_file = art_dir.join("result.json");
+                let ckpt_file = art_dir.join("checkpoint.json");
+                if !result_file.is_file() || !ckpt_file.is_file() {
+                    return Err("custom training/resumption succeeded but result.json or checkpoint.json is missing".into());
+                }
+                let result_bytes = fs::read(&result_file).map_err(|e| e.to_string())?;
+                let ckpt_bytes = fs::read(&ckpt_file).map_err(|e| e.to_string())?;
+                let training_result: crate::contracts::TrainingResult = serde_json::from_slice(&result_bytes)
+                    .map_err(|e| format!("invalid training result contract: {e}"))?;
+                let training_checkpoint: crate::contracts::TrainingCheckpoint = serde_json::from_slice(&ckpt_bytes)
+                    .map_err(|e| format!("invalid training checkpoint contract: {e}"))?;
+                training_result.validate()?;
+                training_checkpoint.validate()?;
+                if training_result.job_id != v.spec.job_id || training_checkpoint.job_id != v.spec.job_id {
+                    return Err("job_id in training artifacts does not match supervisor job".into());
+                }
+                if training_result.project_id.as_deref() != Some(&v.spec.project_id) || training_checkpoint.project_id.as_deref() != Some(&v.spec.project_id) {
+                    return Err("project_id in training artifacts does not match supervisor project".into());
+                }
+                let cand = candidate_id.as_deref().ok_or("candidate identity required for custom training")?;
+                if training_result.candidate_id.as_deref() != Some(cand) || training_checkpoint.candidate_id.as_deref() != Some(cand) {
+                    return Err("candidate_id in training artifacts does not match supervisor candidate".into());
+                }
+
+                // Verify physical weights.pt exists and matches result and checkpoint
+                let weights_pt = art_dir.join("weights.pt");
+                if !weights_pt.is_file() {
+                    return Err(format!("custom training succeeded but physical weights.pt missing at '{}'", weights_pt.display()));
+                }
+                let pt_bytes = fs::read(&weights_pt).map_err(|e| e.to_string())?;
+                let pt_sha = hash(&pt_bytes);
+
+                let r_w = training_result.weights_sha256.as_ref().ok_or("training result missing weights_sha256")?;
+                if r_w != &pt_sha {
+                    return Err(format!("result weights_sha256 '{r_w}' does not match physical weights hash '{pt_sha}'"));
+                }
+                let c_w = training_checkpoint.weights_sha256.as_ref().ok_or("training checkpoint missing weights_sha256")?;
+                if c_w != &pt_sha {
+                    return Err(format!("checkpoint weights_sha256 '{c_w}' does not match physical weights hash '{pt_sha}'"));
+                }
+
+                // Fail closed on missing provenance fields
+                let r_d = training_result.dataset_sha256.as_ref().ok_or("training result missing dataset_sha256")?;
+                let c_d = training_checkpoint.dataset_sha256.as_ref().ok_or("training checkpoint missing dataset_sha256")?;
+                if r_d != c_d {
+                    return Err("dataset_sha256 mismatch between training result and checkpoint".into());
+                }
+
+                let r_s = training_result.split_sha256.as_ref().ok_or("training result missing split_sha256")?;
+                let c_s = training_checkpoint.split_sha256.as_ref().ok_or("training checkpoint missing split_sha256")?;
+                if r_s != c_s {
+                    return Err("split_sha256 mismatch between training result and checkpoint".into());
+                }
+
+                let r_src = training_result.source_sha256.as_ref().ok_or("training result missing source_sha256")?;
+                let c_src = training_checkpoint.source_sha256.as_ref().ok_or("training checkpoint missing source_sha256")?;
+                if r_src != c_src {
+                    return Err("source_sha256 mismatch between training result and checkpoint".into());
+                }
+                let expected_source = crate::assets::embedded_python_src_hash();
+                if r_src != &expected_source {
+                    return Err(format!("training result source_sha256 '{r_src}' does not match authoritative source hash '{expected_source}'"));
+                }
+
+                let r_env = training_result.environment_id.as_ref().ok_or("training result missing environment_id")?;
+                let c_env = training_checkpoint.environment_id.as_ref().ok_or("training checkpoint missing environment_id")?;
+                if r_env != c_env {
+                    return Err("environment_id mismatch between training result and checkpoint".into());
+                }
+
+                if let Some(spec_env) = &v.spec.environment_id {
+                    let expected_env_identity: Option<String> = sql(c.query_row("SELECT identity FROM environments WHERE id=?1", [spec_env], |r| r.get(0)).optional())?;
+                    let matches_id_or_identity = r_env == spec_env || expected_env_identity.as_deref() == Some(r_env.as_str());
+                    if !matches_id_or_identity {
+                        return Err(format!("environment_id '{r_env}' does not match supervisor environment '{spec_env}'"));
+                    }
+                }
+
+                let dataset_row: Option<(String, String)> = sql(c.query_row(
+                    "SELECT path, sha256 FROM scientific_datasets WHERE project=?1 AND id=?2",
+                    params![v.spec.project_id, dataset_id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                ).optional())?;
+                let (_registered_ds_path, registered_ds_sha) = dataset_row.ok_or_else(|| {
+                    format!("dataset '{dataset_id}' is not registered for project '{}'", v.spec.project_id)
+                })?;
+
+                let manifest_path = workflow.join("dataset_manifest.json");
+                if !manifest_path.is_file() {
+                    return Err(format!("custom training requires authoritative dataset_manifest.json in workflow at '{}'", manifest_path.display()));
+                }
+                let manifest_bytes = fs::read(&manifest_path).map_err(|e| e.to_string())?;
+                let actual_split_sha = hash(&manifest_bytes);
+                if r_s != &actual_split_sha {
+                    return Err(format!("training result split_sha256 '{r_s}' does not match authoritative manifest split hash '{actual_split_sha}'"));
+                }
+                let manifest: Value = serde_json::from_slice(&manifest_bytes).map_err(|e| e.to_string())?;
+                let manifest_ds_sha = manifest.get("sha256").or_else(|| manifest.get("dataset_sha256")).and_then(|v| v.as_str())
+                    .ok_or("manifest missing dataset_sha256")?;
+                if r_d != manifest_ds_sha {
+                    return Err(format!("training result dataset_sha256 '{r_d}' does not match authoritative manifest dataset hash '{manifest_ds_sha}'"));
+                }
+                if manifest_ds_sha != registered_ds_sha {
+                    return Err(format!("manifest dataset_sha256 '{manifest_ds_sha}' does not match registered dataset hash '{registered_ds_sha}'"));
+                }
+            } else if operation=="custom_evaluate"&&status=="succeeded" {
+                let candidate=candidate_id.as_deref().ok_or("custom_evaluate requires candidate identity")?;
+                let dataset_row: Option<(String, String)> = sql(tx.query_row(
+                    "SELECT path, sha256 FROM scientific_datasets WHERE project=?1 AND id=?2",
+                    params![v.spec.project_id, dataset_id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                ).optional())?;
+                let (_registered_ds_path, registered_ds_sha) = dataset_row.ok_or_else(|| {
+                    format!("dataset '{dataset_id}' is not registered for project '{}'", v.spec.project_id)
+                })?;
+
+                let manifest_path = workflow.join("dataset_manifest.json");
+                if !manifest_path.is_file() {
+                    return Err(format!("custom_evaluate requires authoritative dataset_manifest.json in workflow at '{}'", manifest_path.display()));
+                }
+                let manifest_bytes = fs::read(&manifest_path).map_err(|e| e.to_string())?;
+                let actual_split_sha = hash(&manifest_bytes);
+                let manifest: Value = serde_json::from_slice(&manifest_bytes).map_err(|e| e.to_string())?;
+                let manifest_ds_sha = manifest.get("sha256").or_else(|| manifest.get("dataset_sha256")).and_then(|v| v.as_str())
+                    .ok_or("manifest missing dataset_sha256")?;
+                if manifest_ds_sha != registered_ds_sha {
+                    return Err(format!("manifest dataset_sha256 '{manifest_ds_sha}' does not match registered dataset hash '{registered_ds_sha}'"));
+                }
+
+                let trial_file=workflow.join("trials").join(candidate).join("trial.json");
+                if !trial_file.is_file() {
+                    return Err(format!("custom_evaluate produced no trial record at '{}'", trial_file.display()));
+                }
+                let trial_receipt: Value = serde_json::from_slice(&fs::read(&trial_file).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+                let trial_status = trial_receipt["status"].as_str().unwrap_or("");
+                if trial_status != "evaluated_development" && trial_status != "verified_development_only" {
+                    return Err(format!("candidate '{candidate}' evaluation rejected with status '{trial_status}'"));
+                }
+                if trial_receipt.get("candidate_id").and_then(|v| v.as_str()) != Some(candidate) {
+                    return Err(format!("candidate_id mismatch in trial record: expected '{candidate}', got '{:?}'", trial_receipt.get("candidate_id")));
+                }
+                if trial_receipt.get("project_id").and_then(|v| v.as_str()) != Some(&v.spec.project_id) {
+                    return Err(format!("project_id mismatch in trial record: expected '{}', got '{:?}'", v.spec.project_id, trial_receipt.get("project_id")));
+                }
+                let manifest_metric = manifest.get("metric").or_else(|| manifest.get("primary_metric")).and_then(|v| v.as_str())
+                    .ok_or("manifest missing primary metric")?;
+                if let Some(t_m) = trial_receipt.get("metric_name").and_then(|v| v.as_str()) {
+                    if t_m != manifest_metric {
+                        return Err(format!("evaluated metric '{t_m}' does not match authoritative manifest metric '{manifest_metric}'"));
+                    }
+                }
+
+                let weights_sha = trial_receipt["weights_sha256"].as_str().ok_or("custom_evaluate trial record missing weights_sha256")?;
+                if weights_sha.len() != 64 || !weights_sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+                    return Err(format!("custom_evaluate trial record has invalid weights_sha256 '{weights_sha}'"));
+                }
+                // Verify physical weights from the evaluated checkpoint
+                let ckpt_ref = trial_receipt.get("checkpoint_ref").and_then(|v| v.as_str())
+                    .ok_or("custom_evaluate trial record missing checkpoint_ref")?;
+                let ckpt_dir = workflow.join("checkpoints").join(ckpt_ref);
+                let mut ckpt_weights = ckpt_dir.join("weights.pt");
+                let mut ckpt_json = ckpt_dir.join("checkpoint.json");
+                if !ckpt_weights.is_file() {
+                    let step_dirs: Vec<_> = fs::read_dir(&ckpt_dir).into_iter().flatten().filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.is_dir() && p.join("weights.pt").is_file()).collect();
+                    if let Some(first_dir) = step_dirs.first() {
+                        ckpt_weights = first_dir.join("weights.pt");
+                        if first_dir.join("checkpoint.json").is_file() {
+                            ckpt_json = first_dir.join("checkpoint.json");
+                        }
+                    }
+                }
+                if !ckpt_weights.is_file() {
+                    return Err(format!("checkpoint weights.pt missing at '{}'", ckpt_weights.display()));
+                }
+                let actual_weights_bytes = fs::read(&ckpt_weights).map_err(|e| e.to_string())?;
+                let actual_weights_sha = hash(&actual_weights_bytes);
+                if actual_weights_sha != weights_sha {
+                    return Err(format!("physical checkpoint weights hash '{actual_weights_sha}' does not match trial receipt weights hash '{weights_sha}'"));
+                }
+
+                if ckpt_json.is_file() {
+                    let ckpt_bytes = fs::read(&ckpt_json).map_err(|e| e.to_string())?;
+                    let tc: crate::contracts::TrainingCheckpoint = serde_json::from_slice(&ckpt_bytes)
+                        .map_err(|e| format!("invalid checkpoint contract: {e}"))?;
+                    tc.validate()?;
+                    if tc.candidate_id.as_deref() != Some(candidate) {
+                        return Err(format!("checkpoint candidate_id '{:?}' does not match evaluation candidate '{candidate}'", tc.candidate_id));
+                    }
+                    if tc.project_id.as_deref() != Some(&v.spec.project_id) {
+                        return Err(format!("checkpoint project_id '{:?}' does not match evaluation project '{}'", tc.project_id, v.spec.project_id));
+                    }
+                    if let Some(tc_d) = tc.dataset_sha256.as_deref() {
+                        if tc_d != manifest_ds_sha {
+                            return Err(format!("checkpoint dataset_sha256 '{tc_d}' does not match authoritative dataset '{manifest_ds_sha}'"));
+                        }
+                    }
+                    if let Some(tc_s) = tc.split_sha256.as_deref() {
+                        if tc_s != actual_split_sha {
+                            return Err(format!("checkpoint split_sha256 '{tc_s}' does not match authoritative split '{actual_split_sha}'"));
+                        }
+                    }
+                    if let Some(tc_w) = tc.weights_sha256.as_deref() {
+                        if tc_w != weights_sha {
+                            return Err(format!("checkpoint weights_sha256 '{tc_w}' does not match evaluation weights '{weights_sha}'"));
+                        }
+                    }
+                }
+
+                // Verify scorecard.json and compute its hash
+                let scorecard_file = workflow.join("trials").join(candidate).join("scorecard.json");
+                if !scorecard_file.is_file() {
+                    return Err(format!("custom_evaluate produced no scorecard.json at '{}'", scorecard_file.display()));
+                }
+                let scorecard_bytes = fs::read(&scorecard_file).map_err(|e| e.to_string())?;
+                let scorecard_sha = hash(&scorecard_bytes);
+                let scorecard_data: Value = serde_json::from_slice(&scorecard_bytes).map_err(|e| e.to_string())?;
+                if let Some(sc_c) = scorecard_data.get("candidate_id").and_then(|v| v.as_str()) {
+                    if sc_c != candidate {
+                        return Err(format!("scorecard candidate_id '{sc_c}' does not match evaluation candidate '{candidate}'"));
+                    }
+                }
+                if let Some(sc_d) = scorecard_data.get("dataset_sha256").and_then(|v| v.as_str()) {
+                    if sc_d != manifest_ds_sha {
+                        return Err(format!("scorecard dataset_sha256 '{sc_d}' does not match authoritative dataset '{manifest_ds_sha}'"));
+                    }
+                }
+                if let Some(sc_s) = scorecard_data.get("split_sha256").and_then(|v| v.as_str()) {
+                    if sc_s != actual_split_sha {
+                        return Err(format!("scorecard split_sha256 '{sc_s}' does not match authoritative split '{actual_split_sha}'"));
+                    }
+                }
+                if let Some(sc_w) = scorecard_data.get("weights_sha256").and_then(|v| v.as_str()) {
+                    if sc_w != weights_sha {
+                        return Err(format!("scorecard weights_sha256 '{sc_w}' does not match trial receipt '{weights_sha}'"));
+                    }
+                }
+
+                // Extract real seed (no placeholder)
+                let seed: i64 = trial_receipt.get("seed")
+                    .and_then(|v| v.as_i64())
+                    .or_else(|| trial_receipt.get("training_config").and_then(|tc| tc.get("seed")).and_then(|v| v.as_i64()))
+                    .ok_or("custom_evaluate trial record missing seed")?;
+
+                // Extract real source_hash (no placeholder)
+                let source_hash = trial_receipt.get("source_sha256")
+                    .and_then(|v| v.as_str())
+                    .ok_or("custom_evaluate trial record missing source_sha256")?;
+                let expected_source = crate::assets::embedded_python_src_hash();
+                if source_hash != expected_source {
+                    return Err(format!("evaluation trial source_sha256 '{source_hash}' does not match authoritative source hash '{expected_source}'"));
+                }
+
+                let now = now_ms();
+                let eval_id = format!("eval_{}_{}", candidate, v.spec.job_id);
+                let env_id = v.spec.environment_id.as_deref().unwrap_or("managed_scientific");
+                let primary_metric = trial_receipt.get("metric_score").and_then(|v| v.as_f64());
+                let mut metrics_map = trial_receipt.as_object().cloned().unwrap_or_default();
+                metrics_map.insert("weights_sha256".to_string(), Value::String(weights_sha.to_string()));
+                metrics_map.insert("scorecard_hash".to_string(), Value::String(scorecard_sha.clone()));
+                let metrics_json = serde_json::to_string(&metrics_map).unwrap_or_else(|_| "{}".to_string());
+                sql(tx.execute(
+                    "INSERT OR REPLACE INTO candidate_evaluations(project, evaluation_id, candidate_id, dataset_id, environment_id, source_hash, status, folds, seed, primary_metric, metrics_json, slices_json, scorecard_hash, created_ms)
+                     VALUES(?1, ?2, ?3, ?4, ?5, ?6, 'evaluated', 1, ?7, ?8, ?9, NULL, ?10, ?11)",
+                    params![
+                        v.spec.project_id,
+                        eval_id,
+                        candidate,
+                        dataset_id,
+                        env_id,
+                        source_hash,
+                        seed,
+                        primary_metric,
+                        metrics_json,
+                        scorecard_sha,
+                        now,
+                    ],
+                ))?;
+                sql(tx.execute(
+                    "INSERT INTO events(project, kind, payload) VALUES(?1, 'candidate_evaluation.recorded', ?2)",
+                    params![v.spec.project_id, json!({"job_id": v.spec.job_id, "candidate_id": candidate, "weights_sha256": weights_sha, "scorecard_hash": scorecard_sha, "metric_score": primary_metric}).to_string()],
+                ))?;
+            } else if operation=="custom_export"&&status=="succeeded" {
+                let candidate=candidate_id.as_deref().ok_or("custom_export requires candidate identity")?;
+                let bundle_dir=workflow.join("bundle");
+                if !bundle_dir.is_dir() {
+                    return Err("custom export bundle directory missing".into());
+                }
+                // Fail closed if a pinned bundle already exists
+                let is_pinned: bool = sql(tx.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM artifacts WHERE project=?1 AND artifact_id='bundle/manifest.json' AND pinned=1)",
+                    params![v.spec.project_id],
+                    |r| r.get(0),
+                ))?;
+                if is_pinned {
+                    return Err("pinned delivery bundle already exists in artifacts; overwriting pinned artifact is prohibited".into());
+                }
+                // 1. Check user pin in results.json
+                let results_path = workflow.join("results.json");
+                if results_path.is_file() {
+                    let results_data: Value = serde_json::from_slice(&fs::read(&results_path).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+                    if let Some(pinned) = results_data.get("pinned_candidate").and_then(|v| v.as_str()) {
+                        if pinned != candidate {
+                            return Err(format!("results.json operator pin is set to '{pinned}'; cannot export candidate '{candidate}'"));
+                        }
+                    }
+                }
+                // 2. Check candidate_evaluations table for approved evaluation and weights hash matching project, candidate, and dataset
+                let eval_row: Option<(String, Option<String>, Option<String>)> = sql(tx.query_row(
+                    "SELECT status, scorecard_hash, metrics_json FROM candidate_evaluations WHERE project=?1 AND candidate_id=?2 AND dataset_id=?3 AND status='evaluated' ORDER BY created_ms DESC LIMIT 1",
+                    params![v.spec.project_id, candidate, dataset_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                ).optional())?;
+                let (_eval_status, approved_scorecard_sha, approved_metrics_json) = eval_row.ok_or_else(|| {
+                    format!("candidate '{candidate}' has no approved record in candidate_evaluations table for dataset '{dataset_id}'; export rejected")
+                })?;
+                let approved_scorecard_sha = approved_scorecard_sha.ok_or_else(|| {
+                    format!("candidate '{candidate}' evaluation record lacks scorecard_hash")
+                })?;
+                let metrics_val: Value = approved_metrics_json
+                    .and_then(|s| serde_json::from_str(&s).ok())
+                    .ok_or_else(|| format!("candidate '{candidate}' evaluation record missing metrics_json"))?;
+                let approved_weights_sha = metrics_val.get("weights_sha256").and_then(|v| v.as_str())
+                    .ok_or_else(|| format!("candidate '{candidate}' evaluation metrics_json missing weights_sha256"))?;
+
+                // 3. Verify trial record in workflow
+                let trial_file = workflow.join("trials").join(candidate).join("trial.json");
+                if !trial_file.is_file() {
+                    return Err(format!("candidate '{candidate}' was never evaluated; export rejected"));
+                }
+                let trial_receipt: Value = serde_json::from_slice(&fs::read(&trial_file).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+                if trial_receipt["status"] != "evaluated_development" && trial_receipt["status"] != "verified_development_only" {
+                    return Err(format!("candidate '{candidate}' has status '{}'; rejected candidates cannot be exported", trial_receipt["status"].as_str().unwrap_or("unknown")));
+                }
+                let trial_weights_sha = trial_receipt["weights_sha256"].as_str().unwrap_or("");
+                if trial_weights_sha != approved_weights_sha {
+                    return Err(format!("trial record weights hash '{trial_weights_sha}' does not match approved evaluation weights '{approved_weights_sha}'"));
+                }
+
+                // 4. Verify bundle scorecard.json matches approved scorecard hash
+                let bundle_sc = bundle_dir.join("scorecard.json");
+                if !bundle_sc.is_file() {
+                    return Err("bundle missing scorecard.json".into());
+                }
+                let sc_bytes = fs::read(&bundle_sc).map_err(|e| e.to_string())?;
+                let sc_hash = hash(&sc_bytes);
+                if sc_hash != approved_scorecard_sha {
+                    return Err(format!("bundle scorecard hash '{sc_hash}' does not match approved evaluation scorecard_hash '{approved_scorecard_sha}'"));
+                }
+
+                // 5. Verify bundle physical weights.pt matches approved weights hash
+                let weights_pt = bundle_dir.join("weights.pt");
+                if !weights_pt.is_file() {
+                    return Err("bundle missing physical weights.pt".into());
+                }
+                let pt_bytes = fs::read(&weights_pt).map_err(|e| e.to_string())?;
+                let pt_hash = hash(&pt_bytes);
+                if pt_hash != approved_weights_sha {
+                    return Err(format!("bundle physical weights.pt hash '{pt_hash}' does not match approved evaluation weights '{approved_weights_sha}'"));
+                }
+
+                // 6. Verify bundle verification.json candidate and weights hash
+                let verif_file = bundle_dir.join("verification.json");
+                if !verif_file.is_file() {
+                    return Err("bundle missing verification.json".into());
+                }
+                let verif_data: Value = serde_json::from_slice(&fs::read(&verif_file).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+                let bundle_cand = verif_data.get("bundle_candidate").or_else(|| verif_data.get("candidate_id")).and_then(|v| v.as_str()).unwrap_or("");
+                if bundle_cand != candidate {
+                    return Err(format!("bundle candidate '{bundle_cand}' does not match export candidate '{candidate}'"));
+                }
+                if let Some(bw_sha) = verif_data.get("weights_sha256").and_then(|v| v.as_str()) {
+                    if bw_sha != approved_weights_sha {
+                        return Err(format!("bundle verification weights hash '{bw_sha}' does not match approved evaluation weights '{approved_weights_sha}'"));
+                    }
+                }
+                if let Some(bsc_sha) = verif_data.get("scorecard_sha256").and_then(|v| v.as_str()) {
+                    if bsc_sha != approved_scorecard_sha {
+                        return Err(format!("bundle verification scorecard hash '{bsc_sha}' does not match approved evaluation scorecard hash '{approved_scorecard_sha}'"));
+                    }
+                }
+                // 6. Authoritative bundle verification
+                let report = crate::bundle::verify_bundle(&bundle_dir, false)?;
+                if !report.manifest_verified || !report.contracts_verified {
+                    return Err("custom bundle failed authoritative verification".into());
+                }
+                let bundle_manifest_path=bundle_dir.join("manifest.json");
+                if bundle_manifest_path.is_file() {
+                    let bm_bytes=fs::read(&bundle_manifest_path).map_err(|e|e.to_string())?;
+                    let bm_hash = hash(&bm_bytes);
+                    sql(tx.execute("INSERT OR REPLACE INTO managed_artifacts(project,job,name,bytes,sha256,pinned) VALUES(?1,?2,'bundle/manifest.json',?3,?4,1)",params![v.spec.project_id,v.spec.job_id,bm_bytes.len() as u64,&bm_hash]))?;
+                    let cas = crate::cas::ContentAddressableStorage::new(&self.root);
+                    let _ = cas.store_blob(&bm_bytes, "application/json", Some(&v.spec.project_id));
+                    if bm_hash.len() == 64 {
+                        let now = now_ms();
+                        let _ = tx.execute(
+                            "INSERT OR IGNORE INTO blobs(sha256, bytes, media_type, created_ms) VALUES(?1, ?2, 'application/json', ?3)",
+                            params![bm_hash, bm_bytes.len() as u64, now],
+                        );
+                        let _ = tx.execute(
+                            "INSERT OR IGNORE INTO artifacts(project, artifact_id, kind, producer_authority, current_version_id, pinned, visibility, created_ms, updated_ms)
+                             VALUES(?1, 'bundle/manifest.json', 'apex_bundle', 'evaluator:finalizer', NULL, 1, 'project', ?2, ?2)",
+                            params![v.spec.project_id, now],
+                        );
+                        let version_id = format!("{}_bundle_manifest", v.spec.job_id);
+                        let index_digest = format!("[bundle/manifest.json] custom delivery manifest ({} B, sha:{})", bm_bytes.len(), &bm_hash[..8.min(bm_hash.len())]);
+                        let _ = tx.execute(
+                            "INSERT OR REPLACE INTO artifact_versions(project, version_id, artifact_id, blob_sha256, index_digest, summary_text, schema_version, metadata_json, source_job_id, created_ms)
+                             VALUES(?1, ?2, 'bundle/manifest.json', ?3, ?4, NULL, 1, '{}', ?5, ?6)",
+                            params![v.spec.project_id, version_id, bm_hash, index_digest, v.spec.job_id, now],
+                        );
+                        let _ = tx.execute(
+                            "UPDATE artifacts SET current_version_id=?2, pinned=1, updated_ms=?3 WHERE project=?1 AND artifact_id='bundle/manifest.json'",
+                            params![v.spec.project_id, version_id, now],
+                        );
+                    }
+                }
             } else if operation=="finalize" && status!="succeeded" && !workflow.join("test_access.json").exists() {
                 if let Some(access)=test_access_id.as_deref(){
                     sql(tx.execute("DELETE FROM final_test_gates WHERE project=?1 AND access_id=?2 AND status='reserved'",params![v.spec.project_id,access]))?;
@@ -2111,9 +2562,6 @@ pub fn worker(spec_path:&Path,output:&Path)->Result<i32>{
         Probe::Write{name,content}=>{if !alive.load(Ordering::Acquire){return Ok(125)}let p=output.join(name);let mut f=fs::OpenOptions::new().write(true).create_new(true).open(p).map_err(|e|e.to_string())?;f.write_all(content.as_bytes()).map_err(|e|e.to_string())?;f.sync_all().map_err(|e|e.to_string())?;},
         Probe::Scientific{operation,dataset_id:_,spec,candidate_id,test_access_id}=>{
             if !alive.load(Ordering::Acquire){return Ok(125)}
-            if operation.starts_with("custom_") {
-                return local_custom_scientific_worker(&worker_spec,&operation,spec.as_ref(),candidate_id.as_deref(),test_access_id.as_deref(),output,s.timeout_ms,s.threads,alive);
-            }
             if let Ok(image)=std::env::var("MLRESCURIX_SCIENTIFIC_IMAGE") {
                 return container_scientific_worker(&worker_spec,&operation,spec.as_ref(),candidate_id.as_deref(),test_access_id.as_deref(),output,&image,s.timeout_ms,s.threads,alive);
             }
@@ -2123,92 +2571,345 @@ pub fn worker(spec_path:&Path,output:&Path)->Result<i32>{
     Ok(0)
 }
 
-fn local_custom_scientific_worker(
-    _job_spec: &JobSpec,
-    operation: &str,
-    spec: Option<&Value>,
-    candidate: Option<&str>,
-    access: Option<&str>,
-    output: &Path,
-    timeout: u64,
-    threads: u32,
-    alive: Arc<AtomicBool>,
-) -> Result<i32> {
-    let python = std::env::var("MLRRESCURIX_PYTHON").map_err(|e| format!("custom worker requires MLRRESCURIX_PYTHON: {e}"))?;
-    let dataset = std::env::var("MLRRESCURIX_DATASET").map_err(|e| format!("custom worker requires MLRRESCURIX_DATASET: {e}"))?;
-    let workflow = std::env::var("MLRRESCURIX_WORKFLOW").map_err(|e| format!("custom worker requires MLRRESCURIX_WORKFLOW: {e}"))?;
-    let pythonpath = std::env::var("MLRRESCURIX_PYTHONPATH").map_err(|e| format!("custom worker requires MLRRESCURIX_PYTHONPATH: {e}"))?;
+/// Streaming RFC 4180 CSV Record Reader.
+/// Bounded memory: buffers one field and record at a time.
+pub struct StreamingCsvReader<R: std::io::Read> {
+    reader: std::io::BufReader<R>,
+    buf: [u8; 8192],
+    pos: usize,
+    cap: usize,
+    eof: bool,
+}
 
-    let req_spec_path = output.join("custom-job-spec.json");
-    if let Some(value) = spec {
-        fs::write(&req_spec_path, serde_json::to_vec(value).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-    } else {
-        return Err("custom operation requires specification payload".into());
-    }
-
-    let mut cmd = Command::new(&python);
-    cmd.args(["-m", "mlrescurix_worker.custom.worker"])
-        .arg("--operation").arg(operation)
-        .arg("--spec").arg(&req_spec_path)
-        .arg("--output").arg(output)
-        .arg("--dataset").arg(&dataset)
-        .arg("--workflow").arg(&workflow);
-
-    if let Some(cand) = candidate {
-        cmd.arg("--candidate").arg(cand);
-    }
-    if let Some(acc) = access {
-        cmd.arg("--test-access-id").arg(acc);
-    }
-
-    cmd.env("PYTHONPATH", &pythonpath)
-        .env("PYTHONDONTWRITEBYTECODE", "1")
-        .env("MLRESCURIX_NUM_THREADS", threads.to_string())
-        .env("OMP_NUM_THREADS", threads.to_string())
-        .env("OPENBLAS_NUM_THREADS", threads.to_string())
-        .env("MKL_NUM_THREADS", threads.to_string())
-        .env("VECLIB_MAXIMUM_THREADS", threads.to_string())
-        .env("NUMEXPR_NUM_THREADS", threads.to_string())
-        .env("POLARS_MAX_THREADS", threads.to_string());
-
-    cmd.stdin(Stdio::null());
-    cmd.stdout(Stdio::inherit());
-    cmd.stderr(Stdio::inherit());
-
-    let mut child = cmd.spawn().map_err(|e| format!("custom worker process launch: {e}"))?;
-    let deadline = Instant::now() + Duration::from_millis(timeout);
-    let code = loop {
-        if !alive.load(Ordering::Acquire) || Instant::now() >= deadline {
-            let _ = terminate(&mut child);
-            let _ = child.wait();
-            break 124;
+impl<R: std::io::Read> StreamingCsvReader<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader: std::io::BufReader::new(reader),
+            buf: [0u8; 8192],
+            pos: 0,
+            cap: 0,
+            eof: false,
         }
-        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
-            break status.code().unwrap_or(1);
+    }
+
+    fn next_byte(&mut self) -> Result<Option<u8>> {
+        if self.pos >= self.cap {
+            if self.eof {
+                return Ok(None);
+            }
+            self.cap = self.reader.read(&mut self.buf).map_err(|e| e.to_string())?;
+            self.pos = 0;
+            if self.cap == 0 {
+                self.eof = true;
+                return Ok(None);
+            }
         }
-        thread::sleep(Duration::from_millis(50));
+        let b = self.buf[self.pos];
+        self.pos += 1;
+        Ok(Some(b))
+    }
+
+    fn peek_byte(&mut self) -> Result<Option<u8>> {
+        if self.pos >= self.cap {
+            if self.eof {
+                return Ok(None);
+            }
+            self.cap = self.reader.read(&mut self.buf).map_err(|e| e.to_string())?;
+            self.pos = 0;
+            if self.cap == 0 {
+                self.eof = true;
+                return Ok(None);
+            }
+        }
+        Ok(Some(self.buf[self.pos]))
+    }
+
+    /// Read next RFC 4180 record. Returns Ok(None) at clean EOF.
+    pub fn read_record(&mut self) -> Result<Option<Vec<String>>> {
+        #[derive(PartialEq)]
+        enum State {
+            StartOfField,
+            UnquotedField,
+            QuotedField,
+            AfterQuote,
+        }
+
+        let mut record = Vec::new();
+        let mut field = Vec::new();
+        let mut state = State::StartOfField;
+        const MAX_FIELD_BYTES: usize = 16 * 1024 * 1024; // 16 MiB bound
+        const MAX_RECORD_BYTES: usize = 32 * 1024 * 1024; // 32 MiB bound
+        let mut total_record_bytes = 0usize;
+
+        loop {
+            let b_opt = self.next_byte()?;
+            let Some(b) = b_opt else {
+                match state {
+                    State::QuotedField => {
+                        return Err("malformed CSV: unterminated quoted field at EOF".into());
+                    }
+                    State::StartOfField => {
+                        if record.is_empty() && field.is_empty() {
+                            return Ok(None);
+                        }
+                        let s = String::from_utf8(field).map_err(|_| "malformed CSV: invalid UTF-8 in field")?;
+                        record.push(s);
+                        return Ok(Some(record));
+                    }
+                    State::UnquotedField | State::AfterQuote => {
+                        let s = String::from_utf8(field).map_err(|_| "malformed CSV: invalid UTF-8 in field")?;
+                        record.push(s);
+                        return Ok(Some(record));
+                    }
+                }
+            };
+
+            total_record_bytes += 1;
+            if total_record_bytes > MAX_RECORD_BYTES {
+                return Err("malformed CSV: record exceeds 32 MiB bound".into());
+            }
+
+            match state {
+                State::StartOfField => {
+                    if b == b'"' {
+                        state = State::QuotedField;
+                    } else if b == b',' {
+                        record.push(String::new());
+                    } else if b == b'\r' {
+                        if let Some(next) = self.peek_byte()? {
+                            if next == b'\n' {
+                                self.pos += 1;
+                            }
+                        }
+                        record.push(String::new());
+                        return Ok(Some(record));
+                    } else if b == b'\n' {
+                        record.push(String::new());
+                        return Ok(Some(record));
+                    } else {
+                        field.push(b);
+                        state = State::UnquotedField;
+                    }
+                }
+                State::UnquotedField => {
+                    if b == b',' {
+                        let s = String::from_utf8(field).map_err(|_| "malformed CSV: invalid UTF-8 in field")?;
+                        record.push(s);
+                        field = Vec::new();
+                        state = State::StartOfField;
+                    } else if b == b'\r' {
+                        if let Some(next) = self.peek_byte()? {
+                            if next == b'\n' {
+                                self.pos += 1;
+                            }
+                        }
+                        let s = String::from_utf8(field).map_err(|_| "malformed CSV: invalid UTF-8 in field")?;
+                        record.push(s);
+                        return Ok(Some(record));
+                    } else if b == b'\n' {
+                        let s = String::from_utf8(field).map_err(|_| "malformed CSV: invalid UTF-8 in field")?;
+                        record.push(s);
+                        return Ok(Some(record));
+                    } else if b == b'"' {
+                        return Err("malformed CSV: unescaped quote inside unquoted field".into());
+                    } else {
+                        if field.len() >= MAX_FIELD_BYTES {
+                            return Err("malformed CSV: field exceeds 16 MiB bound".into());
+                        }
+                        field.push(b);
+                    }
+                }
+                State::QuotedField => {
+                    if b == b'"' {
+                        if let Some(next) = self.peek_byte()? {
+                            if next == b'"' {
+                                self.pos += 1;
+                                if field.len() >= MAX_FIELD_BYTES {
+                                    return Err("malformed CSV: field exceeds 16 MiB bound".into());
+                                }
+                                field.push(b'"');
+                                continue;
+                            }
+                        }
+                        state = State::AfterQuote;
+                    } else {
+                        if field.len() >= MAX_FIELD_BYTES {
+                            return Err("malformed CSV: field exceeds 16 MiB bound".into());
+                        }
+                        field.push(b);
+                    }
+                }
+                State::AfterQuote => {
+                    if b == b',' {
+                        let s = String::from_utf8(field).map_err(|_| "malformed CSV: invalid UTF-8 in field")?;
+                        record.push(s);
+                        field = Vec::new();
+                        state = State::StartOfField;
+                    } else if b == b'\r' {
+                        if let Some(next) = self.peek_byte()? {
+                            if next == b'\n' {
+                                self.pos += 1;
+                            }
+                        }
+                        let s = String::from_utf8(field).map_err(|_| "malformed CSV: invalid UTF-8 in field")?;
+                        record.push(s);
+                        return Ok(Some(record));
+                    } else if b == b'\n' {
+                        let s = String::from_utf8(field).map_err(|_| "malformed CSV: invalid UTF-8 in field")?;
+                        record.push(s);
+                        return Ok(Some(record));
+                    } else {
+                        return Err("malformed CSV: unexpected character after closing quote".into());
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub fn prepare_dev_dataset(raw_dataset_path: &Path, manifest_path: &Path, dev_dataset_path: &Path) -> Result<String> {
+    if !manifest_path.is_file() {
+        return Err(format!("manifest not found at '{}'", manifest_path.display()));
+    }
+    let manifest_bytes = fs::read(manifest_path).map_err(|e| e.to_string())?;
+    let manifest: Value = serde_json::from_slice(&manifest_bytes).map_err(|e| e.to_string())?;
+    if manifest.get("format").and_then(|v| v.as_str()) != Some("mlrescurix.dataset.v1") {
+        return Err("manifest format must be 'mlrescurix.dataset.v1'".into());
+    }
+
+    let splits = manifest.get("splits").and_then(|v| v.as_object()).ok_or("manifest missing splits object")?;
+    let train_idx: Vec<usize> = splits.get("train").and_then(|v| serde_json::from_value(v.clone()).ok()).ok_or("manifest missing train split")?;
+    let val_idx: Vec<usize> = splits.get("validation").and_then(|v| serde_json::from_value(v.clone()).ok()).ok_or("manifest missing validation split")?;
+    let test_idx: Vec<usize> = splits.get("test").and_then(|v| serde_json::from_value(v.clone()).ok()).ok_or("manifest missing test split")?;
+
+    if train_idx.is_empty() || val_idx.is_empty() || test_idx.is_empty() {
+        return Err("train, validation, and test splits must all be non-empty in dataset_manifest.json".into());
+    }
+
+    let train_set: std::collections::HashSet<usize> = train_idx.iter().copied().collect();
+    let val_set: std::collections::HashSet<usize> = val_idx.iter().copied().collect();
+    let test_set: std::collections::HashSet<usize> = test_idx.iter().copied().collect();
+
+    if train_idx.len() != train_set.len() || val_idx.len() != val_set.len() || test_idx.len() != test_set.len() {
+        return Err("duplicate row IDs in partition splits".into());
+    }
+
+    if train_set.intersection(&val_set).next().is_some() {
+        return Err("data leakage: train and validation splits overlap".into());
+    }
+    if train_set.intersection(&test_set).next().is_some() || val_set.intersection(&test_set).next().is_some() {
+        return Err("data leakage: train/validation splits overlap with sealed test split".into());
+    }
+
+    let dev_indices: std::collections::HashSet<usize> = train_set.union(&val_set).copied().collect();
+
+    if !raw_dataset_path.is_file() {
+        return Err(format!("raw dataset not found at '{}'", raw_dataset_path.display()));
+    }
+
+    // Bind raw dataset bytes to registered dataset manifest hash
+    let raw_sha = {
+        let mut file = fs::File::open(raw_dataset_path).map_err(|e| e.to_string())?;
+        let mut hasher = Sha256::new();
+        let mut buf = [0u8; 64 * 1024];
+        loop {
+            let n = file.read(&mut buf).map_err(|e| e.to_string())?;
+            if n == 0 { break; }
+            hasher.update(&buf[..n]);
+        }
+        format!("{:x}", hasher.finalize())
+    };
+    let expected_raw_sha = manifest.get("sha256").or_else(|| manifest.get("dataset_sha256")).and_then(|v| v.as_str())
+        .ok_or("manifest missing dataset sha256")?;
+    if raw_sha != expected_raw_sha {
+        return Err(format!("raw dataset sha256 '{raw_sha}' does not match registered manifest '{expected_raw_sha}'"));
+    }
+
+    let raw_file = fs::File::open(raw_dataset_path).map_err(|e| e.to_string())?;
+    let mut parser = StreamingCsvReader::new(raw_file);
+
+    // Read header record
+    let header = parser.read_record()?.ok_or("empty raw dataset")?;
+    if header.is_empty() {
+        return Err("empty raw dataset header".into());
+    }
+    if header.iter().any(|c| c == "__mlr_row_id") {
+        return Err("reserved __mlr_row_id column is not permitted in raw datasets".into());
+    }
+    let expected_cols = header.len();
+
+    // Open dev dataset writer with hashing wrapper
+    let out_file = fs::File::create(dev_dataset_path).map_err(|e| e.to_string())?;
+    let mut out_writer = std::io::BufWriter::new(out_file);
+    let mut dev_hasher = Sha256::new();
+
+    let mut write_record = |row_id: Option<usize>, fields: &[String]| -> Result<()> {
+        let mut line = Vec::new();
+        if let Some(id) = row_id {
+            line.extend_from_slice(id.to_string().as_bytes());
+            line.push(b',');
+        }
+        for (i, field) in fields.iter().enumerate() {
+            if i > 0 {
+                line.push(b',');
+            }
+            if field.contains(',') || field.contains('"') || field.contains('\n') || field.contains('\r') {
+                line.push(b'"');
+                let escaped = field.replace('"', "\"\"");
+                line.extend_from_slice(escaped.as_bytes());
+                line.push(b'"');
+            } else {
+                line.extend_from_slice(field.as_bytes());
+            }
+        }
+        line.push(b'\n');
+        dev_hasher.update(&line);
+        out_writer.write_all(&line).map_err(|e| e.to_string())?;
+        Ok(())
     };
 
-    if req_spec_path.exists() {
-        let _ = fs::remove_file(req_spec_path);
+    // Write header: __mlr_row_id + header fields
+    let mut dev_header_fields = vec!["__mlr_row_id".to_string()];
+    dev_header_fields.extend(header.clone());
+    write_record(None, &dev_header_fields)?;
+
+    let mut row_idx = 0usize;
+    let mut written_dev_rows = 0usize;
+
+    while let Some(record) = parser.read_record()? {
+        if record.len() == 1 && record[0].is_empty() {
+            continue;
+        }
+        if record.len() != expected_cols {
+            return Err(format!("malformed CSV: field count mismatch at row {row_idx}: expected {expected_cols}, got {}", record.len()));
+        }
+        if dev_indices.contains(&row_idx) {
+            write_record(Some(row_idx), &record)?;
+            written_dev_rows += 1;
+        }
+        row_idx += 1;
     }
 
-    if code != 0 {
-        return Ok(code);
+    out_writer.flush().map_err(|e| e.to_string())?;
+    let dev_sha = format!("{:x}", dev_hasher.finalize());
+
+    // Validate that all split indices were within range
+    for &idx in &dev_indices {
+        if idx >= row_idx {
+            return Err(format!("split index out of bounds: referenced row index {idx} exceeds raw dataset row count {row_idx}"));
+        }
+    }
+    for &idx in &test_set {
+        if idx >= row_idx {
+            return Err(format!("split index out of bounds: test partition references row index {idx} which exceeds raw dataset row count {row_idx}"));
+        }
+    }
+    if written_dev_rows != dev_indices.len() {
+        return Err(format!("data extraction mismatch: expected {} development rows, extracted {written_dev_rows}", dev_indices.len()));
     }
 
-    let result_file = output.join("result.json");
-    if !result_file.is_file() {
-        return Err("custom worker produced no result.json receipt".into());
-    }
-
-    let result_bytes = fs::read(&result_file).map_err(|e| e.to_string())?;
-    let res: Value = serde_json::from_slice(&result_bytes).map_err(|e| e.to_string())?;
-    if res["status"] != "succeeded" {
-        return Ok(1);
-    }
-
-    Ok(0)
+    // Shared protocol manifest is strictly immutable during execution
+    Ok(dev_sha)
 }
 
 fn container_scientific_worker(job_spec:&JobSpec,operation:&str,spec:Option<&Value>,candidate:Option<&str>,access:Option<&str>,output:&Path,image:&str,timeout:u64,threads:u32,alive:Arc<AtomicBool>)->Result<i32>{
@@ -2221,15 +2922,35 @@ fn container_scientific_worker(job_spec:&JobSpec,operation:&str,spec:Option<&Val
     let dataset=std::env::var("MLRRESCURIX_DATASET").map_err(|e|e.to_string())?;
     let source=std::env::var("MLRRESCURIX_PYTHONPATH").map_err(|e|e.to_string())?;
     let source_hash=crate::agents::workspace::BranchWorkspaceManager::compute_dir_hash(Path::new(&source))?;
-    let req=output.join("project-spec.json");
+    let mut dataset_mount = dataset.clone();
+    let mut dev_dataset_sha = None;
+    if operation.starts_with("custom_") {
+        let manifest_path = workflow.join("dataset_manifest.json");
+        if !manifest_path.is_file() {
+            return Err("custom scientific development execution requires an authoritative dataset_manifest.json in workflow; raw dataset access is prohibited".into());
+        }
+        let dev_dataset_path = workflow.join("dev_dataset.csv");
+        let dev_sha = prepare_dev_dataset(Path::new(&dataset), &manifest_path, &dev_dataset_path)?;
+        dataset_mount = dev_dataset_path.display().to_string();
+        dev_dataset_sha = Some(dev_sha);
+    }
+    let (cli_module, req_name) = if operation.starts_with("custom_") {
+        ("mlrescurix_worker.custom.worker", "custom-job-spec.json")
+    } else {
+        ("mlrescurix_worker.scientific.cli", "project-spec.json")
+    };
+    let req=output.join(req_name);
     if let Some(value)=spec {fs::write(&req,serde_json::to_vec(value).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;}
     let name=format!("mlr-science-{}",&hash(format!("{}/{project}/{job}/{}",root.display(),job_spec.generation).as_bytes())[..24]);
     let mut cmd=Command::new("docker");
     cmd.args(["create","--pull=never","--init","--name",&name,"--network","none","--read-only","--user"])
         .arg(format!("{}:{}",unsafe{libc::getuid()},unsafe{libc::getgid()}))
         .args(["--cap-drop","ALL","--security-opt","no-new-privileges:true","--memory"]).arg(job_spec.resources.memory_bytes.to_string()).arg("--memory-swap").arg(job_spec.resources.memory_bytes.to_string()).args(["--cpus"])
-        .arg(threads.to_string()).args(["--pids-limit","64","--tmpfs","/tmp:rw,noexec,nosuid,size=64m","-v"])
-        .arg(format!("{}:/workflow:rw",workflow.display())).arg("-v").arg(format!("{dataset}:/data.csv:ro"))
+        .arg(threads.to_string()).args(["--pids-limit","64","--tmpfs","/tmp:rw,noexec,nosuid,size=64m"])
+        .arg("-v").arg(format!("{}:/workflow:rw",workflow.display()))
+        .arg("-v").arg(format!("{dataset_mount}:/data.csv:ro"))
+        .arg("-v").arg(format!("{}:/source:ro", Path::new(&source).canonicalize().unwrap_or(PathBuf::from(&source)).display()))
+        .arg("-v").arg(format!("{}:/output:ro",output.display()))
         .args(["--env","PYTHONPATH=/source","--env","PYTHONDONTWRITEBYTECODE=1"])
         .args(["--env", &format!("MLRESCURIX_NUM_THREADS={threads}")])
         .args(["--env", &format!("OMP_NUM_THREADS={threads}")])
@@ -2241,15 +2962,25 @@ fn container_scientific_worker(job_spec:&JobSpec,operation:&str,spec:Option<&Val
         .arg("--env").arg(format!("MLRESCURIX_SOURCE_SHA256={source_hash}"))
         .arg("--env").arg(format!("MLRESCURIX_ENVIRONMENT_IDENTITY={}",std::env::var("MLRESCURIX_ENVIRONMENT_IDENTITY").map_err(|e|e.to_string())?))
         .arg("-v").arg(format!("{}:/resource:rw",resource_dir.display()));
+    if let Some(ref sha) = dev_dataset_sha {
+        cmd.arg("--env").arg(format!("MLRESCURIX_DEV_DATASET_SHA256={sha}"));
+    }
     for (key,value) in resources::labels(&root,job_spec)? {cmd.arg("--label").arg(format!("{key}={value}"));}
     cmd.args([image,"python","-c",resources::monitor()]).arg(job_spec.resources.memory_bytes.to_string()).arg(threads.to_string())
         .arg(job_spec.resources.require_memory_certification.to_string())
-        .args(["python","-m","mlrescurix_worker.scientific.cli",operation,"--output","/workflow"]);
-    match operation {
-        "audit"=>{cmd.args(["--csv","/data.csv","--spec","/output/project-spec.json"]);},
-        "trial"|"pipeline"=>{cmd.args(["--spec","/output/project-spec.json"]);},
-        "finalize"=>{cmd.args(["--candidate",candidate.ok_or("missing candidate")?,"--test-access-id",access.ok_or("missing test access")?]);},
-        "baselines"=>{},_=>return Err("unsupported container science operation".into()),
+        .args(["python","-m",cli_module]);
+    if operation.starts_with("custom_") {
+        cmd.args(["--operation", operation, "--output", "/workflow", "--spec", &format!("/output/{req_name}"), "--dataset", "/data.csv", "--workflow", "/workflow"]);
+        if let Some(cand) = candidate { cmd.args(["--candidate", cand]); }
+        if let Some(acc) = access { cmd.args(["--test-access-id", acc]); }
+    } else {
+        cmd.args([operation,"--output","/workflow"]);
+        match operation {
+            "audit"=>{cmd.args(["--csv","/data.csv","--spec","/output/project-spec.json"]);},
+            "trial"|"pipeline"=>{cmd.args(["--spec","/output/project-spec.json"]);},
+            "finalize"=>{cmd.args(["--candidate",candidate.ok_or("missing candidate")?,"--test-access-id",access.ok_or("missing test access")?]);},
+            "baselines"=>{},_=>return Err("unsupported container science operation".into()),
+        }
     }
     let id=resources::create(&root,job_spec,&mut cmd).map_err(|e|format!("container create/identity: {e}"))?;
     let mut child=Command::new("docker").args(["start","-a",&id]).stdin(Stdio::null()).stdout(Stdio::inherit()).stderr(Stdio::inherit()).spawn().map_err(|e|e.to_string())?;
@@ -2267,6 +2998,50 @@ fn container_scientific_worker(job_spec:&JobSpec,operation:&str,spec:Option<&Val
     if req.exists(){fs::remove_file(req).map_err(|e|e.to_string())?;}
     if code!=0{return Ok(code);}
     if crate::agents::workspace::BranchWorkspaceManager::compute_dir_hash(Path::new(&source))?!=source_hash{return Err("scientific source changed during execution".into());}
+    if operation.starts_with("custom_") {
+        let result_file = workflow.join("result.json");
+        if !result_file.is_file() { return Err("custom worker produced no result.json receipt".into()); }
+        let result_bytes = fs::read(&result_file).map_err(|e| e.to_string())?;
+        let res: Value = serde_json::from_slice(&result_bytes).map_err(|e| e.to_string())?;
+        if res["status"] != "succeeded" { return Ok(1); }
+        fs::copy(&result_file, output.join("result.json")).map_err(|e| e.to_string())?;
+        if operation == "custom_train" || operation == "custom_resume" {
+            let ckpt_file = workflow.join("checkpoint.json");
+            if ckpt_file.is_file() {
+                let _ = fs::copy(&ckpt_file, output.join("checkpoint.json"));
+            }
+            let weights_file = workflow.join("weights.pt");
+            if weights_file.is_file() {
+                let _ = fs::copy(&weights_file, output.join("weights.pt"));
+            }
+        }
+        if operation == "custom_evaluate" {
+            let eval_file = workflow.join("evaluation.json");
+            if eval_file.is_file() {
+                let _ = fs::copy(&eval_file, output.join("evaluation.json"));
+            }
+            if let Some(cand) = candidate {
+                let trial_file = workflow.join("trials").join(cand).join("trial.json");
+                if trial_file.is_file() {
+                    let _ = fs::copy(&trial_file, output.join("trial.json"));
+                }
+                let scorecard_file = workflow.join("trials").join(cand).join("scorecard.json");
+                if scorecard_file.is_file() {
+                    let _ = fs::copy(&scorecard_file, output.join("scorecard.json"));
+                }
+            }
+        }
+        if operation == "custom_export" {
+            let bundle_manifest = workflow.join("bundle").join("manifest.json");
+            if !bundle_manifest.is_file() { return Err("custom export produced no bundle manifest".into()); }
+            let _ = fs::copy(&bundle_manifest, output.join("bundle_manifest.json"));
+            for name in ["scorecard.json", "final.json", "verification.json"] {
+                let p = workflow.join("bundle").join(name);
+                if p.is_file() { let _ = fs::copy(&p, output.join(name)); }
+            }
+        }
+        return Ok(0);
+    }
     let (evidence,name)=match operation {
         "trial"|"pipeline"=>{let id=spec.and_then(|v|v["experiment_id"].as_str()).ok_or("missing experiment")?;(workflow.join("trials").join(id).join("trial.json"),"trial.json")},
         "audit"=>(workflow.join("dataset_manifest.json"),"dataset_manifest.json"),

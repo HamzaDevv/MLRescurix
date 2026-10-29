@@ -33,6 +33,8 @@ pub const EMBEDDED_PYTHON_FILES: &[(&str, &str)] = &[
     ("src/mlrescurix_worker/custom/kaggle_backend.py", include_str!("../../../python/src/mlrescurix_worker/custom/kaggle_backend.py")),
     ("src/mlrescurix_worker/custom/preflight.py", include_str!("../../../python/src/mlrescurix_worker/custom/preflight.py")),
     ("src/mlrescurix_worker/custom/runner.py", include_str!("../../../python/src/mlrescurix_worker/custom/runner.py")),
+    ("src/mlrescurix_worker/custom/sequential_candidate.py", include_str!("../../../python/src/mlrescurix_worker/custom/sequential_candidate.py")),
+    ("src/mlrescurix_worker/custom/tabular_candidate.py", include_str!("../../../python/src/mlrescurix_worker/custom/tabular_candidate.py")),
     ("src/mlrescurix_worker/custom/torch_candidate.py", include_str!("../../../python/src/mlrescurix_worker/custom/torch_candidate.py")),
     ("src/mlrescurix_worker/custom/tuning.py", include_str!("../../../python/src/mlrescurix_worker/custom/tuning.py")),
     ("src/mlrescurix_worker/custom/worker.py", include_str!("../../../python/src/mlrescurix_worker/custom/worker.py")),

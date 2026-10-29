@@ -26,7 +26,9 @@ logger = logging.getLogger("mlrescurix.tuning")
 try:
     import optuna
     from optuna.pruners import MedianPruner
-    from optuna.trial import TrialState as OptunaTrialState
+    from optuna.samplers import TPESampler
+    from optuna.trial import TrialState as OptunaTrialState, create_trial as create_optuna_trial
+    from optuna.distributions import CategoricalDistribution, FloatDistribution, IntDistribution
     HAS_OPTUNA = True
 except ImportError:
     HAS_OPTUNA = False
@@ -55,13 +57,27 @@ class BudgetedTrial:
     end_time: Optional[float] = None
     _pruner: Optional[Any] = field(default=None, repr=False)
     _direction: str = field(default="maximize", repr=False)
+    _optuna_trial: Optional[Any] = field(default=None, repr=False)
 
     def report(self, value: float, step: int) -> None:
         """Report an intermediate evaluation score at a specific epoch/step."""
         self.intermediate_values[step] = float(value)
+        if self._optuna_trial is not None:
+            try:
+                self._optuna_trial.report(float(value), step)
+            except Exception:
+                pass
 
     def should_prune(self, step: Optional[int] = None) -> bool:
         """Check whether the trial should be pruned based on intermediate results."""
+        opt_prune = False
+        if self._optuna_trial is not None:
+            try:
+                opt_prune = self._optuna_trial.should_prune()
+            except Exception:
+                pass
+        if opt_prune:
+            return True
         if self._pruner is None:
             return False
         last_step = step if step is not None else (max(self.intermediate_values.keys()) if self.intermediate_values else 0)
@@ -139,6 +155,8 @@ class BudgetedOptunaTuner:
         pruner: Optional[TrialPruningHook] = None,
         campaign_authority: Optional[Any] = None,
         seed: int = 42,
+        max_concurrent_trials: int = 1,
+        trial_timeout_seconds: Optional[float] = None,
     ):
         self.study_name = study_name
         self.param_space = param_space
@@ -151,6 +169,8 @@ class BudgetedOptunaTuner:
         self.campaign_authority = campaign_authority
         self.seed = seed
         self.rng = random.Random(seed)
+        self.max_concurrent_trials = max_concurrent_trials
+        self.trial_timeout_seconds = trial_timeout_seconds
 
         self.storage_path = Path(storage_path).resolve() if storage_path else None
         if self.storage_path:
@@ -158,6 +178,19 @@ class BudgetedOptunaTuner:
             self._init_db()
 
         self.pruner = pruner or TrialPruningHook(direction=self.direction)
+        self.study: Optional[Any] = None
+        if HAS_OPTUNA:
+            optuna_pruner = MedianPruner(
+                n_startup_trials=self.pruner.n_startup_trials,
+                n_warmup_steps=self.pruner.n_warmup_steps,
+            )
+            self.study = optuna.create_study(
+                study_name=self.study_name,
+                direction=self.direction,
+                sampler=TPESampler(seed=self.seed),
+                pruner=optuna_pruner,
+            )
+
         self.trials: List[BudgetedTrial] = []
         self._load_persisted_trials()
 
@@ -214,6 +247,49 @@ class BudgetedOptunaTuner:
                 if t.state == TrialState.COMPLETE and t.intermediate_values:
                     for s, v in t.intermediate_values.items():
                         self.pruner.record_step(s, v)
+
+                # Recover into Optuna study if initialized
+                if HAS_OPTUNA and self.study is not None and t.state in (TrialState.COMPLETE, TrialState.PRUNED, TrialState.FAIL):
+                    try:
+                        dists = {}
+                        for pname, spec in self.param_space.items():
+                            if pname in t.params:
+                                ptype = spec.get("type", "float")
+                                if ptype == "categorical":
+                                    dists[pname] = CategoricalDistribution(choices=tuple(spec.get("choices", [])))
+                                elif ptype == "int":
+                                    dists[pname] = IntDistribution(
+                                        low=spec.get("low", 1),
+                                        high=spec.get("high", 100),
+                                        step=spec.get("step", 1),
+                                    )
+                                elif ptype == "float":
+                                    dists[pname] = FloatDistribution(
+                                        low=float(spec.get("low", 1e-4)),
+                                        high=float(spec.get("high", 1.0)),
+                                        log=bool(spec.get("log", False)),
+                                    )
+                        opt_state = (
+                            OptunaTrialState.COMPLETE if t.state == TrialState.COMPLETE
+                            else (OptunaTrialState.PRUNED if t.state == TrialState.PRUNED else OptunaTrialState.FAIL)
+                        )
+                        f_trial = create_optuna_trial(
+                            state=opt_state,
+                            value=t.final_value,
+                            params=t.params,
+                            distributions=dists,
+                            intermediate_values=t.intermediate_values,
+                        )
+                        self.study.add_trial(f_trial)
+                    except Exception as e:
+                        logger.debug("Failed recovering trial %s into Optuna study: %s", t.trial_id, e)
+
+    def is_concurrency_exhausted(self) -> Tuple[bool, str]:
+        """Checks if active running trials have reached the concurrency bound."""
+        running = len([t for t in self.trials if t.state == TrialState.RUNNING])
+        if running >= self.max_concurrent_trials:
+            return True, f"Max concurrent trials reached ({running}/{self.max_concurrent_trials})"
+        return False, ""
 
     def is_budget_exhausted(self) -> Tuple[bool, str]:
         """Checks trial count, duration, cost, and campaign ledger limits."""
@@ -272,9 +348,50 @@ class BudgetedOptunaTuner:
             logger.info("Cannot lease new trial: %s", reason)
             return None
 
+        concur_exhausted, concur_reason = self.is_concurrency_exhausted()
+        if concur_exhausted:
+            logger.info("Cannot lease new trial: %s", concur_reason)
+            return None
+
         trial_num = len(self.trials)
         trial_id = f"trial_{self.study_name}_{trial_num}"
-        params = self._sample_params()
+
+        optuna_trial = None
+        if HAS_OPTUNA and self.study is not None:
+            try:
+                optuna_trial = self.study.ask()
+                params = {}
+                for name, spec in self.param_space.items():
+                    ptype = spec.get("type", "float")
+                    if ptype == "categorical":
+                        choices = spec.get("choices", [])
+                        params[name] = optuna_trial.suggest_categorical(name, choices)
+                    elif ptype == "int":
+                        low = spec.get("low", 1)
+                        high = spec.get("high", 100)
+                        step = spec.get("step", 1)
+                        params[name] = optuna_trial.suggest_int(name, low, high, step=step)
+                    elif ptype == "float":
+                        low = float(spec.get("low", 1e-4))
+                        high = float(spec.get("high", 1.0))
+                        log = bool(spec.get("log", False))
+                        params[name] = optuna_trial.suggest_float(name, low, high, log=log)
+                    else:
+                        params[name] = spec.get("default")
+            except Exception as e:
+                logger.debug("Optuna ask fallback: %s", e)
+                params = self._sample_params()
+        else:
+            params = self._sample_params()
+
+        # Apply campaign reservation if governed authority is bound
+        if self.campaign_authority and hasattr(self.campaign_authority, "reserve"):
+            est_cost = 0.01
+            try:
+                self.campaign_authority.reserve("tuning", trial_id, est_cost)
+            except Exception as exc:
+                logger.warning("Campaign reservation failed for trial %s: %s", trial_id, exc)
+                return None
 
         trial = BudgetedTrial(
             trial_id=trial_id,
@@ -284,6 +401,7 @@ class BudgetedOptunaTuner:
             start_time=time.time(),
             _pruner=self.pruner,
             _direction=self.direction,
+            _optuna_trial=optuna_trial,
         )
 
         self.trials.append(trial)
@@ -327,6 +445,25 @@ class BudgetedOptunaTuner:
         self.total_cost_usd += trial.cost_usd
         self.total_duration_seconds += trial.duration_seconds
 
+        # Update Optuna study if initialized
+        if HAS_OPTUNA and self.study is not None and getattr(trial, "_optuna_trial", None) is not None:
+            try:
+                if trial.state == TrialState.COMPLETE:
+                    self.study.tell(trial._optuna_trial, state=OptunaTrialState.COMPLETE, values=final_value)
+                elif trial.state == TrialState.PRUNED:
+                    self.study.tell(trial._optuna_trial, state=OptunaTrialState.PRUNED)
+                else:
+                    self.study.tell(trial._optuna_trial, state=OptunaTrialState.FAIL)
+            except Exception as e:
+                logger.debug("Optuna study.tell exception: %s", e)
+
+        # Settle campaign budget if authority is bound
+        if self.campaign_authority and hasattr(self.campaign_authority, "settle"):
+            try:
+                self.campaign_authority.settle("tuning", trial.trial_id, trial.cost_usd, cost_kind="trial_measured")
+            except Exception as exc:
+                logger.debug("Campaign settle exception: %s", exc)
+
         # Update pruner step observations for completed runs
         if trial.state == TrialState.COMPLETE and trial.intermediate_values:
             for s, v in trial.intermediate_values.items():
@@ -365,7 +502,10 @@ class BudgetedOptunaTuner:
             try:
                 score = objective_fn(trial)
                 duration = time.time() - t0
-                if score is None:
+                if self.trial_timeout_seconds and duration > self.trial_timeout_seconds:
+                    logger.warning("Trial %s exceeded duration timeout (%fs > %fs)", trial.trial_id, duration, self.trial_timeout_seconds)
+                    self.tell(trial, TrialState.FAIL, final_value=None, duration_seconds=duration)
+                elif score is None:
                     self.tell(trial, TrialState.PRUNED, final_value=None, duration_seconds=duration)
                 else:
                     self.tell(trial, TrialState.COMPLETE, final_value=score, duration_seconds=duration)

@@ -555,3 +555,91 @@ def test_adapter_independence_across_fixtures(tmp_path: Path):
             assert receipt.candidate_id == f"cand_{name}"
             assert (b_dir / "manifest.json").exists()
             assert (b_dir / "inference.py").exists()
+
+
+# =============================================================================
+# 11. Governed Optuna Tuning with Concurrency Bounding & Campaign Authority
+# =============================================================================
+
+def test_optuna_tuning_concurrency_and_campaign_authority(tmp_path: Path):
+    from unittest.mock import MagicMock
+    from mlrescurix_worker.scientific.dual_gateway import DualTierGateway, RoutePolicy
+
+    param_space = {"param_x": {"type": "float", "low": 0.0, "high": 1.0}}
+
+    # Mock CampaignBudgetAuthority
+    mock_authority = MagicMock()
+    mock_authority.get_status.return_value = {"remaining_campaign_usd": 0.25}
+
+    tuner = BudgetedOptunaTuner(
+        study_name="governed_optuna_study",
+        param_space=param_space,
+        direction="maximize",
+        max_trials=5,
+        max_concurrent_trials=1,
+        campaign_authority=mock_authority,
+        seed=42,
+    )
+
+    # 1. Ask trial 0
+    t0 = tuner.ask()
+    assert t0 is not None
+    assert mock_authority.reserve.called
+    assert t0.state == TrialState.RUNNING
+
+    # 2. Concurrency bound enforcement: while trial 0 is RUNNING and max_concurrent_trials=1, ask() must return None
+    assert tuner.is_concurrency_exhausted()[0] is True
+    t_blocked = tuner.ask()
+    assert t_blocked is None
+
+    # 3. Complete trial 0 -> settles spend and frees concurrency slot
+    tuner.tell(t0, TrialState.COMPLETE, final_value=0.85, cost_usd=0.01)
+    assert mock_authority.settle.called
+    assert tuner.is_concurrency_exhausted()[0] is False
+
+    # 4. Ask trial 1 now succeeds
+    t1 = tuner.ask()
+    assert t1 is not None
+    tuner.tell(t1, TrialState.COMPLETE, final_value=0.92, cost_usd=0.01)
+
+    assert tuner.best_trial().final_value == 0.92
+
+
+# =============================================================================
+# 12. Governed Dual Gateway with Pre-Dispatch Reservation & Settlement
+# =============================================================================
+
+def test_governed_dual_gateway_reservation_and_uncertain_reconciliation(tmp_path: Path):
+    from unittest.mock import MagicMock, patch
+    from mlrescurix_worker.scientific.dual_gateway import DualTierGateway, RoutePolicy
+
+    mock_authority = MagicMock()
+    gateway = DualTierGateway(
+        openrouter_key="mock_openrouter_key",
+        deepseek_key="mock_deepseek_key",
+        route_policy=RoutePolicy.AUTO_FAILOVER,
+        campaign_authority=mock_authority,
+    )
+    gateway.bind_campaign(tmp_path / "campaign_budget_ledger.json", "run-gw-test", campaign_authority=mock_authority)
+
+    # 1. Success dispatch -> reserves then settles
+    with patch.object(gateway, "_post_json") as mock_post:
+        mock_post.return_value = {
+            "content": "Sample completion response",
+            "usage": {"prompt_tokens": 100, "completion_tokens": 50},
+            "cost_usd": 0.0001,
+            "cost_is_estimate": True,
+            "model": "deepseek/deepseek-v4.1-flash",
+        }
+        res = gateway.call_with_request_id([{"role": "user", "content": "hi"}], max_tokens=100, request_id="req-gov-1")
+        assert res["content"] == "Sample completion response"
+        assert mock_authority.reserve.called
+        assert mock_authority.settle.called
+
+    # 2. Failure dispatch with uncertain timeout outcome -> reserves then marks uncertain
+    mock_authority.reset_mock()
+    with patch.object(gateway, "_post_json", side_effect=TimeoutError("Connection timed out")):
+        with pytest.raises(RuntimeError, match="All permitted LLM gateway tiers failed"):
+            gateway.call_with_request_id([{"role": "user", "content": "hi"}], max_tokens=100, request_id="req-gov-fail")
+        assert mock_authority.reserve.called
+        assert mock_authority.mark_uncertain.called

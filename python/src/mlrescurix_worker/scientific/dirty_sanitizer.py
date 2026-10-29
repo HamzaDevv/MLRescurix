@@ -23,7 +23,10 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 import pandas as pd
-import pyarrow as pa
+try:
+    import pyarrow as pa
+except ImportError:
+    pa = None
 
 
 # Universal missingness sentinel tokens
@@ -300,14 +303,14 @@ def apply_coercions(df: pd.DataFrame, coercions: Dict[str, str]) -> pd.DataFrame
 
 
 def sanitize_dataset(
-    data: Union[pd.DataFrame, pa.Table, str, Path],
+    data: Union[pd.DataFrame, Any, str, Path],
     promotion_threshold: float = 0.85,
 ) -> DirtySanitizerResult:
     """Ingest and sanitize dataset from DataFrame, Arrow Table, CSV, Parquet, or Feather path."""
     if isinstance(data, pd.DataFrame):
         return sanitize_dataframe(data, promotion_threshold=promotion_threshold)
 
-    if isinstance(data, pa.Table):
+    if pa is not None and isinstance(data, pa.Table):
         df = data.to_pandas()
         return sanitize_dataframe(df, promotion_threshold=promotion_threshold)
 

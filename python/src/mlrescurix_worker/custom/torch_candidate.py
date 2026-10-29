@@ -351,6 +351,13 @@ class TinyTorchNeuralCandidate(CandidatePluginContract, CustomEstimator):
         resume_from: Optional[Union[str, Path]] = None,
         max_steps: Optional[int] = None,
         progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+        expected_dataset_sha256: Optional[str] = None,
+        expected_split_sha256: Optional[str] = None,
+        expected_candidate_id: Optional[str] = None,
+        expected_project_id: Optional[str] = None,
+        expected_source_sha256: Optional[str] = None,
+        expected_environment_id: Optional[str] = None,
+        expected_weights_sha256: Optional[str] = None,
     ) -> TrainingStateContract:
         """
         Execute training with support for checkpoint resume, step-boundary interruption,
@@ -368,7 +375,16 @@ class TinyTorchNeuralCandidate(CandidatePluginContract, CustomEstimator):
         y_arr = np.asarray(y_train)
 
         if resume_from is not None:
-            self.load_checkpoint(resume_from)
+            self.load_checkpoint(
+                resume_from,
+                expected_dataset_sha256=expected_dataset_sha256,
+                expected_split_sha256=expected_split_sha256,
+                expected_candidate_id=expected_candidate_id,
+                expected_project_id=expected_project_id,
+                expected_source_sha256=expected_source_sha256,
+                expected_environment_id=expected_environment_id,
+                expected_weights_sha256=expected_weights_sha256,
+            )
 
         if self.is_classification:
             if self.classes_ is not None and len(self.classes_) > 0:
@@ -476,6 +492,14 @@ class TinyTorchNeuralCandidate(CandidatePluginContract, CustomEstimator):
         checkpoint_dir: Union[str, Path],
         step: int,
         training_state: Optional[TrainingStateContract] = None,
+        candidate_id: Optional[str] = None,
+        dataset_sha256: Optional[str] = None,
+        split_sha256: Optional[str] = None,
+        replay_guarantee: str = "unverified",
+        project_id: Optional[str] = None,
+        source_sha256: Optional[str] = None,
+        environment_id: Optional[str] = None,
+        training_config: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Atomically persist complete model checkpoint with flushed files, hash manifest, and commit marker."""
         base_dir = Path(checkpoint_dir).resolve()
@@ -538,6 +562,10 @@ class TinyTorchNeuralCandidate(CandidatePluginContract, CustomEstimator):
             for c in self.classes_
         ] if self.classes_ is not None else None
 
+        cand_ident = candidate_id or getattr(self, "candidate_identity", None)
+        if not cand_ident:
+            raise ValueError("candidate_id is required for checkpoint save; generic plugin identity prohibited")
+
         state_dict = training_state.to_dict() if training_state else {
             "step": step,
             "epoch": self.current_epoch,
@@ -555,6 +583,15 @@ class TinyTorchNeuralCandidate(CandidatePluginContract, CustomEstimator):
         manifest_payload = {
             "version": "1.0",
             "plugin_id": self.plugin_id,
+            "project_id": project_id,
+            "candidate_id": cand_ident,
+            "weights_sha256": manifest_files["weights.pt"],
+            "dataset_sha256": dataset_sha256,
+            "split_sha256": split_sha256,
+            "source_sha256": source_sha256,
+            "environment_id": environment_id,
+            "training_config": training_config,
+            "replay_guarantee": replay_guarantee,
             "step": step,
             "epoch": self.current_epoch,
             "batch_offset": self.batch_offset,
@@ -587,7 +624,17 @@ class TinyTorchNeuralCandidate(CandidatePluginContract, CustomEstimator):
         manifest_payload["checkpoint_dir"] = str(final_dir)
         return manifest_payload
 
-    def load_checkpoint(self, checkpoint_dir: Union[str, Path]) -> TrainingStateContract:
+    def load_checkpoint(
+        self,
+        checkpoint_dir: Union[str, Path],
+        expected_dataset_sha256: Optional[str] = None,
+        expected_split_sha256: Optional[str] = None,
+        expected_candidate_id: Optional[str] = None,
+        expected_project_id: Optional[str] = None,
+        expected_source_sha256: Optional[str] = None,
+        expected_environment_id: Optional[str] = None,
+        expected_weights_sha256: Optional[str] = None,
+    ) -> TrainingStateContract:
         """Load and verify checkpoint from directory with SHA-256 integrity validation."""
         path = Path(checkpoint_dir).resolve()
         if not path.is_dir():
@@ -610,6 +657,51 @@ class TinyTorchNeuralCandidate(CandidatePluginContract, CustomEstimator):
             raise ValueError(f"Checkpoint missing manifest.json: {path}")
 
         manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+
+        # Verify identity bindings when expected by caller
+        if expected_project_id is not None:
+            actual_p_id = manifest.get("project_id")
+            if actual_p_id != expected_project_id:
+                raise ValueError(
+                    f"Checkpoint project mismatch: expected {expected_project_id}, got {actual_p_id}"
+                )
+        if expected_dataset_sha256 is not None:
+            actual_d_sha = manifest.get("dataset_sha256")
+            if actual_d_sha != expected_dataset_sha256:
+                raise ValueError(
+                    f"Checkpoint dataset mismatch: expected {expected_dataset_sha256}, got {actual_d_sha}"
+                )
+        if expected_split_sha256 is not None:
+            actual_s_sha = manifest.get("split_sha256")
+            if actual_s_sha != expected_split_sha256:
+                raise ValueError(
+                    f"Checkpoint split mismatch: expected {expected_split_sha256}, got {actual_s_sha}"
+                )
+        if expected_candidate_id is not None:
+            cand_id_in_manifest = manifest.get("candidate_id")
+            if cand_id_in_manifest != expected_candidate_id:
+                raise ValueError(
+                    f"Checkpoint candidate mismatch: expected {expected_candidate_id}, got {cand_id_in_manifest}"
+                )
+        if expected_source_sha256 is not None:
+            actual_src_sha = manifest.get("source_sha256")
+            if actual_src_sha != expected_source_sha256:
+                raise ValueError(
+                    f"Checkpoint source mismatch: expected {expected_source_sha256}, got {actual_src_sha}"
+                )
+        if expected_environment_id is not None:
+            actual_env_id = manifest.get("environment_id")
+            if actual_env_id != expected_environment_id:
+                raise ValueError(
+                    f"Checkpoint environment mismatch: expected {expected_environment_id}, got {actual_env_id}"
+                )
+        if expected_weights_sha256 is not None:
+            actual_w_sha = manifest.get("weights_sha256") or manifest.get("files", {}).get("weights.pt")
+            if actual_w_sha != expected_weights_sha256:
+                raise ValueError(
+                    f"Checkpoint weights mismatch: expected {expected_weights_sha256}, got {actual_w_sha}; does not match evaluated weights hash"
+                )
+
         files_decl = manifest.get("files", {})
         required_files = {"weights.pt", "optimizer.pt", "scheduler.pt", "rng.pt"}
         if not isinstance(files_decl, dict) or set(files_decl) != required_files:

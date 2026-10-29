@@ -100,6 +100,8 @@ pub struct CustomJobSpec {
     #[serde(default = "default_v2_schema_version")]
     pub schema_version: Option<String>,
     #[serde(default)]
+    pub candidate_id: Option<String>,
+    #[serde(default)]
     pub target_column: Option<String>,
     pub metric_name: String,
     pub metric_direction: String,
@@ -119,6 +121,7 @@ pub struct CustomJobSpec {
 impl CustomJobSpec {
     pub fn validate(&self) -> Result<()> {
         for s in [&self.job_id, &self.project_id, &self.task_id, &self.dataset_id, &self.model_plugin] { id(s)?; }
+        if let Some(cand) = &self.candidate_id { id(cand)?; }
         if self.generation == 0 || self.generation > MAX_INTEGER || self.intent_revision == 0 || self.intent_revision > MAX_INTEGER {
             return Err("invalid revision/generation".into());
         }
@@ -137,6 +140,20 @@ impl CustomJobSpec {
         if self.batch_size == 0 || self.batch_size > 65536 {
             return Err("invalid batch_size".into());
         }
+        if let Some(ckpt) = &self.resume_checkpoint {
+            if ckpt.is_empty()
+                || ckpt.len() > 256
+                || ckpt.contains('\0')
+                || ckpt.contains("..")
+                || ckpt.starts_with('/')
+                || ckpt.starts_with('\\')
+                || ckpt.contains(':')
+                || std::path::Path::new(ckpt).is_absolute()
+                || std::path::Path::new(ckpt).components().any(|c| matches!(c, std::path::Component::ParentDir | std::path::Component::RootDir | std::path::Component::Prefix(_)))
+            {
+                return Err("invalid resume_checkpoint reference; must be a valid relative checkpoint identity without directory traversal".into());
+            }
+        }
         if let Some(res) = &self.resources { res.validate()?; }
         Ok(())
     }
@@ -148,6 +165,12 @@ pub struct TrainingCheckpoint {
     pub job_id: String,
     #[serde(default = "default_v2_schema_version")]
     pub schema_version: Option<String>,
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub candidate_id: Option<String>,
+    #[serde(default)]
+    pub weights_sha256: Option<String>,
     pub step: u64,
     pub epoch: u64,
     pub batch_offset: u64,
@@ -156,14 +179,49 @@ pub struct TrainingCheckpoint {
     pub loss: Option<f64>,
     pub files: BTreeMap<String, String>,
     #[serde(default)]
+    pub dataset_sha256: Option<String>,
+    #[serde(default)]
+    pub split_sha256: Option<String>,
+    #[serde(default)]
+    pub source_sha256: Option<String>,
+    #[serde(default)]
+    pub environment_id: Option<String>,
+    #[serde(default)]
+    pub training_config: Option<serde_json::Value>,
+    #[serde(default)]
+    pub replay_guarantee: Option<String>,
+    #[serde(default)]
     pub training_state: Option<serde_json::Value>,
     pub timestamp_unix: f64,
 }
 impl TrainingCheckpoint {
     pub fn validate(&self) -> Result<()> {
         for s in [&self.checkpoint_id, &self.job_id] { id(s)?; }
+        if let Some(p) = &self.project_id { id(p)?; }
+        if let Some(cand) = &self.candidate_id { id(cand)?; }
+        if let Some(env) = &self.environment_id { id(env)?; }
         if self.schema_version.as_deref() != Some("v2") {
             return Err("schema_version must be 'v2'".into());
+        }
+        if let Some(w_sha) = &self.weights_sha256 {
+            if w_sha.len() != 64 || !w_sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err("invalid weights_sha256 in checkpoint".into());
+            }
+        }
+        if let Some(d_sha) = &self.dataset_sha256 {
+            if d_sha.len() != 64 || !d_sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err("invalid dataset_sha256 in checkpoint".into());
+            }
+        }
+        if let Some(s_sha) = &self.split_sha256 {
+            if s_sha.len() != 64 || !s_sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err("invalid split_sha256 in checkpoint".into());
+            }
+        }
+        if let Some(src_sha) = &self.source_sha256 {
+            if src_sha.len() != 64 || !src_sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err("invalid source_sha256 in checkpoint".into());
+            }
         }
         if self.files.is_empty() { return Err("checkpoint files cannot be empty".into()); }
         for (f, sha) in &self.files {
@@ -182,6 +240,12 @@ pub struct TrainingResult {
     pub status: String,
     #[serde(default = "default_v2_schema_version")]
     pub schema_version: Option<String>,
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub candidate_id: Option<String>,
+    #[serde(default)]
+    pub weights_sha256: Option<String>,
     pub step_reached: u64,
     pub epoch_reached: u64,
     #[serde(default)]
@@ -194,6 +258,18 @@ pub struct TrainingResult {
     pub duration_seconds: f64,
     pub artifacts: Vec<String>,
     #[serde(default)]
+    pub dataset_sha256: Option<String>,
+    #[serde(default)]
+    pub split_sha256: Option<String>,
+    #[serde(default)]
+    pub source_sha256: Option<String>,
+    #[serde(default)]
+    pub environment_id: Option<String>,
+    #[serde(default)]
+    pub training_config: Option<serde_json::Value>,
+    #[serde(default)]
+    pub replay_guarantee: Option<String>,
+    #[serde(default)]
     pub limitations: Vec<String>,
     #[serde(default)]
     pub reason: Option<String>,
@@ -201,8 +277,31 @@ pub struct TrainingResult {
 impl TrainingResult {
     pub fn validate(&self) -> Result<()> {
         id(&self.job_id)?;
+        if let Some(p) = &self.project_id { id(p)?; }
+        if let Some(cand) = &self.candidate_id { id(cand)?; }
+        if let Some(env) = &self.environment_id { id(env)?; }
         if self.schema_version.as_deref() != Some("v2") {
             return Err("schema_version must be 'v2'".into());
+        }
+        if let Some(w_sha) = &self.weights_sha256 {
+            if w_sha.len() != 64 || !w_sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err("invalid weights_sha256 in result".into());
+            }
+        }
+        if let Some(d_sha) = &self.dataset_sha256 {
+            if d_sha.len() != 64 || !d_sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err("invalid dataset_sha256 in result".into());
+            }
+        }
+        if let Some(s_sha) = &self.split_sha256 {
+            if s_sha.len() != 64 || !s_sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err("invalid split_sha256 in result".into());
+            }
+        }
+        if let Some(src_sha) = &self.source_sha256 {
+            if src_sha.len() != 64 || !src_sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err("invalid source_sha256 in result".into());
+            }
         }
         if !["succeeded", "failed", "timed_out", "needs_resources", "interrupted"].contains(&self.status.as_str()) {
             return Err("invalid training result status".into());

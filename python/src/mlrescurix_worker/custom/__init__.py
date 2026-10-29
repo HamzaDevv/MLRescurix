@@ -37,7 +37,16 @@ try:
 except ImportError:
     TinyTorchNeuralCandidate = None  # type: ignore
 
-from .worker import run_worker
+try:
+    from .sequential_candidate import SequentialTorchCandidate
+except ImportError:
+    SequentialTorchCandidate = None  # type: ignore
+
+from .tabular_candidate import TabularCandidatePlugin
+
+def run_worker(*args, **kwargs):
+    from .worker import run_worker as _run_worker
+    return _run_worker(*args, **kwargs)
 
 __all__ = [
     "CustomEstimator",
@@ -55,6 +64,8 @@ __all__ = [
     "TrainingResultContract",
     "WorkerHandshakeContract",
     "TinyTorchNeuralCandidate",
+    "SequentialTorchCandidate",
+    "TabularCandidatePlugin",
     "AdmissionController",
     "AdmissionDecision",
     "OOMRecoveryPolicy",

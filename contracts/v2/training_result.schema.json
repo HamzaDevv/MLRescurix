@@ -13,6 +13,15 @@
   "properties": {
     "schema_version": { "type": "string", "const": "v2" },
     "job_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "project_id": { "type": ["string", "null"], "maxLength": 128 },
+    "candidate_id": { "type": ["string", "null"], "maxLength": 128 },
+    "weights_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "dataset_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "split_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "source_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "environment_id": { "type": ["string", "null"], "maxLength": 128 },
+    "training_config": { "type": ["object", "null"] },
+    "replay_guarantee": { "type": ["string", "null"], "maxLength": 128 },
     "status": {
       "type": "string",
       "enum": ["succeeded", "failed", "timed_out", "needs_resources", "interrupted"]

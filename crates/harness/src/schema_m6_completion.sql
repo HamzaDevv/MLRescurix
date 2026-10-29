@@ -1,6 +1,6 @@
 CREATE TABLE scientific_jobs_v8(
   project TEXT NOT NULL, job TEXT NOT NULL, dataset TEXT NOT NULL,
-  operation TEXT NOT NULL CHECK(operation IN('audit','baselines','finalize','trial','pipeline')),
+  operation TEXT NOT NULL CHECK(operation IN('audit','baselines','finalize','trial','pipeline','custom_train','custom_resume','custom_evaluate','custom_export')),
   spec TEXT NOT NULL, result_sha256 TEXT,
   PRIMARY KEY(project,job),
   FOREIGN KEY(project,job) REFERENCES jobs(project,id),

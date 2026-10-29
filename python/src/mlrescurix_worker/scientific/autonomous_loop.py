@@ -28,7 +28,8 @@ from .critic_engine import CriticEngine
 from .model_zoo import PredefinedSplitter, normalize_family_name
 from .resource_monitor import ProcessTreeSampler
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
+_parents = Path(__file__).resolve().parents
+REPO_ROOT = _parents[4] if len(_parents) > 4 else _parents[-1]
 def bounded_evidence(value, depth=0):
     """Bound outbound context without rewriting durable raw receipts."""
     if depth > 10: return "[nested evidence omitted; see checkpoint]"

@@ -66,6 +66,8 @@ class DualTierGateway:
         timeout_seconds: float = 35.0,
         route_policy: str = RoutePolicy.AUTO_FAILOVER,
         max_attempts_per_route: int = 2,
+        rust_adapter: Optional[Any] = None,
+        campaign_authority: Optional[Any] = None,
     ):
         self.openrouter_key = openrouter_key or self._resolve_key("OPENROUTER_API_KEY", ".config/openrouter.key")
         self.deepseek_key = deepseek_key or self._resolve_key("DEEPSEEK_API_KEY", ".config/deepseek.key")
@@ -75,6 +77,8 @@ class DualTierGateway:
         self.max_attempts_per_route = max(1, int(max_attempts_per_route))
         self.campaign_ledger: Optional[Path] = None
         self.campaign_run: Optional[str] = None
+        self.rust_adapter = rust_adapter
+        self.campaign_authority = campaign_authority
 
     @staticmethod
     def _resolve_key(env_var: str, file_path: str) -> str:
@@ -88,10 +92,17 @@ class DualTierGateway:
                 return txt
         return ""
 
-    def bind_campaign(self, ledger_path: Union[str, Path], run_id: str) -> None:
+    def bind_campaign(
+        self,
+        ledger_path: Union[str, Path],
+        run_id: str,
+        campaign_authority: Optional[Any] = None,
+    ) -> None:
         """Bind gateway to a shared campaign ledger for accounting governance."""
         self.campaign_ledger = Path(ledger_path).resolve()
         self.campaign_run = run_id
+        if campaign_authority is not None:
+            self.campaign_authority = campaign_authority
 
     def reservation(self, messages: List[Dict[str, Any]], max_tokens: int) -> Decimal:
         """Estimate upper-bound cost for budget reservation covering primary and fallback rates."""
@@ -117,6 +128,30 @@ class DualTierGateway:
         start_time = time.monotonic()
         last_error = None
         effective_policy = policy_override or self.route_policy
+        req_id = request_id or f"req-{int(time.time() * 1000)}"
+        run_id = self.campaign_run or "governed_llm"
+
+        # Apply pre-dispatch campaign reservation
+        res_cost = self.reservation(messages, max_tokens)
+        if self.campaign_authority and hasattr(self.campaign_authority, "reserve"):
+            try:
+                self.campaign_authority.reserve(run_id, req_id, res_cost)
+            except Exception as exc:
+                logger.error("Campaign reservation rejected for request %s: %s", req_id, exc)
+                raise
+
+        # If rust_adapter is configured, route via Rust control plane
+        if self.rust_adapter is not None:
+            try:
+                res = self.rust_adapter.call_with_request_id(messages, max_tokens, req_id)
+                if self.campaign_authority and hasattr(self.campaign_authority, "settle"):
+                    billed = Decimal(str(res.get("cost_usd", "0.0")))
+                    self.campaign_authority.settle(run_id, req_id, billed, cost_kind="provider_verified")
+                return res
+            except Exception as exc:
+                if self.campaign_authority and hasattr(self.campaign_authority, "mark_uncertain"):
+                    self.campaign_authority.mark_uncertain(run_id, req_id, res_cost)
+                raise
 
         # 1. Primary Attempt: OpenRouter (unless restricted to FALLBACK_ONLY)
         if effective_policy in (RoutePolicy.AUTO_FAILOVER, RoutePolicy.PRIMARY_ONLY):
@@ -139,9 +174,15 @@ class DualTierGateway:
                         )
                         res["provider_source"] = "openrouter"
                         res["duration_seconds"] = time.monotonic() - start_time
-                        res["request_id"] = request_id
+                        res["request_id"] = req_id
                         res["attempts"] = attempt
                         res["route_policy"] = effective_policy
+                        if self.campaign_authority and hasattr(self.campaign_authority, "settle"):
+                            try:
+                                billed = Decimal(str(res.get("cost_usd", "0.0")))
+                                self.campaign_authority.settle(run_id, req_id, billed, cost_kind="unverified")
+                            except Exception:
+                                pass
                         return res
                     except Exception as exc:
                         last_error = exc
@@ -179,9 +220,15 @@ class DualTierGateway:
                         )
                         res["provider_source"] = "deepseek_direct"
                         res["duration_seconds"] = time.monotonic() - start_time
-                        res["request_id"] = request_id
+                        res["request_id"] = req_id
                         res["attempts"] = attempt
                         res["route_policy"] = effective_policy
+                        if self.campaign_authority and hasattr(self.campaign_authority, "settle"):
+                            try:
+                                billed = Decimal(str(res.get("cost_usd", "0.0")))
+                                self.campaign_authority.settle(run_id, req_id, billed, cost_kind="unverified")
+                            except Exception:
+                                pass
                         return res
                     except Exception as exc:
                         last_error = exc
@@ -192,6 +239,12 @@ class DualTierGateway:
                         )
             else:
                 last_error = RuntimeError("DeepSeek API key not configured")
+
+        if self.campaign_authority and hasattr(self.campaign_authority, "mark_uncertain"):
+            try:
+                self.campaign_authority.mark_uncertain(run_id, req_id, res_cost)
+            except Exception:
+                pass
 
         raise RuntimeError(f"All permitted LLM gateway tiers failed under policy '{effective_policy}'. Last error: {last_error}")
 

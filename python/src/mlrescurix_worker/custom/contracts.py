@@ -359,12 +359,16 @@ class CustomJobSpecContract:
     max_steps: int
     batch_size: int
     schema_version: str = "v2"
+    candidate_id: Optional[str] = None
     target_column: Optional[str] = None
     resume_checkpoint: Optional[str] = None
     learning_rate: Optional[float] = None
     hidden_dim: Optional[int] = None
     seed: Optional[int] = 42
     resources: Optional[Dict[str, Any]] = None
+
+    def __post_init__(self) -> None:
+        self.validate()
 
     def validate(self) -> None:
         if not self.job_id or not self.project_id or not self.task_id:
@@ -377,6 +381,20 @@ class CustomJobSpecContract:
             raise ValueError("max_steps must be positive")
         if self.batch_size <= 0:
             raise ValueError("batch_size must be positive")
+        if self.resume_checkpoint is not None:
+            if (
+                not self.resume_checkpoint
+                or len(self.resume_checkpoint) > 256
+                or "\0" in self.resume_checkpoint
+                or ".." in self.resume_checkpoint
+                or ":" in self.resume_checkpoint
+                or self.resume_checkpoint.startswith("/")
+                or self.resume_checkpoint.startswith("\\")
+                or Path(self.resume_checkpoint).is_absolute()
+            ):
+                raise ValueError(
+                    "invalid resume_checkpoint reference; must be a valid relative checkpoint identity without directory traversal"
+                )
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -399,8 +417,20 @@ class TrainingCheckpointContract:
     files: Dict[str, str]  # filename -> sha256
     timestamp_unix: float
     schema_version: str = "v2"
+    project_id: Optional[str] = None
+    candidate_id: Optional[str] = None
+    weights_sha256: Optional[str] = None
+    dataset_sha256: Optional[str] = None
+    split_sha256: Optional[str] = None
+    source_sha256: Optional[str] = None
+    environment_id: Optional[str] = None
+    training_config: Optional[Dict[str, Any]] = None
+    replay_guarantee: str = "unverified"
     loss: Optional[float] = None
     training_state: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        self.validate()
 
     def validate(self) -> None:
         if not self.checkpoint_id or not self.job_id:
@@ -410,6 +440,14 @@ class TrainingCheckpointContract:
         for fname, sha in self.files.items():
             if len(sha) != 64 or not all(c in "0123456789abcdef" for c in sha.lower()):
                 raise ValueError(f"Invalid file sha256 for {fname}: {sha}")
+        if self.weights_sha256 and (len(self.weights_sha256) != 64 or not all(c in "0123456789abcdef" for c in self.weights_sha256.lower())):
+            raise ValueError(f"Invalid weights_sha256 in checkpoint: {self.weights_sha256}")
+        if self.dataset_sha256 and (len(self.dataset_sha256) != 64 or not all(c in "0123456789abcdef" for c in self.dataset_sha256.lower())):
+            raise ValueError(f"Invalid dataset_sha256 in checkpoint: {self.dataset_sha256}")
+        if self.split_sha256 and (len(self.split_sha256) != 64 or not all(c in "0123456789abcdef" for c in self.split_sha256.lower())):
+            raise ValueError(f"Invalid split_sha256 in checkpoint: {self.split_sha256}")
+        if self.source_sha256 and (len(self.source_sha256) != 64 or not all(c in "0123456789abcdef" for c in self.source_sha256.lower())):
+            raise ValueError(f"Invalid source_sha256 in checkpoint: {self.source_sha256}")
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -431,17 +469,37 @@ class TrainingResultContract:
     duration_seconds: float
     artifacts: List[str]
     schema_version: str = "v2"
+    project_id: Optional[str] = None
+    candidate_id: Optional[str] = None
+    weights_sha256: Optional[str] = None
+    dataset_sha256: Optional[str] = None
+    split_sha256: Optional[str] = None
+    source_sha256: Optional[str] = None
+    environment_id: Optional[str] = None
+    training_config: Optional[Dict[str, Any]] = None
+    replay_guarantee: str = "unverified"
     primary_metric_name: Optional[str] = None
     primary_metric_score: Optional[float] = None
     validation_loss: Optional[float] = None
     limitations: List[str] = field(default_factory=list)
     reason: Optional[str] = None
 
+    def __post_init__(self) -> None:
+        self.validate()
+
     def validate(self) -> None:
         if not self.job_id:
             raise ValueError("job_id must be non-empty")
         if self.status not in ("succeeded", "failed", "timed_out", "needs_resources", "interrupted"):
             raise ValueError(f"Invalid training result status: {self.status}")
+        if self.weights_sha256 and (len(self.weights_sha256) != 64 or not all(c in "0123456789abcdef" for c in self.weights_sha256.lower())):
+            raise ValueError(f"Invalid weights_sha256 in result: {self.weights_sha256}")
+        if self.dataset_sha256 and (len(self.dataset_sha256) != 64 or not all(c in "0123456789abcdef" for c in self.dataset_sha256.lower())):
+            raise ValueError(f"Invalid dataset_sha256 in result: {self.dataset_sha256}")
+        if self.split_sha256 and (len(self.split_sha256) != 64 or not all(c in "0123456789abcdef" for c in self.split_sha256.lower())):
+            raise ValueError(f"Invalid split_sha256 in result: {self.split_sha256}")
+        if self.source_sha256 and (len(self.source_sha256) != 64 or not all(c in "0123456789abcdef" for c in self.source_sha256.lower())):
+            raise ValueError(f"Invalid source_sha256 in result: {self.source_sha256}")
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

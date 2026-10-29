@@ -55,8 +55,9 @@ class CustomBundlePackager:
             self.schema_path = Path(schema_path).resolve()
         else:
             # Default schema path relative to repository
-            repo_root = Path(__file__).resolve().parents[4]
-            self.schema_path = repo_root / "contracts/v2/candidate_bundle.schema.json"
+            parents = Path(__file__).resolve().parents
+            repo_root = parents[4] if len(parents) > 4 else None
+            self.schema_path = (repo_root / "contracts/v2/candidate_bundle.schema.json") if repo_root else None
 
     def package(
         self,
@@ -72,6 +73,8 @@ class CustomBundlePackager:
         candidate_id: Optional[str] = None,
         accepted_evaluation: Optional[Dict[str, Any]] = None,
         decision_threshold: float = 0.5,
+        source_weights_path: Optional[Union[str, Path]] = None,
+        project_id: Optional[str] = None,
     ) -> ResultBundleContract:
         """Packages fitted custom candidate into a complete, verified delivery bundle."""
         bundle_dir = Path(output_bundle_dir).resolve()
@@ -81,6 +84,13 @@ class CustomBundlePackager:
 
         cand_id = candidate_id or getattr(candidate, "plugin_id", "custom_neural_network")
         cand_identity = getattr(candidate, "candidate_identity", f"cand_{cand_id}_{int(time.time())}")
+
+        if accepted_evaluation is not None:
+            eval_status = accepted_evaluation.get("status")
+            if eval_status not in ("evaluated", "evaluated_development", "verified_development_only"):
+                raise BundleVerificationError(
+                    f"Candidate {cand_id} has invalid/rejected evaluation status {eval_status!r}; export refused"
+                )
 
         is_classification = "classification" in task_type.lower()
         classes = getattr(candidate, "classes_", [0, 1] if is_classification else None)
@@ -92,30 +102,52 @@ class CustomBundlePackager:
         frozen_weights_file = "frozen_model.joblib"
         frozen_weights_path = bundle_dir / frozen_weights_file
 
-        weights_file = "model.pt"
+        weights_file = "weights.pt"
         weights_path = bundle_dir / weights_file
         model_format = "pytorch_state_dict"
 
-        try:
-            import torch
-            if hasattr(candidate, "model") and isinstance(candidate.model, torch.nn.Module):
-                torch.save(candidate.model.state_dict(), weights_path)
-                joblib.dump(candidate.model.state_dict(), frozen_weights_path)
-            elif isinstance(candidate, torch.nn.Module):
-                torch.save(candidate.state_dict(), weights_path)
-                joblib.dump(candidate.state_dict(), frozen_weights_path)
+        if source_weights_path is not None:
+            source_p = Path(source_weights_path).resolve()
+            if not source_p.is_file():
+                raise FileNotFoundError(f"Source weights file not found: {source_p}")
+            if str(source_p).endswith(".joblib"):
+                weights_file = "model.joblib"
+                weights_path = bundle_dir / weights_file
+                model_format = "joblib"
+                shutil.copy2(source_p, weights_path)
+                shutil.copy2(source_p, frozen_weights_path)
             else:
+                shutil.copy2(source_p, weights_path)
+                shutil.copy2(source_p, bundle_dir / "model.pt")
+                try:
+                    import torch
+                    state_dict = torch.load(source_p, map_location="cpu", weights_only=True)
+                    joblib.dump(state_dict, frozen_weights_path)
+                except Exception:
+                    shutil.copy2(source_p, frozen_weights_path)
+        else:
+            try:
+                import torch
+                if hasattr(candidate, "model") and isinstance(candidate.model, torch.nn.Module):
+                    torch.save(candidate.model.state_dict(), weights_path)
+                    shutil.copy2(weights_path, bundle_dir / "model.pt")
+                    joblib.dump(candidate.model.state_dict(), frozen_weights_path)
+                elif isinstance(candidate, torch.nn.Module):
+                    torch.save(candidate.state_dict(), weights_path)
+                    shutil.copy2(weights_path, bundle_dir / "model.pt")
+                    joblib.dump(candidate.state_dict(), frozen_weights_path)
+                else:
+                    weights_file = "model.joblib"
+                    weights_path = bundle_dir / weights_file
+                    model_format = "joblib"
+                    joblib.dump(candidate, weights_path)
+                    joblib.dump(candidate, frozen_weights_path)
+            except Exception:
                 weights_file = "model.joblib"
                 weights_path = bundle_dir / weights_file
                 model_format = "joblib"
                 joblib.dump(candidate, weights_path)
                 joblib.dump(candidate, frozen_weights_path)
-        except Exception:
-            weights_file = "model.joblib"
-            weights_path = bundle_dir / weights_file
-            model_format = "joblib"
-            joblib.dump(candidate, weights_path)
-            joblib.dump(candidate, frozen_weights_path)
 
         weights_sha = streaming_file_sha256(weights_path)
         frozen_weights_sha = streaming_file_sha256(frozen_weights_path)
@@ -373,20 +405,30 @@ if __name__ == "__main__":
             clean_identity = hashlib.sha256(cand_identity.encode("utf-8")).hexdigest()
 
         # 10. Write scorecard.json
-        scorecard = {
-            "bundle_version": "2.0.0",
-            "candidate_id": cand_id,
-            "candidate_identity": clean_identity,
-            "evaluation_scope": "unverified_caller_supplied_metric",
-            "primary_metric": primary_metric,
-            "primary_metric_score": float(primary_metric_score),
-            "primary_metric_direction": metric_direction,
-            "task_type": task_type,
-            "target_column": target_column,
-            "constraints": {},
-            "audit_status": "UNVERIFIED",
-        }
-        (bundle_dir / "scorecard.json").write_text(json.dumps(scorecard, indent=2), encoding="utf-8")
+        has_eval = accepted_evaluation is not None
+        source_sc = None
+        if has_eval and "scorecard_path" in accepted_evaluation and Path(accepted_evaluation["scorecard_path"]).is_file():
+            source_sc = Path(accepted_evaluation["scorecard_path"])
+        elif has_eval and (bundle_dir.parent / "trials" / cand_id / "scorecard.json").is_file():
+            source_sc = bundle_dir.parent / "trials" / cand_id / "scorecard.json"
+
+        if source_sc is not None:
+            shutil.copy2(source_sc, bundle_dir / "scorecard.json")
+        else:
+            scorecard = {
+                "bundle_version": "2.0.0",
+                "candidate_id": cand_id,
+                "candidate_identity": clean_identity,
+                "evaluation_scope": "unverified_caller_supplied_metric",
+                "primary_metric": primary_metric,
+                "primary_metric_score": float(primary_metric_score),
+                "primary_metric_direction": metric_direction,
+                "task_type": task_type,
+                "target_column": target_column,
+                "constraints": {},
+                "audit_status": "UNVERIFIED_DEVELOPMENT",
+            }
+            (bundle_dir / "scorecard.json").write_text(json.dumps(scorecard, indent=2), encoding="utf-8")
         scorecard_sha = streaming_file_sha256(bundle_dir / "scorecard.json")
 
         # 11. Write lineage.json
@@ -401,10 +443,12 @@ if __name__ == "__main__":
 
         # 12. Write verification.json and final.json for contract conformity
         verification = {
+            "weights_sha256": weights_sha,
+            "scorecard_sha256": scorecard_sha,
             "frozen_model_sha256": frozen_weights_sha,
             "bundle_candidate": cand_id,
             "candidate_id": cand_id,
-            "dataset_sha256": "",
+            "dataset_sha256": accepted_evaluation.get("dataset_sha256", "") if has_eval else "",
             "raw_input_api": "predict(records)",
             "all_passed": False,
         }
@@ -451,7 +495,7 @@ Zero repository dependencies required. Pinned dependencies: `torch`, `numpy`, `p
 
         manifest = {
             "format": "mlrescurix.bundle.v2",
-            "project_id": "mlrescurix_project",
+            "project_id": project_id or "mlrescurix_project",
             "candidate_id": cand_id,
             "candidate_identity": clean_identity,
             "files": files_manifest,
