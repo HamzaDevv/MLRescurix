@@ -486,28 +486,15 @@ def test_deepseek_search_schema_and_key_isolation(tmp_path: Path):
         # Should not have resolved openrouter key
         assert client.api_key == ""
 
-    # Test count parameter schema compliance in search()
+    # A model API key does not establish a search or fetch capability.
     with patch("urllib.request.urlopen") as mock_urlopen:
-        mock_resp = MagicMock()
-        mock_resp.read.return_value = json.dumps({
-            "results": [
-                {"title": "Paper 1", "url": "https://arxiv.org/1", "snippet": "S1", "rerank_score": 0.9}
-            ]
-        }).encode("utf-8")
-        mock_resp.__enter__.return_value = mock_resp
-        mock_urlopen.return_value = mock_resp
-
         client = DeepSeekSearchClient(api_key="sk-deepseek-test-key")
         results = client.search(query="gradient boosting regularization", count=3)
-        assert len(results) == 1
-        assert results[0].title == "Paper 1"
-
-        # Check request payload had 'count' = 3
-        call_args = mock_urlopen.call_args[0]
-        req = call_args[0]
-        payload = json.loads(req.data.decode("utf-8"))
-        assert payload["count"] == 3
-        assert "max_results" not in payload
+        assert results == []
+        assert client.last_status == "unavailable"
+        assert "unavailable" in client.fetch("https://example.com/private")
+        assert "unavailable" in client.research_topic("private query")
+        mock_urlopen.assert_not_called()
 
 
 def test_dual_gateway_conservative_reservation_and_estimate_flag():

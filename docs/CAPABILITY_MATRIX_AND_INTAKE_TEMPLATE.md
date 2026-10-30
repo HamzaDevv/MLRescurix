@@ -1,20 +1,18 @@
 # MLRescurix — Capability Status & Benchmark Intake Template
 
-Updated: 2026-10-29. Authoritative capability status following Session 5 engineering completion. All platform engineering gates are completed and verified offline. Live remote dispatch and user benchmarks are ready for the next phase.
+Updated: 2026-10-29. The gates below remain open; this matrix supersedes earlier Session 5 completion claims. See `CORE_ARCHITECTURE_GROUND_TRUTH.md` and `REMAINING_ENGINEERING_PLAN.md` for boundaries and next steps.
 
----
+## 1. Capability Status Matrix
 
-## 1. Verified Capability Status Matrix
-
-| Capability Area | Status | Evidence Type | Verification Details |
-|---|---|---|---|
-| **Local Custom-Model Workflow** | **COMPLETE** | **Real Container & OS** | Docker cgroups v2, timeout kill, memory enforcement, train->resume->evaluate->export lifecycle. 17 passed in `custom_model_gate.rs`. |
-| **Data Partition Isolation & Streaming CSV** | **COMPLETE** | **Real Execution** | Bounded streaming RFC 4180 CSV parser (`StreamingCsvReader`). Raw SHA-256 byte verification. Sealed test exclusion in `prepare_dev_dataset`. |
-| **Kaggle Compute Offloading** | **COMPLETE** | **Mocked End-to-End** | Rust-governed backend (`crates/harness/src/kaggle.rs`), credential isolation (`env:`/`file:`), anti-ban single anchor, atomic leases, output verification. 7 passed in `kaggle_gate.rs`. Live Kaggle GPU dispatch deferred for user testing. |
-| **Governed Optuna Tuning** | **COMPLETE** | **Real Execution** | `BudgetedOptunaTuner` with Optuna `TPESampler`, `MedianPruner`, `create_trial` recovery, concurrency bounds, and `CampaignBudgetAuthority` reservations. 12 passed in `test_session3_tuning_and_delivery.py`. |
-| **Governed LLM Gateway** | **COMPLETE** | **Real Control Plane** | Dual-tier gateway routing via `RustGatewayAdapter` with OpenRouter primary, DeepSeek fallback, pre-dispatch reservation, and uncertain reconciliation. 0 paid calls made ($0.00 spent). |
-| **Extensible ML Task Adapters** | **COMPLETE** | **Real Execution** | `TabularCandidatePlugin`, `TinyTorchNeuralCandidate`, `SequentialTorchCandidate` (3D temporal sequences). Clean subprocess inference with `PYTHONPATH` unset; adversarial input validation. |
-| **5 Benchmark Problems** | **DEFERRED** | **Intake Specification** | Deferred for user selection. Template defined below. |
+| Capability | Status and evidence | Remaining limitation |
+|---|---|---|
+| Custom local execution | Admission disabled. Component and historical container fixtures exist. | Shared writable workflow, trusted evaluation, identity binding, reproducible image and independent review remain open. |
+| Dataset splitting | Bounded CSV parser; hash covers the parsed stream; exclusive publication, frozen-protocol and private-snapshot primitives have focused offline tests. | The new snapshot is not wired into execution; no sealed-data isolation across the container lifecycle. Snapshot parent directory must be trusted. |
+| Kaggle | Pool and lifecycle prototypes exercised with mock API; on 2026-10-30 the installed CLI successfully listed account notebooks for each configured token. The Rust prototype now fences concurrent dispatch and retains ambiguous intent. | No integrated production transport or live job verification; quotas and checkpoint/cancellation capabilities are unverified. |
+| Tuning | Experimental Optuna/random search and SQLite fixtures. | No hard process deadline, defensible reservation or distributed lease authority; do not use for paid or remote dispatch. |
+| Provider routing | Three live OpenRouter calls through the campaign-bound Rust gateway drove an Iris development agent on 2026-10-30; see `REMAINING_ENGINEERING_PLAN.md` for costs and scope. Legacy DeepSeek search/fetch fail closed. | Provider bills are not yet reconciled into the ledger; fallback, independently verified spending controls across all routes and a search provider remain open. Verify current route and pricing before each exercise. |
+| Task adapters and delivery | Small tabular and 3D sequence prototypes have synthetic tests. | Not integrated as a verified end-to-end custom path; clean independent environment and authoritative promotion remain open. |
+| Five real benchmarks | Not selected. | User will choose later; finite resources and quotas can prevent a job from fitting. |
 
 ---
 

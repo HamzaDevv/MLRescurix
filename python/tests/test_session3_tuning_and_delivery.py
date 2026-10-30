@@ -609,37 +609,21 @@ def test_optuna_tuning_concurrency_and_campaign_authority(tmp_path: Path):
 # 12. Governed Dual Gateway with Pre-Dispatch Reservation & Settlement
 # =============================================================================
 
-def test_governed_dual_gateway_reservation_and_uncertain_reconciliation(tmp_path: Path):
-    from unittest.mock import MagicMock, patch
+def test_dual_gateway_delegates_only_explicit_primary_route():
+    from unittest.mock import MagicMock
     from mlrescurix_worker.scientific.dual_gateway import DualTierGateway, RoutePolicy
 
-    mock_authority = MagicMock()
-    gateway = DualTierGateway(
-        openrouter_key="mock_openrouter_key",
-        deepseek_key="mock_deepseek_key",
-        route_policy=RoutePolicy.AUTO_FAILOVER,
-        campaign_authority=mock_authority,
-    )
-    gateway.bind_campaign(tmp_path / "campaign_budget_ledger.json", "run-gw-test", campaign_authority=mock_authority)
-
-    # 1. Success dispatch -> reserves then settles
-    with patch.object(gateway, "_post_json") as mock_post:
-        mock_post.return_value = {
-            "content": "Sample completion response",
-            "usage": {"prompt_tokens": 100, "completion_tokens": 50},
-            "cost_usd": 0.0001,
-            "cost_is_estimate": True,
-            "model": "deepseek/deepseek-v4.1-flash",
-        }
-        res = gateway.call_with_request_id([{"role": "user", "content": "hi"}], max_tokens=100, request_id="req-gov-1")
-        assert res["content"] == "Sample completion response"
-        assert mock_authority.reserve.called
-        assert mock_authority.settle.called
-
-    # 2. Failure dispatch with uncertain timeout outcome -> reserves then marks uncertain
-    mock_authority.reset_mock()
-    with patch.object(gateway, "_post_json", side_effect=TimeoutError("Connection timed out")):
-        with pytest.raises(RuntimeError, match="All permitted LLM gateway tiers failed"):
-            gateway.call_with_request_id([{"role": "user", "content": "hi"}], max_tokens=100, request_id="req-gov-fail")
-        assert mock_authority.reserve.called
-        assert mock_authority.mark_uncertain.called
+    adapter = MagicMock()
+    adapter.call_with_request_id.return_value = {"content": "ok"}
+    gateway = DualTierGateway(route_policy=RoutePolicy.PRIMARY_ONLY, rust_adapter=adapter)
+    messages = [{"role": "user", "content": "hi"}]
+    assert gateway.call_with_request_id(messages, 100, "request-1")["content"] == "ok"
+    adapter.call_with_request_id.assert_called_once_with(messages, 100, "request-1")
+    with pytest.raises(ValueError, match="stable request_id"):
+        gateway.call_with_request_id(messages, 100)
+    with pytest.raises(RuntimeError, match="fallback is unavailable"):
+        gateway.call_with_request_id(messages, 100, "request-2", RoutePolicy.AUTO_FAILOVER)
+    gateway.campaign_authority = MagicMock()
+    with pytest.raises(RuntimeError, match="campaign settlement is disabled"):
+        gateway.call_with_request_id(messages, 100, "request-3")
+    adapter.call_with_request_id.assert_called_once()

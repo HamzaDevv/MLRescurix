@@ -8,7 +8,7 @@ import pytest
 from mlrescurix_worker.custom.admission import OOMRecoveryPlan, OOMRecoveryPolicy
 from mlrescurix_worker.custom.delivery import BundleVerificationError, CustomBundlePackager
 from mlrescurix_worker.custom.kaggle_backend import KaggleExecutionBackend
-from mlrescurix_worker.custom.tuning import BudgetedOptunaTuner
+from mlrescurix_worker.custom.tuning import BudgetedOptunaTuner, TrialState
 from mlrescurix_worker.scientific.kaggle_pool import ChecksumMismatchError, KaggleAccountPool
 
 
@@ -58,6 +58,53 @@ def test_campaign_remaining_uses_real_ledger_field():
 
     tuner = BudgetedOptunaTuner("study", {}, campaign_authority=Authority())
     assert tuner.ask() is None
+
+
+def test_tuner_settlement_failure_stops_optimization_and_keeps_trial_running():
+    class Authority:
+        def __init__(self):
+            self.settlements = 0
+
+        def get_status(self):
+            return {"remaining_campaign_usd": "1.00"}
+
+        def reserve(self, *args):
+            pass
+
+        def settle(self, *args, **kwargs):
+            self.settlements += 1
+            raise RuntimeError("ledger unavailable")
+
+    authority = Authority()
+    tuner = BudgetedOptunaTuner("study", {}, campaign_authority=authority)
+    with pytest.raises(RuntimeError, match="ledger unavailable"):
+        tuner.optimize(lambda trial: 0.5, n_trials=1)
+    assert authority.settlements == 1
+    assert tuner.trials[0].state == TrialState.RUNNING
+    assert tuner.total_cost_usd == 0
+    assert tuner.ask() is None
+
+
+def test_tuner_rejects_duplicate_terminal_report():
+    tuner = BudgetedOptunaTuner("study", {})
+    trial = tuner.ask()
+    tuner.tell(trial, TrialState.COMPLETE, final_value=1.0, cost_usd=0.1)
+    with pytest.raises(ValueError, match="running trial"):
+        tuner.tell(trial, TrialState.COMPLETE, final_value=1.0, cost_usd=0.1)
+    assert tuner.total_cost_usd == 0.1
+
+
+def test_tuner_does_not_overwrite_existing_trial_from_another_controller(tmp_path):
+    import sqlite3
+
+    db = tmp_path / "trials.sqlite"
+    first = BudgetedOptunaTuner("study", {}, storage_path=db)
+    second = BudgetedOptunaTuner("study", {}, storage_path=db)
+    first_trial = first.ask()
+    with pytest.raises(sqlite3.IntegrityError):
+        second.ask()
+    with sqlite3.connect(db) as conn:
+        assert conn.execute("SELECT COUNT(*), MIN(start_time) FROM tuning_trials").fetchone() == (1, first_trial.start_time)
 
 
 def test_worker_rejects_missing_target(tmp_path):

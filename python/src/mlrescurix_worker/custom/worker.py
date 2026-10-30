@@ -3,8 +3,8 @@
 Executes custom model training, resumption, evaluation, and delivery packaging
 at the supervised Python process boundary:
 - Enforces thread caps and process resource limits.
-- Supports deterministic step-boundary checkpointing and exact replay resumption.
-- Produces verified result contracts and bundle artifacts conforming to MLRescurix v2.
+- Emits experimental checkpoint and result artifacts; exact replay is not established.
+- Worker-reported scores and artifacts require independent controller verification.
 """
 
 from __future__ import annotations

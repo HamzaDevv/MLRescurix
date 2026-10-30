@@ -2797,7 +2797,7 @@ fn test_dispatch_gateway_outbound_policy_approval_and_accounting() {
         tools: vec![],
         temperature: Some(0.1),
         max_tokens: Some(1024),
-        provider: Some(json!({"only":["inference-net/fp8"],"order":["inference-net/fp8"],"allow_fallbacks":false})),
+        provider: Some(json!({"only":["inference-net/fp8"],"order":["inference-net/fp8"],"allow_fallbacks":false,"max_price":{"prompt":0.07,"completion":0.47}})),
         reasoning: None,
     };
 

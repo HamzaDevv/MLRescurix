@@ -709,7 +709,7 @@ fn test_custom_model_memory_limit_enforcement() {
 
     let view = execution::inspect(&root, project, "job-oom-01").unwrap();
     assert_eq!(view.status, "failed");
-    assert_eq!(view.reason, Some("memory limit exceeded".into()));
+    assert_eq!(view.reason, Some("worker terminated by SIGKILL (exit 137); cause unverified".into()));
 
     // Verify supervisor survives memory kill and executes subsequent jobs cleanly
     let survivor_spec = JobSpec {
@@ -1446,7 +1446,7 @@ fn test_supervisor_finish_train_verifies_all_provenance_identities() {
 }
 
 #[test]
-fn test_supervisor_finish_evaluate_verifies_physical_weights_and_records_candidate_evaluations() {
+fn test_supervisor_finish_evaluate_rejects_worker_reported_metrics() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("state");
     let r = Runtime::init(&root, m1policy(100, 8)).unwrap();
@@ -1544,30 +1544,13 @@ fn test_supervisor_finish_evaluate_verifies_physical_weights_and_records_candida
     ).unwrap();
     insert_job_row(&conn, &spec);
 
-    // Call supervisor finish
-    supervisor.finish(&view, "succeeded", None, vec![], 150).unwrap();
-
-    // Query candidate_evaluations table in state DB
-    let (src_hash, seed, primary_metric, sc_hash, metrics_str): (String, i64, f64, String, String) = conn.query_row(
-        "SELECT source_hash, seed, primary_metric, scorecard_hash, metrics_json FROM candidate_evaluations WHERE project=?1 AND candidate_id=?2",
-        rusqlite::params![project, candidate],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+    let err = supervisor.finish(&view, "succeeded", None, vec![], 150).unwrap_err();
+    assert!(err.contains("controller-owned inference and metric verification"));
+    let count: i64 = conn.query_row(
+        "SELECT count(*) FROM candidate_evaluations WHERE project=?1 AND candidate_id=?2",
+        rusqlite::params![project, candidate], |r| r.get(0),
     ).unwrap();
-
-    // Verify no placeholders were inserted!
-    assert_ne!(src_hash, "source_managed", "Must record real source_hash, not placeholder");
-    assert_eq!(src_hash, mlrescurix_harness::assets::embedded_python_src_hash());
-    assert_ne!(seed, 42, "Must record real candidate seed, not placeholder");
-    assert_eq!(seed, 777);
-    assert_eq!(primary_metric, 0.94);
-
-    // Verify scorecard_hash matches true scorecard sha256 (not overloaded with weights_sha!)
-    assert_eq!(sc_hash, expected_sc_hash);
-    assert_ne!(sc_hash, weights_sha);
-
-    // Verify weights_sha256 is recorded in metrics_json
-    let metrics: serde_json::Value = serde_json::from_str(&metrics_str).unwrap();
-    assert_eq!(metrics["weights_sha256"].as_str().unwrap(), weights_sha);
+    assert_eq!(count, 0, "a consistent worker claim is not an authoritative evaluation");
 }
 
 #[test]
@@ -1812,6 +1795,7 @@ fn test_dev_splitter_adversarial_rejections() {
     })).unwrap()).unwrap();
     let err = execution::prepare_dev_dataset(&raw_unclosed, &manifest_unclosed, &out_unclosed).unwrap_err();
     assert!(err.contains("unclosed quote") || err.contains("malformed CSV"), "Expected unclosed quote error, got: {err}");
+    assert!(!out_unclosed.exists(), "failed parsing must not publish partial output");
 
     // 2. Reserved __mlr_row_id column in raw dataset
     let raw_reserved = tmp.path().join("reserved.csv");
@@ -1853,4 +1837,74 @@ fn test_dev_splitter_adversarial_rejections() {
     })).unwrap()).unwrap();
     let err4 = execution::prepare_dev_dataset(&raw_mismatch, &manifest_mismatch, &out_mismatch).unwrap_err();
     assert!(err4.contains("does not match registered manifest"), "Expected dataset SHA mismatch, got: {err4}");
+    assert!(!out_mismatch.exists(), "hash mismatch must not publish output");
+}
+
+#[test]
+fn test_dev_splitter_never_overwrites_and_fences_concurrent_publication() {
+    use std::sync::{Arc, Barrier};
+    let tmp = tempfile::tempdir().unwrap();
+    let raw = tmp.path().join("raw.csv");
+    let manifest = tmp.path().join("manifest.json");
+    let out = tmp.path().join("dev.csv");
+    let bytes = b"f,t\n1,0\n2,1\n3,0\n";
+    fs::write(&raw, bytes).unwrap();
+    fs::write(&manifest, serde_json::to_vec(&json!({
+        "format": "mlrescurix.dataset.v1", "dataset_sha256": hash(bytes),
+        "splits": {"train": [0], "validation": [1], "test": [2]}
+    })).unwrap()).unwrap();
+    let barrier = Arc::new(Barrier::new(2));
+    let threads: Vec<_> = (0..2).map(|_| {
+        let (raw, manifest, out, barrier) = (raw.clone(), manifest.clone(), out.clone(), barrier.clone());
+        std::thread::spawn(move || {
+            barrier.wait();
+            execution::prepare_dev_dataset(&raw, &manifest, &out)
+        })
+    }).collect();
+    let results: Vec<_> = threads.into_iter().map(|t| t.join().unwrap()).collect();
+    assert_eq!(results.iter().filter(|r| r.is_ok()).count(), 1);
+    let published = fs::read(&out).unwrap();
+    assert!(!String::from_utf8_lossy(&published).contains("3,0"));
+    assert!(execution::prepare_dev_dataset(&raw, &manifest, &out).is_err());
+    assert_eq!(fs::read(&out).unwrap(), published);
+    assert!(!fs::read_dir(tmp.path()).unwrap().any(|e| e.unwrap().file_name().to_string_lossy().starts_with(".mlr-dev-")));
+}
+
+#[test]
+fn test_dev_splitter_rejects_raw_and_destination_symlinks() {
+    use std::os::unix::fs::symlink;
+    let tmp = tempfile::tempdir().unwrap();
+    let raw = tmp.path().join("raw.csv");
+    let manifest = tmp.path().join("manifest.json");
+    let target = tmp.path().join("target");
+    let out = tmp.path().join("dev.csv");
+    let bytes = b"f,t\n1,0\n2,1\n3,0\n";
+    fs::write(&raw, bytes).unwrap();
+    fs::write(&manifest, serde_json::to_vec(&json!({
+        "format": "mlrescurix.dataset.v1", "dataset_sha256": hash(bytes),
+        "splits": {"train": [0], "validation": [1], "test": [2]}
+    })).unwrap()).unwrap();
+    let raw_link = tmp.path().join("raw-link");
+    symlink(&raw, &raw_link).unwrap();
+    assert!(execution::prepare_dev_dataset(&raw_link, &manifest, &out).is_err());
+    fs::write(&target, b"unchanged").unwrap();
+    symlink(&target, &out).unwrap();
+    assert!(execution::prepare_dev_dataset(&raw, &manifest, &out).is_err());
+    assert_eq!(fs::read(&target).unwrap(), b"unchanged");
+}
+
+#[test]
+fn test_dev_splitter_distinguishes_blank_lines_from_quoted_empty_records() {
+    let tmp = tempfile::tempdir().unwrap();
+    let raw = tmp.path().join("raw.csv");
+    let manifest = tmp.path().join("manifest.json");
+    let out = tmp.path().join("dev.csv");
+    let bytes = b"value\n\n\"\"\nvalidation\nsecret\n";
+    fs::write(&raw, bytes).unwrap();
+    fs::write(&manifest, serde_json::to_vec(&json!({
+        "format": "mlrescurix.dataset.v1", "dataset_sha256": hash(bytes),
+        "splits": {"train": [0], "validation": [1], "test": [2]}
+    })).unwrap()).unwrap();
+    execution::prepare_dev_dataset(&raw, &manifest, &out).unwrap();
+    assert_eq!(fs::read_to_string(out).unwrap(), "__mlr_row_id,value\n0,\n1,validation\n");
 }

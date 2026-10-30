@@ -93,6 +93,7 @@ pub fn connect(root:&Path)->Result<Connection>{
     sql(c.execute_batch(include_str!("schema_p2_events.sql")))?;
     sql(c.execute_batch(include_str!("schema_p3_leases.sql")))?;
     sql(c.execute_batch(include_str!("schema_p4_candidates.sql")))?;
+    sql(c.execute_batch(include_str!("schema_custom_protocol.sql")))?;
     sql(c.execute_batch(include_str!("schema_p5_orchestration.sql")))?;
     sql(c.execute_batch(include_str!("schema_p8_feasibility.sql")))?;
     sql(c.execute_batch(include_str!("schema_p9_adapters.sql")))?;
@@ -1709,7 +1710,7 @@ impl Supervisor {
             if child.try_wait().map_err(|e|e.to_string())?.is_some(){
                 let status=child.wait().map_err(|e|e.to_string())?;control.close_logs();
                 let _ = crate::broker::transition_lease(&c, &format!("lease-{}-{}", view.spec.project_id, view.spec.job_id), crate::broker::LeaseStatus::Reaped, Some("process exited"));
-                let reason=if cancel{Some("cancelled".to_string())}else if timed_out||status.code()==Some(124){Some("deadline exceeded".to_string())}else if status.code()==Some(137){if view.spec.resources.memory_bytes>0{Some("memory limit exceeded".to_string())}else{Some("worker terminated by SIGKILL (exit 137); cause unverified".to_string())}}else if !status.success(){Some(format!("worker exited with {status}"))}else{None};
+                let reason=if cancel{Some("cancelled".to_string())}else if timed_out||status.code()==Some(124){Some("deadline exceeded".to_string())}else if status.code()==Some(137){Some("worker terminated by SIGKILL (exit 137); cause unverified".to_string())}else if !status.success(){Some(format!("worker exited with {status}"))}else{None};
                 let (artifacts,final_reason)=if reason.is_none(){match self.publish(&view){Ok(a)=>(a,None),Err(e)=>{let stage=self.root.join("artifacts").join(&view.spec.project_id).join(format!(".{}.staging",view.spec.job_id));if stage.exists(){let _=safe_remove(&self.root,&stage);} (vec![],Some(format!("artifact validation: {e}")))}}}else{(vec![],reason)};
                 let ok=final_reason.is_none();if !ok{let stage=self.root.join("artifacts").join(&view.spec.project_id).join(format!(".{}.staging",view.spec.job_id));if stage.exists(){safe_remove(&self.root,&stage)?;}}
                 self.finish(&view,if ok{"succeeded"}else if cancel{"cancelled"}else if timed_out||status.code()==Some(124){"timed_out"}else{"failed"},final_reason,artifacts,elapsed.as_millis().max(1) as u64)?;
@@ -1973,6 +1974,8 @@ impl Supervisor {
                 // Verify physical weights from the evaluated checkpoint
                 let ckpt_ref = trial_receipt.get("checkpoint_ref").and_then(|v| v.as_str())
                     .ok_or("custom_evaluate trial record missing checkpoint_ref")?;
+                valid_id(ckpt_ref)?;
+                if ckpt_ref == "." || ckpt_ref == ".." { return Err("invalid checkpoint identity".into()); }
                 let ckpt_dir = workflow.join("checkpoints").join(ckpt_ref);
                 let mut ckpt_weights = ckpt_dir.join("weights.pt");
                 let mut ckpt_json = ckpt_dir.join("checkpoint.json");
@@ -2028,7 +2031,6 @@ impl Supervisor {
                     return Err(format!("custom_evaluate produced no scorecard.json at '{}'", scorecard_file.display()));
                 }
                 let scorecard_bytes = fs::read(&scorecard_file).map_err(|e| e.to_string())?;
-                let scorecard_sha = hash(&scorecard_bytes);
                 let scorecard_data: Value = serde_json::from_slice(&scorecard_bytes).map_err(|e| e.to_string())?;
                 if let Some(sc_c) = scorecard_data.get("candidate_id").and_then(|v| v.as_str()) {
                     if sc_c != candidate {
@@ -2052,7 +2054,7 @@ impl Supervisor {
                 }
 
                 // Extract real seed (no placeholder)
-                let seed: i64 = trial_receipt.get("seed")
+                let _seed: i64 = trial_receipt.get("seed")
                     .and_then(|v| v.as_i64())
                     .or_else(|| trial_receipt.get("training_config").and_then(|tc| tc.get("seed")).and_then(|v| v.as_i64()))
                     .ok_or("custom_evaluate trial record missing seed")?;
@@ -2066,35 +2068,11 @@ impl Supervisor {
                     return Err(format!("evaluation trial source_sha256 '{source_hash}' does not match authoritative source hash '{expected_source}'"));
                 }
 
-                let now = now_ms();
-                let eval_id = format!("eval_{}_{}", candidate, v.spec.job_id);
-                let env_id = v.spec.environment_id.as_deref().unwrap_or("managed_scientific");
-                let primary_metric = trial_receipt.get("metric_score").and_then(|v| v.as_f64());
-                let mut metrics_map = trial_receipt.as_object().cloned().unwrap_or_default();
-                metrics_map.insert("weights_sha256".to_string(), Value::String(weights_sha.to_string()));
-                metrics_map.insert("scorecard_hash".to_string(), Value::String(scorecard_sha.clone()));
-                let metrics_json = serde_json::to_string(&metrics_map).unwrap_or_else(|_| "{}".to_string());
-                sql(tx.execute(
-                    "INSERT OR REPLACE INTO candidate_evaluations(project, evaluation_id, candidate_id, dataset_id, environment_id, source_hash, status, folds, seed, primary_metric, metrics_json, slices_json, scorecard_hash, created_ms)
-                     VALUES(?1, ?2, ?3, ?4, ?5, ?6, 'evaluated', 1, ?7, ?8, ?9, NULL, ?10, ?11)",
-                    params![
-                        v.spec.project_id,
-                        eval_id,
-                        candidate,
-                        dataset_id,
-                        env_id,
-                        source_hash,
-                        seed,
-                        primary_metric,
-                        metrics_json,
-                        scorecard_sha,
-                        now,
-                    ],
-                ))?;
-                sql(tx.execute(
-                    "INSERT INTO events(project, kind, payload) VALUES(?1, 'candidate_evaluation.recorded', ?2)",
-                    params![v.spec.project_id, json!({"job_id": v.spec.job_id, "candidate_id": candidate, "weights_sha256": weights_sha, "scorecard_hash": scorecard_sha, "metric_score": primary_metric}).to_string()],
-                ))?;
+                // The receipt and metric above originate in the worker-controlled
+                // workflow. Hash agreement cannot establish independent inference
+                // or validation labels. Keep the legacy path fail-closed until a
+                // controller-owned evaluation is wired into this transaction.
+                return Err("custom evaluation requires controller-owned inference and metric verification".into());
             } else if operation=="custom_export"&&status=="succeeded" {
                 let candidate=candidate_id.as_deref().ok_or("custom_export requires candidate identity")?;
                 let bundle_dir=workflow.join("bundle");
@@ -2199,37 +2177,10 @@ impl Supervisor {
                 if !report.manifest_verified || !report.contracts_verified {
                     return Err("custom bundle failed authoritative verification".into());
                 }
-                let bundle_manifest_path=bundle_dir.join("manifest.json");
-                if bundle_manifest_path.is_file() {
-                    let bm_bytes=fs::read(&bundle_manifest_path).map_err(|e|e.to_string())?;
-                    let bm_hash = hash(&bm_bytes);
-                    sql(tx.execute("INSERT OR REPLACE INTO managed_artifacts(project,job,name,bytes,sha256,pinned) VALUES(?1,?2,'bundle/manifest.json',?3,?4,1)",params![v.spec.project_id,v.spec.job_id,bm_bytes.len() as u64,&bm_hash]))?;
-                    let cas = crate::cas::ContentAddressableStorage::new(&self.root);
-                    let _ = cas.store_blob(&bm_bytes, "application/json", Some(&v.spec.project_id));
-                    if bm_hash.len() == 64 {
-                        let now = now_ms();
-                        let _ = tx.execute(
-                            "INSERT OR IGNORE INTO blobs(sha256, bytes, media_type, created_ms) VALUES(?1, ?2, 'application/json', ?3)",
-                            params![bm_hash, bm_bytes.len() as u64, now],
-                        );
-                        let _ = tx.execute(
-                            "INSERT OR IGNORE INTO artifacts(project, artifact_id, kind, producer_authority, current_version_id, pinned, visibility, created_ms, updated_ms)
-                             VALUES(?1, 'bundle/manifest.json', 'apex_bundle', 'evaluator:finalizer', NULL, 1, 'project', ?2, ?2)",
-                            params![v.spec.project_id, now],
-                        );
-                        let version_id = format!("{}_bundle_manifest", v.spec.job_id);
-                        let index_digest = format!("[bundle/manifest.json] custom delivery manifest ({} B, sha:{})", bm_bytes.len(), &bm_hash[..8.min(bm_hash.len())]);
-                        let _ = tx.execute(
-                            "INSERT OR REPLACE INTO artifact_versions(project, version_id, artifact_id, blob_sha256, index_digest, summary_text, schema_version, metadata_json, source_job_id, created_ms)
-                             VALUES(?1, ?2, 'bundle/manifest.json', ?3, ?4, NULL, 1, '{}', ?5, ?6)",
-                            params![v.spec.project_id, version_id, bm_hash, index_digest, v.spec.job_id, now],
-                        );
-                        let _ = tx.execute(
-                            "UPDATE artifacts SET current_version_id=?2, pinned=1, updated_ms=?3 WHERE project=?1 AND artifact_id='bundle/manifest.json'",
-                            params![v.spec.project_id, version_id, now],
-                        );
-                    }
-                }
+                // Legacy evaluation rows can contain worker-authored metrics;
+                // they cannot authorize delivery until the trusted inference
+                // and evaluation receipt path is integrated.
+                return Err("custom export requires controller-owned evaluation and promotion".into());
             } else if operation=="finalize" && status!="succeeded" && !workflow.join("test_access.json").exists() {
                 if let Some(access)=test_access_id.as_deref(){
                     sql(tx.execute("DELETE FROM final_test_gates WHERE project=?1 AND access_id=?2 AND status='reserved'",params![v.spec.project_id,access]))?;
@@ -2579,6 +2530,7 @@ pub struct StreamingCsvReader<R: std::io::Read> {
     pos: usize,
     cap: usize,
     eof: bool,
+    last_record_blank: bool,
 }
 
 impl<R: std::io::Read> StreamingCsvReader<R> {
@@ -2589,6 +2541,7 @@ impl<R: std::io::Read> StreamingCsvReader<R> {
             pos: 0,
             cap: 0,
             eof: false,
+            last_record_blank: false,
         }
     }
 
@@ -2640,6 +2593,7 @@ impl<R: std::io::Read> StreamingCsvReader<R> {
         const MAX_FIELD_BYTES: usize = 16 * 1024 * 1024; // 16 MiB bound
         const MAX_RECORD_BYTES: usize = 32 * 1024 * 1024; // 32 MiB bound
         let mut total_record_bytes = 0usize;
+        self.last_record_blank = false;
 
         loop {
             let b_opt = self.next_byte()?;
@@ -2676,6 +2630,7 @@ impl<R: std::io::Read> StreamingCsvReader<R> {
                     } else if b == b',' {
                         record.push(String::new());
                     } else if b == b'\r' {
+                        self.last_record_blank = record.is_empty() && total_record_bytes == 1;
                         if let Some(next) = self.peek_byte()? {
                             if next == b'\n' {
                                 self.pos += 1;
@@ -2684,6 +2639,7 @@ impl<R: std::io::Read> StreamingCsvReader<R> {
                         record.push(String::new());
                         return Ok(Some(record));
                     } else if b == b'\n' {
+                        self.last_record_blank = record.is_empty() && total_record_bytes == 1;
                         record.push(String::new());
                         return Ok(Some(record));
                     } else {
@@ -2724,6 +2680,10 @@ impl<R: std::io::Read> StreamingCsvReader<R> {
                         if let Some(next) = self.peek_byte()? {
                             if next == b'"' {
                                 self.pos += 1;
+                                total_record_bytes += 1;
+                                if total_record_bytes > MAX_RECORD_BYTES {
+                                    return Err("malformed CSV: record exceeds 32 MiB bound".into());
+                                }
                                 if field.len() >= MAX_FIELD_BYTES {
                                     return Err("malformed CSV: field exceeds 16 MiB bound".into());
                                 }
@@ -2767,6 +2727,23 @@ impl<R: std::io::Read> StreamingCsvReader<R> {
     }
 }
 
+struct HashingReader<R> { inner: R, hash: Sha256 }
+impl<R: Read> Read for HashingReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        self.hash.update(&buf[..n]);
+        Ok(n)
+    }
+}
+
+// An unpublished file is removed on every error path. Publication uses a hard
+// link so a concurrent job or an existing symlink can never be overwritten.
+struct UnpublishedDataset(PathBuf);
+impl Drop for UnpublishedDataset {
+    fn drop(&mut self) { let _ = fs::remove_file(&self.0); }
+}
+static DATASET_TEMP_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 pub fn prepare_dev_dataset(raw_dataset_path: &Path, manifest_path: &Path, dev_dataset_path: &Path) -> Result<String> {
     if !manifest_path.is_file() {
         return Err(format!("manifest not found at '{}'", manifest_path.display()));
@@ -2807,26 +2784,12 @@ pub fn prepare_dev_dataset(raw_dataset_path: &Path, manifest_path: &Path, dev_da
         return Err(format!("raw dataset not found at '{}'", raw_dataset_path.display()));
     }
 
-    // Bind raw dataset bytes to registered dataset manifest hash
-    let raw_sha = {
-        let mut file = fs::File::open(raw_dataset_path).map_err(|e| e.to_string())?;
-        let mut hasher = Sha256::new();
-        let mut buf = [0u8; 64 * 1024];
-        loop {
-            let n = file.read(&mut buf).map_err(|e| e.to_string())?;
-            if n == 0 { break; }
-            hasher.update(&buf[..n]);
-        }
-        format!("{:x}", hasher.finalize())
-    };
     let expected_raw_sha = manifest.get("sha256").or_else(|| manifest.get("dataset_sha256")).and_then(|v| v.as_str())
         .ok_or("manifest missing dataset sha256")?;
-    if raw_sha != expected_raw_sha {
-        return Err(format!("raw dataset sha256 '{raw_sha}' does not match registered manifest '{expected_raw_sha}'"));
-    }
-
-    let raw_file = fs::File::open(raw_dataset_path).map_err(|e| e.to_string())?;
-    let mut parser = StreamingCsvReader::new(raw_file);
+    // Hash exactly the bytes consumed by the parser, from one open handle.
+    let raw_file = fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(raw_dataset_path).map_err(|e| e.to_string())?;
+    let mut hashing_reader = HashingReader { inner: raw_file, hash: Sha256::new() };
+    let mut parser = StreamingCsvReader::new(&mut hashing_reader);
 
     // Read header record
     let header = parser.read_record()?.ok_or("empty raw dataset")?;
@@ -2839,7 +2802,10 @@ pub fn prepare_dev_dataset(raw_dataset_path: &Path, manifest_path: &Path, dev_da
     let expected_cols = header.len();
 
     // Open dev dataset writer with hashing wrapper
-    let out_file = fs::File::create(dev_dataset_path).map_err(|e| e.to_string())?;
+    let parent = dev_dataset_path.parent().ok_or("development dataset needs a parent directory")?;
+    let temp_path = parent.join(format!(".mlr-dev-{}-{}", std::process::id(), DATASET_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)));
+    let out_file = fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temp_path).map_err(|e| e.to_string())?;
+    let temp = UnpublishedDataset(temp_path);
     let mut out_writer = std::io::BufWriter::new(out_file);
     let mut dev_hasher = Sha256::new();
 
@@ -2877,7 +2843,7 @@ pub fn prepare_dev_dataset(raw_dataset_path: &Path, manifest_path: &Path, dev_da
     let mut written_dev_rows = 0usize;
 
     while let Some(record) = parser.read_record()? {
-        if record.len() == 1 && record[0].is_empty() {
+        if parser.last_record_blank {
             continue;
         }
         if record.len() != expected_cols {
@@ -2890,7 +2856,13 @@ pub fn prepare_dev_dataset(raw_dataset_path: &Path, manifest_path: &Path, dev_da
         row_idx += 1;
     }
 
+    drop(parser);
+    let raw_sha = format!("{:x}", hashing_reader.hash.finalize());
+    if raw_sha != expected_raw_sha {
+        return Err(format!("raw dataset sha256 '{raw_sha}' does not match registered manifest '{expected_raw_sha}'"));
+    }
     out_writer.flush().map_err(|e| e.to_string())?;
+    out_writer.get_ref().sync_all().map_err(|e| e.to_string())?;
     let dev_sha = format!("{:x}", dev_hasher.finalize());
 
     // Validate that all split indices were within range
@@ -2908,7 +2880,8 @@ pub fn prepare_dev_dataset(raw_dataset_path: &Path, manifest_path: &Path, dev_da
         return Err(format!("data extraction mismatch: expected {} development rows, extracted {written_dev_rows}", dev_indices.len()));
     }
 
-    // Shared protocol manifest is strictly immutable during execution
+    fs::hard_link(&temp.0, dev_dataset_path).map_err(|e| format!("publish development dataset: {e}"))?;
+    fs::File::open(parent).and_then(|dir| dir.sync_all()).map_err(|e| format!("sync development dataset directory: {e}"))?;
     Ok(dev_sha)
 }
 

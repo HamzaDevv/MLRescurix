@@ -1,7 +1,8 @@
 use std::{
     fs,
+    io::Write,
     path::Path,
-    process::Command,
+    process::{Command, Stdio},
     sync::Mutex,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -333,8 +334,9 @@ impl ProviderGateway for OpenAICompatibleAdapter {
         let sanitized = OutboundFilter::sanitize_request(request);
         let req_json = serde_json::to_string(&sanitized).map_err(|e| e.to_string())?;
 
-        let payload_path = std::env::temp_dir().join(format!("mlr_req_{}_{}.json", now_ms(), std::process::id()));
-        fs::write(&payload_path, &req_json).map_err(|e| e.to_string())?;
+        if self.api_key.is_empty() || !self.api_key.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b)) {
+            return Err("provider API key contains unsupported characters".into());
+        }
 
         let mut attempts = 0;
         let mut last_error = String::new();
@@ -343,16 +345,30 @@ impl ProviderGateway for OpenAICompatibleAdapter {
             attempts += 1;
             let start = Instant::now();
 
-            let output = Command::new("curl")
+            let child = Command::new("curl")
                 .arg("-s")
                 .arg("-S")
                 .arg("-X").arg("POST")
                 .arg(&self.endpoint_url)
                 .arg("-H").arg("Content-Type: application/json")
-                .arg("-H").arg(format!("Authorization: Bearer {}", self.api_key))
-                .arg("--data-binary").arg(format!("@{}", payload_path.to_string_lossy()))
+                .arg("--config").arg("-")
                 .arg("--max-time").arg(self.timeout_seconds.to_string())
-                .output();
+                .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn();
+            let output = match child {
+                Ok(mut child) => {
+                    // Curl config and payload go through a pipe, not process arguments or shared temporary files.
+                    let escaped = req_json.replace('\\', "\\\\").replace('"', "\\\"");
+                    let config = format!("header = \"Authorization: Bearer {}\"\ndata-binary = \"{}\"\n", self.api_key, escaped);
+                    let write_result = child.stdin.take().ok_or("curl stdin unavailable")?.write_all(config.as_bytes());
+                    if let Err(e) = write_result {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return Err(format!("cannot write curl request: {e}"));
+                    }
+                    child.wait_with_output()
+                }
+                Err(e) => Err(e),
+            };
 
             let elapsed = start.elapsed().as_millis() as u64;
 
@@ -398,7 +414,6 @@ impl ProviderGateway for OpenAICompatibleAdapter {
                     let completion_tokens = body["usage"]["completion_tokens"].as_u64().unwrap_or(0) as u32;
                     let total_tokens = body["usage"]["total_tokens"].as_u64().unwrap_or(0) as u32;
 
-                    let _ = fs::remove_file(&payload_path);
                     return Ok(ChatCompletionResponse {
                         id: body["id"].as_str().unwrap_or("resp-unknown").to_string(),
                         model: body["model"].as_str().unwrap_or(&request.model).to_string(),
@@ -419,7 +434,6 @@ impl ProviderGateway for OpenAICompatibleAdapter {
             }
         }
 
-        let _ = fs::remove_file(&payload_path);
         Err(format!("provider request failed after {attempts} attempts: {last_error}"))
     }
 }
@@ -838,6 +852,7 @@ pub fn dispatch_gateway_with_id(
         if sanitized.model != "deepseek/deepseek-v4.1-flash-1017" || !authorized_route || provider["allow_fallbacks"] != false {
             return Err("campaign requires the authorized model and authorized route (inference-net/fp8 or deepinfra/fp8/flex) without fallback".into());
         }
+        validate_provider_price_cap(provider, rates)?;
         let input_bound = u32::try_from(serde_json::to_vec(&sanitized.messages).map_err(|e| e.to_string())?.len() + 4096).map_err(|_| "request too large")?;
         let maximum = TokenUsage { prompt_tokens: input_bound, completion_tokens: sanitized.max_tokens.ok_or("explicit max_tokens required")?, total_tokens: 0 };
         let required = u64::try_from(cost_from_pricing(&maximum, rates)?).map_err(|_| "negative pricing")?.checked_mul(10_000).ok_or("reservation overflow")?;
@@ -901,9 +916,60 @@ pub fn dispatch_gateway_with_id(
     }))
 }
 
+fn validate_provider_price_cap(provider: &Value, rates: (i64, i64)) -> Result<()> {
+    // Registered rates are millicents per 1k tokens; OpenRouter caps are USD per 1M.
+    for (name, rate) in [("prompt", rates.0), ("completion", rates.1)] {
+        let price = provider["max_price"][name].as_f64().ok_or("explicit provider max_price required")?;
+        if !price.is_finite() || price < 0.0 || rate < 0 || price * 1.05 > (rate as f64 / 100.0) + 1e-12 {
+            return Err("provider max_price exceeds registered reservation rate".into());
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod campaign_admission_tests {
     use super::*;
+    #[test]
+    fn transport_sends_exact_json_and_auth_over_pipe() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            let mut raw = Vec::new();
+            let mut chunk = [0; 4096];
+            loop {
+                let n = stream.read(&mut chunk).unwrap();
+                assert!(n > 0);
+                raw.extend_from_slice(&chunk[..n]);
+                if let Some(end) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
+                    let headers = String::from_utf8_lossy(&raw[..end]);
+                    let length: usize = headers.lines().find_map(|line| line.to_ascii_lowercase().strip_prefix("content-length:").map(|s| s.trim().parse().unwrap())).unwrap();
+                    if raw.len() >= end + 4 + length {
+                        assert!(headers.contains("Authorization: Bearer test-key"));
+                        let body: Value = serde_json::from_slice(&raw[end+4..end+4+length]).unwrap();
+                        assert_eq!(body["messages"][0]["content"], "quotes \" and slash \\");
+                        break;
+                    }
+                }
+            }
+            let body = r#"{"id":"test","model":"test","choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#;
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+        });
+        let adapter = OpenAICompatibleAdapter::new(format!("http://{address}"), "test-key".into());
+        let request = ChatCompletionRequest {model:"test".into(), messages:vec![ChatMessage::user("quotes \" and slash \\")], tools:vec![], temperature:None, max_tokens:Some(3), provider:None, reasoning:None};
+        assert_eq!(adapter.chat_completion(&request).unwrap().content.as_deref(), Some("ok"));
+        server.join().unwrap();
+    }
+    #[test]
+    fn live_price_caps_must_fit_reservation_rates() {
+        assert!(validate_provider_price_cap(&serde_json::json!({"max_price":{"prompt":0.08,"completion":0.55}}), (9,58)).is_ok());
+        for p in [serde_json::json!({}), serde_json::json!({"max_price":{"prompt":0.09,"completion":0.55}}), serde_json::json!({"max_price":{"prompt":0.08,"completion":-1}})] {
+            assert!(validate_provider_price_cap(&p, (9,58)).is_err());
+        }
+    }
     #[test]
     fn exact_dollar_precision() {
         assert_eq!(campaign_nanodollars("0.050724020").unwrap(), 50_724_020);

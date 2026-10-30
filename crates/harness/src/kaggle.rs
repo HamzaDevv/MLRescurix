@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::fs;
-use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::io::{Read, Write};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -47,6 +48,7 @@ fn file_sha256(path: &Path) -> Result<String> {
 pub enum KaggleLifecycleState {
     Planned,
     Staged,
+    Dispatching,
     Queued,
     Running,
     Collecting,
@@ -63,6 +65,7 @@ impl KaggleLifecycleState {
         match self {
             KaggleLifecycleState::Planned => "planned",
             KaggleLifecycleState::Staged => "staged",
+            KaggleLifecycleState::Dispatching => "dispatching",
             KaggleLifecycleState::Queued => "queued",
             KaggleLifecycleState::Running => "running",
             KaggleLifecycleState::Collecting => "collecting",
@@ -79,6 +82,7 @@ impl KaggleLifecycleState {
         match s {
             "planned" => Ok(KaggleLifecycleState::Planned),
             "staged" => Ok(KaggleLifecycleState::Staged),
+            "dispatching" => Ok(KaggleLifecycleState::Dispatching),
             "queued" => Ok(KaggleLifecycleState::Queued),
             "running" => Ok(KaggleLifecycleState::Running),
             "collecting" => Ok(KaggleLifecycleState::Collecting),
@@ -129,6 +133,7 @@ impl KaggleAccount {
             if trimmed.is_empty() {
                 return Err(format!("environment variable '{var}' is empty"));
             }
+            if trimmed.chars().any(char::is_whitespace) { return Err("credential must contain exactly one token".into()); }
             Ok(trimmed.to_string())
         } else if self.credential_ref.starts_with("file:") {
             let path_str = &self.credential_ref[5..];
@@ -147,6 +152,7 @@ impl KaggleAccount {
             if trimmed.is_empty() {
                 return Err("credential file is empty".into());
             }
+            if trimmed.chars().any(char::is_whitespace) { return Err("credential must contain exactly one token".into()); }
             Ok(trimmed.to_string())
         } else {
             Err("invalid credential_ref prefix".into())
@@ -168,19 +174,28 @@ pub fn scrub_staged_content(content: &str) -> Result<()> {
 }
 
 pub fn scrub_staged_directory(dir: &Path) -> Result<()> {
-    if !dir.is_dir() {
-        return Ok(());
-    }
-    for entry in fs::read_dir(dir).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let path = entry.path();
-        if path.is_file() {
-            if let Ok(content) = fs::read_to_string(&path) {
-                scrub_staged_content(&content)?;
+    let mut pending = vec![dir.to_path_buf()];
+    let mut entries = 0usize;
+    let mut bytes = 0u64;
+    while let Some(path) = pending.pop() {
+        entries += 1;
+        if entries > 1024 { return Err("staging scan entry limit exceeded".into()); }
+        let meta = fs::symlink_metadata(&path).map_err(|e| e.to_string())?;
+        if meta.file_type().is_symlink() { return Err("staging scan rejects symlinks".into()); }
+        if meta.is_dir() {
+            for entry in fs::read_dir(path).map_err(|e| e.to_string())? {
+                pending.push(entry.map_err(|e| e.to_string())?.path());
             }
-        } else if path.is_dir() {
-            scrub_staged_directory(&path)?;
-        }
+        } else if meta.is_file() {
+            if meta.len() > 16 * 1024 * 1024 { return Err("staging scan size limit exceeded".into()); }
+            let mut file = fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(&path).map_err(|e| e.to_string())?;
+            let mut content = String::new();
+            Read::by_ref(&mut file).take(16 * 1024 * 1024 + 1).read_to_string(&mut content).map_err(|_| "staging scan requires UTF-8 text".to_string())?;
+            if content.len() > 16 * 1024 * 1024 { return Err("staging scan size limit exceeded".into()); }
+            bytes = bytes.checked_add(content.len() as u64).ok_or("staging scan size overflow")?;
+            if bytes > 16 * 1024 * 1024 { return Err("staging scan size limit exceeded".into()); }
+            scrub_staged_content(&content)?;
+        } else { return Err("staging scan rejects special files".into()); }
     }
     Ok(())
 }
@@ -412,21 +427,38 @@ impl KagglePoolManager {
             return Err("anti-ban violation: secondary account cannot submit to competitions".into());
         }
 
+        if job_id.is_empty() || job_id.len() > 128 || !job_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
+            return Err("invalid Kaggle job id".into());
+        }
+        if code_files.is_empty() || code_files.len() > 256 {
+            return Err("invalid staged file count".into());
+        }
+        let mut total = 0usize;
+        for (name, content) in code_files {
+            let path = Path::new(name);
+            if name.is_empty() || name.contains('\\') || !path.components().all(|c| matches!(c, Component::Normal(_))) {
+                return Err("invalid staged path".into());
+            }
+            total = total.checked_add(content.len()).ok_or("staged content too large")?;
+            if total > 16 * 1024 * 1024 { return Err("staged content too large".into()); }
+            scrub_staged_content(content)?;
+        }
         let stage_dir = self.staging_dir.join(job_id);
-        fs::create_dir_all(&stage_dir).map_err(|e| e.to_string())?;
+        fs::DirBuilder::new().mode(0o700).create(&stage_dir).map_err(|e| format!("staging directory already exists or cannot be created: {e}"))?;
 
         // Write and scrub code files
         for (rel_path, content) in code_files {
-            scrub_staged_content(content)?;
             let target = stage_dir.join(rel_path);
             if let Some(parent) = target.parent() {
                 fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
-            fs::write(&target, content).map_err(|e| e.to_string())?;
+            let mut file = fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&target).map_err(|e| e.to_string())?;
+            file.write_all(content.as_bytes()).and_then(|_| file.sync_all()).map_err(|e| e.to_string())?;
         }
 
         let now = now_ms();
-        let slug = format!("mlr-job-{}", &job_id[..job_id.len().min(16)]);
+        let digest = format!("{:x}", Sha256::digest(job_id.as_bytes()));
+        let slug = format!("mlr-job-{}", &digest[..32]);
         let lease_token = generate_token("lease");
         let lease_expires_at = now + 3600 * 1000; // 1 hour lease window
 
@@ -449,16 +481,7 @@ impl KagglePoolManager {
             r#"
             INSERT INTO kaggle_jobs (job_id, account_username, slug, state, accelerator, lease_token, lease_expires_at, attempt, is_competition, created_at, updated_at)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
-            ON CONFLICT(job_id) DO UPDATE SET
-                account_username = excluded.account_username,
-                slug = excluded.slug,
-                state = excluded.state,
-                accelerator = excluded.accelerator,
-                lease_token = excluded.lease_token,
-                lease_expires_at = excluded.lease_expires_at,
-                attempt = excluded.attempt,
-                is_competition = excluded.is_competition,
-                updated_at = excluded.updated_at;
+            ;
             "#,
             params![
                 record.job_id,
@@ -493,12 +516,24 @@ impl KagglePoolManager {
             return Err(format!("staged directory '{}' does not exist", stage_dir.display()));
         }
 
-        // Push kernel to remote
-        api.push_kernel(&account, &job.slug, &stage_dir)?;
+        // Persist intent before crossing the network boundary. An error or crash
+        // leaves an uncertain outcome, never an automatic retry.
+        let conn = self.connect()?;
+        let claimed = conn.execute(
+            "UPDATE kaggle_jobs SET state='dispatching', updated_at=?1 WHERE job_id=?2 AND state='staged' AND lease_token=?3 AND lease_expires_at>?1",
+            params![now_ms() as i64, job_id, job.lease_token],
+        ).map_err(|e| e.to_string())?;
+        if claimed != 1 { return Err("job dispatch unavailable: already dispatched, uncertain, or lease expired".into()); }
+        api.push_kernel(&account, &job.slug, &stage_dir)
+            .map_err(|_| "Kaggle submission outcome uncertain; reconcile before retry".to_string())?;
 
         job.state = KaggleLifecycleState::Queued;
         job.updated_at = now_ms();
-        self.update_job(&job)?;
+        let updated = conn.execute(
+            "UPDATE kaggle_jobs SET state='queued', updated_at=?1 WHERE job_id=?2 AND state='dispatching' AND lease_token=?3 AND lease_expires_at>?1",
+            params![job.updated_at as i64, job_id, job.lease_token],
+        ).map_err(|e| format!("Kaggle submission outcome uncertain: {e}"))?;
+        if updated != 1 { return Err("Kaggle submission outcome uncertain: lease or state changed".into()); }
         Ok(job)
     }
 

@@ -414,9 +414,6 @@ class BudgetedOptunaTuner:
                         trial_id, study_name, trial_number, params, state,
                         final_value, intermediate_values, cost_usd, duration_seconds, start_time, end_time
                     ) VALUES (?, ?, ?, ?, ?, NULL, ?, 0.0, 0.0, ?, NULL)
-                    ON CONFLICT(trial_id) DO UPDATE SET
-                        state = excluded.state,
-                        start_time = excluded.start_time
                 """, (
                     trial.trial_id, self.study_name, trial.trial_number,
                     json.dumps(trial.params), trial.state,
@@ -435,6 +432,21 @@ class BudgetedOptunaTuner:
         cost_usd: float = 0.0,
     ) -> None:
         """Report completion, pruning, or failure of a trial, reconciling study and budget state."""
+        if not any(t is trial for t in self.trials) or trial.state != TrialState.RUNNING:
+            raise ValueError("Only a running trial belonging to this tuner can be completed")
+        if state not in (TrialState.COMPLETE, TrialState.PRUNED, TrialState.FAIL):
+            raise ValueError("Trial completion requires a terminal state")
+        if not math.isfinite(cost_usd) or cost_usd < 0 or not math.isfinite(duration_seconds) or duration_seconds < 0:
+            raise ValueError("Trial cost and duration must be finite and nonnegative")
+        if final_value is not None and not math.isfinite(final_value):
+            raise ValueError("Trial result must be finite")
+        # Do not free the running slot or report success if accounting fails.
+        # The reservation remains held for operator reconciliation.
+        if self.campaign_authority:
+            settle = getattr(self.campaign_authority, "settle", None)
+            if not callable(settle):
+                raise ValueError("Campaign authority cannot settle trial costs")
+            settle("tuning", trial.trial_id, cost_usd, cost_kind="trial_measured")
         now = time.time()
         trial.state = state
         trial.final_value = final_value
@@ -456,13 +468,6 @@ class BudgetedOptunaTuner:
                     self.study.tell(trial._optuna_trial, state=OptunaTrialState.FAIL)
             except Exception as e:
                 logger.debug("Optuna study.tell exception: %s", e)
-
-        # Settle campaign budget if authority is bound
-        if self.campaign_authority and hasattr(self.campaign_authority, "settle"):
-            try:
-                self.campaign_authority.settle("tuning", trial.trial_id, trial.cost_usd, cost_kind="trial_measured")
-            except Exception as exc:
-                logger.debug("Campaign settle exception: %s", exc)
 
         # Update pruner step observations for completed runs
         if trial.state == TrialState.COMPLETE and trial.intermediate_values:
@@ -501,18 +506,19 @@ class BudgetedOptunaTuner:
             t0 = time.time()
             try:
                 score = objective_fn(trial)
-                duration = time.time() - t0
-                if self.trial_timeout_seconds and duration > self.trial_timeout_seconds:
-                    logger.warning("Trial %s exceeded duration timeout (%fs > %fs)", trial.trial_id, duration, self.trial_timeout_seconds)
-                    self.tell(trial, TrialState.FAIL, final_value=None, duration_seconds=duration)
-                elif score is None:
-                    self.tell(trial, TrialState.PRUNED, final_value=None, duration_seconds=duration)
-                else:
-                    self.tell(trial, TrialState.COMPLETE, final_value=score, duration_seconds=duration)
             except Exception as exc:
                 duration = time.time() - t0
                 logger.error("Trial %s raised exception: %s", trial.trial_id, exc)
                 self.tell(trial, TrialState.FAIL, final_value=None, duration_seconds=duration)
+                continue
+            duration = time.time() - t0
+            if self.trial_timeout_seconds and duration > self.trial_timeout_seconds:
+                logger.warning("Trial %s exceeded duration timeout (%fs > %fs)", trial.trial_id, duration, self.trial_timeout_seconds)
+                self.tell(trial, TrialState.FAIL, final_value=None, duration_seconds=duration)
+            elif score is None:
+                self.tell(trial, TrialState.PRUNED, final_value=None, duration_seconds=duration)
+            else:
+                self.tell(trial, TrialState.COMPLETE, final_value=score, duration_seconds=duration)
 
         return self.summary()
 

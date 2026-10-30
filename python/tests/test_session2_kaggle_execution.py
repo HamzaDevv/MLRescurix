@@ -593,61 +593,12 @@ def test_deadline_aware_segment_and_checkpoint_resume(mock_run, tmp_path: Path):
 # =============================================================================
 
 @patch("urllib.request.urlopen")
-def test_dual_gateway_route_policies_and_bounded_attempts(mock_urlopen):
-    # Setup mock responses
-    mock_resp_openrouter = MagicMock()
-    mock_resp_openrouter.read.return_value = json.dumps({
-        "choices": [{"message": {"content": "Response from OpenRouter"}}],
-        "usage": {"prompt_tokens": 50, "completion_tokens": 20},
-    }).encode("utf-8")
-    mock_resp_openrouter.__enter__.return_value = mock_resp_openrouter
-
-    mock_resp_deepseek = MagicMock()
-    mock_resp_deepseek.read.return_value = json.dumps({
-        "choices": [{"message": {"content": "Response from DeepSeek Direct"}}],
-        "usage": {"prompt_tokens": 50, "completion_tokens": 20},
-    }).encode("utf-8")
-    mock_resp_deepseek.__enter__.return_value = mock_resp_deepseek
-
-    # 1. AUTO_FAILOVER: when OpenRouter fails, fails over to DeepSeek Direct
-    import urllib.error
-    mock_urlopen.side_effect = [
-        urllib.error.HTTPError("url", 429, "Rate limit", {}, None),
-        urllib.error.HTTPError("url", 429, "Rate limit", {}, None),
-        mock_resp_deepseek,
-    ]
-
-    gateway = DualTierGateway(
-        openrouter_key="or_key",
-        deepseek_key="ds_key",
-        route_policy=RoutePolicy.AUTO_FAILOVER,
-        max_attempts_per_route=2,
-    )
-    res = gateway.call_with_request_id([{"role": "user", "content": "hi"}], request_id="req-1")
-    assert res["provider_source"] == "deepseek_direct"
-    assert res["content"] == "Response from DeepSeek Direct"
-
-    # 2. PRIMARY_ONLY policy: should not touch DeepSeek Direct on failure
-    mock_urlopen.side_effect = urllib.error.HTTPError("url", 500, "Server Error", {}, None)
-    gateway_primary = DualTierGateway(
-        openrouter_key="or_key",
-        deepseek_key="ds_key",
-        route_policy=RoutePolicy.PRIMARY_ONLY,
-        max_attempts_per_route=2,
-    )
-    with pytest.raises(RuntimeError, match="RoutePolicy.PRIMARY_ONLY dispatch failed"):
-        gateway_primary.call_with_request_id([{"role": "user", "content": "hi"}], request_id="req-2")
-
-    # 3. FALLBACK_ONLY policy: directly dispatches to DeepSeek Direct
-    mock_urlopen.side_effect = None
-    mock_urlopen.return_value = mock_resp_deepseek
-    gateway_fallback = DualTierGateway(
-        openrouter_key="or_key",
-        deepseek_key="ds_key",
-        route_policy=RoutePolicy.FALLBACK_ONLY,
-    )
-    res_fallback = gateway_fallback.call_with_request_id([{"role": "user", "content": "hi"}], request_id="req-3")
-    assert res_fallback["provider_source"] == "deepseek_direct"
+def test_dual_gateway_direct_routes_are_disabled(mock_urlopen):
+    for policy in (RoutePolicy.AUTO_FAILOVER, RoutePolicy.PRIMARY_ONLY, RoutePolicy.FALLBACK_ONLY):
+        gateway = DualTierGateway(openrouter_key="key", deepseek_key="key", route_policy=policy)
+        with pytest.raises(RuntimeError, match="Direct dual-gateway dispatch is disabled"):
+            gateway.call_with_request_id([{"role": "user", "content": "hi"}], request_id="req-1")
+    mock_urlopen.assert_not_called()
 
 
 # =============================================================================

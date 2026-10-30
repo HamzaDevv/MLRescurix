@@ -216,7 +216,7 @@ def test_preserved_authority_open_is_read_only_and_cannot_create_allowance(tmp_p
     ledger = ROOT / 'docs/evidence/v2/robustness/20261021-robustness/campaign_budget_ledger.json'
     before = ledger.read_bytes()
     budget = CampaignBudgetAuthority.open_preserved(ledger.parent, POLICY)
-    assert budget.get_status()['total_billed_usd'] == '0.050724020'
+    assert budget.get_status() == json.loads(before)
     assert ledger.read_bytes() == before
 
 

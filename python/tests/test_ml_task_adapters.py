@@ -194,7 +194,9 @@ def test_clean_subprocess_inference_without_pythonpath(tmp_path: Path):
 
     with open(output_json, "r") as f:
         predictions = json.load(f)
-    assert len(predictions) == 5
+    assert len(predictions["prediction"]) == 5
+    np.testing.assert_array_equal(predictions["prediction"], cand.predict(df_train.head(5)))
+    np.testing.assert_allclose(predictions["probabilities"], cand.predict_proba(df_train.head(5)))
 
     # Test malformed input: missing required feature -> fails closed with non-zero exit code
     bad_input_missing = tmp_path / "bad_input_missing.json"

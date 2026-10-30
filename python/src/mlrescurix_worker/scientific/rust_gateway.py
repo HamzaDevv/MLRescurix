@@ -131,8 +131,9 @@ class RustGatewayAdapter:
             # $0.08 per 1M tokens = $0.00008 per 1k = 8 millicents per 1k ($1 = 100,000 millicents)
             in_rate = Decimal(str(self.pricing.get("input_per_million", "0.08")))
             out_rate = Decimal(str(self.pricing.get("output_per_million", "0.50")))
-            prompt_mc = int((in_rate * Decimal(100)).to_integral_value(rounding=ROUND_CEILING))
-            comp_mc = int((out_rate * Decimal(100)).to_integral_value(rounding=ROUND_CEILING))
+            # Reserve an additional 5% for OpenRouter's possible BYOK fee.
+            prompt_mc = int((in_rate * Decimal(105)).to_integral_value(rounding=ROUND_CEILING))
+            comp_mc = int((out_rate * Decimal(105)).to_integral_value(rounding=ROUND_CEILING))
 
             cmd_pricing = [
                 str(self.binary),
@@ -151,7 +152,7 @@ class RustGatewayAdapter:
             raise ValueError("Verified pricing required")
         # Match Rust's integer millicent ceilings and per-component rounding.
         bounds = (len(json.dumps(messages, ensure_ascii=False).encode()) + 8192, max_tokens)
-        rates = [int((Decimal(str(self.pricing[k])) * 100).to_integral_value(rounding=ROUND_CEILING))
+        rates = [int((Decimal(str(self.pricing[k])) * 105).to_integral_value(rounding=ROUND_CEILING))
                  for k in ("input_per_million", "output_per_million")]
         return Decimal(sum((n * r + 999) // 1000 for n, r in zip(bounds, rates))) / 100000
 
@@ -187,6 +188,10 @@ class RustGatewayAdapter:
                 "only": [self.endpoint],
                 "order": [self.endpoint],
                 "allow_fallbacks": False,
+                **({"max_price": {
+                    "prompt": float(self.pricing["input_per_million"]),
+                    "completion": float(self.pricing["output_per_million"]),
+                }} if self.pricing else {}),
             },
         }
 

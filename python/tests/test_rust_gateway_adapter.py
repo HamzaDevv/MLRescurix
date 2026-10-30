@@ -290,6 +290,7 @@ def test_gateway_timeout_terminates_transport_descendants(tmp_path, monkeypatch)
     adapter.state_dir = tmp_path
     adapter.project_id, adapter.task_id, adapter.role_id = 'p', 't', 'r'
     adapter.model_name, adapter.endpoint = 'model', 'endpoint'
+    adapter.pricing = None
     adapter.require_policy_approval = False
     adapter.mock_path = tmp_path / 'fixture.json'
     original = subprocess.Popen.communicate

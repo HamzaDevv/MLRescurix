@@ -99,6 +99,8 @@ fn test_kaggle_account_credential_ref_and_resolution() {
     let acct_file = KaggleAccount::new("secondary_user", &format!("file:{}", key_file.display()), false).unwrap();
     let resolved_file = acct_file.resolve_credential(None).unwrap();
     assert_eq!(resolved_file, "file_secret_token_xyz");
+    fs::write(&key_file, "first-token\nsecond-token\n").unwrap();
+    assert!(acct_file.resolve_credential(None).unwrap_err().contains("exactly one token"));
 
     // 4. Relative file resolution with storage_dir
     let rel_file = temp.path().join("sub").join("secret.token");
@@ -163,6 +165,48 @@ fn test_staging_scrubber_credential_leak_rejection() {
 
     let err = scrub_staged_directory(&stage_dir).unwrap_err();
     assert!(err.contains("security violation: potential API key (sk-...) detected"));
+    fs::remove_file(stage_dir.join("config.py")).unwrap();
+    std::os::unix::fs::symlink(temp.path(), stage_dir.join("escape")).unwrap();
+    assert!(scrub_staged_directory(&stage_dir).unwrap_err().contains("symlinks"));
+    fs::remove_file(stage_dir.join("escape")).unwrap();
+    fs::write(stage_dir.join("binary"), [0xff]).unwrap();
+    assert!(scrub_staged_directory(&stage_dir).unwrap_err().contains("UTF-8"));
+}
+
+#[test]
+fn stage_rejects_escaping_paths_and_existing_job_without_overwrite() {
+    let temp = tempfile::tempdir().unwrap();
+    let pool = KagglePoolManager::new(temp.path(), false).unwrap();
+    let account = KaggleAccount::new("anchor", "env:DUMMY", true).unwrap();
+    pool.register_account(account.clone()).unwrap();
+    let files = HashMap::from([("../outside".to_string(), "bad".to_string())]);
+    assert!(pool.stage_job("safe", &account, "cpu", false, &files).is_err());
+    let files = HashMap::from([("worker.py".to_string(), "print(1)".to_string())]);
+    assert!(pool.stage_job("../escape", &account, "cpu", false, &files).is_err());
+    pool.stage_job("safe", &account, "cpu", false, &files).unwrap();
+    let replacement = HashMap::from([("worker.py".to_string(), "print(2)".to_string())]);
+    assert!(pool.stage_job("safe", &account, "cpu", false, &replacement).is_err());
+    assert_eq!(fs::read_to_string(pool.staging_dir().join("safe/worker.py")).unwrap(), "print(1)");
+    assert!(!temp.path().join("outside").exists());
+}
+
+#[test]
+fn concurrent_dispatch_claim_allows_only_one_push() {
+    let temp = tempfile::tempdir().unwrap();
+    let pool = std::sync::Arc::new(KagglePoolManager::new(temp.path(), false).unwrap());
+    let account = KaggleAccount::new("anchor", "env:DUMMY", true).unwrap();
+    pool.register_account(account.clone()).unwrap();
+    let files = HashMap::from([("worker.py".to_string(), "print(1)".to_string())]);
+    pool.stage_job("race", &account, "cpu", false, &files).unwrap();
+    let api = std::sync::Arc::new(MockKaggleApi::new());
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let handles: Vec<_> = (0..2).map(|_| {
+        let pool = pool.clone(); let api = api.clone(); let barrier = barrier.clone();
+        std::thread::spawn(move || { barrier.wait(); pool.dispatch_job(api.as_ref(), "race") })
+    }).collect();
+    let successes = handles.into_iter().map(|h| h.join().unwrap()).filter(|r| r.is_ok()).count();
+    assert_eq!(successes, 1);
+    assert_eq!(api.pushed_slugs.lock().unwrap().len(), 1);
 }
 
 #[test]
@@ -276,10 +320,15 @@ fn test_end_to_end_mocked_lifecycle_and_failure_injection() {
     mock_api.fail_push.store(true, Ordering::SeqCst);
     let _job_fail = pool.stage_job("job-push-fail", &anchor, "gpu", false, &code_files).unwrap();
     let push_err = pool.dispatch_job(&mock_api, "job-push-fail").unwrap_err();
-    assert!(push_err.contains("push kernel failed"));
+    assert!(push_err.contains("outcome uncertain"));
+    assert_eq!(pool.get_job("job-push-fail").unwrap().unwrap().state, KaggleLifecycleState::Dispatching);
 
     // Restore push
     mock_api.fail_push.store(false, Ordering::SeqCst);
+    assert!(pool.dispatch_job(&mock_api, "job-push-fail").is_err());
+    let reopened = KagglePoolManager::new(temp.path(), true).unwrap();
+    assert!(reopened.dispatch_job(&mock_api, "job-push-fail").is_err());
+    assert!(mock_api.pushed_slugs.lock().unwrap().is_empty());
 
     *mock_api.status_sequence.lock().unwrap() = vec!["running".into(), "complete".into()];
     let job = pool.stage_job("job-e2e-01", &anchor, "gpu", false, &code_files).unwrap();
