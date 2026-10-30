@@ -39,7 +39,9 @@ def bounded_evidence(value, depth=0):
         if len(value) > 40: result.append({"omitted_items": len(value) - 40})
         return result
     if isinstance(value, dict):
-        return {str(k): bounded_evidence(v, depth + 1) for k, v in list(value.items())[:100]}
+        return {str(k): ("[execution binding retained in local receipt]" if k == "execution_binding"
+                         else bounded_evidence(v, depth + 1))
+                for k, v in list(value.items())[:100]}
     return value
 
 
@@ -285,7 +287,7 @@ Turn 2: BLEND_AND_AUDIT {"families": ["hist_gbdt", "penalized_linear", "lgbm"], 
 Turn 3: FINALIZE_AND_STOP {} or BLEND_AND_AUDIT to lock accepted candidate.
 Actions:
 ANALYZE {} refreshes dataset dossier.
-HYPOTHESIS_TRANSFORM {action, parameters}: ADD_MNAR_INDICATOR {columns}, DELETE_FEATURE {columns}, APPLY_SKEW_TRANSFORM {columns, method:log1p|sqrt|signed_log1p}, ENCODE_HIGH_CARD_CAT {columns,strategy:frequency}, ADD_INTERACTION {feature_pairs,operations:[multiply|add|subtract|divide]}. Measures paired CV and persists improved transforms.
+HYPOTHESIS_TRANSFORM {action, parameters}: ADD_MNAR_INDICATOR {columns}, DELETE_FEATURE {columns}, APPLY_SKEW_TRANSFORM {columns, method:log1p|sqrt|signed_log1p}, ENCODE_HIGH_CARD_CAT {columns,strategy:frequency}, TEXT_TFIDF_SVD {columns} (fold-fitted word n-gram TF-IDF and SVD), ADD_INTERACTION {feature_pairs,operations:[multiply|add|subtract|divide]}. Measures paired CV and persists improved transforms.
 EVALUATE_PORTFOLIO {families:[hist_gbdt,penalized_linear,lgbm,xgboost,catboost,neural_tabular]} measures families on active pipeline. Optional model_parameters keyed by family. Regression target_transform may be none, log, log1p and is fitted/inverted inside the exact candidate.
 BLEND_AND_AUDIT {families:[...], weights:[positive,...]} evaluates exact weighted ensemble; requires 3 genuinely different available families and critic approval.
 WRITE_PYTHON {filename:name.py, code:python_source} writes dynamic analysis script.
@@ -553,7 +555,7 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
                     description=action.get("thought_rationale", f"Feature transform {name} on {referenced}"),
                     spec=after_spec,
                     eval_result=after,
-                    audit={"status": "APPROVED"},
+                    audit={"status": "NOT_AUDITED", "reason": "Paired feature measurement is not an independent candidate audit"},
                     candidate_id=tr_cand_id,
                 )
             return {"action_status": "confirmed" if confirmed else "refuted", "relative_gain": improvement / max(abs(before["cv_score"]), 1e-12),

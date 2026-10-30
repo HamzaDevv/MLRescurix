@@ -14,6 +14,8 @@ import numpy as np
 import pandas as pd
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OrdinalEncoder
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.decomposition import TruncatedSVD
 from sklearn.utils.metaestimators import available_if
 from sklearn.metrics import (accuracy_score, balanced_accuracy_score, roc_auc_score,
     average_precision_score, log_loss, r2_score, mean_absolute_error)
@@ -39,6 +41,14 @@ def score_metric(name, y, prediction, probability=None, classes=None):
     if name == "r2": return float(r2_score(y, prediction))
     if name == "mae": return float(mean_absolute_error(y, prediction))
     if name == "rmse": return float(np.sqrt(np.mean((y - prediction) ** 2)))
+    if name == "smape":
+        y, prediction = np.asarray(y, dtype=float), np.asarray(prediction, dtype=float)
+        if y.shape != prediction.shape or y.size == 0 or not np.isfinite(y).all() or not np.isfinite(prediction).all():
+            raise ValueError("SMAPE requires nonempty, finite, matching targets and predictions")
+        denominator = np.abs(y) + np.abs(prediction)
+        ratio = np.divide(2 * np.abs(y - prediction), denominator,
+                          out=np.zeros_like(denominator), where=denominator != 0)
+        return float(100 * np.mean(ratio))
     if name == "rmsle":
         if np.any(y < 0): raise ValueError("RMSLE requires nonnegative targets")
         return float(np.sqrt(np.mean((np.log1p(y) - np.log1p(np.maximum(0, prediction))) ** 2)))
@@ -98,6 +108,29 @@ class CandidatePipeline:
                     key = c + "__frequency"
                     if fit: self.frequency_maps_[key] = x[c].astype("string").value_counts(normalize=True).to_dict()
                     x[c] = x[c].astype("string").map(self.frequency_maps_[key]).fillna(0).astype(float)
+            elif action == "TEXT_TFIDF_SVD":
+                columns = p.get("columns")
+                if not isinstance(columns, list) or not 1 <= len(columns) <= 2 or len(set(columns)) != len(columns):
+                    raise ValueError("TEXT_TFIDF_SVD requires one or two distinct text columns")
+                for c in columns:
+                    if c not in x: raise ValueError("Missing text column")
+                    values = x[c].fillna("").astype(str)
+                    if fit:
+                        vectorizer = TfidfVectorizer(max_features=5000, ngram_range=(1, 2), dtype=np.float32)
+                        matrix = vectorizer.fit_transform(values)
+                        components = min(16, matrix.shape[0] - 1, matrix.shape[1] - 1)
+                        if components < 1: raise ValueError("Text vocabulary too small for SVD")
+                        svd = TruncatedSVD(n_components=components, random_state=42)
+                        embedding = svd.fit_transform(matrix)
+                        self.text_models_[c] = (vectorizer, svd)
+                    else:
+                        vectorizer, svd = self.text_models_[c]
+                        embedding = svd.transform(vectorizer.transform(values))
+                    x = x.drop(columns=[c])
+                    for j in range(embedding.shape[1]):
+                        name = f"{c}__tfidf_svd_{j}"
+                        if name in x: raise ValueError("Text embedding column collision")
+                        x[name] = embedding[:, j]
             else: raise ValueError(f"Unsupported transform {action}")
         return x.replace([np.inf, -np.inf], np.nan)
 
@@ -123,6 +156,7 @@ class CandidatePipeline:
 
     def fit(self, frame, y=None):
         self.frequency_maps_ = {}
+        self.text_models_ = {}
         y = np.asarray(frame[self.target_column] if y is None else y)
         self.target_transform_ = self.spec.get("target_transform", "none")
         if self.is_classification and self.target_transform_ != "none": raise ValueError("Target transform only supports regression")
@@ -418,7 +452,7 @@ def evaluate_candidate(spec, frame, target, task_type, folds, metric_name, topol
             split_gain_dominant_feature = fold_receipts[0]["features"][split_idx]
             split_gain_dominant_ratio = float(mean_gains[split_idx] / total_gain)
 
-    limitations = ["Ordinal categorical encoding; specialized text/image/audio models unsupported"]
+    limitations = ["Other categorical columns use ordinal encoding; image/audio models unsupported"]
     if measured_importances is None:
         limitations.insert(0, "Feature gain audit unsupported by estimator; no fabricated importances")
 

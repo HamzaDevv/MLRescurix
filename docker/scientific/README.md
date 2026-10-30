@@ -40,3 +40,7 @@ extend the hash lock, rebuild, and record a new image digest before claiming ful
 scientific-container execution. Do not change `image.ref` to an unbuilt image or
 remove imports/dependency checks to make the bounded-tmpfs test pass. The blocked
 attempt is recorded in `docs/evidence/v2/autonomy/20261023-prerequisite-repairs/`.
+
+## 2026-10-30 synthetic delivery test
+
+The lock now includes the Linux aarch64 `safetensors==0.6.2` wheel and its SHA-256. A local test-only rebuild from this lock and the locally available worker build context produced `mlrescurix-scientific-test@sha256:7458197a2dbf0535b7cc2a759ffcbd6be4c8bc6a7534548b78f764237bfcc4b3`. With that digest, the synthetic `pipeline_docker` ignored test passed after inference package imports were made lazy. The existing `image.ref` is not a newly verified release image and may not match the updated lock. Rebuild from the current checked-in worker source and verify provenance and full delivery gates before changing the release reference.

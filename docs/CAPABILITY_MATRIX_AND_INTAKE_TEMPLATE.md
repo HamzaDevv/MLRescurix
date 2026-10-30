@@ -92,3 +92,5 @@ When the user selects the five benchmark problems, each problem should be ingest
 3. **Resource Preflight**: Run bounded `PilotResourceReport` on local host; evaluate admission to local execution or Kaggle offload.
 4. **Search & Tuning**: Run `BudgetedOptunaTuner` within authorized spend and duration bounds.
 5. **Clean Delivery**: Export final candidate via `CustomBundlePackager` and verify portability in clean subprocess without `PYTHONPATH`.
+
+2026-10-30 development evidence: 75,000 Amazon 2025 labeled examples were used in a real provider-driven, two-fold, text-only regression exercise; best measured mean SMAPE was 64.8700%. Random folds are adaptive development evidence and are not a held-out leaderboard result. A 50-row local save/load comparison had exact prediction parity; complete Amazon inference packaging and clean-environment verification remain open. A separate synthetic Docker pipeline passed using a locally rebuilt pinned test image; custom admission and production readiness remain gated. See `REMAINING_ENGINEERING_PLAN.md` for the exact scope and provenance.

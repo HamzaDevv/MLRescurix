@@ -60,6 +60,9 @@ def test_transform_is_fold_local_and_mutates_later_candidate(tmp_path):
     assert feedback["parameters"]["columns"] == ["cabin"]
     assert feedback["measurements"]["after"]["fold_receipts"]
     assert "y" not in state["current_active_features"]
+    assert state["iterations"][0]["critic_status"] == "NOT_AUDITED"
+    with pytest.raises(ValueError, match="not eligible"):
+        loop.select_apex_iteration(1)
 
 
 def test_raw_candidate_preprocessor_never_fits_validation_categories():
