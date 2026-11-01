@@ -13,6 +13,9 @@ import shutil
 import signal
 import subprocess
 import tempfile
+import sqlite3
+import sys
+import time
 from decimal import Decimal, ROUND_CEILING
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -61,6 +64,7 @@ class RustGatewayAdapter:
         mock_path: Optional[Path | str] = None,
         pricing: Optional[Dict[str, Any]] = None,
         routing_policy: Optional[Path | str] = None,
+        approval_wait_seconds: int = 0,
     ):
         self.state_dir = Path(state_dir).resolve()
         self.project_id = project_id
@@ -72,6 +76,9 @@ class RustGatewayAdapter:
         self.require_policy_approval = require_policy_approval
         self.mock_path = Path(mock_path).resolve() if mock_path is not None else None
         self.routing_policy = Path(routing_policy).resolve() if routing_policy is not None else None
+        self.approval_wait_seconds = approval_wait_seconds
+        if approval_wait_seconds < 0:
+            raise ValueError("approval_wait_seconds must be nonnegative")
         if pricing is not None:
             if not pricing.get("verified"):
                 raise ValueError("Rust gateway pricing must be marked verified before provider dispatch")
@@ -141,7 +148,7 @@ class RustGatewayAdapter:
                 str(self.binary),
                 "register-model-pricing",
                 "--state", str(self.state_dir),
-                "--model", self.model_name,
+                "--model", self.model_name if self.mock_path is not None else f"https://openrouter.ai/api/v1/chat/completions::{self.model_name}",
                 "--prompt-millicents-per-1k", str(prompt_mc),
                 "--completion-millicents-per-1k", str(comp_mc),
             ]
@@ -224,6 +231,17 @@ class RustGatewayAdapter:
 
                 # Approval is deliberately an external human action. Include the
                 # digest in a later refusal so an operator can inspect/approve it.
+                if self.approval_wait_seconds:
+                    print(f"Outbound approval required: state={self.state_dir} project={self.project_id} request_sha256={req_sha256}", file=sys.stderr, flush=True)
+                    deadline = time.monotonic() + self.approval_wait_seconds
+                    while time.monotonic() < deadline:
+                        with sqlite3.connect(self.state_dir / "state.sqlite") as db:
+                            row = db.execute("SELECT approved, expires_ms FROM outbound_views WHERE project=? AND request_sha256=?", (self.project_id, req_sha256)).fetchone()
+                        if row and row[0] and row[1] > int(time.time() * 1000):
+                            break
+                        time.sleep(0.5)
+                    else:
+                        raise TimeoutError(f"Outbound view approval timed out: {req_sha256}")
 
             # Dispatch through gateway-dispatch
             disp_cmd = [
@@ -236,6 +254,9 @@ class RustGatewayAdapter:
                 "--request-id", request_id,
                 "--request", str(req_file),
             ]
+            if self.mock_path is None and self.routing_policy is None:
+                # Do not allow ambient provider configuration to change the priced endpoint.
+                disp_cmd.extend(["--endpoint", "https://openrouter.ai/api/v1/chat/completions"])
             if self.mock_path is not None:
                 disp_cmd.extend(["--mock", str(self.mock_path)])
             if self.routing_policy is not None:

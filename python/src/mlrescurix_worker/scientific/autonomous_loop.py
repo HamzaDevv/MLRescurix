@@ -281,10 +281,6 @@ class AutonomousAgentLoop:
 Use actual feedback to plan, run, inspect, and repair. Never claim execution or acceptance without tool receipts.
 Return strictly one valid JSON object with EXACT keys: "thought_rationale", "action_type", "parameters".
 No conversational markdown outside the JSON block. Keep thought_rationale concise (1-2 sentences).
-Recommended sequence:
-Turn 1: ANALYZE {} or EVALUATE_PORTFOLIO {"families": ["hist_gbdt", "penalized_linear", "lgbm"]}
-Turn 2: BLEND_AND_AUDIT {"families": ["hist_gbdt", "penalized_linear", "lgbm"], "weights": [1, 1, 1]} or HYPOTHESIS_TRANSFORM
-Turn 3: FINALIZE_AND_STOP {} or BLEND_AND_AUDIT to lock accepted candidate.
 Actions:
 ANALYZE {} refreshes dataset dossier.
 HYPOTHESIS_TRANSFORM {action, parameters}: ADD_MNAR_INDICATOR {columns}, DELETE_FEATURE {columns}, APPLY_SKEW_TRANSFORM {columns, method:log1p|sqrt|signed_log1p}, ENCODE_HIGH_CARD_CAT {columns,strategy:frequency}, TEXT_TFIDF_SVD {columns} (fold-fitted word n-gram TF-IDF and SVD), ADD_INTERACTION {feature_pairs,operations:[multiply|add|subtract|divide]}. Measures paired CV and persists improved transforms.

@@ -140,6 +140,40 @@ pub struct ChatCompletionResponse {
 
 pub struct OutboundFilter;
 
+// This is a conservative detector, not a proof that arbitrary prose contains
+// no private data. Free-form worker output must remain withheld upstream.
+fn contains_tabular_records(text: &str) -> bool {
+    fn records(v: &Value) -> bool {
+        match v {
+            Value::Array(a) => a.iter().any(|x| x.is_object() || x.is_array()) || a.iter().any(records),
+            Value::Object(m) => m.iter().any(|(k, v)| k == "__mlr_row_id" || records(v)),
+            Value::String(s) => contains_tabular_records(s),
+            _ => false,
+        }
+    }
+    if text.contains("__mlr_row_id") { return true; }
+    if let Ok(v) = serde_json::from_str::<Value>(text) { return records(&v); }
+    text.lines().any(is_raw_tabular_row)
+}
+
+#[cfg(test)]
+mod disclosure_regression_tests {
+    use super::contains_tabular_records;
+
+    #[test]
+    fn aggregate_dossier_and_multiline_prose_are_not_rows() {
+        assert!(!contains_tabular_records("Instructions, with punctuation.\nUse evidence, and report limitations.\nChoose a model, assess it.\nReturn JSON, please.\nDo not invent results.\nStop when done."));
+        assert!(!contains_tabular_records(r#"{"summary":{"total_rows":75000},"missingness":{"price":0},"history":[]}"#));
+    }
+
+    #[test]
+    fn short_and_nested_records_cannot_be_hidden_by_marker() {
+        for content in ["a,b,c\n1,2,3", "[REDACTED_ROW_DATA]\na,b,c\n1,2,3", r#"{"data":[{"price":3,"name":"x"}]}"#, r#"{"data":[[1,2],[3,4]]}"#, "__mlr_row_id"] {
+            assert!(contains_tabular_records(content), "{content}");
+        }
+    }
+}
+
 fn is_raw_tabular_row(line: &str) -> bool {
     let trimmed = line.trim();
     if trimmed.is_empty()
@@ -1359,10 +1393,8 @@ pub fn dispatch_gateway_with_routing(
         for msg in &mut routed_request.messages {
             if let Some(content) = &msg.content {
                 let sanitized = OutboundFilter::sanitize_content(content);
-                if content.contains("__mlr_row_id") || (content.lines().count() > 5 && content.contains(',')) {
-                    if !sanitized.contains("[REDACTED_ROW_DATA") {
-                        return Err(format!("request for role '{role_id}' contains unredacted tabular row data prohibited under disclosure policy 'redacted_only'"));
-                    }
+                if contains_tabular_records(content) {
+                    return Err(format!("request for role '{role_id}' contains possible tabular row data prohibited under disclosure policy 'redacted_only'"));
                 }
                 msg.content = Some(sanitized);
             }

@@ -1,9 +1,9 @@
 {
   "active_reservations": {},
-  "campaign_ceiling_usd": "0.30",
+  "campaign_ceiling_usd": "0.280494020",
   "contingency_usd": "0.05",
-  "per_run_ceiling_usd": "0.05",
-  "remaining_campaign_usd": "0.219505980",
+  "per_run_ceiling_usd": "0.20",
+  "remaining_campaign_usd": "0.196340000",
   "request_records": {
     "amazon-2025-20261030-continuation:5976bfb693d50b2c:turn:0": {
       "amount_usd": "0.00264",
@@ -92,6 +92,18 @@
       "settled_usd": "0.00068",
       "status": "settled",
       "unreconciled_usd": "0.00417"
+    },
+    "amazon-fresh-20261101-2318:a4f278a02ac69947:turn:0": {
+      "run_id": "amazon-fresh-20261101-2318",
+      "amount_usd": "0.00183",
+      "status": "uncertain",
+      "cost_kind": "unknown"
+    },
+    "amazon-fresh-20261101-2320:1844aff0d81c3280:turn:0": {
+      "run_id": "amazon-fresh-20261101-2320",
+      "amount_usd": "0.00183",
+      "status": "uncertain",
+      "cost_kind": "unknown"
     }
   },
   "runs": {
@@ -286,9 +298,21 @@
       "requests": 3,
       "reserved_usd": "0.00",
       "uncertain_usd": "0.00"
+    },
+    "amazon-fresh-20261101-2318": {
+      "billed_usd": "0.00",
+      "reserved_usd": "0.00000",
+      "uncertain_usd": "0.00183",
+      "requests": 0
+    },
+    "amazon-fresh-20261101-2320": {
+      "billed_usd": "0.00",
+      "reserved_usd": "0.00000",
+      "uncertain_usd": "0.00183",
+      "requests": 0
     }
   },
   "total_billed_usd": "0.055254020",
   "total_reserved_usd": "0.00000",
-  "total_uncertain_usd": "0.02524"
+  "total_uncertain_usd": "0.02890"
 }

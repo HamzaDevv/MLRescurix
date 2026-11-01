@@ -184,6 +184,18 @@ def test_rust_gateway_adapter_outbound_view_staging_and_approval(tmp_path: Path)
     assert receipt["gateway_route"] == "rust_mlrescurix_harness"
 
 
+def test_approval_wait_times_out_without_dispatch(tmp_path: Path):
+    mock = tmp_path / "mock.json"
+    mock.write_text("[]")
+    adapter = RustGatewayAdapter(tmp_path / "state", "approval-wait", mock_path=mock,
+        pricing={"verified": True, "input_per_million": "0.038", "output_per_million": "0.50"},
+        approval_wait_seconds=1)
+    with pytest.raises(TimeoutError, match="Outbound view approval timed out"):
+        adapter.call_with_request_id([{"role": "user", "content": "Aggregate diagnostics only."}], 100, "wait-1")
+    with sqlite3.connect(adapter.state_dir / "state.sqlite") as db:
+        assert db.execute("select count(*) from gateway_dispatch_receipts").fetchone()[0] == 0
+
+
 def test_autonomous_loop_with_rust_gateway_adapter(tmp_path: Path):
     # Create simple dataset
     data_path = tmp_path / "dev.csv"
@@ -293,6 +305,7 @@ def test_gateway_timeout_terminates_transport_descendants(tmp_path, monkeypatch)
     adapter.pricing = None
     adapter.require_policy_approval = False
     adapter.mock_path = tmp_path / 'fixture.json'
+    adapter.routing_policy = None
     original = subprocess.Popen.communicate
     def short_timeout(proc, *args, **kwargs):
         # Synchronize on the dispatch boundary rather than timing interpreter startup.
