@@ -1,6 +1,6 @@
 //! Persistent controller-owned split and metric contract. Custom execution is
 //! still gated until this authority is integrated into dispatch and evaluation.
-use crate::{trusted_evaluation::Metric, Result};
+use crate::{execution::StreamingCsvReader, trusted_evaluation::Metric, Result};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -306,9 +306,147 @@ fn canonical(mut p: CustomProtocol) -> Result<CustomProtocol> {
     Ok(p)
 }
 
+/// Ensure custom protocol schema is present and migrate columns if needed.
+pub fn ensure_custom_protocol_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(include_str!("schema_custom_protocol.sql")).map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare("PRAGMA table_info('assessment_lockbox_consumptions')").map_err(|e| e.to_string())?;
+    let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
+    let mut has_receipt_json = false;
+    while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+        let name: String = row.get(1).map_err(|e| e.to_string())?;
+        if name == "receipt_json" {
+            has_receipt_json = true;
+            break;
+        }
+    }
+    if !has_receipt_json {
+        conn.execute("ALTER TABLE assessment_lockbox_consumptions ADD COLUMN receipt_json TEXT NOT NULL DEFAULT ''", []).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Extract group and timestamp column mappings directly from the registered CSV dataset.
+pub fn extract_row_metadata(
+    raw_csv_path: &Path,
+    group_column: Option<&str>,
+    time_column: Option<&str>,
+    expected_sha256: &str,
+) -> Result<(Option<HashMap<u64, String>>, Option<HashMap<u64, i64>>)> {
+    if group_column.is_none() && time_column.is_none() {
+        return Ok((None, None));
+    }
+    let raw_bytes = fs::read(raw_csv_path).map_err(|e| e.to_string())?;
+    let actual_sha = format!("{:x}", Sha256::digest(&raw_bytes));
+    if actual_sha != expected_sha256 {
+        return Err(format!(
+            "raw dataset sha256 '{actual_sha}' does not match expected sha '{expected_sha256}'"
+        ));
+    }
+    let mut reader = StreamingCsvReader::new(std::io::Cursor::new(&raw_bytes));
+    let header = reader.read_record()?.ok_or("empty raw dataset CSV")?;
+    let group_idx = if let Some(gc) = group_column {
+        Some(header.iter().position(|h| h.trim() == gc).ok_or_else(|| format!("group column '{gc}' not found in dataset headers"))?)
+    } else {
+        None
+    };
+    let time_idx = if let Some(tc) = time_column {
+        Some(header.iter().position(|h| h.trim() == tc).ok_or_else(|| format!("time column '{tc}' not found in dataset headers"))?)
+    } else {
+        None
+    };
+
+    let mut row_groups = group_column.map(|_| HashMap::new());
+    let mut row_timestamps = time_column.map(|_| HashMap::new());
+    let mut row_idx: u64 = 0;
+
+    while let Some(record) = reader.read_record()? {
+        if record.is_empty() || (record.len() == 1 && record[0].trim().is_empty()) {
+            continue;
+        }
+        if let Some(g_idx) = group_idx {
+            if g_idx >= record.len() {
+                return Err(format!("row {row_idx} missing group column"));
+            }
+            let val = record[g_idx].trim().to_string();
+            if let Some(ref mut map) = row_groups {
+                map.insert(row_idx, val);
+            }
+        }
+        if let Some(t_idx) = time_idx {
+            if t_idx >= record.len() {
+                return Err(format!("row {row_idx} missing time column"));
+            }
+            let val_str = record[t_idx].trim();
+            let val_i64: i64 = val_str.parse().map_err(|_| format!("cannot parse timestamp at row {row_idx}: '{val_str}'"))?;
+            if let Some(ref mut map) = row_timestamps {
+                map.insert(row_idx, val_i64);
+            }
+        }
+        row_idx += 1;
+    }
+
+    Ok((row_groups, row_timestamps))
+}
+
 /// Freeze once for a registered dataset; identical retries are idempotent and
 /// different retries fail. The transaction serializes concurrent publishers.
-pub fn freeze(connection: &mut Connection, project: &str, dataset_id: &str, protocol: CustomProtocol) -> Result<String> {
+pub fn freeze(connection: &mut Connection, project: &str, dataset_id: &str, mut protocol: CustomProtocol) -> Result<String> {
+    ensure_custom_protocol_schema(connection)?;
+
+    // If group or time column is present, resolve authoritative row metadata from dataset file if registered
+    let ds_info: Option<(String, String)> = connection.query_row(
+        "SELECT path, sha256 FROM scientific_datasets WHERE project=?1 AND id=?2",
+        params![project, dataset_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    ).optional().map_err(|e| e.to_string())?;
+
+    if let Some((path_str, ds_sha)) = ds_info {
+        if ds_sha != protocol.dataset_sha256 {
+            return Err("protocol does not match registered dataset".into());
+        }
+        if !path_str.is_empty() {
+            let pth = Path::new(&path_str);
+            if pth.is_file() {
+                let (auth_groups, auth_times) = extract_row_metadata(
+                    pth,
+                    protocol.group_column.as_deref(),
+                    protocol.time_column.as_deref(),
+                    &protocol.dataset_sha256,
+                )?;
+                if let Some(auth_g) = auth_groups {
+                    if let Some(ref declared_g) = protocol.row_groups {
+                        for (row, g) in declared_g {
+                            if let Some(expected_g) = auth_g.get(row) {
+                                if expected_g != g {
+                                    return Err(format!("declared group for row {row} ('{g}') does not match dataset ground truth ('{expected_g}')"));
+                                }
+                            } else {
+                                return Err(format!("declared group row {row} not found in dataset"));
+                            }
+                        }
+                    } else {
+                        protocol.row_groups = Some(auth_g);
+                    }
+                }
+                if let Some(auth_t) = auth_times {
+                    if let Some(ref declared_t) = protocol.row_timestamps {
+                        for (row, t) in declared_t {
+                            if let Some(expected_t) = auth_t.get(row) {
+                                if expected_t != t {
+                                    return Err(format!("declared timestamp for row {row} ('{t}') does not match dataset ground truth ('{expected_t}')"));
+                                }
+                            } else {
+                                return Err(format!("declared timestamp row {row} not found in dataset"));
+                            }
+                        }
+                    } else {
+                        protocol.row_timestamps = Some(auth_t);
+                    }
+                }
+            }
+        }
+    }
+
     let protocol = canonical(protocol)?;
     let encoded = serde_json::to_string(&protocol).map_err(|e| e.to_string())?;
     let digest = format!("{:x}", Sha256::digest(encoded.as_bytes()));
@@ -496,7 +634,7 @@ pub fn consume_assessment(
         return Err("assessment score must be finite".into());
     }
     let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|e| e.to_string())?;
-    tx.execute_batch(include_str!("schema_custom_protocol.sql")).map_err(|e| e.to_string())?;
+    ensure_custom_protocol_schema(&tx)?;
 
     let is_consumed: bool = tx.query_row(
         "SELECT EXISTS(SELECT 1 FROM assessment_lockbox_consumptions WHERE project=?1 AND dataset_id=?2)",
@@ -536,6 +674,7 @@ pub fn get_assessment_consumption(
     project: &str,
     dataset_id: &str,
 ) -> Result<Option<AssessmentRecord>> {
+    ensure_custom_protocol_schema(connection)?;
     let row: Option<(String, String, String, String, String, String, f64, String, String, i64)> = connection.query_row(
         "SELECT project, dataset_id, candidate_id, artifact_sha256, predictions_sha256, metric, score, receipt_identity, receipt_json, consumed_at_ms FROM assessment_lockbox_consumptions WHERE project=?1 AND dataset_id=?2",
         params![project, dataset_id],
@@ -569,6 +708,7 @@ pub fn get_assessment_consumption_receipt(
     project: &str,
     dataset_id: &str,
 ) -> Result<Option<crate::trusted_evaluation::EvaluationReceipt>> {
+    ensure_custom_protocol_schema(connection)?;
     let row: Option<String> = connection.query_row(
         "SELECT receipt_json FROM assessment_lockbox_consumptions WHERE project=?1 AND dataset_id=?2",
         params![project, dataset_id],
@@ -601,33 +741,29 @@ fn extract_lockbox_ground_truth(
             "raw dataset sha256 '{actual_sha}' does not match protocol expected sha '{expected_sha256}'"
         ));
     }
-    let content = String::from_utf8(raw_bytes).map_err(|_| "raw dataset is not valid UTF-8 CSV")?;
-    let mut lines = content.lines();
-    let header_line = lines.next().ok_or("empty raw dataset CSV")?;
-    let headers: Vec<&str> = header_line.split(',').map(|s| s.trim()).collect();
-    let target_idx = headers
+    let mut reader = StreamingCsvReader::new(std::io::Cursor::new(&raw_bytes));
+    let header = reader.read_record()?.ok_or("empty raw dataset CSV")?;
+    let target_idx = header
         .iter()
-        .position(|&h| h == target_column)
+        .position(|h| h.trim() == target_column)
         .ok_or_else(|| format!("target column '{target_column}' not found in raw dataset headers"))?;
 
     let lockbox_set: HashSet<u64> = lockbox_rows.iter().copied().collect();
     let mut results = Vec::new();
     let mut row_idx: u64 = 0;
 
-    for line in lines {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
+    while let Some(record) = reader.read_record()? {
+        if record.is_empty() || (record.len() == 1 && record[0].trim().is_empty()) {
             continue;
         }
         if lockbox_set.contains(&row_idx) {
-            let cols: Vec<&str> = trimmed.split(',').collect();
-            if target_idx >= cols.len() {
+            if target_idx >= record.len() {
                 return Err(format!("row {row_idx} missing target column at index {target_idx}"));
             }
-            let target_val: f64 = cols[target_idx]
+            let target_val: f64 = record[target_idx]
                 .trim()
                 .parse()
-                .map_err(|_| format!("cannot parse target value at row {row_idx}: '{}'", cols[target_idx]))?;
+                .map_err(|_| format!("cannot parse target value at row {row_idx}: '{}'", record[target_idx]))?;
             results.push((row_idx, target_val));
         }
         row_idx += 1;
@@ -645,13 +781,35 @@ pub fn evaluate_and_consume_assessment(
     trusted_lockbox_labels: &[(u64, f64)],
     predictions: &crate::trusted_evaluation::PredictionBatch,
 ) -> Result<crate::trusted_evaluation::EvaluationReceipt> {
-    let (p, _) = load(connection, project, dataset_id)?;
+    ensure_custom_protocol_schema(connection)?;
+    let (p, protocol_sha) = load(connection, project, dataset_id)?;
     if expected.project_id != project || expected.dataset_id != dataset_id || expected.dataset_sha256 != p.dataset_sha256 {
         return Err("assessment identity does not match the registered project and dataset".into());
+    }
+    if expected.split_sha256 != protocol_sha {
+        return Err(format!(
+            "assessment split_sha256 '{}' does not match registered protocol sha256 '{}'",
+            expected.split_sha256, protocol_sha
+        ));
+    }
+    if expected.source_sha256.len() != 64 || !expected.source_sha256.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
+        return Err("invalid evaluation source_sha256".into());
     }
     if p.lockbox_rows.is_empty() {
         return Err("no assessment lockbox was registered for this protocol".into());
     }
+
+    // Enforce one-shot consumption fence BEFORE computing score or accessing private labels
+    let is_consumed: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM assessment_lockbox_consumptions WHERE project=?1 AND dataset_id=?2)",
+        params![project, dataset_id],
+        |r| r.get(0),
+    ).map_err(|e| e.to_string())?;
+
+    if is_consumed {
+        return Err("assessment lockbox has already been consumed; cannot evaluate holdout a second time".into());
+    }
+
     let mut label_row_ids: Vec<u64> = trusted_lockbox_labels.iter().map(|(id, _)| *id).collect();
     label_row_ids.sort_unstable();
     if label_row_ids != p.lockbox_rows {
@@ -671,8 +829,11 @@ pub fn evaluate_and_consume_assessment(
     };
 
     if let Some(path_str) = raw_path {
-        let pth = Path::new(&path_str);
-        if pth.is_file() {
+        if !path_str.is_empty() {
+            let pth = Path::new(&path_str);
+            if !pth.is_file() {
+                return Err(format!("registered dataset file for '{dataset_id}' not found at '{path_str}'"));
+            }
             let gt_labels = extract_lockbox_ground_truth(pth, &p.target_column, &p.lockbox_rows, &p.dataset_sha256)?;
             let gt_map: BTreeMap<u64, f64> = gt_labels.into_iter().collect();
             for (id, val) in trusted_lockbox_labels {
@@ -720,6 +881,10 @@ pub fn evaluate_and_consume_assessment_authoritative(
             |r| r.get(0),
         )
         .map_err(|_| format!("dataset '{dataset_id}' not found in scientific_datasets"))?;
-    let gt_labels = extract_lockbox_ground_truth(Path::new(&raw_path), &p.target_column, &p.lockbox_rows, &p.dataset_sha256)?;
+    let pth = Path::new(&raw_path);
+    if !pth.is_file() {
+        return Err(format!("registered dataset file for '{dataset_id}' not found at '{raw_path}'"));
+    }
+    let gt_labels = extract_lockbox_ground_truth(pth, &p.target_column, &p.lockbox_rows, &p.dataset_sha256)?;
     evaluate_and_consume_assessment(connection, project, dataset_id, expected, &gt_labels, predictions)
 }

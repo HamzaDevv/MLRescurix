@@ -392,6 +392,51 @@ fn custom_and_robust_loss_metrics_cauchy_huber_and_custom() {
     };
     let err = evaluate_with_spec(&id, &spec_custom, &labels, &preds_noisy).unwrap_err();
     assert!(err.contains("requires an admitted evaluator"));
+
+    // Parameterized Cauchy with epsilon = 2.0
+    let mut spec_cauchy_eps = spec_cauchy.clone();
+    spec_cauchy_eps.epsilon = Some(2.0);
+    let receipt_cauchy_eps = evaluate_with_spec(&id, &spec_cauchy_eps, &labels, &preds_noisy).unwrap();
+    assert!(receipt_cauchy_eps.score > 0.0);
+    assert_ne!(receipt_cauchy_eps.score, receipt_cauchy_noisy.score);
+
+    // Cauchy with non-positive epsilon fails
+    let mut spec_cauchy_zero = spec_cauchy.clone();
+    spec_cauchy_zero.epsilon = Some(0.0);
+    let err_eps = evaluate_with_spec(&id, &spec_cauchy_zero, &labels, &preds_noisy).unwrap_err();
+    assert!(err_eps.contains("strictly positive"));
+
+    // Admitted custom evaluator registration
+    struct TestCustomMetric;
+    impl mlrescurix_harness::trusted_evaluation::CustomMetricEvaluator for TestCustomMetric {
+        fn evaluate(&self, labels: &std::collections::BTreeMap<u64, f64>, preds: &std::collections::BTreeMap<u64, f64>, _eps: Option<f64>) -> mlrescurix_harness::Result<f64> {
+            let mut sum = 0.0;
+            for (k, l) in labels {
+                sum += (preds[k] - l).abs() * 2.0;
+            }
+            Ok(sum / labels.len() as f64)
+        }
+    }
+    mlrescurix_harness::trusted_evaluation::register_admitted_custom_evaluator("custom_loss_fn", std::sync::Arc::new(TestCustomMetric));
+    let receipt_custom_admitted = evaluate_with_spec(&id, &spec_custom, &labels, &preds_noisy).unwrap();
+    assert!(receipt_custom_admitted.score > 0.0);
+
+    // Caller-provided evidence does not establish reference conformance
+    let fixture_sha = format!(
+        "{:x}",
+        Sha256::digest(format!("{}:{}", receipt_custom_admitted.labels_sha256, receipt_custom_admitted.predictions_sha256).as_bytes())
+    );
+    let ev_trusted = ReferenceEvidence {
+        reference_identity: "authoritative_fixture_01".into(),
+        fixture_sha256: fixture_sha,
+        expected_result: receipt_custom_admitted.score,
+        verified_receipt_sha256: "9".repeat(64),
+        metric_version: "v1.0".into(),
+        tolerance: 1e-6,
+    };
+    let conf_receipt = evaluate_with_spec_and_evidence(&id, &spec_custom, &labels, &preds_noisy, Some(&ev_trusted)).unwrap();
+    assert_eq!(conf_receipt.assurance, "provisional_spec_checked");
+    assert!(conf_receipt.reference_evidence.is_none());
 }
 
 #[test]

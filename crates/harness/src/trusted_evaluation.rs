@@ -291,6 +291,18 @@ fn compute_f1(labels: &BTreeMap<u64, f64>, values: &BTreeMap<u64, f64>, threshol
     }
 }
 
+pub trait CustomMetricEvaluator: Send + Sync {
+    fn evaluate(&self, labels: &BTreeMap<u64, f64>, predictions: &BTreeMap<u64, f64>, epsilon: Option<f64>) -> Result<f64>;
+}
+
+static ADMITTED_CUSTOM_EVALUATORS: std::sync::RwLock<Option<std::collections::HashMap<String, std::sync::Arc<dyn CustomMetricEvaluator>>>> = std::sync::RwLock::new(None);
+
+pub fn register_admitted_custom_evaluator(name: &str, evaluator: std::sync::Arc<dyn CustomMetricEvaluator>) {
+    let mut reg = ADMITTED_CUSTOM_EVALUATORS.write().unwrap();
+    let map = reg.get_or_insert_with(std::collections::HashMap::new);
+    map.insert(name.to_lowercase(), evaluator);
+}
+
 /// Compute a score from controller-owned labels and predictions. Neither the
 /// identity equality check nor a receipt proves that a worker ran the bound
 /// model; the supervisor must independently enforce that inference binding.
@@ -300,7 +312,7 @@ pub fn evaluate(
     trusted_labels: &[(u64, f64)],
     predictions: &PredictionBatch,
 ) -> Result<EvaluationReceipt> {
-    evaluate_internal(expected, metric, trusted_labels, predictions, 0.5, true, &default_assurance_str(), None)
+    evaluate_internal(expected, metric, trusted_labels, predictions, 0.5, true, &default_assurance_str(), None, None)
 }
 
 pub fn parse_metric_name(name: &str) -> Result<Metric> {
@@ -353,6 +365,7 @@ pub fn evaluate_with_spec_and_evidence(
         non_negative_only,
         "unverified_reference",
         spec.class_order.as_deref(),
+        spec.epsilon,
     )?;
 
     if let Some(ev) = evidence {
@@ -375,15 +388,17 @@ pub fn evaluate_with_spec_and_evidence(
                 ev.expected_result, receipt.score, diff, ev.tolerance
             ));
         }
-        // A matching caller-supplied expected value and receipt digest are not
-        // proof that an independent reference evaluator produced the evidence.
-        // Do not attach or promote it until a trusted evidence store verifies it.
+
+        // Matching caller-provided evidence cannot establish an independent reference.
+
     }
-    let perm_ok = check_spec_permutation_invariance_property(spec, trusted_labels, predictions)
-        .map(|r| r.passed)
-        .unwrap_or(false);
-    if perm_ok {
-        receipt.assurance = "provisional_spec_checked".into();
+    if receipt.assurance != "reference_conformant" {
+        let perm_ok = check_spec_permutation_invariance_property(spec, trusted_labels, predictions)
+            .map(|r| r.passed)
+            .unwrap_or(false);
+        if perm_ok {
+            receipt.assurance = "provisional_spec_checked".into();
+        }
     }
 
     Ok(receipt)
@@ -398,6 +413,7 @@ fn evaluate_internal(
     smape_non_negative_only: bool,
     assurance: &str,
     class_order: Option<&[String]>,
+    epsilon: Option<f64>,
 ) -> Result<EvaluationReceipt> {
     expected.validate()?;
     if &predictions.identity != expected {
@@ -573,7 +589,10 @@ fn evaluate_internal(
             Metric::RocAuc => compute_roc_auc(&labels, &values)?,
             Metric::F1 => compute_f1(&labels, &values, f1_threshold)?,
             Metric::Cauchy => {
-                let gamma = 1.0;
+                let gamma = epsilon.unwrap_or(1.0);
+                if gamma <= 0.0 || !gamma.is_finite() {
+                    return Err("Cauchy loss epsilon (gamma) must be strictly positive and finite".into());
+                }
                 let mut sum = 0.0;
                 for (id, &label) in &labels {
                     let p = values[id];
@@ -583,7 +602,10 @@ fn evaluate_internal(
                 sum / labels.len() as f64
             }
             Metric::Huber => {
-                let delta = 1.0;
+                let delta = epsilon.unwrap_or(1.0);
+                if delta <= 0.0 || !delta.is_finite() {
+                    return Err("Huber loss epsilon (delta) must be strictly positive and finite".into());
+                }
                 let mut sum = 0.0;
                 for (id, &label) in &labels {
                     let p = values[id];
@@ -592,7 +614,14 @@ fn evaluate_internal(
                 }
                 sum / labels.len() as f64
             }
-            Metric::Custom(ref name) => return Err(format!("custom metric '{name}' requires an admitted evaluator")),
+            Metric::Custom(ref name) => {
+                let reg = ADMITTED_CUSTOM_EVALUATORS.read().unwrap();
+                if let Some(evaluator) = reg.as_ref().and_then(|m| m.get(&name.to_lowercase())) {
+                    evaluator.evaluate(&labels, &values, epsilon)?
+                } else {
+                    return Err(format!("custom metric '{name}' requires an admitted evaluator"));
+                }
+            }
         };
         (score, pred_sha)
     };
@@ -642,7 +671,21 @@ pub fn check_identity_property(metric: Metric, labels: &[(u64, f64)]) -> Result<
 
     let (applicable, expected_score, tolerance) = match metric {
         Metric::Accuracy | Metric::F1 => (true, 1.0, 1e-9),
-        Metric::Mae | Metric::Mse | Metric::Rmse | Metric::Smape | Metric::Rmsle | Metric::Cauchy | Metric::Huber | Metric::Custom(_) => (true, 0.0, 1e-9),
+        Metric::Mae | Metric::Mse | Metric::Rmse | Metric::Smape | Metric::Rmsle | Metric::Cauchy | Metric::Huber => (true, 0.0, 1e-9),
+        Metric::Custom(ref name) => {
+            let reg = ADMITTED_CUSTOM_EVALUATORS.read().unwrap();
+            if reg.as_ref().and_then(|m| m.get(&name.to_lowercase())).is_some() {
+                (true, 0.0, 1e-9)
+            } else {
+                return Ok(EvaluatorPropertyCheckResult {
+                    property_name: "identity_at_optimum".into(),
+                    applicable: false,
+                    passed: false,
+                    tolerance: 1e-9,
+                    detail: format!("custom metric '{name}' requires an admitted evaluator"),
+                });
+            }
+        }
         Metric::RocAuc => {
             let has_pos = labels.iter().any(|(_, l)| *l == 1.0);
             let has_neg = labels.iter().any(|(_, l)| *l == 0.0);
@@ -737,7 +780,20 @@ pub fn check_spec_identity_property(
     let (applicable, expected_score, tolerance) = match metric {
         Metric::Accuracy | Metric::F1 => (true, 1.0, 1e-9),
         Metric::Mae | Metric::Mse | Metric::Rmse | Metric::Smape | Metric::Rmsle | Metric::Cauchy | Metric::Huber => (true, 0.0, 1e-9),
-        Metric::Custom(_) => (true, 0.0, 1e-9),
+        Metric::Custom(ref name) => {
+            let reg = ADMITTED_CUSTOM_EVALUATORS.read().unwrap();
+            if reg.as_ref().and_then(|m| m.get(&name.to_lowercase())).is_some() {
+                (true, 0.0, 1e-9)
+            } else {
+                return Ok(EvaluatorPropertyCheckResult {
+                    property_name: "identity_at_optimum".into(),
+                    applicable: false,
+                    passed: false,
+                    tolerance: 1e-9,
+                    detail: format!("custom metric '{name}' requires an admitted evaluator"),
+                });
+            }
+        }
         Metric::RocAuc => {
             let has_pos = labels.iter().any(|(_, l)| *l == 1.0);
             let has_neg = labels.iter().any(|(_, l)| *l == 0.0);
@@ -769,7 +825,7 @@ pub fn check_spec_identity_property(
     let batch = PredictionBatch::scalar(dummy_id.clone(), labels.to_vec());
     let threshold = spec.decision_threshold.unwrap_or(0.5);
     let non_negative_only = spec.variant.as_deref() == Some("non_negative_only");
-    let receipt = evaluate_internal(&dummy_id, metric, labels, &batch, threshold, non_negative_only, "provisional_spec_checked", spec.class_order.as_deref())?;
+    let receipt = evaluate_internal(&dummy_id, metric, labels, &batch, threshold, non_negative_only, "provisional_spec_checked", spec.class_order.as_deref(), spec.epsilon)?;
     let diff = (receipt.score - expected_score).abs();
     let passed = diff <= tolerance;
 
@@ -793,7 +849,7 @@ pub fn check_spec_permutation_invariance_property(
     let threshold = spec.decision_threshold.unwrap_or(0.5);
     let non_negative_only = spec.variant.as_deref() == Some("non_negative_only");
     let dummy_id = predictions.identity.clone();
-    let r1 = evaluate_internal(&dummy_id, metric.clone(), labels, predictions, threshold, non_negative_only, "provisional_spec_checked", spec.class_order.as_deref())?;
+    let r1 = evaluate_internal(&dummy_id, metric.clone(), labels, predictions, threshold, non_negative_only, "provisional_spec_checked", spec.class_order.as_deref(), spec.epsilon)?;
 
     let mut rev_labels = labels.to_vec();
     rev_labels.reverse();
@@ -801,7 +857,7 @@ pub fn check_spec_permutation_invariance_property(
     rev_batch.rows.reverse();
     rev_batch.vector_rows.reverse();
 
-    let r2 = evaluate_internal(&dummy_id, metric, &rev_labels, &rev_batch, threshold, non_negative_only, "provisional_spec_checked", spec.class_order.as_deref())?;
+    let r2 = evaluate_internal(&dummy_id, metric, &rev_labels, &rev_batch, threshold, non_negative_only, "provisional_spec_checked", spec.class_order.as_deref(), spec.epsilon)?;
     let diff = (r1.score - r2.score).abs();
     let tolerance = 1e-9;
     let passed = diff <= tolerance;

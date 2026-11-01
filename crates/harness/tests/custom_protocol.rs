@@ -255,7 +255,7 @@ fn end_to_end_assessment_evaluation_and_consumption() {
     let mut p = protocol();
     p.lockbox_rows = vec![10, 11];
     p.metric = Metric::Accuracy;
-    freeze(&mut c, "p", "d", p).unwrap();
+    let protocol_sha = freeze(&mut c, "p", "d", p).unwrap();
 
     let identity = EvaluationIdentity {
         project_id: "p".into(),
@@ -263,7 +263,7 @@ fn end_to_end_assessment_evaluation_and_consumption() {
         candidate_id: "cand_01".into(),
         dataset_id: "d".into(),
         dataset_sha256: "a".repeat(64),
-        split_sha256: "0".repeat(64),
+        split_sha256: protocol_sha,
         source_sha256: "0".repeat(64),
         environment_id: "env_01".into(),
         weights_sha256: "b".repeat(64),
@@ -318,10 +318,12 @@ fn end_to_end_assessment_evaluation_and_consumption() {
     setup(&c2);
     let mut p2 = protocol();
     p2.lockbox_rows = vec![20, 21];
-    freeze(&mut c2, "p", "d", p2).unwrap();
+    let protocol2_sha = freeze(&mut c2, "p", "d", p2).unwrap();
+    let mut identity2 = identity.clone();
+    identity2.split_sha256 = protocol2_sha;
     let bad_labels = vec![(99, 1.0), (100, 0.0)];
     let err2 = mlrescurix_harness::custom_protocol::evaluate_and_consume_assessment(
-        &mut c2, "p", "d", &identity, &bad_labels, &preds,
+        &mut c2, "p", "d", &identity2, &bad_labels, &preds,
     ).unwrap_err();
     assert!(err2.contains("trusted lockbox labels do not match registered lockbox rows"));
 }

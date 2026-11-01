@@ -416,3 +416,87 @@ def test_python_smape_formula_exact_zero_zero_and_signed():
     # non_negative_only variant rejects negative values
     with pytest.raises(ValueError, match="non-negative"):
         compute_smape([-10.0, 20.0], [-15.0, 20.0], non_negative_only=True)
+
+
+def test_fit_scope_authoritative_row_hash_and_provenance():
+    """Verify cryptographic row-hash validation, partial label exclusion rejection, and authoritative fit scope verification."""
+    from mlrescurix_worker.scientific.contracts.validator import (
+        hash_row_ids,
+        check_fit_scope_compatibility,
+        verify_authoritative_fit_scope,
+    )
+
+    row_set_a = {0, 1, 2, 3}
+    hash_a = hash_row_ids(row_set_a)
+    assert len(hash_a) == 64
+    # Order invariance
+    assert hash_row_ids([3, 1, 0, 2]) == hash_a
+
+    binding_a = {
+        "schema_version": "mlrescurix.fit_scope.v1",
+        "binding_id": "scope_f0",
+        "split_id": "fold_0",
+        "protocol_sha256": "a" * 64,
+        "fit_scope_kind": "outer_fold_train",
+        "permitted_feature_row_ids_hash": hash_row_ids({0, 1, 2, 3, 4}),
+        "permitted_label_row_ids_hash": hash_a,
+        "exclusion_row_ids_hash": hash_row_ids({10, 11}),
+        "transitive_fit_dependencies": [],
+    }
+
+    # 1. Authoritative verification succeeds with matching row sets
+    ok, reason = verify_authoritative_fit_scope(
+        binding_a,
+        feature_rows={0, 1, 2, 3, 4},
+        label_rows=row_set_a,
+        exclusion_rows={10, 11},
+    )
+    assert ok, reason
+
+    # 2. Forged row hash fails authoritative verification
+    ok, reason = verify_authoritative_fit_scope(
+        binding_a,
+        label_rows={0, 1, 2, 999},  # Altered row set!
+    )
+    assert not ok
+    assert "permitted_label_row_ids_hash mismatch" in reason
+
+    # 3. Label exclusion intersection check (producer fitted labels overlap consumer exclusion)
+    consumer_with_exclusion = {
+        "schema_version": "mlrescurix.fit_scope.v1",
+        "binding_id": "scope_f0_cons",
+        "split_id": "fold_0",
+        "protocol_sha256": "a" * 64,
+        "fit_scope_kind": "consumes_matching_scope",
+        "permitted_feature_row_ids_hash": hash_row_ids({0, 1}),
+        "permitted_label_row_ids_hash": hash_row_ids({0, 1}),
+        "exclusion_row_ids_hash": None,
+        "transitive_fit_dependencies": [],
+    }
+    ok, reason = check_fit_scope_compatibility(
+        binding_a,
+        consumer_with_exclusion,
+        producer_label_rows={0, 1, 2, 3},
+        consumer_exclusion_rows={3, 99},  # Row 3 overlaps fitted labels!
+    )
+    assert not ok
+    assert "exclusion violation" in reason
+
+    # 4. Strict verify_row_hashes mode in check_fit_scope_compatibility
+    ok, reason = check_fit_scope_compatibility(
+        binding_a,
+        consumer_with_exclusion,
+        producer_label_rows={0, 1, 2, 3},
+        verify_row_hashes=True,
+    )
+    assert ok, reason
+
+    # Altering the rows under verify_row_hashes fails closed
+    ok, reason = check_fit_scope_compatibility(
+        binding_a,
+        consumer_with_exclusion,
+        producer_label_rows={0, 1, 2, 4},  # Mismatched rows!
+        verify_row_hashes=True,
+    )
+    assert not ok
+    assert "permitted_label_row_ids_hash mismatch" in reason

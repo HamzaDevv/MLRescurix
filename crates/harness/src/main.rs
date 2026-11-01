@@ -244,6 +244,17 @@ async fn run()->Result<(),String>{
                 (std::sync::Arc::new(mlrescurix_harness::agents::ScriptedProviderFixture::new(fixture)), Some((mock_path, responses)))
             } else {
                 let resolved_provider = loaded_policy.as_ref().and_then(|p| p.resolve_role(&role).ok().map(|(_, prov)| prov));
+                let provider_cfg: Option<serde_json::Value> = fs::read_to_string(".config/provider.json")
+                    .ok().and_then(|s: String| serde_json::from_str(&s).ok());
+                let default_ep = resolved_provider.as_ref().map(|prov| prov.endpoint.clone())
+                    .or_else(|| provider_cfg.as_ref().and_then(|c| c["endpoint"].as_str()).map(|s| s.to_string()))
+                    .unwrap_or_else(|| "https://openrouter.ai/api/v1/chat/completions".to_string());
+                let effective_endpoint = endpoint
+                    .or_else(|| std::env::var("OPENROUTER_BASE_URL").ok())
+                    .unwrap_or(default_ep);
+                let is_openrouter = effective_endpoint.strip_prefix("https://")
+                    .and_then(|rest| rest.split(['/', '?', '#']).next())
+                    .is_some_and(|authority| authority.eq_ignore_ascii_case("openrouter.ai"));
                 let effective_key = if let Some(prov) = resolved_provider {
                     if let Some(s_ref) = prov.secret_ref.as_deref() {
                         let policy_secret = std::env::var(s_ref).ok().or_else(|| {
@@ -254,7 +265,7 @@ async fn run()->Result<(),String>{
                             return Err(format!("configured secret '{s_ref}' for provider profile not found in environment; fallthrough prohibited"));
                         }
                         api_key.or(policy_secret)
-                    } else {
+                    } else if is_openrouter {
                         api_key
                             .or_else(|| std::env::var("OPENROUTER_API_KEY").ok())
                             .or_else(|| fs::read_to_string(".config/openrouter.key").ok().map(|s: String| s.trim().to_string()).filter(|s: &String| !s.is_empty()))
@@ -263,8 +274,10 @@ async fn run()->Result<(),String>{
                                 fs::read_to_string(std::path::Path::new(&home).join(".config/mlrescurix/openrouter.key"))
                                     .ok().map(|s: String| s.trim().to_string()).filter(|s: &String| !s.is_empty())
                             })
+                    } else {
+                        api_key
                     }
-                } else {
+                } else if is_openrouter {
                     api_key
                         .or_else(|| std::env::var("OPENROUTER_API_KEY").ok())
                         .or_else(|| fs::read_to_string(".config/openrouter.key").ok().map(|s: String| s.trim().to_string()).filter(|s: &String| !s.is_empty()))
@@ -273,16 +286,9 @@ async fn run()->Result<(),String>{
                             fs::read_to_string(std::path::Path::new(&home).join(".config/mlrescurix/openrouter.key"))
                                 .ok().map(|s: String| s.trim().to_string()).filter(|s: &String| !s.is_empty())
                         })
+                } else {
+                    api_key
                 };
-                let provider_cfg: Option<serde_json::Value> = fs::read_to_string(".config/provider.json")
-                    .ok().and_then(|s: String| serde_json::from_str(&s).ok());
-                let policy_endpoint = resolved_provider.as_ref().map(|prov| prov.endpoint.clone());
-                let default_ep = policy_endpoint
-                    .or_else(|| provider_cfg.as_ref().and_then(|c| c["endpoint"].as_str()).map(|s| s.to_string()))
-                    .unwrap_or_else(|| "https://openrouter.ai/api/v1/chat/completions".to_string());
-                let effective_endpoint = endpoint
-                    .or_else(|| std::env::var("OPENROUTER_BASE_URL").ok())
-                    .unwrap_or(default_ep);
                 if let Some(key) = effective_key {
                     (std::sync::Arc::new(mlrescurix_harness::agents::OpenAICompatibleAdapter::new(effective_endpoint, key)), None)
                 } else {
@@ -291,7 +297,7 @@ async fn run()->Result<(),String>{
             };
             let effective_policy = match loaded_policy {
                 Some(p) => p,
-                None => mlrescurix_harness::agents::default_routing_policy_for_request(&state, &role, &req, gateway.as_ref()),
+                None => mlrescurix_harness::agents::default_routing_policy_for_request(&state, &role, &req, gateway.as_ref())?,
             };
             let outcome = mlrescurix_harness::agents::dispatch_gateway_with_routing(
                 &state, &project, &task, &role, &request_id, &req, &effective_policy, gateway.as_ref(), require_policy_approval,

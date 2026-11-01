@@ -444,6 +444,52 @@ impl ProviderGateway for OpenAICompatibleAdapter {
     }
 }
 
+pub fn normalize_endpoint(url: &str) -> String {
+    let trimmed = url.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if trimmed.starts_with("fixture://") {
+        return trimmed.to_string();
+    }
+    if trimmed.ends_with("/chat/completions") {
+        trimmed.to_string()
+    } else {
+        format!("{trimmed}/chat/completions")
+    }
+}
+
+fn with_pricing_file_lock<F, R>(root: &Path, f: F) -> Result<R>
+where
+    F: FnOnce() -> Result<R>,
+{
+    use std::os::unix::io::AsRawFd;
+    let lock_path = root.join("pricing.lock");
+    let lock_file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&lock_path)
+        .map_err(|e| format!("cannot open pricing lock file: {e}"))?;
+    let fd = lock_file.as_raw_fd();
+    unsafe {
+        if libc::flock(fd, libc::LOCK_EX) != 0 {
+            return Err("failed to acquire pricing lock".into());
+        }
+    }
+    struct FlockGuard(i32);
+    impl Drop for FlockGuard {
+        fn drop(&mut self) {
+            unsafe {
+                libc::flock(self.0, libc::LOCK_UN);
+            }
+        }
+    }
+    let _guard = FlockGuard(fd);
+    f()
+}
+
 pub fn register_namespaced_model_pricing(
     root: &Path,
     provider_key: &str,
@@ -454,67 +500,87 @@ pub fn register_namespaced_model_pricing(
     if model.is_empty() || prompt_millicents_per_1k < 0 || completion_millicents_per_1k < 0 {
         return Err("invalid model pricing specification".into());
     }
-    let pricing_path = root.join("pricing.json");
-    let mut table: serde_json::Map<String, Value> = if pricing_path.is_file() {
-        serde_json::from_slice(&fs::read(&pricing_path).map_err(|e| e.to_string())?)
-            .map_err(|e| e.to_string())?
-    } else {
-        serde_json::Map::new()
-    };
-    let namespaced_key = if provider_key.is_empty() {
-        model.to_string()
-    } else {
-        format!("{provider_key}::{model}")
-    };
-    let entry = serde_json::json!({
-        "prompt_millicents_per_1k": prompt_millicents_per_1k,
-        "completion_millicents_per_1k": completion_millicents_per_1k,
-    });
-    table.insert(namespaced_key.clone(), entry.clone());
-    if table.get(model).is_none() {
-        table.insert(model.to_string(), entry);
-    }
-    fs::write(
-        &pricing_path,
-        serde_json::to_vec_pretty(&Value::Object(table)).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(serde_json::json!({
-        "provider": provider_key,
-        "model": model,
-        "prompt_millicents_per_1k": prompt_millicents_per_1k,
-        "completion_millicents_per_1k": completion_millicents_per_1k,
-    }))
+    with_pricing_file_lock(root, || {
+        let pricing_path = root.join("pricing.json");
+        let mut table: serde_json::Map<String, Value> = if pricing_path.is_file() {
+            serde_json::from_slice(&fs::read(&pricing_path).map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())?
+        } else {
+            serde_json::Map::new()
+        };
+        let norm_key = if provider_key.is_empty() {
+            String::new()
+        } else {
+            normalize_endpoint(provider_key)
+        };
+        let namespaced_key = if norm_key.is_empty() {
+            model.to_string()
+        } else {
+            format!("{norm_key}::{model}")
+        };
+        let entry = serde_json::json!({
+            "prompt_millicents_per_1k": prompt_millicents_per_1k,
+            "completion_millicents_per_1k": completion_millicents_per_1k,
+        });
+        table.insert(namespaced_key.clone(), entry.clone());
+        if norm_key.is_empty() && table.get(model).is_none() {
+            table.insert(model.to_string(), entry);
+        }
+        let tmp_path = pricing_path.with_extension(format!("tmp-{}", std::process::id()));
+        fs::write(
+            &tmp_path,
+            serde_json::to_vec_pretty(&Value::Object(table)).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+        fs::rename(&tmp_path, &pricing_path).map_err(|e| e.to_string())?;
+        Ok(serde_json::json!({
+            "provider": norm_key,
+            "model": model,
+            "prompt_millicents_per_1k": prompt_millicents_per_1k,
+            "completion_millicents_per_1k": completion_millicents_per_1k,
+        }))
+    })
 }
 
 pub fn resolve_namespaced_model_pricing(root: &Path, provider_key: &str, model: &str) -> Result<Option<(i64, i64)>> {
-    let namespaced_key = if provider_key.is_empty() {
+    let norm_key = if provider_key.is_empty() {
+        String::new()
+    } else {
+        normalize_endpoint(provider_key)
+    };
+    let namespaced_key = if norm_key.is_empty() {
         model.to_string()
     } else {
-        format!("{provider_key}::{model}")
+        format!("{norm_key}::{model}")
     };
-    for candidate in [root.join("pricing.json"), std::path::PathBuf::from(".config/provider.json")] {
-        if candidate.is_file() {
-            if let Ok(bytes) = fs::read(&candidate) {
-                if let Ok(val) = serde_json::from_slice::<Value>(&bytes) {
-                    let entry = val.get(&namespaced_key)
-                        .or_else(|| if provider_key.is_empty() { None } else { val.get(model) })
-                        .or_else(|| val.get("pricing").and_then(|p| p.get(&namespaced_key).or_else(|| p.get(model))));
-                    if let Some(obj) = entry {
-                        if let (Some(p), Some(c)) = (
-                            obj.get("prompt_millicents_per_1k").and_then(|v| v.as_i64()),
-                            obj.get("completion_millicents_per_1k").and_then(|v| v.as_i64()),
-                        ) {
-                            if p >= 0 && c >= 0 {
-                                return Ok(Some((p, c)));
+    with_pricing_file_lock(root, || {
+        for candidate in [root.join("pricing.json"), std::path::PathBuf::from(".config/provider.json")] {
+            if candidate.is_file() {
+                if let Ok(bytes) = fs::read(&candidate) {
+                    if let Ok(val) = serde_json::from_slice::<Value>(&bytes) {
+                        let entry = if norm_key.is_empty() {
+                            val.get(model)
+                                .or_else(|| val.get("pricing").and_then(|p| p.get(model)))
+                        } else {
+                            val.get(&namespaced_key)
+                                .or_else(|| val.get("pricing").and_then(|p| p.get(&namespaced_key)))
+                        };
+                        if let Some(obj) = entry {
+                            if let (Some(p), Some(c)) = (
+                                obj.get("prompt_millicents_per_1k").and_then(|v| v.as_i64()),
+                                obj.get("completion_millicents_per_1k").and_then(|v| v.as_i64()),
+                            ) {
+                                if p >= 0 && c >= 0 {
+                                    return Ok(Some((p, c)));
+                                }
                             }
                         }
                     }
                 }
             }
         }
-    }
-    Ok(None)
+        Ok(None)
+    })
 }
 
 pub fn register_model_pricing(
@@ -530,24 +596,23 @@ pub fn resolve_model_pricing(root: &Path, model: &str) -> Result<Option<(i64, i6
     resolve_namespaced_model_pricing(root, "", model)
 }
 
-/// Construct a default AgentRoutingPolicy for an unrouted request, binding to the provider's protocol and endpoint.
+/// Construct an AgentRoutingPolicy for an unrouted request, binding to the provider's protocol and endpoint.
+/// Fails closed if pricing cannot be resolved for the model.
 pub fn default_routing_policy_for_request(
     root: &Path,
     role_id: &str,
     request: &ChatCompletionRequest,
     gateway: &dyn ProviderGateway,
-) -> crate::contracts::AgentRoutingPolicy {
-    let (prompt_rate, comp_rate) = resolve_namespaced_model_pricing(root, gateway.endpoint_url(), &request.model)
-        .ok()
-        .flatten()
-        .or_else(|| resolve_model_pricing(root, &request.model).ok().flatten())
-        .unwrap_or((200, 600));
+) -> Result<crate::contracts::AgentRoutingPolicy> {
+    let (prompt_rate, comp_rate) = resolve_namespaced_model_pricing(root, gateway.endpoint_url(), &request.model)?
+        .or_else(|| if gateway.endpoint_url().is_empty() || gateway.is_offline_fixture() { resolve_model_pricing(root, &request.model).ok().flatten() } else { None })
+        .ok_or_else(|| format!("model '{}' has no registered pricing for endpoint '{}'; refusing unpriced dispatch", request.model, gateway.endpoint_url()))?;
 
     let raw_endpoint = gateway.endpoint_url();
     let endpoint = if raw_endpoint.is_empty() {
-        "fixture://default_gateway"
+        "fixture://default_gateway".to_string()
     } else {
-        raw_endpoint
+        normalize_endpoint(raw_endpoint)
     };
     let raw_proto = gateway.adapter_protocol();
     let adapter_protocol = if raw_proto.is_empty() {
@@ -559,7 +624,7 @@ pub fn default_routing_policy_for_request(
     let mut providers = std::collections::BTreeMap::new();
     providers.insert("default_provider".into(), crate::contracts::ProviderProfile {
         adapter_protocol: adapter_protocol.into(),
-        endpoint: endpoint.into(),
+        endpoint: endpoint.clone(),
         secret_ref: None,
         permitted_data_disclosure: "redacted_only".into(),
         timeout_seconds: 60,
@@ -582,13 +647,13 @@ pub fn default_routing_policy_for_request(
         max_spend_millicents: None,
         temperature: request.temperature,
     });
-    crate::contracts::AgentRoutingPolicy {
+    Ok(crate::contracts::AgentRoutingPolicy {
         schema_version: "mlrescurix.agent_routing.v1".into(),
         default_worker_profile_ref: "default_model_profile".into(),
         providers,
         models,
         roles,
-    }
+    })
 }
 
 /// Local operator inspection; never sent to a provider by this function.
@@ -755,6 +820,16 @@ fn finish_gateway_receipt(root: &Path, project: &str, task: &str, request_id: &s
         })
 }
 
+fn abort_gateway_receipt(root: &Path, project: &str, task: &str, request_id: &str) -> Result<()> {
+    if let Ok(db) = rusqlite::Connection::open(root.join("state.sqlite")) {
+        let _ = db.execute(
+            "DELETE FROM gateway_dispatch_receipts WHERE project=?1 AND task_id=?2 AND request_id=?3 AND status='awaiting_response'",
+            rusqlite::params![project, task, request_id],
+        );
+    }
+    Ok(())
+}
+
 pub fn record_provider_accounting(
     root: &Path,
     project_id: &str,
@@ -842,7 +917,7 @@ pub fn dispatch_gateway(
 ) -> Result<Value> {
     let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
     let request_id = format!("ephemeral-{}-{nonce}", std::process::id());
-    let policy = default_routing_policy_for_request(root, role_id, request, gateway);
+    let policy = default_routing_policy_for_request(root, role_id, request, gateway)?;
     dispatch_gateway_with_routing(
         root,
         project_id,
@@ -913,7 +988,9 @@ pub fn accounting_request_key(project_id: &str, task_id: &str, request_id: &str)
     format!("gw-{}", Sha256::digest(identity.as_bytes()).iter().map(|b| format!("{b:02x}")).collect::<String>())
 }
 
-pub fn dispatch_gateway_with_id(
+/// Internal transport dispatch implementation. Public callers must route through
+/// `dispatch_gateway_with_routing` or `dispatch_gateway_with_id`.
+fn dispatch_gateway_with_id_inner(
     root: &Path,
     project_id: &str,
     task_id: &str,
@@ -922,6 +999,7 @@ pub fn dispatch_gateway_with_id(
     request: &ChatCompletionRequest,
     gateway: &dyn ProviderGateway,
     require_policy_approval: bool,
+    spend_reservation: Option<(&TokenUsage, i64, Option<i64>)>,
 ) -> Result<Value> {
     use sha2::{Digest, Sha256};
     crate::execution::migrate(root)?;
@@ -933,7 +1011,7 @@ pub fn dispatch_gateway_with_id(
     // selected model. The Python campaign authority has already reserved against
     // the same verified ceiling before this call.
     let rates = resolve_namespaced_model_pricing(root, gateway.endpoint_url(), &sanitized.model)?
-        .or_else(|| resolve_model_pricing(root, &sanitized.model).ok().flatten())
+        .or_else(|| if gateway.endpoint_url().is_empty() || gateway.is_offline_fixture() { resolve_model_pricing(root, &sanitized.model).ok().flatten() } else { None })
         .ok_or_else(|| format!("model '{}' has no registered pricing; refusing provider dispatch", sanitized.model))?;
 
     if require_policy_approval || gateway.requires_policy_approval() {
@@ -967,38 +1045,58 @@ pub fn dispatch_gateway_with_id(
     } else { None }; // Scripted offline fixtures have no provider charges.
     let cached_response = reserve_gateway_receipt(root, project_id, task_id, request_id, &digest)?;
     let replayed = cached_response.is_some();
+    let request_key = accounting_request_key(project_id, task_id, request_id);
     let resp = match cached_response {
         Some(response) => response,
-        None => match gateway.chat_completion(&sanitized) {
-            Ok(response) => {
-                // Persist exact response before accounting or returning it. If this
-                // write fails, the `awaiting_response` row fences retries as unknown.
-                finish_gateway_receipt(root, project_id, task_id, request_id, Some(&response))?;
-                response
+        None => {
+            if let Some((usage, est_cost, max_spend)) = spend_reservation {
+                if let Err(e) = reserve_role_spend(
+                    root,
+                    project_id,
+                    &request_key,
+                    task_id,
+                    role_id,
+                    &sanitized.model,
+                    usage,
+                    est_cost,
+                    max_spend,
+                ) {
+                    let _ = abort_gateway_receipt(root, project_id, task_id, request_id);
+                    return Err(e);
+                }
             }
-            Err(error) => {
-                finish_gateway_receipt(root, project_id, task_id, request_id, None)?;
-                return Err(error);
+            match gateway.chat_completion(&sanitized) {
+                Ok(response) => {
+                    // Persist exact response before accounting or returning it. If this
+                    // write fails, the `awaiting_response` row fences retries as unknown.
+                    finish_gateway_receipt(root, project_id, task_id, request_id, Some(&response))?;
+                    response
+                }
+                Err(error) => {
+                    finish_gateway_receipt(root, project_id, task_id, request_id, None)?;
+                    return Err(error);
+                }
             }
-        },
+        }
     };
 
     let cost_millicents = cost_from_pricing(&resp.usage, rates)?;
     let cost_usd = cost_millicents as f64 / 100_000.0;
 
-    let request_key = accounting_request_key(project_id, task_id, request_id);
-    record_provider_accounting(
-        root,
-        project_id,
-        &request_key,
-        task_id,
-        role_id,
-        &resp.model,
-        &resp.usage,
-        cost_millicents,
-        resp.latency_ms,
-        "ok",
-    )?;
+    if !replayed {
+        record_provider_accounting(
+            root,
+            project_id,
+            &request_key,
+            task_id,
+            role_id,
+            &resp.model,
+            &resp.usage,
+            cost_millicents,
+            resp.latency_ms,
+            "ok",
+        )?;
+    }
 
     Ok(serde_json::json!({
         "status": "completed",
@@ -1021,11 +1119,37 @@ pub fn dispatch_gateway_with_id(
     }))
 }
 
+/// Public dispatch entry point with explicit request ID. Routes authoritatively
+/// through the routing policy to prevent unrouted direct bypasses.
+pub fn dispatch_gateway_with_id(
+    root: &Path,
+    project_id: &str,
+    task_id: &str,
+    role_id: &str,
+    request_id: &str,
+    request: &ChatCompletionRequest,
+    gateway: &dyn ProviderGateway,
+    require_policy_approval: bool,
+) -> Result<Value> {
+    let policy = default_routing_policy_for_request(root, role_id, request, gateway)?;
+    dispatch_gateway_with_routing(
+        root,
+        project_id,
+        task_id,
+        role_id,
+        request_id,
+        request,
+        &policy,
+        gateway,
+        require_policy_approval,
+    )
+}
+
 pub fn query_role_spend(root: &Path, project_id: &str, role_id: &str) -> Result<u64> {
     crate::execution::migrate(root)?;
     let db = rusqlite::Connection::open(root.join("state.sqlite")).map_err(|e| e.to_string())?;
     let spend: i64 = db.query_row(
-        "SELECT COALESCE(SUM(cost_millicents), 0) FROM provider_accounting WHERE project=?1 AND role_id=?2 AND status IN ('ok', 'reserved')",
+        "SELECT COALESCE(SUM(cost_millicents), 0) FROM provider_accounting WHERE project=?1 AND role_id=?2 AND status IN ('ok', 'reserved', 'outcome_unknown')",
         rusqlite::params![project_id, role_id],
         |r| r.get(0),
     ).map_err(|e| format!("cannot query role spend: {e}"))?;
@@ -1049,10 +1173,23 @@ pub fn reserve_role_spend(
     let tx = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e| e.to_string())?;
     ensure_project_record(&tx, project_id)?;
 
+    use rusqlite::OptionalExtension;
+    let existing_status: Option<String> = tx.query_row(
+        "SELECT status FROM provider_accounting WHERE project=?1 AND request_id=?2",
+        rusqlite::params![project_id, request_id],
+        |r| r.get(0),
+    ).optional().map_err(|e| e.to_string())?;
+
+    if let Some(ref st) = existing_status {
+        if st == "ok" || st == "outcome_unknown" {
+            return Err(format!("request '{request_id}' has already been dispatched with status '{st}'; duplicate reservation rejected"));
+        }
+    }
+
     if let Some(max_spend) = max_spend_millicents {
         let max_spend_u64 = max_spend.max(0) as u64;
         let current_reserved_and_spent: i64 = tx.query_row(
-            "SELECT COALESCE(SUM(cost_millicents), 0) FROM provider_accounting WHERE project=?1 AND role_id=?2 AND status IN ('ok', 'reserved') AND request_id != ?3",
+            "SELECT COALESCE(SUM(cost_millicents), 0) FROM provider_accounting WHERE project=?1 AND role_id=?2 AND status IN ('ok', 'reserved', 'outcome_unknown') AND request_id != ?3",
             rusqlite::params![project_id, role_id, request_id],
             |r| r.get(0),
         ).map_err(|e| format!("cannot query role spend: {e}"))?;
@@ -1080,7 +1217,8 @@ pub fn reserve_role_spend(
            prompt_tokens=excluded.prompt_tokens,
            completion_tokens=excluded.completion_tokens,
            cost_millicents=excluded.cost_millicents,
-           status='reserved'",
+           status='reserved'
+         WHERE provider_accounting.status = 'reserved'",
         rusqlite::params![
             project_id,
             request_id,
@@ -1120,12 +1258,9 @@ pub fn dispatch_gateway_with_routing(
                 gateway.adapter_protocol(), provider_profile.adapter_protocol
             ));
         }
-        let configured_endpoint = if provider_profile.endpoint.ends_with("/chat/completions") {
-            provider_profile.endpoint.clone()
-        } else {
-            format!("{}/chat/completions", provider_profile.endpoint.trim_end_matches('/'))
-        };
-        if gateway.endpoint_url() != configured_endpoint {
+        let configured_endpoint = normalize_endpoint(&provider_profile.endpoint);
+        let gateway_ep = normalize_endpoint(gateway.endpoint_url());
+        if gateway_ep != configured_endpoint {
             return Err(format!(
                 "endpoint mismatch: gateway endpoint '{}' does not match resolved provider profile '{}'",
                 gateway.endpoint_url(), provider_profile.endpoint
@@ -1216,18 +1351,6 @@ pub fn dispatch_gateway_with_routing(
     let max_spend = routing_policy.roles.get(role_id).and_then(|r| r.max_spend_millicents);
     let request_key = accounting_request_key(project_id, task_id, request_id);
 
-    reserve_role_spend(
-        root,
-        project_id,
-        &request_key,
-        task_id,
-        role_id,
-        &model_profile.model_id,
-        &conservative_usage,
-        est_cost,
-        max_spend,
-    )?;
-
     // 7. Register model pricing (fail-closed on error, namespaced by endpoint)
     register_namespaced_model_pricing(
         root,
@@ -1236,6 +1359,15 @@ pub fn dispatch_gateway_with_routing(
         model_profile.prompt_millicents_per_1k,
         model_profile.completion_millicents_per_1k,
     )?;
+    if gateway.is_offline_fixture() && gateway.endpoint_url() != provider_profile.endpoint {
+        register_namespaced_model_pricing(
+            root,
+            gateway.endpoint_url(),
+            &model_profile.model_id,
+            model_profile.prompt_millicents_per_1k,
+            model_profile.completion_millicents_per_1k,
+        )?;
+    }
 
     // 8. If provider routing configuration is present on request, validate binding to policy; populate authoritative provider configuration
     let max_prompt_usd = (model_profile.prompt_millicents_per_1k as f64 / 100.0) / 1.05;
@@ -1244,8 +1376,11 @@ pub fn dispatch_gateway_with_routing(
         if let Some(order) = user_prov.get("order").and_then(|o| o.as_array()) {
             for ep in order {
                 if let Some(ep_str) = ep.as_str() {
+                    let norm_order_ep = normalize_endpoint(ep_str);
+                    let norm_policy_ep = normalize_endpoint(&provider_profile.endpoint);
+                    let norm_gw_ep = normalize_endpoint(gateway.endpoint_url());
                     if (ep_str.starts_with("http://") || ep_str.starts_with("https://"))
-                        && ep_str != provider_profile.endpoint && ep_str != gateway.endpoint_url()
+                        && norm_order_ep != norm_policy_ep && norm_order_ep != norm_gw_ep
                     {
                         return Err(format!(
                             "caller-supplied provider order contains unauthorized endpoint '{ep_str}'; must match resolved policy endpoint '{}'",
@@ -1258,8 +1393,11 @@ pub fn dispatch_gateway_with_routing(
         if let Some(only) = user_prov.get("only").and_then(|o| o.as_array()) {
             for ep in only {
                 if let Some(ep_str) = ep.as_str() {
+                    let norm_only_ep = normalize_endpoint(ep_str);
+                    let norm_policy_ep = normalize_endpoint(&provider_profile.endpoint);
+                    let norm_gw_ep = normalize_endpoint(gateway.endpoint_url());
                     if (ep_str.starts_with("http://") || ep_str.starts_with("https://"))
-                        && ep_str != provider_profile.endpoint && ep_str != gateway.endpoint_url()
+                        && norm_only_ep != norm_policy_ep && norm_only_ep != norm_gw_ep
                     {
                         return Err(format!(
                             "caller-supplied provider 'only' contains unauthorized endpoint '{ep_str}'; must match resolved policy endpoint '{}'",
@@ -1310,7 +1448,7 @@ pub fn dispatch_gateway_with_routing(
         }
     }
 
-    let dispatch_res = dispatch_gateway_with_id(
+    let dispatch_res = dispatch_gateway_with_id_inner(
         root,
         project_id,
         task_id,
@@ -1319,17 +1457,31 @@ pub fn dispatch_gateway_with_routing(
         &routed_request,
         gateway,
         require_policy_approval,
+        Some((&conservative_usage, est_cost, max_spend)),
     );
 
     let mut res = match dispatch_res {
         Ok(r) => r,
         Err(err) => {
-            // Settle failed reservation so in-flight spend reservation is released
+            // Check status in gateway_dispatch_receipts to distinguish pre-dispatch failure vs uncertain remote outcome
             if let Ok(db) = rusqlite::Connection::open(root.join("state.sqlite")) {
-                let _ = db.execute(
-                    "DELETE FROM provider_accounting WHERE project=?1 AND request_id=?2 AND status='reserved'",
-                    rusqlite::params![project_id, &request_key],
-                );
+                let receipt_status: Option<String> = db.query_row(
+                    "SELECT status FROM gateway_dispatch_receipts WHERE project=?1 AND task_id=?2 AND request_id=?3",
+                    rusqlite::params![project_id, task_id, request_id],
+                    |r| r.get(0),
+                ).ok();
+
+                if receipt_status.as_deref() == Some("outcome_unknown") {
+                    // Ambiguous / uncertain remote outcome: preserve reservation as durable outcome_unknown so spend cannot be exceeded
+                    let _ = db.execute(
+                        "UPDATE provider_accounting SET status='outcome_unknown' WHERE project=?1 AND request_id=?2 AND status='reserved'",
+                        rusqlite::params![project_id, &request_key],
+                    );
+                }
+                // Other states may represent an in-flight or completed remote call,
+                // including a failed receipt write. Preserve any reservation until
+                // a trusted recovery procedure can establish the outcome.
+
             }
             return Err(err);
         }

@@ -2940,3 +2940,40 @@ fn gateway_concurrent_duplicate_and_ambiguous_receipts_never_redispatch() {
     }
     assert_eq!(provider.0.load(Ordering::SeqCst),1);
 }
+
+#[test]
+fn duplicate_dispatch_does_not_release_inflight_spend() {
+    use std::sync::{Arc, Barrier};
+    struct BlockingFixture(Arc<Barrier>);
+    impl mlrescurix_harness::agents::ProviderGateway for BlockingFixture {
+        fn is_offline_fixture(&self) -> bool { true }
+        fn chat_completion(&self, _: &ChatCompletionRequest) -> mlrescurix_harness::Result<ChatCompletionResponse> {
+            self.0.wait();
+            self.0.wait();
+            Ok(ChatCompletionResponse { id: "one".into(), model: "model".into(), content: Some("done".into()),
+                tool_calls: vec![], usage: TokenUsage { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }, latency_ms: 1 })
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("state");
+    let runtime = Runtime::init(&root, m1policy(100, 2)).unwrap();
+    create_m1(&runtime, "reserved", 100);
+    branch_task(&runtime, "reserved", "main", "t");
+    mlrescurix_harness::agents::register_model_pricing(&root, "model", 8, 50).unwrap();
+    let req = ChatCompletionRequest { model: "model".into(), messages: vec![ChatMessage::user("offline")], tools: vec![],
+        temperature: None, max_tokens: Some(100), provider: None, reasoning: None };
+    let barrier = Arc::new(Barrier::new(2));
+    let provider = BlockingFixture(barrier.clone());
+    std::thread::scope(|scope| {
+        let first = scope.spawn(|| mlrescurix_harness::agents::dispatch_gateway_with_id(
+            &root, "reserved", "t", "agent", "stable", &req, &provider, false));
+        barrier.wait();
+        let duplicate = mlrescurix_harness::agents::dispatch_gateway_with_id(
+            &root, "reserved", "t", "agent", "stable", &req, &provider, false);
+        let spend = mlrescurix_harness::agents::gateway::query_role_spend(&root, "reserved", "agent").unwrap();
+        barrier.wait();
+        first.join().unwrap().unwrap();
+        assert!(duplicate.unwrap_err().contains("ambiguous prior outcome"));
+        assert!(spend > 0, "duplicate request released the in-flight reservation");
+    });
+}
