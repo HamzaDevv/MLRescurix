@@ -43,7 +43,7 @@ enum Command {
     StageOutboundView { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] request:PathBuf, #[arg(long,default_value="local-human")] actor:String },
     InspectOutboundView { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] request_sha256:String },
     ApproveOutboundView { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] request_sha256:String, #[arg(long,default_value="local-human")] actor:String, #[arg(long,default_value_t=true,action=clap::ArgAction::Set)] approved:bool, #[arg(long,default_value_t=3600000)] ttl_ms:i64 },
-    GatewayDispatch { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] task:String, #[arg(long)] role:String, #[arg(long)] request_id:String, #[arg(long)] request:PathBuf, #[arg(long)] endpoint:Option<String>, #[arg(long)] api_key:Option<String>, #[arg(long)] mock:Option<PathBuf>, #[arg(long,default_value_t=false,action=clap::ArgAction::Set)] require_policy_approval:bool },
+    GatewayDispatch { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] task:String, #[arg(long)] role:String, #[arg(long)] request_id:String, #[arg(long)] request:PathBuf, #[arg(long)] endpoint:Option<String>, #[arg(long)] api_key:Option<String>, #[arg(long)] mock:Option<PathBuf>, #[arg(long)] routing_policy:Option<PathBuf>, #[arg(long,default_value_t=false,action=clap::ArgAction::Set)] require_policy_approval:bool },
     AgentRun { #[arg(long)] state:PathBuf, #[arg(long)] project:String, #[arg(long)] role:String, #[arg(long)] task:String, #[arg(long)] branch:String, #[arg(long,default_value="default-model")] model:String, #[arg(long,default_value_t=10)] max_turns:u32, #[arg(long)] endpoint:Option<String>, #[arg(long)] api_key:Option<String>, #[arg(long)] mock:Option<PathBuf> },
     VerifyBundle { #[arg(long)] bundle:PathBuf, #[arg(long,default_value_t=true,action=clap::ArgAction::Set)] sandbox:bool, #[arg(long)] state:Option<PathBuf> },
     EstimateFeasibility {
@@ -225,10 +225,16 @@ async fn run()->Result<(),String>{
             execution::migrate(&state)?;
             print(mlrescurix_harness::agents::gateway::approve_outbound_view(&state, &project, &request_sha256, &actor, approved, ttl_ms)?)
         },
-        Command::GatewayDispatch { state, project, task, role, request_id, request, endpoint, api_key, mock, require_policy_approval } => {
+        Command::GatewayDispatch { state, project, task, role, request_id, request, endpoint, api_key, mock, require_policy_approval, routing_policy } => {
             let req_bytes = fs::read(&request).map_err(|e| format!("cannot read request: {e}"))?;
             let req: mlrescurix_harness::agents::ChatCompletionRequest = serde_json::from_slice(&req_bytes)
                 .map_err(|e| format!("invalid request JSON: {e}"))?;
+            let loaded_policy: Option<mlrescurix_harness::contracts::AgentRoutingPolicy> = if let Some(policy_path) = &routing_policy {
+                let policy_bytes = fs::read(policy_path).map_err(|e| format!("cannot read routing policy: {e}"))?;
+                Some(serde_json::from_slice(&policy_bytes).map_err(|e| format!("invalid routing policy JSON: {e}"))?)
+            } else {
+                None
+            };
             let (gateway, mock_save_back): (std::sync::Arc<dyn mlrescurix_harness::agents::ProviderGateway>, Option<(PathBuf, Vec<mlrescurix_harness::agents::ChatCompletionResponse>)>) = if let Some(mock_path) = mock {
                 let mock_bytes = fs::read(&mock_path).map_err(|e| format!("cannot read mock file: {e}"))?;
                 let mut responses: Vec<mlrescurix_harness::agents::ChatCompletionResponse> = serde_json::from_slice(&mock_bytes)
@@ -237,30 +243,58 @@ async fn run()->Result<(),String>{
                 let fixture = first.into_iter().collect();
                 (std::sync::Arc::new(mlrescurix_harness::agents::ScriptedProviderFixture::new(fixture)), Some((mock_path, responses)))
             } else {
+                let resolved_provider = loaded_policy.as_ref().and_then(|p| p.resolve_role(&role).ok().map(|(_, prov)| prov));
+                let effective_key = if let Some(prov) = resolved_provider {
+                    if let Some(s_ref) = prov.secret_ref.as_deref() {
+                        let policy_secret = std::env::var(s_ref).ok().or_else(|| {
+                            let trimmed = s_ref.strip_prefix("sec:").unwrap_or(s_ref);
+                            std::env::var(trimmed).ok()
+                        });
+                        if policy_secret.is_none() && api_key.is_none() {
+                            return Err(format!("configured secret '{s_ref}' for provider profile not found in environment; fallthrough prohibited"));
+                        }
+                        api_key.or(policy_secret)
+                    } else {
+                        api_key
+                            .or_else(|| std::env::var("OPENROUTER_API_KEY").ok())
+                            .or_else(|| fs::read_to_string(".config/openrouter.key").ok().map(|s: String| s.trim().to_string()).filter(|s: &String| !s.is_empty()))
+                            .or_else(|| {
+                                let home = std::env::var("HOME").ok()?;
+                                fs::read_to_string(std::path::Path::new(&home).join(".config/mlrescurix/openrouter.key"))
+                                    .ok().map(|s: String| s.trim().to_string()).filter(|s: &String| !s.is_empty())
+                            })
+                    }
+                } else {
+                    api_key
+                        .or_else(|| std::env::var("OPENROUTER_API_KEY").ok())
+                        .or_else(|| fs::read_to_string(".config/openrouter.key").ok().map(|s: String| s.trim().to_string()).filter(|s: &String| !s.is_empty()))
+                        .or_else(|| {
+                            let home = std::env::var("HOME").ok()?;
+                            fs::read_to_string(std::path::Path::new(&home).join(".config/mlrescurix/openrouter.key"))
+                                .ok().map(|s: String| s.trim().to_string()).filter(|s: &String| !s.is_empty())
+                        })
+                };
                 let provider_cfg: Option<serde_json::Value> = fs::read_to_string(".config/provider.json")
                     .ok().and_then(|s: String| serde_json::from_str(&s).ok());
-                let effective_key = api_key
-                    .or_else(|| std::env::var("OPENROUTER_API_KEY").ok())
-                    .or_else(|| fs::read_to_string(".config/openrouter.key").ok().map(|s: String| s.trim().to_string()).filter(|s: &String| !s.is_empty()))
-                    .or_else(|| {
-                        let home = std::env::var("HOME").ok()?;
-                        fs::read_to_string(std::path::Path::new(&home).join(".config/mlrescurix/openrouter.key"))
-                            .ok().map(|s: String| s.trim().to_string()).filter(|s: &String| !s.is_empty())
-                    });
-                let default_ep = provider_cfg.as_ref()
-                    .and_then(|c| c["endpoint"].as_str())
-                    .unwrap_or("https://openrouter.ai/api/v1/chat/completions");
+                let policy_endpoint = resolved_provider.as_ref().map(|prov| prov.endpoint.clone());
+                let default_ep = policy_endpoint
+                    .or_else(|| provider_cfg.as_ref().and_then(|c| c["endpoint"].as_str()).map(|s| s.to_string()))
+                    .unwrap_or_else(|| "https://openrouter.ai/api/v1/chat/completions".to_string());
                 let effective_endpoint = endpoint
                     .or_else(|| std::env::var("OPENROUTER_BASE_URL").ok())
-                    .unwrap_or_else(|| default_ep.to_string());
+                    .unwrap_or(default_ep);
                 if let Some(key) = effective_key {
                     (std::sync::Arc::new(mlrescurix_harness::agents::OpenAICompatibleAdapter::new(effective_endpoint, key)), None)
                 } else {
-                    return Err("GatewayDispatch requires either --mock <path> or an API key (--api-key, OPENROUTER_API_KEY, or .config/openrouter.key)".into());
+                    return Err("GatewayDispatch requires either --mock <path> or an API key (--api-key, secret_ref in policy, OPENROUTER_API_KEY, or .config/openrouter.key)".into());
                 }
             };
-            let outcome = mlrescurix_harness::agents::dispatch_gateway_with_id(
-                &state, &project, &task, &role, &request_id, &req, gateway.as_ref(), require_policy_approval,
+            let effective_policy = match loaded_policy {
+                Some(p) => p,
+                None => mlrescurix_harness::agents::default_routing_policy_for_request(&state, &role, &req, gateway.as_ref()),
+            };
+            let outcome = mlrescurix_harness::agents::dispatch_gateway_with_routing(
+                &state, &project, &task, &role, &request_id, &req, &effective_policy, gateway.as_ref(), require_policy_approval,
             )?;
             if outcome["replayed"] != true {
               if let Some((save_path, remaining)) = mock_save_back {

@@ -62,4 +62,4 @@ sys.exit(not result.wasSuccessful())
 PY
 cargo run --locked --quiet --bin mlrescurix-harness -- capabilities \
   > "$review_evidence/review-capabilities.json"
-echo "Review checks passed; evidence is in $review_evidence. Release acceptance still requires the open gates in docs/m6-completion-status.md."
+echo "Review checks passed; evidence is in $review_evidence. See docs/STATUS_AND_ROADMAP.md for current status and remaining gates."

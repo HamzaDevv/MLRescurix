@@ -835,6 +835,19 @@ pub fn verify_standalone_serving_recipe(
 mod tests {
     use super::*;
     #[test]
+    fn bundle_collection_includes_bytecode_and_rejects_hidden_symlinks() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("inference.pyc"), b"bytecode").unwrap();
+        let mut files = Vec::new();
+        collect_bundle_files(dir.path(), dir.path(), &mut files).unwrap();
+        assert_eq!(files, vec!["inference.pyc"]);
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink("inference.pyc", dir.path().join(".DS_Store")).unwrap();
+            assert!(collect_bundle_files(dir.path(), dir.path(), &mut Vec::new()).is_err());
+        }
+    }
+    #[test]
     fn integrity_does_not_certify_execution_or_unknown_constraints() {
         let dir = tempfile::tempdir().unwrap();
         let names = ["input_schema.json", "scorecard.json", "verification.json", "final.json", "frozen_model.joblib", "inference.py", "inference.lock", "examples_input.json", "examples_expected.json", "README.md"];

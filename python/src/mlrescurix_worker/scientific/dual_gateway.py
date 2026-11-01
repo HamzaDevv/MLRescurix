@@ -52,6 +52,8 @@ class DualTierGateway:
         max_attempts_per_route: int = 2,
         rust_adapter: Optional[Any] = None,
         campaign_authority: Optional[Any] = None,
+        model_map: Optional[Dict[str, str]] = None,
+        pricing_table: Optional[Dict[str, Dict[str, float]]] = None,
     ):
         self.openrouter_key = openrouter_key or self._resolve_key("OPENROUTER_API_KEY", ".config/openrouter.key")
         self.deepseek_key = deepseek_key or self._resolve_key("DEEPSEEK_API_KEY", ".config/deepseek.key")
@@ -63,6 +65,12 @@ class DualTierGateway:
         self.campaign_run: Optional[str] = None
         self.rust_adapter = rust_adapter
         self.campaign_authority = campaign_authority
+        self.model_map = dict(MODEL_TRANSLATION_MAP)
+        if model_map:
+            self.model_map.update(model_map)
+        self.pricing_table = dict(PRICING_TABLE)
+        if pricing_table:
+            self.pricing_table.update(pricing_table)
 
     @staticmethod
     def _resolve_key(env_var: str, file_path: str) -> str:
@@ -90,13 +98,14 @@ class DualTierGateway:
 
     def reservation(self, messages: List[Dict[str, Any]], max_tokens: int) -> Decimal:
         """Return a historical estimate; this is not suitable for budget admission."""
-        primary_pricing = PRICING_TABLE.get(self.primary_model, {"input_per_m": 0.20, "output_per_m": 0.60})
-        fallback_model = MODEL_TRANSLATION_MAP.get(self.primary_model, "deepseek-chat")
-        fallback_pricing = PRICING_TABLE.get(fallback_model, {"input_per_m": 0.20, "output_per_m": 0.60})
+        primary_pricing = self.pricing_table.get(self.primary_model, {"input_per_m": 0.20, "output_per_m": 0.60})
+        fallback_model = self.model_map.get(self.primary_model, self.primary_model)
+        fallback_pricing = self.pricing_table.get(fallback_model, {"input_per_m": 0.20, "output_per_m": 0.60})
         max_in = max(primary_pricing["input_per_m"], fallback_pricing["input_per_m"])
         max_out = max(primary_pricing["output_per_m"], fallback_pricing["output_per_m"])
         prompt_bytes = len(json.dumps(messages, ensure_ascii=False).encode("utf-8"))
-        est_prompt_tokens = prompt_bytes // 3 + 512
+        # Conservative token upper bound: at most 1 token per byte + 512 framing (bytes // 3 is not an upper bound)
+        est_prompt_tokens = prompt_bytes + 512
         in_cost = (est_prompt_tokens / 1_000_000) * max_in
         out_cost = (max_tokens / 1_000_000) * max_out
         return Decimal(str(round(in_cost + out_cost, 6)))

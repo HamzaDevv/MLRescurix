@@ -374,3 +374,609 @@ pub fn decode_frame(bytes: &[u8]) -> Result<Frame> {
         Message::WorkerHandshake(wh) => wh.validate()?,
     } Ok(Frame{version:1,message:m})
 }
+
+// ==================== v3 Contracts (Master Plan Rev 2.3) ====================
+
+fn hex64(s: &str) -> Result<()> {
+    if s.len() != 64 || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("expected 64-character lowercase hex digest".into());
+    }
+    Ok(())
+}
+
+fn default_five() -> u32 { 5 }
+fn default_seed() -> u64 { 42 }
+fn default_id_col() -> String { "row_id".into() }
+fn default_max_worker_turns() -> u32 { 50 }
+fn default_lockbox_fraction() -> f64 { 0.10 }
+fn default_disclosure() -> String { "redacted_only".into() }
+fn default_timeout() -> u32 { 60 }
+fn default_retries() -> u32 { 2 }
+fn default_true() -> bool { true }
+fn default_assurance() -> String { "provisional_spec_checked".into() }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct MetricSpec {
+    pub name: String,
+    pub direction: String,
+    #[serde(default)]
+    pub class_order: Option<Vec<String>>,
+    #[serde(default)]
+    pub epsilon: Option<f64>,
+    #[serde(default)]
+    pub decision_threshold: Option<f64>,
+    #[serde(default)]
+    pub variant: Option<String>,
+}
+
+impl MetricSpec {
+    pub fn validate(&self) -> Result<()> {
+        id(&self.name)?;
+        if !["minimize", "maximize"].contains(&self.direction.as_str()) {
+            return Err("metric direction must be 'minimize' or 'maximize'".into());
+        }
+        if let Some(eps) = self.epsilon {
+            if !eps.is_finite() || eps < 0.0 {
+                return Err("metric epsilon must be finite and non-negative".into());
+            }
+        }
+        if let Some(t) = self.decision_threshold {
+            if !t.is_finite() || !(0.0..=1.0).contains(&t) {
+                return Err("metric decision_threshold must be between 0.0 and 1.0".into());
+            }
+        }
+        if let Some(v) = &self.variant {
+            id(v)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ValidationSpec {
+    pub strategy: String,
+    #[serde(default = "default_five")]
+    pub folds: u32,
+    #[serde(default = "default_seed")]
+    pub seed: u64,
+    #[serde(default)]
+    pub embargo_horizon: Option<u64>,
+}
+
+impl ValidationSpec {
+    pub fn validate(&self) -> Result<()> {
+        text(&self.strategy)?;
+        if self.folds < 2 || self.folds > 50 {
+            return Err("validation folds must be 2..=50".into());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct CampaignBudgetSpec {
+    pub max_wall_clock_seconds: u64,
+    pub max_cost_millicents: i64,
+    pub max_total_tokens: u64,
+    #[serde(default)]
+    pub max_gpu_quota_seconds: u64,
+    #[serde(default = "default_max_worker_turns")]
+    pub max_worker_turns: u32,
+}
+
+impl CampaignBudgetSpec {
+    pub fn validate(&self) -> Result<()> {
+        if self.max_wall_clock_seconds == 0 {
+            return Err("max_wall_clock_seconds must be positive".into());
+        }
+        if self.max_cost_millicents < 0 {
+            return Err("max_cost_millicents must be non-negative".into());
+        }
+        if self.max_worker_turns == 0 {
+            return Err("max_worker_turns must be positive".into());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AssessmentPolicySpec {
+    pub mode: String,
+    #[serde(default = "default_lockbox_fraction")]
+    pub lockbox_fraction: f64,
+    #[serde(default)]
+    pub post_assessment_refit_allowed: bool,
+}
+
+impl AssessmentPolicySpec {
+    pub fn validate(&self) -> Result<()> {
+        if !["auto_if_feasible", "external", "disabled"].contains(&self.mode.as_str()) {
+            return Err("assessment mode must be 'auto_if_feasible', 'external', or 'disabled'".into());
+        }
+        if !self.lockbox_fraction.is_finite() || self.lockbox_fraction < 0.0 || self.lockbox_fraction > 0.5 {
+            return Err("lockbox_fraction must be between 0.0 and 0.5".into());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ProblemSpec {
+    pub schema_version: String,
+    pub campaign_id: String,
+    pub task_type: String,
+    #[serde(default)]
+    pub modalities: Vec<String>,
+    pub target_column: String,
+    #[serde(default = "default_id_col")]
+    pub id_column: String,
+    #[serde(default)]
+    pub group_column: Option<String>,
+    #[serde(default)]
+    pub time_column: Option<String>,
+    pub metric_spec: MetricSpec,
+    pub validation_spec: ValidationSpec,
+    #[serde(default)]
+    pub requested_artifacts: Vec<String>,
+    pub budget: CampaignBudgetSpec,
+    pub assessment_policy: AssessmentPolicySpec,
+}
+
+impl ProblemSpec {
+    pub fn validate(&self) -> Result<()> {
+        if self.schema_version != "mlrescurix.problem.v1" {
+            return Err("schema_version must be 'mlrescurix.problem.v1'".into());
+        }
+        id(&self.campaign_id)?;
+        id(&self.task_type)?;
+        id(&self.target_column)?;
+        id(&self.id_column)?;
+        if let Some(grp) = &self.group_column { id(grp)?; }
+        if let Some(tm) = &self.time_column { id(tm)?; }
+        self.metric_spec.validate()?;
+        self.validation_spec.validate()?;
+        self.budget.validate()?;
+        self.assessment_policy.validate()?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct StageInputContract {
+    pub schema_version: String,
+    pub campaign_id: String,
+    pub task_id: String,
+    pub role: String,
+    pub protocol_sha256: String,
+    pub campaign_epoch: u64,
+    pub branch_id: String,
+    pub attempt_generation: u64,
+    pub problem_spec_ref: String,
+    #[serde(default)]
+    pub input_artifact_refs: Vec<String>,
+    #[serde(default)]
+    pub hypothesis_ref: Option<String>,
+    #[serde(default)]
+    pub prior_result_refs: Vec<String>,
+    pub capability_profile: String,
+    pub resource_profile_ref: String,
+    pub reservation_id: String,
+    #[serde(default)]
+    pub expected_artifacts: Vec<String>,
+    #[serde(default)]
+    pub acceptance_policy_ref: Option<String>,
+}
+
+impl StageInputContract {
+    pub fn validate(&self) -> Result<()> {
+        if self.schema_version != "mlrescurix.stage.v1" {
+            return Err("schema_version must be 'mlrescurix.stage.v1'".into());
+        }
+        id(&self.campaign_id)?;
+        id(&self.task_id)?;
+        id(&self.role)?;
+        hex64(&self.protocol_sha256)?;
+        if self.campaign_epoch == 0 || self.attempt_generation == 0 {
+            return Err("campaign_epoch and attempt_generation must be positive".into());
+        }
+        id(&self.branch_id)?;
+        text(&self.problem_spec_ref)?;
+        id(&self.capability_profile)?;
+        id(&self.resource_profile_ref)?;
+        id(&self.reservation_id)?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct StageOutputArtifact {
+    pub schema_version: String,
+    pub campaign_id: String,
+    pub task_id: String,
+    pub role: String,
+    pub attempt_generation: u64,
+    pub status: String,
+    pub produced_artifacts: BTreeMap<String, String>,
+    #[serde(default)]
+    pub diagnostic_codes: Vec<String>,
+    #[serde(default)]
+    pub fit_provenance_ref: Option<String>,
+    #[serde(default)]
+    pub advisory_score: Option<f64>,
+}
+
+impl StageOutputArtifact {
+    pub fn validate(&self) -> Result<()> {
+        if self.schema_version != "mlrescurix.stage.v1" {
+            return Err("schema_version must be 'mlrescurix.stage.v1'".into());
+        }
+        id(&self.campaign_id)?;
+        id(&self.task_id)?;
+        id(&self.role)?;
+        if self.attempt_generation == 0 {
+            return Err("attempt_generation must be positive".into());
+        }
+        if !["succeeded", "failed", "inconclusive", "needs_extension"].contains(&self.status.as_str()) {
+            return Err("invalid stage output status".into());
+        }
+        for (name, sha) in &self.produced_artifacts {
+            text(name)?;
+            hex64(sha)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderProfile {
+    pub adapter_protocol: String,
+    pub endpoint: String,
+    #[serde(default)]
+    pub secret_ref: Option<String>,
+    #[serde(default = "default_disclosure")]
+    pub permitted_data_disclosure: String,
+    #[serde(default = "default_timeout")]
+    pub timeout_seconds: u32,
+    #[serde(default = "default_retries")]
+    pub max_retries: u32,
+}
+
+impl ProviderProfile {
+    pub fn validate(&self) -> Result<()> {
+        text(&self.adapter_protocol)?;
+        text(&self.endpoint)?;
+        if !["none", "redacted_only", "full_abstract_only", "isolated_local"].contains(&self.permitted_data_disclosure.as_str()) {
+            return Err("permitted_data_disclosure must be 'none', 'redacted_only', 'full_abstract_only', or 'isolated_local'".into());
+        }
+        if self.timeout_seconds == 0 {
+            return Err("timeout_seconds must be positive".into());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ModelProfile {
+    pub provider_ref: String,
+    pub model_id: String,
+    pub context_window: u32,
+    pub max_output_tokens: u32,
+    pub prompt_millicents_per_1k: i64,
+    pub completion_millicents_per_1k: i64,
+    #[serde(default = "default_true")]
+    pub supports_tools: bool,
+}
+
+impl ModelProfile {
+    pub fn validate(&self) -> Result<()> {
+        id(&self.provider_ref)?;
+        text(&self.model_id)?;
+        if self.context_window < 1024 {
+            return Err("context_window must be at least 1024".into());
+        }
+        if self.max_output_tokens < 128 {
+            return Err("max_output_tokens must be at least 128".into());
+        }
+        if self.prompt_millicents_per_1k < 0 || self.completion_millicents_per_1k < 0 {
+            return Err("pricing rates must be non-negative".into());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct RoleRouting {
+    pub model_profile_ref: String,
+    #[serde(default)]
+    pub escalation_profile_ref: Option<String>,
+    #[serde(default)]
+    pub max_spend_millicents: Option<i64>,
+    #[serde(default)]
+    pub temperature: Option<f64>,
+}
+
+impl RoleRouting {
+    pub fn validate(&self) -> Result<()> {
+        id(&self.model_profile_ref)?;
+        if let Some(esc) = &self.escalation_profile_ref { id(esc)?; }
+        if let Some(spend) = self.max_spend_millicents {
+            if spend < 0 { return Err("max_spend_millicents must be non-negative".into()); }
+        }
+        if let Some(t) = self.temperature {
+            if !t.is_finite() || t < 0.0 || t > 2.0 {
+                return Err("temperature must be in [0.0, 2.0]".into());
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AgentRoutingPolicy {
+    pub schema_version: String,
+    pub default_worker_profile_ref: String,
+    pub providers: BTreeMap<String, ProviderProfile>,
+    pub models: BTreeMap<String, ModelProfile>,
+    pub roles: BTreeMap<String, RoleRouting>,
+}
+
+impl AgentRoutingPolicy {
+    pub fn validate(&self) -> Result<()> {
+        if self.schema_version != "mlrescurix.agent_routing.v1" {
+            return Err("schema_version must be 'mlrescurix.agent_routing.v1'".into());
+        }
+        id(&self.default_worker_profile_ref)?;
+        if !self.models.contains_key(&self.default_worker_profile_ref) {
+            return Err("default_worker_profile_ref not found in models".into());
+        }
+        for (pid, prov) in &self.providers {
+            id(pid)?;
+            prov.validate()?;
+        }
+        for (mid, model) in &self.models {
+            id(mid)?;
+            model.validate()?;
+            if !self.providers.contains_key(&model.provider_ref) {
+                return Err(format!("model '{mid}' references unknown provider '{}'", model.provider_ref));
+            }
+        }
+        for (rid, role) in &self.roles {
+            id(rid)?;
+            role.validate()?;
+            if !self.models.contains_key(&role.model_profile_ref) {
+                return Err(format!("role '{rid}' references unknown model profile '{}'", role.model_profile_ref));
+            }
+            if let Some(esc) = &role.escalation_profile_ref {
+                if !self.models.contains_key(esc) {
+                    return Err(format!("role '{rid}' references unknown escalation profile '{esc}'"));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn resolve_role(&self, role_id: &str) -> Result<(&ModelProfile, &ProviderProfile)> {
+        let model_ref = if let Some(role) = self.roles.get(role_id) {
+            &role.model_profile_ref
+        } else {
+            &self.default_worker_profile_ref
+        };
+        let model = self.models.get(model_ref)
+            .ok_or_else(|| format!("resolved model profile '{model_ref}' not found"))?;
+        let provider = self.providers.get(&model.provider_ref)
+            .ok_or_else(|| format!("provider profile '{}' not found", model.provider_ref))?;
+        Ok((model, provider))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityProposal {
+    pub schema_version: String,
+    pub capability_id: String,
+    pub kind: String,
+    pub purpose: String,
+    pub entrypoint: String,
+    #[serde(default)]
+    pub dependencies: Vec<String>,
+    #[serde(default)]
+    pub fit_scope_kind: Option<String>,
+    #[serde(default)]
+    pub spec_ref: Option<String>,
+    #[serde(default)]
+    pub reference_implementation_ref: Option<String>,
+    #[serde(default)]
+    pub fixture_refs: Vec<String>,
+    #[serde(default = "default_assurance")]
+    pub assurance_requested: String,
+}
+
+impl CapabilityProposal {
+    pub fn validate(&self) -> Result<()> {
+        if self.schema_version != "mlrescurix.capability.v1" {
+            return Err("schema_version must be 'mlrescurix.capability.v1'".into());
+        }
+        id(&self.capability_id)?;
+        if !["splitter", "metric_evaluator", "tool", "method", "task_adapter"].contains(&self.kind.as_str()) {
+            return Err("invalid capability kind".into());
+        }
+        text(&self.purpose)?;
+        text(&self.entrypoint)?;
+        if !["authoritative_reference", "provisional_spec_checked", "property_checked_only"].contains(&self.assurance_requested.as_str()) {
+            return Err("invalid assurance_requested".into());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityReceipt {
+    pub schema_version: String,
+    pub capability_id: String,
+    pub status: String,
+    pub checked_properties: Vec<String>,
+    pub skipped_properties: Vec<String>,
+    pub admission_version: u32,
+    pub package_sha256: String,
+    #[serde(default)]
+    pub rejection_reason: Option<String>,
+}
+
+impl CapabilityReceipt {
+    pub fn validate(&self) -> Result<()> {
+        if self.schema_version != "mlrescurix.capability.v1" {
+            return Err("schema_version must be 'mlrescurix.capability.v1'".into());
+        }
+        id(&self.capability_id)?;
+        if !["reference_conformant", "provisional_spec_checked", "rejected"].contains(&self.status.as_str()) {
+            return Err("invalid capability receipt status".into());
+        }
+        hex64(&self.package_sha256)?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct OperationDeclaration {
+    pub argv: Vec<String>,
+    pub capability: String,
+    pub fit_scope_kind: String,
+}
+
+impl OperationDeclaration {
+    pub fn validate(&self) -> Result<()> {
+        if self.argv.is_empty() {
+            return Err("operation argv cannot be empty".into());
+        }
+        id(&self.capability)?;
+        if !["stateless", "fixed_pretrained", "outer_fold_train", "inner_fold_train", "meta_fold_train", "full_development_train", "consumes_matching_scope"].contains(&self.fit_scope_kind.as_str()) {
+            return Err("invalid fit_scope_kind".into());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AgentProgramManifest {
+    pub schema_version: String,
+    pub execution_kind: String,
+    pub source_tree_ref: String,
+    pub task_contract_ref: String,
+    pub environment_ref: String,
+    pub method_id: String,
+    pub operations: BTreeMap<String, OperationDeclaration>,
+}
+
+impl AgentProgramManifest {
+    pub fn validate(&self) -> Result<()> {
+        if self.schema_version != "mlrescurix.program.v1" {
+            return Err("schema_version must be 'mlrescurix.program.v1'".into());
+        }
+        if !["agent_authored", "recipe_scaffold"].contains(&self.execution_kind.as_str()) {
+            return Err("execution_kind must be 'agent_authored' or 'recipe_scaffold'".into());
+        }
+        text(&self.source_tree_ref)?;
+        text(&self.task_contract_ref)?;
+        text(&self.environment_ref)?;
+        text(&self.method_id)?;
+        if self.operations.is_empty() {
+            return Err("manifest must declare at least one operation".into());
+        }
+        for (name, op) in &self.operations {
+            id(name)?;
+            op.validate()?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct FitScopeBinding {
+    pub schema_version: String,
+    pub binding_id: String,
+    pub split_id: String,
+    pub protocol_sha256: String,
+    pub fit_scope_kind: String,
+    pub permitted_feature_row_ids_hash: String,
+    pub permitted_label_row_ids_hash: String,
+    #[serde(default)]
+    pub exclusion_row_ids_hash: Option<String>,
+    #[serde(default)]
+    pub transitive_fit_dependencies: Vec<String>,
+}
+
+impl FitScopeBinding {
+    pub fn validate(&self) -> Result<()> {
+        if self.schema_version != "mlrescurix.fit_scope.v1" {
+            return Err("schema_version must be 'mlrescurix.fit_scope.v1'".into());
+        }
+        id(&self.binding_id)?;
+        id(&self.split_id)?;
+        hex64(&self.protocol_sha256)?;
+        hex64(&self.permitted_feature_row_ids_hash)?;
+        hex64(&self.permitted_label_row_ids_hash)?;
+        if let Some(excl) = &self.exclusion_row_ids_hash {
+            hex64(excl)?;
+        }
+        if !["stateless", "fixed_pretrained", "outer_fold_train", "inner_fold_train", "meta_fold_train", "full_development_train", "consumes_matching_scope"].contains(&self.fit_scope_kind.as_str()) {
+            return Err("invalid fit_scope_kind".into());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AssessmentPolicyRecord {
+    pub schema_version: String,
+    pub policy_id: String,
+    pub campaign_id: String,
+    pub mode: String,
+    pub lockbox_fraction: f64,
+    #[serde(default)]
+    pub lockbox_membership_sha256: Option<String>,
+    #[serde(default)]
+    pub total_development_rows: u64,
+    #[serde(default)]
+    pub lockbox_row_count: u64,
+    pub consumed: bool,
+    #[serde(default)]
+    pub post_assessment_refit_allowed: bool,
+    #[serde(default)]
+    pub unavailability_reason: Option<String>,
+}
+
+impl AssessmentPolicyRecord {
+    pub fn validate(&self) -> Result<()> {
+        if self.schema_version != "mlrescurix.assessment.v1" {
+            return Err("schema_version must be 'mlrescurix.assessment.v1'".into());
+        }
+        id(&self.policy_id)?;
+        id(&self.campaign_id)?;
+        if !["auto_if_feasible", "external", "disabled"].contains(&self.mode.as_str()) {
+            return Err("invalid assessment mode".into());
+        }
+        if !self.lockbox_fraction.is_finite() || self.lockbox_fraction < 0.0 || self.lockbox_fraction > 0.5 {
+            return Err("lockbox_fraction must be between 0.0 and 0.5".into());
+        }
+        if let Some(sha) = &self.lockbox_membership_sha256 {
+            hex64(sha)?;
+        }
+        Ok(())
+    }
+}

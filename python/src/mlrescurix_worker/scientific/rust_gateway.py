@@ -60,6 +60,7 @@ class RustGatewayAdapter:
         require_policy_approval: bool = True,
         mock_path: Optional[Path | str] = None,
         pricing: Optional[Dict[str, Any]] = None,
+        routing_policy: Optional[Path | str] = None,
     ):
         self.state_dir = Path(state_dir).resolve()
         self.project_id = project_id
@@ -70,6 +71,7 @@ class RustGatewayAdapter:
         self.binary = find_harness_binary(harness_binary)
         self.require_policy_approval = require_policy_approval
         self.mock_path = Path(mock_path).resolve() if mock_path is not None else None
+        self.routing_policy = Path(routing_policy).resolve() if routing_policy is not None else None
         if pricing is not None:
             if not pricing.get("verified"):
                 raise ValueError("Rust gateway pricing must be marked verified before provider dispatch")
@@ -236,6 +238,8 @@ class RustGatewayAdapter:
             ]
             if self.mock_path is not None:
                 disp_cmd.extend(["--mock", str(self.mock_path)])
+            if self.routing_policy is not None:
+                disp_cmd.extend(["--routing-policy", str(self.routing_policy)])
             if self.require_policy_approval:
                 disp_cmd.extend(["--require-policy-approval", "true"])
 

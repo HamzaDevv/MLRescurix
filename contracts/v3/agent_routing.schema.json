@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:agent-routing:3",
+  "title": "AgentRoutingPolicy",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "default_worker_profile_ref",
+    "providers",
+    "models",
+    "roles"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "mlrescurix.agent_routing.v1"
+    },
+    "default_worker_profile_ref": {
+      "type": "string"
+    },
+    "providers": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["adapter_protocol", "endpoint"],
+        "properties": {
+          "adapter_protocol": { "type": "string" },
+          "endpoint": { "type": "string" },
+          "secret_ref": { "type": ["string", "null"] },
+          "permitted_data_disclosure": { "type": "string", "enum": ["none", "redacted_only", "full_abstract_only", "isolated_local"], "default": "redacted_only" },
+          "timeout_seconds": { "type": "integer", "minimum": 1, "default": 60 },
+          "max_retries": { "type": "integer", "minimum": 0, "default": 2 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "models": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["provider_ref", "model_id", "context_window", "max_output_tokens", "prompt_millicents_per_1k", "completion_millicents_per_1k"],
+        "properties": {
+          "provider_ref": { "type": "string" },
+          "model_id": { "type": "string" },
+          "context_window": { "type": "integer", "minimum": 1024 },
+          "max_output_tokens": { "type": "integer", "minimum": 128 },
+          "prompt_millicents_per_1k": { "type": "integer", "minimum": 0 },
+          "completion_millicents_per_1k": { "type": "integer", "minimum": 0 },
+          "supports_tools": { "type": "boolean", "default": true }
+        },
+        "additionalProperties": false
+      }
+    },
+    "roles": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["model_profile_ref"],
+        "properties": {
+          "model_profile_ref": { "type": "string" },
+          "escalation_profile_ref": { "type": ["string", "null"] },
+          "max_spend_millicents": { "type": ["integer", "null"] },
+          "temperature": { "type": ["number", "null"] }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

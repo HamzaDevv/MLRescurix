@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:assessment-policy:3",
+  "title": "AssessmentPolicyRecord",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "policy_id",
+    "campaign_id",
+    "mode",
+    "lockbox_fraction",
+    "consumed"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "mlrescurix.assessment.v1"
+    },
+    "policy_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_.:-]+$"
+    },
+    "campaign_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_.:-]+$"
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["auto_if_feasible", "external", "disabled"]
+    },
+    "lockbox_fraction": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 0.5
+    },
+    "lockbox_membership_sha256": {
+      "type": ["string", "null"],
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "total_development_rows": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "lockbox_row_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "consumed": {
+      "type": "boolean"
+    },
+    "post_assessment_refit_allowed": {
+      "type": "boolean",
+      "default": false
+    },
+    "unavailability_reason": {
+      "type": ["string", "null"]
+    }
+  },
+  "additionalProperties": false
+}

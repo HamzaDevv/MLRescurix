@@ -265,6 +265,8 @@ impl OutboundFilter {
 pub trait ProviderGateway: Send + Sync {
     fn is_offline_fixture(&self) -> bool { false }
     fn requires_policy_approval(&self)->bool {false}
+    fn adapter_protocol(&self) -> &str { "scripted_fixture" }
+    fn endpoint_url(&self) -> &str { "" }
     fn campaign_budget_context(&self) -> Result<(std::path::PathBuf, String)> {
         Ok((std::env::var("MLRESCURIX_CAMPAIGN_LEDGER").map(std::path::PathBuf::from)
             .map_err(|_| "shared campaign ledger required for paid transport")?,
@@ -293,6 +295,8 @@ impl ScriptedProviderFixture {
 
 impl ProviderGateway for ScriptedProviderFixture {
     fn is_offline_fixture(&self) -> bool { true }
+    fn adapter_protocol(&self) -> &str { "scripted_fixture" }
+    fn endpoint_url(&self) -> &str { "fixture://scripted" }
     fn chat_completion(&self, _request: &ChatCompletionRequest) -> Result<ChatCompletionResponse> {
         let mut guard = self.responses.lock().unwrap();
         if guard.is_empty() {
@@ -330,6 +334,8 @@ impl OpenAICompatibleAdapter {
 
 impl ProviderGateway for OpenAICompatibleAdapter {
     fn requires_policy_approval(&self)->bool {true}
+    fn adapter_protocol(&self) -> &str { "openai_compatible" }
+    fn endpoint_url(&self) -> &str { &self.endpoint_url }
     fn chat_completion(&self, request: &ChatCompletionRequest) -> Result<ChatCompletionResponse> {
         let sanitized = OutboundFilter::sanitize_request(request);
         let req_json = serde_json::to_string(&sanitized).map_err(|e| e.to_string())?;
@@ -438,8 +444,9 @@ impl ProviderGateway for OpenAICompatibleAdapter {
     }
 }
 
-pub fn register_model_pricing(
+pub fn register_namespaced_model_pricing(
     root: &Path,
+    provider_key: &str,
     model: &str,
     prompt_millicents_per_1k: i64,
     completion_millicents_per_1k: i64,
@@ -454,31 +461,45 @@ pub fn register_model_pricing(
     } else {
         serde_json::Map::new()
     };
-    table.insert(
-        model.to_string(),
-        serde_json::json!({
-            "prompt_millicents_per_1k": prompt_millicents_per_1k,
-            "completion_millicents_per_1k": completion_millicents_per_1k,
-        }),
-    );
+    let namespaced_key = if provider_key.is_empty() {
+        model.to_string()
+    } else {
+        format!("{provider_key}::{model}")
+    };
+    let entry = serde_json::json!({
+        "prompt_millicents_per_1k": prompt_millicents_per_1k,
+        "completion_millicents_per_1k": completion_millicents_per_1k,
+    });
+    table.insert(namespaced_key.clone(), entry.clone());
+    if table.get(model).is_none() {
+        table.insert(model.to_string(), entry);
+    }
     fs::write(
         &pricing_path,
         serde_json::to_vec_pretty(&Value::Object(table)).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
     Ok(serde_json::json!({
+        "provider": provider_key,
         "model": model,
         "prompt_millicents_per_1k": prompt_millicents_per_1k,
         "completion_millicents_per_1k": completion_millicents_per_1k,
     }))
 }
 
-pub fn resolve_model_pricing(root: &Path, model: &str) -> Result<Option<(i64, i64)>> {
+pub fn resolve_namespaced_model_pricing(root: &Path, provider_key: &str, model: &str) -> Result<Option<(i64, i64)>> {
+    let namespaced_key = if provider_key.is_empty() {
+        model.to_string()
+    } else {
+        format!("{provider_key}::{model}")
+    };
     for candidate in [root.join("pricing.json"), std::path::PathBuf::from(".config/provider.json")] {
         if candidate.is_file() {
             if let Ok(bytes) = fs::read(&candidate) {
                 if let Ok(val) = serde_json::from_slice::<Value>(&bytes) {
-                    let entry = val.get(model).or_else(|| val.get("pricing").and_then(|p| p.get(model)));
+                    let entry = val.get(&namespaced_key)
+                        .or_else(|| if provider_key.is_empty() { None } else { val.get(model) })
+                        .or_else(|| val.get("pricing").and_then(|p| p.get(&namespaced_key).or_else(|| p.get(model))));
                     if let Some(obj) = entry {
                         if let (Some(p), Some(c)) = (
                             obj.get("prompt_millicents_per_1k").and_then(|v| v.as_i64()),
@@ -494,6 +515,80 @@ pub fn resolve_model_pricing(root: &Path, model: &str) -> Result<Option<(i64, i6
         }
     }
     Ok(None)
+}
+
+pub fn register_model_pricing(
+    root: &Path,
+    model: &str,
+    prompt_millicents_per_1k: i64,
+    completion_millicents_per_1k: i64,
+) -> Result<Value> {
+    register_namespaced_model_pricing(root, "", model, prompt_millicents_per_1k, completion_millicents_per_1k)
+}
+
+pub fn resolve_model_pricing(root: &Path, model: &str) -> Result<Option<(i64, i64)>> {
+    resolve_namespaced_model_pricing(root, "", model)
+}
+
+/// Construct a default AgentRoutingPolicy for an unrouted request, binding to the provider's protocol and endpoint.
+pub fn default_routing_policy_for_request(
+    root: &Path,
+    role_id: &str,
+    request: &ChatCompletionRequest,
+    gateway: &dyn ProviderGateway,
+) -> crate::contracts::AgentRoutingPolicy {
+    let (prompt_rate, comp_rate) = resolve_namespaced_model_pricing(root, gateway.endpoint_url(), &request.model)
+        .ok()
+        .flatten()
+        .or_else(|| resolve_model_pricing(root, &request.model).ok().flatten())
+        .unwrap_or((200, 600));
+
+    let raw_endpoint = gateway.endpoint_url();
+    let endpoint = if raw_endpoint.is_empty() {
+        "fixture://default_gateway"
+    } else {
+        raw_endpoint
+    };
+    let raw_proto = gateway.adapter_protocol();
+    let adapter_protocol = if raw_proto.is_empty() {
+        "scripted_fixture"
+    } else {
+        raw_proto
+    };
+
+    let mut providers = std::collections::BTreeMap::new();
+    providers.insert("default_provider".into(), crate::contracts::ProviderProfile {
+        adapter_protocol: adapter_protocol.into(),
+        endpoint: endpoint.into(),
+        secret_ref: None,
+        permitted_data_disclosure: "redacted_only".into(),
+        timeout_seconds: 60,
+        max_retries: 2,
+    });
+    let mut models = std::collections::BTreeMap::new();
+    models.insert("default_model_profile".into(), crate::contracts::ModelProfile {
+        provider_ref: "default_provider".into(),
+        model_id: request.model.clone(),
+        context_window: 128_000,
+        max_output_tokens: 8192,
+        prompt_millicents_per_1k: prompt_rate,
+        completion_millicents_per_1k: comp_rate,
+        supports_tools: true,
+    });
+    let mut roles = std::collections::BTreeMap::new();
+    roles.insert(role_id.to_string(), crate::contracts::RoleRouting {
+        model_profile_ref: "default_model_profile".into(),
+        escalation_profile_ref: None,
+        max_spend_millicents: None,
+        temperature: request.temperature,
+    });
+    crate::contracts::AgentRoutingPolicy {
+        schema_version: "mlrescurix.agent_routing.v1".into(),
+        default_worker_profile_ref: "default_model_profile".into(),
+        providers,
+        models,
+        roles,
+    }
 }
 
 /// Local operator inspection; never sent to a provider by this function.
@@ -746,8 +841,19 @@ pub fn dispatch_gateway(
     require_policy_approval: bool,
 ) -> Result<Value> {
     let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
-    dispatch_gateway_with_id(root, project_id, task_id, role_id,
-        &format!("ephemeral-{}-{nonce}", std::process::id()), request, gateway, require_policy_approval)
+    let request_id = format!("ephemeral-{}-{nonce}", std::process::id());
+    let policy = default_routing_policy_for_request(root, role_id, request, gateway);
+    dispatch_gateway_with_routing(
+        root,
+        project_id,
+        task_id,
+        role_id,
+        &request_id,
+        request,
+        &policy,
+        gateway,
+        require_policy_approval,
+    )
 }
 
 /// Dispatch with caller-owned idempotency identity. A caller must reuse the same
@@ -778,7 +884,7 @@ fn campaign_dispatch_guard_at(path: &Path, run: &str, request_id: &str, digest: 
     let committed = amount(&data["total_billed_usd"])?
         .checked_add(amount(&data["total_reserved_usd"])?).and_then(|v| v.checked_add(amount(&data["total_uncertain_usd"]).ok()?)).ok_or("campaign totals overflow")?;
     let ceiling = amount(&data["campaign_ceiling_usd"])?;
-    if ceiling > 300_000_000 || committed > ceiling { return Err("campaign ceiling violated".into()); }
+    if committed > ceiling { return Err("campaign ceiling violated".into()); }
     let reservation = &mut data["active_reservations"][request_id];
     if reservation["run_id"].as_str() != Some(run) || amount(&reservation["amount_usd"])? < required_nanodollars {
         return Err("matching active campaign reservation required".into());
@@ -801,6 +907,12 @@ fn campaign_dispatch_guard_at(path: &Path, run: &str, request_id: &str, digest: 
     Ok(lock)
 }
 
+pub fn accounting_request_key(project_id: &str, task_id: &str, request_id: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let identity = format!("{project_id}\0{task_id}\0{request_id}");
+    format!("gw-{}", Sha256::digest(identity.as_bytes()).iter().map(|b| format!("{b:02x}")).collect::<String>())
+}
+
 pub fn dispatch_gateway_with_id(
     root: &Path,
     project_id: &str,
@@ -820,7 +932,8 @@ pub fn dispatch_gateway_with_id(
     // Refuse before transport if the campaign has no registered ceiling for the
     // selected model. The Python campaign authority has already reserved against
     // the same verified ceiling before this call.
-    let rates = resolve_model_pricing(root, &sanitized.model)?
+    let rates = resolve_namespaced_model_pricing(root, gateway.endpoint_url(), &sanitized.model)?
+        .or_else(|| resolve_model_pricing(root, &sanitized.model).ok().flatten())
         .ok_or_else(|| format!("model '{}' has no registered pricing; refusing provider dispatch", sanitized.model))?;
 
     if require_policy_approval || gateway.requires_policy_approval() {
@@ -844,14 +957,7 @@ pub fn dispatch_gateway_with_id(
     }
 
     let _campaign_lock = if !gateway.is_offline_fixture() {
-        let provider = sanitized.provider.as_ref().ok_or("explicit campaign provider route required")?;
-        let authorized_route = (provider["only"] == serde_json::json!(["inference-net/fp8"])
-            && provider["order"] == serde_json::json!(["inference-net/fp8"]))
-            || (provider["only"] == serde_json::json!(["deepinfra/fp8/flex"])
-            && provider["order"] == serde_json::json!(["deepinfra/fp8/flex"]));
-        if sanitized.model != "deepseek/deepseek-v4.1-flash-1017" || !authorized_route || provider["allow_fallbacks"] != false {
-            return Err("campaign requires the authorized model and authorized route (inference-net/fp8 or deepinfra/fp8/flex) without fallback".into());
-        }
+        let provider = sanitized.provider.as_ref().ok_or("explicit provider routing configuration required for live transport")?;
         validate_provider_price_cap(provider, rates)?;
         let input_bound = u32::try_from(serde_json::to_vec(&sanitized.messages).map_err(|e| e.to_string())?.len() + 4096).map_err(|_| "request too large")?;
         let maximum = TokenUsage { prompt_tokens: input_bound, completion_tokens: sanitized.max_tokens.ok_or("explicit max_tokens required")?, total_tokens: 0 };
@@ -880,8 +986,7 @@ pub fn dispatch_gateway_with_id(
     let cost_millicents = cost_from_pricing(&resp.usage, rates)?;
     let cost_usd = cost_millicents as f64 / 100_000.0;
 
-    let accounting_identity = format!("{project_id}\0{task_id}\0{request_id}");
-    let request_key = format!("gw-{}", Sha256::digest(accounting_identity.as_bytes()).iter().map(|b| format!("{b:02x}")).collect::<String>());
+    let request_key = accounting_request_key(project_id, task_id, request_id);
     record_provider_accounting(
         root,
         project_id,
@@ -914,6 +1019,330 @@ pub fn dispatch_gateway_with_id(
         "replayed": replayed,
         "cost_is_estimate": true
     }))
+}
+
+pub fn query_role_spend(root: &Path, project_id: &str, role_id: &str) -> Result<u64> {
+    crate::execution::migrate(root)?;
+    let db = rusqlite::Connection::open(root.join("state.sqlite")).map_err(|e| e.to_string())?;
+    let spend: i64 = db.query_row(
+        "SELECT COALESCE(SUM(cost_millicents), 0) FROM provider_accounting WHERE project=?1 AND role_id=?2 AND status IN ('ok', 'reserved')",
+        rusqlite::params![project_id, role_id],
+        |r| r.get(0),
+    ).map_err(|e| format!("cannot query role spend: {e}"))?;
+    Ok(spend.max(0) as u64)
+}
+
+pub fn reserve_role_spend(
+    root: &Path,
+    project_id: &str,
+    request_id: &str,
+    task_id: &str,
+    role_id: &str,
+    model: &str,
+    estimated_tokens: &TokenUsage,
+    estimated_cost: i64,
+    max_spend_millicents: Option<i64>,
+) -> Result<()> {
+    crate::execution::migrate(root)?;
+    let mut connection = rusqlite::Connection::open(root.join("state.sqlite")).map_err(|e| e.to_string())?;
+    connection.busy_timeout(Duration::from_secs(10)).map_err(|e| e.to_string())?;
+    let tx = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e| e.to_string())?;
+    ensure_project_record(&tx, project_id)?;
+
+    if let Some(max_spend) = max_spend_millicents {
+        let max_spend_u64 = max_spend.max(0) as u64;
+        let current_reserved_and_spent: i64 = tx.query_row(
+            "SELECT COALESCE(SUM(cost_millicents), 0) FROM provider_accounting WHERE project=?1 AND role_id=?2 AND status IN ('ok', 'reserved') AND request_id != ?3",
+            rusqlite::params![project_id, role_id, request_id],
+            |r| r.get(0),
+        ).map_err(|e| format!("cannot query role spend: {e}"))?;
+        let current_u64 = current_reserved_and_spent.max(0) as u64;
+        let candidate_total = current_u64.saturating_add(estimated_cost.max(0) as u64);
+        if candidate_total > max_spend_u64 {
+            return Err(format!(
+                "role '{role_id}' spend limit exceeded: current {current_u64} + estimated {estimated_cost} > max {max_spend}"
+            ));
+        }
+    }
+
+    crate::execution::enforce_state_write_admission(
+        root,
+        Some(&tx),
+        (model.len() + request_id.len() + task_id.len() + role_id.len()) as u64 * 4 + 16 * 1024,
+        crate::execution::StorageWriteKind::ProviderReceipt,
+        Some(project_id),
+    )?;
+
+    tx.execute(
+        "INSERT INTO provider_accounting(project, request_id, task_id, role_id, model, prompt_tokens, completion_tokens, cost_millicents, latency_ms, status, created_ms)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, 'reserved', ?9)
+         ON CONFLICT(project, request_id) DO UPDATE SET
+           prompt_tokens=excluded.prompt_tokens,
+           completion_tokens=excluded.completion_tokens,
+           cost_millicents=excluded.cost_millicents,
+           status='reserved'",
+        rusqlite::params![
+            project_id,
+            request_id,
+            task_id,
+            role_id,
+            model,
+            estimated_tokens.prompt_tokens,
+            estimated_tokens.completion_tokens,
+            estimated_cost,
+            now_ms(),
+        ],
+    ).map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn dispatch_gateway_with_routing(
+    root: &Path,
+    project_id: &str,
+    task_id: &str,
+    role_id: &str,
+    request_id: &str,
+    request: &ChatCompletionRequest,
+    routing_policy: &crate::contracts::AgentRoutingPolicy,
+    gateway: &dyn ProviderGateway,
+    require_policy_approval: bool,
+) -> Result<Value> {
+    routing_policy.validate()?;
+    let (model_profile, provider_profile) = routing_policy.resolve_role(role_id)?;
+
+    // 1. Check protocol and transport matching for non-fixture gateways
+    if !gateway.is_offline_fixture() && !gateway.endpoint_url().is_empty() {
+        if gateway.adapter_protocol() != provider_profile.adapter_protocol {
+            return Err(format!(
+                "adapter protocol mismatch: gateway protocol '{}' does not match resolved provider profile '{}'",
+                gateway.adapter_protocol(), provider_profile.adapter_protocol
+            ));
+        }
+        let configured_endpoint = if provider_profile.endpoint.ends_with("/chat/completions") {
+            provider_profile.endpoint.clone()
+        } else {
+            format!("{}/chat/completions", provider_profile.endpoint.trim_end_matches('/'))
+        };
+        if gateway.endpoint_url() != configured_endpoint {
+            return Err(format!(
+                "endpoint mismatch: gateway endpoint '{}' does not match resolved provider profile '{}'",
+                gateway.endpoint_url(), provider_profile.endpoint
+            ));
+        }
+    }
+
+    // 2. Check capabilities
+    if !request.tools.is_empty() && !model_profile.supports_tools {
+        return Err(format!("model '{}' does not support requested tool calling", model_profile.model_id));
+    }
+
+    // 3. Check disclosure policy
+    if provider_profile.permitted_data_disclosure == "none" && !request.messages.is_empty() {
+        return Err(format!("provider profile for role '{}' prohibits outbound data disclosure (permitted_data_disclosure: none)", role_id));
+    }
+    if provider_profile.permitted_data_disclosure == "isolated_local" {
+        let ep = &provider_profile.endpoint;
+        // Compare the complete HTTP authority, not a prefix: localhost.evil and
+        // localhost@evil are remote hosts. Reject unrecognized forms closed.
+        let authority = ep.strip_prefix("http://")
+            .and_then(|rest| rest.split(['/', '?', '#']).next());
+        let is_local = authority.is_some_and(|host| {
+            let (name, port) = if let Some(rest) = host.strip_prefix("[::1]") {
+                ("[::1]", rest)
+            } else if let Some(rest) = host.strip_prefix("localhost") {
+                ("localhost", rest)
+            } else if let Some(rest) = host.strip_prefix("127.0.0.1") {
+                ("127.0.0.1", rest)
+            } else {
+                return false;
+            };
+            !name.is_empty() && (port.is_empty() || port.strip_prefix(':').is_some_and(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())))
+        });
+        if !is_local && !gateway.is_offline_fixture() {
+            return Err(format!(
+                "provider profile for role '{}' has disclosure policy 'isolated_local', prohibiting outbound transmission to non-local endpoint '{}'",
+                role_id, ep
+            ));
+        }
+    }
+
+    // 4. Construct adjusted request with the resolved model
+    let mut routed_request = request.clone();
+    routed_request.model = model_profile.model_id.clone();
+    if routed_request.temperature.is_none() {
+        if let Some(role_cfg) = routing_policy.roles.get(role_id) {
+            routed_request.temperature = role_cfg.temperature;
+        }
+    }
+    if routed_request.max_tokens.is_none() {
+        routed_request.max_tokens = Some(model_profile.max_output_tokens);
+    }
+
+    if provider_profile.permitted_data_disclosure == "redacted_only" {
+        for msg in &mut routed_request.messages {
+            if let Some(content) = &msg.content {
+                let sanitized = OutboundFilter::sanitize_content(content);
+                if content.contains("__mlr_row_id") || (content.lines().count() > 5 && content.contains(',')) {
+                    if !sanitized.contains("[REDACTED_ROW_DATA") {
+                        return Err(format!("request for role '{role_id}' contains unredacted tabular row data prohibited under disclosure policy 'redacted_only'"));
+                    }
+                }
+                msg.content = Some(sanitized);
+            }
+        }
+    }
+
+    // 5. Conservative token admission: UTF-8 byte upper bound + framing across entire request
+    let input_bytes = serde_json::to_vec(&routed_request).map_err(|e| e.to_string())?.len();
+    let estimated_prompt_tokens = (input_bytes as u32).saturating_add(256);
+    let completion_tokens = routed_request.max_tokens.unwrap_or(model_profile.max_output_tokens);
+    if estimated_prompt_tokens.saturating_add(completion_tokens) > model_profile.context_window {
+        return Err(format!(
+            "request estimated tokens ({} prompt + {} completion = {}) exceeds model context window ({})",
+            estimated_prompt_tokens, completion_tokens, estimated_prompt_tokens.saturating_add(completion_tokens), model_profile.context_window
+        ));
+    }
+
+    // 6. Check and atomically reserve role spend
+    let conservative_usage = TokenUsage {
+        prompt_tokens: estimated_prompt_tokens,
+        completion_tokens,
+        total_tokens: estimated_prompt_tokens.saturating_add(completion_tokens),
+    };
+    let rates = (model_profile.prompt_millicents_per_1k as i64, model_profile.completion_millicents_per_1k as i64);
+    let est_cost = cost_from_pricing(&conservative_usage, rates)?;
+    let max_spend = routing_policy.roles.get(role_id).and_then(|r| r.max_spend_millicents);
+    let request_key = accounting_request_key(project_id, task_id, request_id);
+
+    reserve_role_spend(
+        root,
+        project_id,
+        &request_key,
+        task_id,
+        role_id,
+        &model_profile.model_id,
+        &conservative_usage,
+        est_cost,
+        max_spend,
+    )?;
+
+    // 7. Register model pricing (fail-closed on error, namespaced by endpoint)
+    register_namespaced_model_pricing(
+        root,
+        &provider_profile.endpoint,
+        &model_profile.model_id,
+        model_profile.prompt_millicents_per_1k,
+        model_profile.completion_millicents_per_1k,
+    )?;
+
+    // 8. If provider routing configuration is present on request, validate binding to policy; populate authoritative provider configuration
+    let max_prompt_usd = (model_profile.prompt_millicents_per_1k as f64 / 100.0) / 1.05;
+    let max_comp_usd = (model_profile.completion_millicents_per_1k as f64 / 100.0) / 1.05;
+    if let Some(user_prov) = &routed_request.provider {
+        if let Some(order) = user_prov.get("order").and_then(|o| o.as_array()) {
+            for ep in order {
+                if let Some(ep_str) = ep.as_str() {
+                    if (ep_str.starts_with("http://") || ep_str.starts_with("https://"))
+                        && ep_str != provider_profile.endpoint && ep_str != gateway.endpoint_url()
+                    {
+                        return Err(format!(
+                            "caller-supplied provider order contains unauthorized endpoint '{ep_str}'; must match resolved policy endpoint '{}'",
+                            provider_profile.endpoint
+                        ));
+                    }
+                }
+            }
+        }
+        if let Some(only) = user_prov.get("only").and_then(|o| o.as_array()) {
+            for ep in only {
+                if let Some(ep_str) = ep.as_str() {
+                    if (ep_str.starts_with("http://") || ep_str.starts_with("https://"))
+                        && ep_str != provider_profile.endpoint && ep_str != gateway.endpoint_url()
+                    {
+                        return Err(format!(
+                            "caller-supplied provider 'only' contains unauthorized endpoint '{ep_str}'; must match resolved policy endpoint '{}'",
+                            provider_profile.endpoint
+                        ));
+                    }
+                }
+            }
+        }
+        if user_prov.get("allow_fallbacks").and_then(|f| f.as_bool()) == Some(true) {
+            return Err("caller-supplied provider routing cannot enable fallbacks; policy disallows unrouted fallbacks".into());
+        }
+        if let Some(max_price) = user_prov.get("max_price") {
+            if let Some(p_usd) = max_price.get("prompt").and_then(|p| p.as_f64()) {
+                if p_usd > max_prompt_usd + 1e-6 {
+                    return Err(format!(
+                        "caller-supplied prompt price cap {p_usd} exceeds policy price cap {max_prompt_usd}"
+                    ));
+                }
+            }
+            if let Some(c_usd) = max_price.get("completion").and_then(|c| c.as_f64()) {
+                if c_usd > max_comp_usd + 1e-6 {
+                    return Err(format!(
+                        "caller-supplied completion price cap {c_usd} exceeds policy price cap {max_comp_usd}"
+                    ));
+                }
+            }
+        }
+    }
+    if !gateway.is_offline_fixture() {
+        if routed_request.provider.is_none() {
+            routed_request.provider = Some(serde_json::json!({
+                "order": [&provider_profile.endpoint],
+                "allow_fallbacks": false,
+                "max_price": {
+                    "prompt": max_prompt_usd,
+                    "completion": max_comp_usd
+                }
+            }));
+        } else if let Some(p) = routed_request.provider.as_mut().and_then(|v| v.as_object_mut()) {
+            p.insert("allow_fallbacks".into(), serde_json::Value::Bool(false));
+            if !p.contains_key("max_price") {
+                p.insert("max_price".into(), serde_json::json!({
+                    "prompt": max_prompt_usd,
+                    "completion": max_comp_usd
+                }));
+            }
+        }
+    }
+
+    let dispatch_res = dispatch_gateway_with_id(
+        root,
+        project_id,
+        task_id,
+        role_id,
+        request_id,
+        &routed_request,
+        gateway,
+        require_policy_approval,
+    );
+
+    let mut res = match dispatch_res {
+        Ok(r) => r,
+        Err(err) => {
+            // Settle failed reservation so in-flight spend reservation is released
+            if let Ok(db) = rusqlite::Connection::open(root.join("state.sqlite")) {
+                let _ = db.execute(
+                    "DELETE FROM provider_accounting WHERE project=?1 AND request_id=?2 AND status='reserved'",
+                    rusqlite::params![project_id, &request_key],
+                );
+            }
+            return Err(err);
+        }
+    };
+
+    if let Some(obj) = res.as_object_mut() {
+        obj.insert("routed_role".into(), Value::String(role_id.into()));
+        obj.insert("resolved_model_id".into(), Value::String(model_profile.model_id.clone()));
+        obj.insert("resolved_provider_protocol".into(), Value::String(provider_profile.adapter_protocol.clone()));
+        obj.insert("resolved_endpoint".into(), Value::String(provider_profile.endpoint.clone()));
+    }
+
+    Ok(res)
 }
 
 fn validate_provider_price_cap(provider: &Value, rates: (i64, i64)) -> Result<()> {
@@ -999,5 +1428,428 @@ mod campaign_admission_tests {
         let stored: Value = serde_json::from_slice(&std::fs::read(ledger).unwrap()).unwrap();
         assert_eq!(stored["total_billed_usd"], "0.050724020");
         assert_eq!(stored["total_reserved_usd"], "0.01");
+    }
+
+    #[test]
+    fn multi_provider_role_routing_and_context_bounds() {
+        use crate::contracts::{AgentRoutingPolicy, ModelProfile, ProviderProfile, RoleRouting};
+        use std::collections::BTreeMap;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("state");
+        let policy = crate::core::Policy {
+            budget: BTreeMap::from([
+                ("calls".into(), 100),
+                ("tokens".into(), 100_000),
+                ("wall_ms".into(), 100_000),
+            ]),
+            capacity: BTreeMap::from([("workers".into(), 2), ("cpu_threads".into(), 4)]),
+            max_tasks: 1024,
+        };
+        let _runtime = crate::storage::Runtime::init(&root, policy).unwrap();
+
+        let mut providers = BTreeMap::new();
+        providers.insert(
+            "prov_high_tier".into(),
+            ProviderProfile {
+                adapter_protocol: "openai_compatible".into(),
+                endpoint: "https://api.high-tier.com/v1".into(),
+                secret_ref: None,
+                permitted_data_disclosure: "redacted_only".into(),
+                timeout_seconds: 60,
+                max_retries: 2,
+            },
+        );
+        providers.insert(
+            "prov_local_tier".into(),
+            ProviderProfile {
+                adapter_protocol: "native_curl".into(),
+                endpoint: "http://127.0.0.1:8000/v1".into(),
+                secret_ref: None,
+                permitted_data_disclosure: "isolated_local".into(),
+                timeout_seconds: 30,
+                max_retries: 1,
+            },
+        );
+
+        let mut models = BTreeMap::new();
+        models.insert(
+            "profile_strat_owner".into(),
+            ModelProfile {
+                provider_ref: "prov_high_tier".into(),
+                model_id: "claude-or-opus-reasoner-mock".into(),
+                context_window: 128_000,
+                max_output_tokens: 4096,
+                prompt_millicents_per_1k: 300,
+                completion_millicents_per_1k: 1500,
+                supports_tools: true,
+            },
+        );
+        models.insert(
+            "profile_worker_fast".into(),
+            ModelProfile {
+                provider_ref: "prov_local_tier".into(),
+                model_id: "qwen-or-deepseek-fast-mock".into(),
+                context_window: 2048, // Small context window for testing
+                max_output_tokens: 512,
+                prompt_millicents_per_1k: 10,
+                completion_millicents_per_1k: 20,
+                supports_tools: true,
+            },
+        );
+
+        let mut roles = BTreeMap::new();
+        roles.insert(
+            "campaign_owner".into(),
+            RoleRouting {
+                model_profile_ref: "profile_strat_owner".into(),
+                escalation_profile_ref: None,
+                max_spend_millicents: None,
+                temperature: Some(0.2),
+            },
+        );
+        roles.insert(
+            "modeler".into(),
+            RoleRouting {
+                model_profile_ref: "profile_worker_fast".into(),
+                escalation_profile_ref: Some("profile_strat_owner".into()),
+                max_spend_millicents: Some(500),
+                temperature: Some(0.0),
+            },
+        );
+
+        let routing = AgentRoutingPolicy {
+            schema_version: "mlrescurix.agent_routing.v1".into(),
+            default_worker_profile_ref: "profile_worker_fast".into(),
+            providers: providers.clone(),
+            models: models.clone(),
+            roles: roles.clone(),
+        };
+        assert!(routing.validate().is_ok());
+
+        // 1. Resolve role "campaign_owner"
+        let (owner_model, owner_prov) = routing.resolve_role("campaign_owner").unwrap();
+        assert_eq!(owner_model.model_id, "claude-or-opus-reasoner-mock");
+        assert_eq!(owner_prov.adapter_protocol, "openai_compatible");
+
+        // 2. Resolve role "modeler"
+        let (worker_model, worker_prov) = routing.resolve_role("modeler").unwrap();
+        assert_eq!(worker_model.model_id, "qwen-or-deepseek-fast-mock");
+        assert_eq!(worker_prov.adapter_protocol, "native_curl");
+
+        // 3. Fallback to default for unlisted role (e.g. "fe_specialist")
+        let (default_model, default_prov) = routing.resolve_role("fe_specialist").unwrap();
+        assert_eq!(default_model.model_id, "qwen-or-deepseek-fast-mock");
+        assert_eq!(default_prov.adapter_protocol, "native_curl");
+
+        // 4. Test offline dispatch through dispatch_gateway_with_routing
+        let fixture = ScriptedProviderFixture::new(vec![ChatCompletionResponse {
+            id: "resp-1".into(),
+            model: "claude-or-opus-reasoner-mock".into(),
+            content: Some("Strategic plan ready".into()),
+            tool_calls: vec![],
+            usage: TokenUsage { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+            latency_ms: 120,
+        }]);
+
+        let req = ChatCompletionRequest {
+            model: "any".into(),
+            messages: vec![ChatMessage::user("Design ML strategy")],
+            tools: vec![],
+            temperature: None,
+            max_tokens: Some(100),
+            provider: None,
+            reasoning: None,
+        };
+
+        let result = dispatch_gateway_with_routing(
+            &root,
+            "p1",
+            "task_strategy",
+            "campaign_owner",
+            "req_strat_001",
+            &req,
+            &routing,
+            &fixture,
+            false,
+        ).unwrap();
+
+        assert_eq!(result["status"], "completed");
+        assert_eq!(result["routed_role"], "campaign_owner");
+        assert_eq!(result["resolved_model_id"], "claude-or-opus-reasoner-mock");
+        assert_eq!(result["resolved_provider_protocol"], "openai_compatible");
+
+        // 5. Test context window rejection: worker_fast has context_window=2048, max_tokens=2500 -> rejected!
+        let huge_req = ChatCompletionRequest {
+            model: "any".into(),
+            messages: vec![ChatMessage::user("Do something")],
+            tools: vec![],
+            temperature: None,
+            max_tokens: Some(3000), // exceeds 2048
+            provider: None,
+            reasoning: None,
+        };
+
+        let err = dispatch_gateway_with_routing(
+            &root,
+            "p1",
+            "task_worker",
+            "modeler",
+            "req_worker_001",
+            &huge_req,
+            &routing,
+            &fixture,
+            false,
+        ).unwrap_err();
+
+        assert!(err.contains("exceeds model context window"));
+
+        // 6. Test tool rejection when model profile has supports_tools = false
+        let mut models_no_tools = models.clone();
+        models_no_tools.get_mut("profile_worker_fast").unwrap().supports_tools = false;
+        let routing_no_tools = AgentRoutingPolicy {
+            schema_version: "mlrescurix.agent_routing.v1".into(),
+            default_worker_profile_ref: "profile_worker_fast".into(),
+            providers: providers.clone(),
+            models: models_no_tools,
+            roles: roles.clone(),
+        };
+        let tool_req = ChatCompletionRequest {
+            model: "any".into(),
+            messages: vec![ChatMessage::user("Check data")],
+            tools: vec![ToolDefinition {
+                tool_type: "function".into(),
+                function: ToolFunction {
+                    name: "sample_tool".into(),
+                    description: "test".into(),
+                    parameters: serde_json::json!({}),
+                },
+            }],
+            temperature: None,
+            max_tokens: Some(100),
+            provider: None,
+            reasoning: None,
+        };
+        let tool_err = dispatch_gateway_with_routing(
+            &root,
+            "p1",
+            "task_tools",
+            "modeler",
+            "req_tools_001",
+            &tool_req,
+            &routing_no_tools,
+            &fixture,
+            false,
+        ).unwrap_err();
+        assert!(tool_err.contains("does not support requested tool calling"));
+
+        // 7. Test transport protocol and endpoint mismatch checks for live gateway
+        let live_adapter = OpenAICompatibleAdapter::new("https://wrong-endpoint.com/v1".into(), "test-key".into());
+        let proto_err = dispatch_gateway_with_routing(
+            &root,
+            "p1",
+            "task_proto",
+            "modeler", // requires native_curl protocol
+            "req_proto_001",
+            &req,
+            &routing,
+            &live_adapter,
+            false,
+        ).unwrap_err();
+        assert!(proto_err.contains("adapter protocol mismatch") || proto_err.contains("endpoint mismatch"));
+
+        // 8. Test role spend limit rejection
+        let mut roles_strict = roles.clone();
+        roles_strict.get_mut("modeler").unwrap().max_spend_millicents = Some(0); // 0 max spend
+        let routing_zero_spend = AgentRoutingPolicy {
+            schema_version: "mlrescurix.agent_routing.v1".into(),
+            default_worker_profile_ref: "profile_worker_fast".into(),
+            providers: providers.clone(),
+            models: models.clone(),
+            roles: roles_strict,
+        };
+        let spend_err = dispatch_gateway_with_routing(
+            &root,
+            "p1",
+            "task_spend",
+            "modeler",
+            "req_spend_001",
+            &req,
+            &routing_zero_spend,
+            &fixture,
+            false,
+        ).unwrap_err();
+        assert!(spend_err.contains("spend limit exceeded"));
+
+        // 9. Test disclosure policy: 'none' rejects outbound data before I/O
+        let mut providers_no_disclosure = providers.clone();
+        providers_no_disclosure.get_mut("prov_high_tier").unwrap().permitted_data_disclosure = "none".into();
+        let routing_no_disclosure = AgentRoutingPolicy {
+            schema_version: "mlrescurix.agent_routing.v1".into(),
+            default_worker_profile_ref: "profile_worker_fast".into(),
+            providers: providers_no_disclosure,
+            models: models.clone(),
+            roles: roles.clone(),
+        };
+        let disc_err = dispatch_gateway_with_routing(
+            &root,
+            "p1",
+            "task_disc",
+            "campaign_owner",
+            "req_disc_001",
+            &req,
+            &routing_no_disclosure,
+            &fixture,
+            false,
+        ).unwrap_err();
+        assert!(disc_err.contains("prohibits outbound data disclosure"));
+
+        // 10. Test disclosure policy: 'isolated_local' rejects remote endpoint before I/O
+        let mut providers_isolated = providers.clone();
+        providers_isolated.get_mut("prov_high_tier").unwrap().permitted_data_disclosure = "isolated_local".into();
+        let routing_isolated = AgentRoutingPolicy {
+            schema_version: "mlrescurix.agent_routing.v1".into(),
+            default_worker_profile_ref: "profile_worker_fast".into(),
+            providers: providers_isolated,
+            models: models.clone(),
+            roles: roles.clone(),
+        };
+        let live_remote = OpenAICompatibleAdapter::new("https://api.high-tier.com/v1".into(), "test-key".into());
+        let iso_err = dispatch_gateway_with_routing(
+            &root,
+            "p1",
+            "task_iso",
+            "campaign_owner",
+            "req_iso_001",
+            &req,
+            &routing_isolated,
+            &live_remote,
+            false,
+        ).unwrap_err();
+        assert!(iso_err.contains("prohibiting outbound transmission to non-local endpoint"));
+
+        // Neither a matching prefix nor a deceptive localhost authority permits
+        // a live request to be routed to a different host.
+        let spoofed_adapter = OpenAICompatibleAdapter::new("https://api.high-tier.com/v1.evil".into(), "test-key".into());
+        let err = dispatch_gateway_with_routing(&root, "p1", "task_spoof", "campaign_owner", "req_spoof", &req, &routing, &spoofed_adapter, false).unwrap_err();
+        assert!(err.contains("endpoint mismatch"));
+        for endpoint in ["http://localhost.evil/v1", "http://localhost@evil/v1", "http://127.0.0.1.evil/v1"] {
+            let mut spoofed_policy = routing_isolated.clone();
+            spoofed_policy.providers.get_mut("prov_high_tier").unwrap().endpoint = endpoint.into();
+            let adapter = OpenAICompatibleAdapter::new(endpoint.into(), "test-key".into());
+            let err = dispatch_gateway_with_routing(&root, "p1", "task_spoof", "campaign_owner", "req_spoof", &req, &spoofed_policy, &adapter, false).unwrap_err();
+            assert!(err.contains("prohibiting outbound transmission"), "{endpoint}: {err}");
+        }
+
+        // 11. Test auto-populated price cap margin fits validate_provider_price_cap
+        let prompt_rate = 300i64;
+        let comp_rate = 1500i64;
+        let max_p = (prompt_rate as f64 / 100.0) / 1.05;
+        let max_c = (comp_rate as f64 / 100.0) / 1.05;
+        let auto_provider = serde_json::json!({
+            "max_price": {
+                "prompt": max_p,
+                "completion": max_c
+            }
+        });
+        assert!(validate_provider_price_cap(&auto_provider, (prompt_rate, comp_rate)).is_ok());
+
+        // 12. Test tool schemas are included in context token bound
+        let mut tools_req = req.clone();
+        // Add a tool with a large parameters description to test bounding
+        let big_params = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "features": { "type": "string", "description": "x".repeat(3000) }
+            }
+        });
+        tools_req.tools = vec![ToolDefinition {
+            tool_type: "function".into(),
+            function: ToolFunction {
+                name: "process_data".into(),
+                description: "Process data function".into(),
+                parameters: big_params,
+            },
+        }];
+        let mut tight_model = models.clone();
+        // Set context window to 2000 (smaller than big_params)
+        tight_model.get_mut("profile_worker_fast").unwrap().context_window = 2000;
+        let routing_tight = AgentRoutingPolicy {
+            schema_version: "mlrescurix.agent_routing.v1".into(),
+            default_worker_profile_ref: "profile_worker_fast".into(),
+            providers: providers.clone(),
+            models: tight_model,
+            roles: roles.clone(),
+        };
+        let ctx_err = dispatch_gateway_with_routing(
+            &root,
+            "p1",
+            "task_ctx_tools",
+            "modeler",
+            "req_tools_ctx",
+            &tools_req,
+            &routing_tight,
+            &fixture,
+            false,
+        ).unwrap_err();
+        assert!(ctx_err.contains("exceeds model context window"));
+
+        // 13. Test atomic concurrent reservation: concurrent requests cannot exceed max_spend
+        let mut roles_cap = roles.clone();
+        // Modeler prompt rate is 10, completion is 20.
+        // est_tokens prompt ~ 380, completion 100 -> cost ~ 6 millicents. Actual fixture cost ~ 2 millicents.
+        // Set max_spend to 7 millicents: exactly one request can proceed (6 <= 7), the other (6+6=12 or 2+6=8 > 7) must be rejected.
+        roles_cap.get_mut("modeler").unwrap().max_spend_millicents = Some(7);
+        let routing_concurrency = AgentRoutingPolicy {
+            schema_version: "mlrescurix.agent_routing.v1".into(),
+            default_worker_profile_ref: "profile_worker_fast".into(),
+            providers: providers.clone(),
+            models: models.clone(),
+            roles: roles_cap,
+        };
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let root_c = root.clone();
+        let routing_c = routing_concurrency.clone();
+        let fixture_c1 = ScriptedProviderFixture::new(vec![ChatCompletionResponse {
+            id: "resp-c1".into(),
+            model: "qwen-or-deepseek-fast-mock".into(),
+            content: Some("code 1".into()),
+            tool_calls: vec![],
+            usage: TokenUsage { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+            latency_ms: 10,
+        }]);
+        let fixture_c2 = ScriptedProviderFixture::new(vec![ChatCompletionResponse {
+            id: "resp-c2".into(),
+            model: "qwen-or-deepseek-fast-mock".into(),
+            content: Some("code 2".into()),
+            tool_calls: vec![],
+            usage: TokenUsage { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+            latency_ms: 10,
+        }]);
+
+        let b1 = barrier.clone();
+        let r1 = req.clone();
+        let rt1 = root_c.clone();
+        let rc1 = routing_c.clone();
+        let h1 = std::thread::spawn(move || {
+            b1.wait();
+            dispatch_gateway_with_routing(&rt1, "p1", "task_concurrent", "modeler", "req_conc_1", &r1, &rc1, &fixture_c1, false)
+        });
+
+        let b2 = barrier.clone();
+        let r2 = req.clone();
+        let rt2 = root_c.clone();
+        let rc2 = routing_c.clone();
+        let h2 = std::thread::spawn(move || {
+            b2.wait();
+            dispatch_gateway_with_routing(&rt2, "p1", "task_concurrent", "modeler", "req_conc_2", &r2, &rc2, &fixture_c2, false)
+        });
+
+        let res1 = h1.join().unwrap();
+        let res2 = h2.join().unwrap();
+        let successes = [res1.is_ok(), res2.is_ok()].iter().filter(|&&ok| ok).count();
+        let errors = [res1.is_err(), res2.is_err()].iter().filter(|&&err| err).count();
+        assert_eq!(successes, 1, "exactly one concurrent dispatch should succeed under tight role ceiling");
+        assert_eq!(errors, 1, "the other concurrent dispatch must be rejected by atomic reservation");
     }
 }

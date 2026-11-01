@@ -198,13 +198,33 @@ class GovernanceService:
         # Upper-bound context and requested output across all turns, including repair calls.
         requested_bound = len(json.dumps(messages).encode()) + 4096 + max_tokens
         prior_bound = sum(t.get("requested_token_upper_bound", 0) for t in session.state["turns"])
-        if prior_bound + requested_bound > 80000: raise ValueError("Run token admission limit (80000) exceeded")
+        token_ceiling = getattr(session, "max_run_tokens", None)
+        policy = getattr(session, "policy", None) or {}
+        if token_ceiling is None:
+            cb_tokens = policy.get("campaign_budget", {}).get("max_total_tokens")
+            b_tokens = policy.get("budget", {}).get("tokens")
+            if cb_tokens is not None:
+                token_ceiling = cb_tokens
+            elif b_tokens is not None:
+                token_ceiling = b_tokens
+            else:
+                token_ceiling = 5000000
+        if prior_bound + requested_bound > token_ceiling:
+            raise ValueError(f"Run token admission limit ({token_ceiling}) exceeded")
         pending["requested_token_upper_bound"] = requested_bound
         spent = sum(Decimal(str(t["provider_cost_usd"])) for t in session.state["turns"])
         if spent + amount > session.per_run_budget_usd: raise ValueError("Per-run budget admission rejected")
         status = session.campaign_authority.get_status()
-        if Decimal(str(status.get("campaign_ceiling_usd", ".30"))) > Decimal(".30"):
-            raise ValueError("Campaign authority exceeds authorized $0.30 ceiling")
+        ceiling_val = getattr(session.campaign_authority, "campaign_ceiling", None)
+        if ceiling_val is None:
+            cb_max = policy.get("campaign_budget", {}).get("provider_usd_max")
+            if cb_max is not None:
+                ceiling_val = cb_max
+            else:
+                ceiling_val = status.get("campaign_ceiling_usd", "100.00")
+        campaign_ceiling = Decimal(str(ceiling_val))
+        if Decimal(str(status.get("campaign_ceiling_usd", campaign_ceiling))) > campaign_ceiling:
+            raise ValueError(f"Campaign authority exceeds authorized ${campaign_ceiling} ceiling")
         session.campaign_authority.reserve(session.session_id, request_id, amount)
         session._event("provider_reserved", request_id=request_id, reserved_usd=str(amount), fixture=session.provider_is_fixture)
         pending.update(phase="provider_dispatching", reserved_usd=str(amount)); session._save_state(session.state)

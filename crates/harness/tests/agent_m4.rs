@@ -1436,6 +1436,10 @@ fn m6_currency_cost_millicents_and_finalization_reserve_enforcement() {
 
 #[test]
 fn p1_scheduler_job_submission_crash_reconciliation_and_fault_regressions() {
+    if !mlrescurix_harness::pool::WarmWorkerPool::is_docker_available() {
+        eprintln!("Skipping p1_scheduler_job_submission_crash_reconciliation_and_fault_regressions: Docker daemon is unavailable");
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("state");
     let runtime = Runtime::init(&root, m1policy(200, 8)).unwrap();

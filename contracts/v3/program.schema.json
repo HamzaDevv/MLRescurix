@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:program:3",
+  "title": "ProgramManifest",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "execution_kind",
+    "source_tree_ref",
+    "task_contract_ref",
+    "environment_ref",
+    "method_id",
+    "operations"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "mlrescurix.program.v1"
+    },
+    "execution_kind": {
+      "type": "string",
+      "enum": ["agent_authored", "recipe_scaffold"]
+    },
+    "source_tree_ref": {
+      "type": "string"
+    },
+    "task_contract_ref": {
+      "type": "string"
+    },
+    "environment_ref": {
+      "type": "string"
+    },
+    "method_id": {
+      "type": "string"
+    },
+    "operations": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["argv", "capability", "fit_scope_kind"],
+        "properties": {
+          "argv": { "type": "array", "items": { "type": "string" } },
+          "capability": { "type": "string" },
+          "fit_scope_kind": {
+            "type": "string",
+            "enum": [
+              "stateless",
+              "fixed_pretrained",
+              "outer_fold_train",
+              "inner_fold_train",
+              "meta_fold_train",
+              "full_development_train",
+              "consumes_matching_scope"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

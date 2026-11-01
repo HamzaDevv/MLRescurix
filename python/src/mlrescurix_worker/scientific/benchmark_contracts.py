@@ -73,7 +73,7 @@ def candidate_gate_failure_reason(
     if not identity_verified:
         failures.append(package_reason or "bundle identity did not match accepted candidate")
     if not bundle_verified:
-        failures.append("bundle verification failed")
+        failures.append(package_reason or "bundle verification failed")
     return "; ".join(dict.fromkeys(failures)) or None
 
 
@@ -116,6 +116,9 @@ def candidate_spec_identity(spec: Dict[str, Any]) -> str:
 
 def bundle_matches_candidate(bundle_dir: Path, candidate_id: str, candidate_identity: str) -> bool:
     """Check the bundled model and manifest both identify the audited candidate."""
+    import sys
+    orig_dont_write_bytecode = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
     try:
         manifest = json.loads((Path(bundle_dir) / "manifest.json").read_text(encoding="utf-8"))
         if manifest.get("candidate_id") != candidate_id or manifest.get("candidate_identity") != candidate_identity:
@@ -126,6 +129,8 @@ def bundle_matches_candidate(bundle_dir: Path, candidate_id: str, candidate_iden
         return getattr(model, "candidate_identity", None) == candidate_identity
     except Exception:
         return False
+    finally:
+        sys.dont_write_bytecode = orig_dont_write_bytecode
 
 
 def map_locked_index_folds(folds: List[Dict[str, Any]], selected_original_rows: List[int]) -> List[Tuple[List[int], List[int]]]:
@@ -293,4 +298,7 @@ def package_accepted_candidate(
         )
     except OSError as exc:
         return False, True, f"bundle verification could not run: {exc}"
-    return verify_proc.returncode == 0, True, "accepted candidate bundled and identity verified"
+    if verify_proc.returncode != 0:
+        err_msg = (verify_proc.stderr or verify_proc.stdout or "").strip()
+        return False, True, f"bundle verification failed (exit {verify_proc.returncode}): {err_msg}"
+    return True, True, "accepted candidate bundled and identity verified"

@@ -58,7 +58,7 @@ fn registered_protocol_to_snapshot_keeps_holdout_and_labels_private() {
     c.execute_batch("CREATE TABLE scientific_datasets(project TEXT NOT NULL,id TEXT NOT NULL,path TEXT NOT NULL,sha256 TEXT NOT NULL,PRIMARY KEY(project,id));").unwrap();
     c.execute_batch(include_str!("../src/schema_custom_protocol.sql")).unwrap();
     c.execute("INSERT INTO scientific_datasets VALUES('project','ds',?1,?2)", rusqlite::params![raw.to_string_lossy(), hash]).unwrap();
-    let protocol = CustomProtocol { dataset_sha256: hash.clone(), target_column: "target".into(), metric: Metric::Accuracy, train: vec![0], validation: vec![1], test: vec![2] };
+    let protocol = CustomProtocol::single_split(hash.clone(), "target".into(), Metric::Accuracy, vec![0], vec![1], vec![2]);
     let protocol_hash = freeze(&mut c, "project", "ds", protocol).unwrap();
     let mut id = identity(); id.dataset_sha256 = hash; id.protocol_sha256 = protocol_hash;
     let dir = prepare_registered(&c, &root, "ds", &id).unwrap();
@@ -68,7 +68,7 @@ fn registered_protocol_to_snapshot_keeps_holdout_and_labels_private() {
     assert_eq!(fs::read_to_string(dir.join("labels.json")).unwrap(), "[[1,83749.0]]");
     assert!(!fs::read_to_string(dir.join("training.csv")).unwrap().contains("sealed"));
     let evaluation = EvaluationIdentity { project_id: id.project_id.clone(), job_id: id.job_id.clone(), candidate_id: id.candidate_id.clone(), dataset_id: id.dataset_id.clone(), dataset_sha256: id.dataset_sha256.clone(), split_sha256: id.protocol_sha256.clone(), source_sha256: id.source_sha256.clone(), environment_id: id.environment_id.clone(), weights_sha256: "d".repeat(64) };
-    let prediction = PredictionBatch { identity: evaluation.clone(), rows: vec![(1, 0.0)] };
+    let prediction = PredictionBatch::scalar(evaluation.clone(), vec![(1, 0.0)]);
     assert_eq!(evaluate_predictions(&c, &root, "ds", &id, &evaluation, &prediction).unwrap().score, 0.0);
     let mut mismatched = evaluation.clone(); mismatched.job_id = "other".into();
     assert!(evaluate_predictions(&c, &root, "ds", &id, &mismatched, &prediction).is_err());
@@ -76,7 +76,7 @@ fn registered_protocol_to_snapshot_keeps_holdout_and_labels_private() {
     let mut fabricated_id = id.clone(); fabricated_id.job_id = "fabricated".into();
     create(&root, &fabricated_id, &DevelopmentInputs { training_csv: b"x\n1\n".to_vec(), validation_features_csv: b"x\n2\n".to_vec(), labels: vec![(999, 0.0)] }).unwrap();
     let mut fabricated_eval = evaluation.clone(); fabricated_eval.job_id = fabricated_id.job_id.clone();
-    let fabricated_prediction = PredictionBatch { identity: fabricated_eval.clone(), rows: vec![(999, 0.0)] };
+    let fabricated_prediction = PredictionBatch::scalar(fabricated_eval.clone(), vec![(999, 0.0)]);
     assert!(evaluate_predictions(&c, &root, "ds", &fabricated_id, &fabricated_eval, &fabricated_prediction).is_err());
     let mut another = id.clone(); another.job_id = "job2".into();
     fs::write(raw, b"x,target\nmodified,1\nvalidation,83749\nsealed,9\n").unwrap();
