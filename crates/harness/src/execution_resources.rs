@@ -256,6 +256,12 @@ pub(super) fn confirm_job_exit(root:&Path,spec:&JobSpec)->Result<()> {
     if !matches!(spec.probe,Probe::Scientific{..}) {return Ok(());}
     let _lock=LifecycleLock::acquire(root)?;let c=connect(root)?;
     if record(&c,&spec.project_id,&spec.job_id)?.is_some_and(|r|r["removed"]==true&&r["exit_confirmed"]==true) {return Ok(());}
+    if !detect().available {
+        if record(&c,&spec.project_id,&spec.job_id)?.is_none() {
+            return Ok(());
+        }
+        return Err("Docker unavailable; cannot confirm container exit".into());
+    }
     // Handles cancellation/death before worker ID persistence as well.
     discover(root,&c,&Docker,Some(spec))?;
     if let Some(receipt)=record(&c,&spec.project_id,&spec.job_id)? {

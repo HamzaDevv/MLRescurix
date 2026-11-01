@@ -641,10 +641,11 @@ pub fn default_routing_policy_for_request(
         supports_tools: true,
     });
     let mut roles = std::collections::BTreeMap::new();
+    let default_role_spend = 50_000; // Default bounded role spend limit: 50,000 millicents ($0.50)
     roles.insert(role_id.to_string(), crate::contracts::RoleRouting {
         model_profile_ref: "default_model_profile".into(),
         escalation_profile_ref: None,
-        max_spend_millicents: None,
+        max_spend_millicents: Some(default_role_spend),
         temperature: request.temperature,
     });
     Ok(crate::contracts::AgentRoutingPolicy {
@@ -826,8 +827,115 @@ fn abort_gateway_receipt(root: &Path, project: &str, task: &str, request_id: &st
             "DELETE FROM gateway_dispatch_receipts WHERE project=?1 AND task_id=?2 AND request_id=?3 AND status='awaiting_response'",
             rusqlite::params![project, task, request_id],
         );
+        let request_key = accounting_request_key(project, task, request_id);
+        let _ = db.execute(
+            "DELETE FROM provider_accounting WHERE project=?1 AND (request_id=?2 OR request_id=?3) AND status='reserved'",
+            rusqlite::params![project, &request_key, request_id],
+        );
     }
     Ok(())
+}
+
+/// Durable reconciliation for gateway receipts and provider accounting across process crashes.
+/// Reconciles:
+/// - In-flight `awaiting_response` -> transitions to `outcome_unknown`, preserving reserved spend in `provider_accounting`.
+/// - Persisted `response_received` where accounting is still `reserved` -> settles to `ok` with exact tokens and pricing.
+/// - Stranded `reserved` with no gateway receipt (pre-dispatch abort) -> cleans up the aborted reservation.
+pub fn reconcile_gateway_receipts(root: &Path, project_id: &str) -> Result<Value> {
+    use rusqlite::OptionalExtension;
+    crate::execution::migrate(root)?;
+    let mut connection = rusqlite::Connection::open(root.join("state.sqlite")).map_err(|e| e.to_string())?;
+    connection.busy_timeout(Duration::from_secs(10)).map_err(|e| e.to_string())?;
+    let tx = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e| e.to_string())?;
+
+    // 1. In-flight receipts in gateway_dispatch_receipts with status='awaiting_response'
+    let mut awaiting_stmt = tx.prepare(
+        "SELECT task_id, request_id, request_sha256 FROM gateway_dispatch_receipts WHERE project=?1 AND status='awaiting_response'"
+    ).map_err(|e| e.to_string())?;
+    let awaiting_rows: Vec<(String, String, String)> = awaiting_stmt.query_map([project_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .map_err(|e| e.to_string())?.collect::<rusqlite::Result<Vec<_>>>().map_err(|e| e.to_string())?;
+    drop(awaiting_stmt);
+
+    let mut in_flight_reconciled = 0;
+    for (t_id, r_id, _sha) in awaiting_rows {
+        tx.execute(
+            "UPDATE gateway_dispatch_receipts SET status='outcome_unknown', updated_ms=?1 WHERE project=?2 AND task_id=?3 AND request_id=?4",
+            rusqlite::params![now_ms(), project_id, t_id, r_id],
+        ).map_err(|e| e.to_string())?;
+
+        let request_key = accounting_request_key(project_id, &t_id, &r_id);
+        tx.execute(
+            "UPDATE provider_accounting SET status='outcome_unknown' WHERE project=?1 AND (request_id=?2 OR request_id=?3) AND status='reserved'",
+            rusqlite::params![project_id, &request_key, &r_id],
+        ).map_err(|e| e.to_string())?;
+        in_flight_reconciled += 1;
+    }
+
+    // 2. Completed receipts in gateway_dispatch_receipts with status='response_received' where accounting is still 'reserved'
+    let mut response_stmt = tx.prepare(
+        "SELECT task_id, request_id, response_json FROM gateway_dispatch_receipts WHERE project=?1 AND status='response_received'"
+    ).map_err(|e| e.to_string())?;
+    let response_rows: Vec<(String, String, Option<String>)> = response_stmt.query_map([project_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .map_err(|e| e.to_string())?.collect::<rusqlite::Result<Vec<_>>>().map_err(|e| e.to_string())?;
+    drop(response_stmt);
+
+    let mut responses_settled = 0;
+    for (t_id, r_id, resp_json_opt) in response_rows {
+        let request_key = accounting_request_key(project_id, &t_id, &r_id);
+        let cur_status: Option<String> = tx.query_row(
+            "SELECT status FROM provider_accounting WHERE project=?1 AND (request_id=?2 OR request_id=?3)",
+            rusqlite::params![project_id, &request_key, &r_id],
+            |r| r.get(0),
+        ).optional().map_err(|e| e.to_string())?;
+
+        if cur_status.as_deref() == Some("reserved") {
+            if let Some(resp_json) = resp_json_opt {
+                if let Ok(resp) = serde_json::from_str::<ChatCompletionResponse>(&resp_json) {
+                    let rates = resolve_namespaced_model_pricing(root, "", &resp.model)
+                        .ok().flatten()
+                        .or_else(|| resolve_model_pricing(root, &resp.model).ok().flatten())
+                        .unwrap_or((0, 0));
+                    let cost = cost_from_pricing(&resp.usage, rates).unwrap_or(0);
+                    tx.execute(
+                        "UPDATE provider_accounting SET prompt_tokens=?1, completion_tokens=?2, cost_millicents=?3, latency_ms=?4, status='ok'
+                         WHERE project=?5 AND (request_id=?6 OR request_id=?7) AND status='reserved'",
+                        rusqlite::params![resp.usage.prompt_tokens, resp.usage.completion_tokens, cost, resp.latency_ms, project_id, &request_key, &r_id],
+                    ).map_err(|e| e.to_string())?;
+                    responses_settled += 1;
+                }
+            }
+        }
+    }
+
+    // 3. Stranded 'reserved' rows in provider_accounting where no gateway receipt exists (pre-dispatch abort before network transport)
+    let mut stranded_stmt = tx.prepare(
+        "SELECT request_id, task_id FROM provider_accounting
+         WHERE project=?1 AND status='reserved'
+           AND request_id NOT IN (SELECT request_id FROM gateway_dispatch_receipts WHERE project=?1)
+           AND request_id NOT IN (SELECT project || ':' || task_id || ':' || request_id FROM gateway_dispatch_receipts WHERE project=?1)"
+    ).map_err(|e| e.to_string())?;
+    let stranded_rows: Vec<(String, String)> = stranded_stmt.query_map([project_id], |r| Ok((r.get(0)?, r.get(1)?)))
+        .map_err(|e| e.to_string())?.collect::<rusqlite::Result<Vec<_>>>().map_err(|e| e.to_string())?;
+    drop(stranded_stmt);
+
+    let mut stranded_cleaned = 0;
+    for (r_key, _) in stranded_rows {
+        tx.execute(
+            "DELETE FROM provider_accounting WHERE project=?1 AND request_id=?2 AND status='reserved'",
+            rusqlite::params![project_id, &r_key],
+        ).map_err(|e| e.to_string())?;
+        stranded_cleaned += 1;
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
+
+    Ok(serde_json::json!({
+        "status": "reconciled",
+        "project_id": project_id,
+        "in_flight_reconciled": in_flight_reconciled,
+        "responses_settled": responses_settled,
+        "stranded_cleaned": stranded_cleaned,
+    }))
 }
 
 pub fn record_provider_accounting(

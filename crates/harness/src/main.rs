@@ -141,6 +141,10 @@ enum Command {
         #[arg(long, default_value = "balanced_accuracy")] metric: String,
     },
     #[command(name="__worker",hide=true)] Worker { spec:PathBuf, output:PathBuf },
+    AutonomousCreate {
+        #[arg(long)] state: PathBuf,
+        #[arg(long)] spec: PathBuf,
+    },
     Capabilities,
 }
 fn read(path:&PathBuf)->Result<Vec<u8>,String>{let mut data=Vec::new();std::fs::File::open(path).map_err(|e|e.to_string())?.take((MAX_FRAME+1)as u64).read_to_end(&mut data).map_err(|e|e.to_string())?;if data.len()>MAX_FRAME{return Err("input exceeds frame bound".into());}Ok(data)}
@@ -583,6 +587,13 @@ async fn run()->Result<(),String>{
             });
             let receipt = mlrescurix_harness::rescue::package_candidate_bundle(&state, &spec)?;
             print(receipt)
+        },
+        Command::AutonomousCreate { state, spec } => {
+            let spec_bytes = read(&spec)?;
+            let problem_spec: mlrescurix_harness::campaign::CampaignProblemSpec = serde_json::from_slice(&spec_bytes)
+                .map_err(|e| format!("invalid campaign problem spec: {e}"))?;
+            let outcome = mlrescurix_harness::campaign::run_autonomous_campaign(&state, &problem_spec, None)?;
+            print(outcome)
         },
         Command::Worker{spec,output}=>{let result=execution::worker(&spec,&output)?;if result==0 {Ok(())} else {std::process::exit(result)}}
         Command::Capabilities=>print(serde_json::json!({

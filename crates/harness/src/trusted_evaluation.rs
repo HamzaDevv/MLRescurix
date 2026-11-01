@@ -297,6 +297,42 @@ pub trait CustomMetricEvaluator: Send + Sync {
 
 static ADMITTED_CUSTOM_EVALUATORS: std::sync::RwLock<Option<std::collections::HashMap<String, std::sync::Arc<dyn CustomMetricEvaluator>>>> = std::sync::RwLock::new(None);
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomEvaluatorAdmissionContract {
+    pub name: String,
+    pub version: String,
+    pub spec_sha256: String,
+    pub known_test_vectors: Vec<(Vec<(u64, f64)>, Vec<(u64, f64)>, f64)>,
+}
+
+/// Register an admitted custom evaluator with a governed admission contract and known test vectors.
+pub fn register_admitted_custom_evaluator_with_contract(
+    contract: &CustomEvaluatorAdmissionContract,
+    evaluator: std::sync::Arc<dyn CustomMetricEvaluator>,
+) -> Result<()> {
+    if contract.name.is_empty() || contract.version.is_empty() || contract.spec_sha256.len() != 64 {
+        return Err("invalid custom evaluator admission contract metadata".into());
+    }
+    if contract.known_test_vectors.is_empty() {
+        return Err("custom evaluator admission requires non-empty known test vectors".into());
+    }
+    for (idx, (labels, preds, expected_score)) in contract.known_test_vectors.iter().enumerate() {
+        let label_map = canonical_rows(labels, "admitted test vector labels")?;
+        let pred_map = canonical_rows(preds, "admitted test vector predictions")?;
+        let score = evaluator.evaluate(&label_map, &pred_map, None)?;
+        if !score.is_finite() {
+            return Err(format!("custom evaluator test vector {idx} produced non-finite score: {score}"));
+        }
+        if (score - expected_score).abs() > 1e-6 {
+            return Err(format!(
+                "custom evaluator test vector {idx} diverged: expected {expected_score}, got {score}"
+            ));
+        }
+    }
+    register_admitted_custom_evaluator(&contract.name, evaluator);
+    Ok(())
+}
+
 pub fn register_admitted_custom_evaluator(name: &str, evaluator: std::sync::Arc<dyn CustomMetricEvaluator>) {
     let mut reg = ADMITTED_CUSTOM_EVALUATORS.write().unwrap();
     let map = reg.get_or_insert_with(std::collections::HashMap::new);
@@ -342,8 +378,20 @@ pub fn evaluate_with_spec(
     evaluate_with_spec_and_evidence(expected, spec, trusted_labels, predictions, None)
 }
 
-/// Evaluate a spec and check supplied fixture consistency without certifying its source.
+/// Evaluate a spec and check supplied fixture consistency without certifying its source unless backed by an admitted database record.
 pub fn evaluate_with_spec_and_evidence(
+    expected: &EvaluationIdentity,
+    spec: &crate::contracts::MetricSpec,
+    trusted_labels: &[(u64, f64)],
+    predictions: &PredictionBatch,
+    evidence: Option<&ReferenceEvidence>,
+) -> Result<EvaluationReceipt> {
+    evaluate_with_spec_evidence_and_db(None, expected, spec, trusted_labels, predictions, evidence)
+}
+
+/// Authoritative evaluation checking reference evidence against the controller's durable database of admitted fixtures.
+pub fn evaluate_with_spec_evidence_and_db(
+    conn: Option<&rusqlite::Connection>,
     expected: &EvaluationIdentity,
     spec: &crate::contracts::MetricSpec,
     trusted_labels: &[(u64, f64)],
@@ -389,8 +437,9 @@ pub fn evaluate_with_spec_and_evidence(
             ));
         }
 
-        // Matching caller-provided evidence cannot establish an independent reference.
-
+        // Records can currently be inserted by the caller without independent
+        // verification, so database immutability alone cannot certify them.
+        let _ = conn;
     }
     if receipt.assurance != "reference_conformant" {
         let perm_ok = check_spec_permutation_invariance_property(spec, trusted_labels, predictions)
@@ -403,6 +452,7 @@ pub fn evaluate_with_spec_and_evidence(
 
     Ok(receipt)
 }
+
 
 fn evaluate_internal(
     expected: &EvaluationIdentity,

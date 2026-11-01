@@ -393,59 +393,67 @@ pub fn extract_row_metadata(
 pub fn freeze(connection: &mut Connection, project: &str, dataset_id: &str, mut protocol: CustomProtocol) -> Result<String> {
     ensure_custom_protocol_schema(connection)?;
 
-    // If group or time column is present, resolve authoritative row metadata from dataset file if registered
-    let ds_info: Option<(String, String)> = connection.query_row(
-        "SELECT path, sha256 FROM scientific_datasets WHERE project=?1 AND id=?2",
-        params![project, dataset_id],
-        |r| Ok((r.get(0)?, r.get(1)?)),
-    ).optional().map_err(|e| e.to_string())?;
+    // If group or time column is present, resolve authoritative row metadata from dataset file
+    if protocol.group_column.is_some() || protocol.time_column.is_some() {
+        let ds_info: Option<(String, String)> = connection.query_row(
+            "SELECT path, sha256 FROM scientific_datasets WHERE project=?1 AND id=?2",
+            params![project, dataset_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        ).optional().map_err(|e| e.to_string())?;
 
-    if let Some((path_str, ds_sha)) = ds_info {
+        let (path_str, ds_sha) = ds_info.ok_or_else(|| {
+            format!("protocol specifies group/time column but dataset '{dataset_id}' is not registered in scientific_datasets")
+        })?;
         if ds_sha != protocol.dataset_sha256 {
             return Err("protocol does not match registered dataset".into());
         }
-        if !path_str.is_empty() {
-            let pth = Path::new(&path_str);
-            if pth.is_file() {
-                let (auth_groups, auth_times) = extract_row_metadata(
-                    pth,
-                    protocol.group_column.as_deref(),
-                    protocol.time_column.as_deref(),
-                    &protocol.dataset_sha256,
-                )?;
-                if let Some(auth_g) = auth_groups {
-                    if let Some(ref declared_g) = protocol.row_groups {
-                        for (row, g) in declared_g {
-                            if let Some(expected_g) = auth_g.get(row) {
-                                if expected_g != g {
-                                    return Err(format!("declared group for row {row} ('{g}') does not match dataset ground truth ('{expected_g}')"));
-                                }
-                            } else {
-                                return Err(format!("declared group row {row} not found in dataset"));
-                            }
+        if path_str.trim().is_empty() {
+            return Err(format!("protocol specifies group/time column but registered dataset path for '{dataset_id}' is empty"));
+        }
+        let pth = Path::new(&path_str);
+        if !pth.is_file() {
+            return Err(format!("protocol specifies group/time column but registered dataset file for '{dataset_id}' not found at '{path_str}'"));
+        }
+        let (auth_groups, auth_times) = extract_row_metadata(
+            pth,
+            protocol.group_column.as_deref(),
+            protocol.time_column.as_deref(),
+            &protocol.dataset_sha256,
+        )?;
+        if protocol.group_column.is_some() {
+            let auth_g = auth_groups.ok_or_else(|| "group_column specified but row_groups could not be extracted from dataset".to_string())?;
+            if let Some(ref declared_g) = protocol.row_groups {
+                for (row, g) in declared_g {
+                    if let Some(expected_g) = auth_g.get(row) {
+                        if expected_g != g {
+                            return Err(format!("declared group for row {row} ('{g}') does not match dataset ground truth ('{expected_g}')"));
                         }
                     } else {
-                        protocol.row_groups = Some(auth_g);
+                        return Err(format!("declared group row {row} not found in dataset"));
                     }
                 }
-                if let Some(auth_t) = auth_times {
-                    if let Some(ref declared_t) = protocol.row_timestamps {
-                        for (row, t) in declared_t {
-                            if let Some(expected_t) = auth_t.get(row) {
-                                if expected_t != t {
-                                    return Err(format!("declared timestamp for row {row} ('{t}') does not match dataset ground truth ('{expected_t}')"));
-                                }
-                            } else {
-                                return Err(format!("declared timestamp row {row} not found in dataset"));
-                            }
+            } else {
+                protocol.row_groups = Some(auth_g);
+            }
+        }
+        if protocol.time_column.is_some() {
+            let auth_t = auth_times.ok_or_else(|| "time_column specified but row_timestamps could not be extracted from dataset".to_string())?;
+            if let Some(ref declared_t) = protocol.row_timestamps {
+                for (row, t) in declared_t {
+                    if let Some(expected_t) = auth_t.get(row) {
+                        if expected_t != t {
+                            return Err(format!("declared timestamp for row {row} ('{t}') does not match dataset ground truth ('{expected_t}')"));
                         }
                     } else {
-                        protocol.row_timestamps = Some(auth_t);
+                        return Err(format!("declared timestamp row {row} not found in dataset"));
                     }
                 }
+            } else {
+                protocol.row_timestamps = Some(auth_t);
             }
         }
     }
+
 
     let protocol = canonical(protocol)?;
     let encoded = serde_json::to_string(&protocol).map_err(|e| e.to_string())?;
@@ -772,7 +780,86 @@ fn extract_lockbox_ground_truth(
     Ok(results)
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AdmittedReferenceFixtureRecord {
+    pub reference_identity: String,
+    pub metric_name: String,
+    pub metric_version: String,
+    pub fixture_sha256: String,
+    pub expected_result: f64,
+    pub tolerance: f64,
+    pub verified_receipt_sha256: String,
+    pub registered_ms: i64,
+}
+
+/// Register an admitted reference fixture into the controller database.
+pub fn register_admitted_reference_fixture(
+    conn: &Connection,
+    record: &AdmittedReferenceFixtureRecord,
+) -> Result<()> {
+    ensure_custom_protocol_schema(conn)?;
+    if record.reference_identity.is_empty() || record.metric_name.is_empty() || record.metric_version.is_empty() {
+        return Err("invalid reference fixture record identity/metric".into());
+    }
+    if record.fixture_sha256.len() != 64 || record.verified_receipt_sha256.len() != 64 {
+        return Err("fixture_sha256 and verified_receipt_sha256 must be 64-hex chars".into());
+    }
+    if !record.expected_result.is_finite() || !record.tolerance.is_finite() || record.tolerance < 0.0 {
+        return Err("expected_result and tolerance must be valid finite numbers".into());
+    }
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
+    conn.execute(
+        "INSERT INTO admitted_reference_fixtures(reference_identity, metric_name, metric_version, fixture_sha256, expected_result, tolerance, verified_receipt_sha256, registered_ms)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            record.reference_identity,
+            record.metric_name.to_lowercase(),
+            record.metric_version,
+            record.fixture_sha256,
+            record.expected_result,
+            record.tolerance,
+            record.verified_receipt_sha256,
+            if record.registered_ms > 0 { record.registered_ms } else { now },
+        ],
+    ).map_err(|e| format!("cannot register admitted reference fixture: {e}"))?;
+    Ok(())
+}
+
+/// Look up an admitted reference fixture by identity, metric, version, and input fixture digest.
+pub fn lookup_admitted_reference_fixture(
+    conn: &Connection,
+    reference_identity: &str,
+    metric_name: &str,
+    metric_version: &str,
+    fixture_sha256: &str,
+) -> Result<Option<AdmittedReferenceFixtureRecord>> {
+    ensure_custom_protocol_schema(conn)?;
+    let row = conn.query_row(
+        "SELECT reference_identity, metric_name, metric_version, fixture_sha256, expected_result, tolerance, verified_receipt_sha256, registered_ms
+         FROM admitted_reference_fixtures
+         WHERE reference_identity=?1 AND metric_name=?2 AND metric_version=?3 AND fixture_sha256=?4",
+        params![reference_identity, metric_name.to_lowercase(), metric_version, fixture_sha256],
+        |r| Ok(AdmittedReferenceFixtureRecord {
+            reference_identity: r.get(0)?,
+            metric_name: r.get(1)?,
+            metric_version: r.get(2)?,
+            fixture_sha256: r.get(3)?,
+            expected_result: r.get(4)?,
+            tolerance: r.get(5)?,
+            verified_receipt_sha256: r.get(6)?,
+            registered_ms: r.get(7)?,
+        }),
+    ).optional().map_err(|e| e.to_string())?;
+    Ok(row)
+}
+
 /// Authoritative end-to-end evaluation and atomic lockbox consumption.
+///
+/// Enforces:
+/// 1. Atomic lockbox claim inside an IMMEDIATE transaction BEFORE reading labels or computing scores.
+/// 2. Authoritative ground truth extraction directly from the registered dataset file on disk (fails closed if missing/empty).
+/// 3. Cross-verification that candidate identity, dataset SHA-256, and split SHA-256 match registered protocol.
+/// 4. Atomic insertion of immutable consumption receipt and lockbox consumption within the same transaction.
 pub fn evaluate_and_consume_assessment(
     connection: &mut Connection,
     project: &str,
@@ -782,25 +869,17 @@ pub fn evaluate_and_consume_assessment(
     predictions: &crate::trusted_evaluation::PredictionBatch,
 ) -> Result<crate::trusted_evaluation::EvaluationReceipt> {
     ensure_custom_protocol_schema(connection)?;
-    let (p, protocol_sha) = load(connection, project, dataset_id)?;
-    if expected.project_id != project || expected.dataset_id != dataset_id || expected.dataset_sha256 != p.dataset_sha256 {
+    expected.validate()?;
+
+    if expected.project_id != project || expected.dataset_id != dataset_id {
         return Err("assessment identity does not match the registered project and dataset".into());
     }
-    if expected.split_sha256 != protocol_sha {
-        return Err(format!(
-            "assessment split_sha256 '{}' does not match registered protocol sha256 '{}'",
-            expected.split_sha256, protocol_sha
-        ));
-    }
-    if expected.source_sha256.len() != 64 || !expected.source_sha256.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
-        return Err("invalid evaluation source_sha256".into());
-    }
-    if p.lockbox_rows.is_empty() {
-        return Err("no assessment lockbox was registered for this protocol".into());
-    }
 
-    // Enforce one-shot consumption fence BEFORE computing score or accessing private labels
-    let is_consumed: bool = connection.query_row(
+    // Enforce lockbox claim BEFORE reading private labels or computing score by starting an IMMEDIATE transaction
+    let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|e| e.to_string())?;
+
+    // 1. One-shot consumption fence inside the transaction: prevents concurrent callers from computing scores
+    let is_consumed: bool = tx.query_row(
         "SELECT EXISTS(SELECT 1 FROM assessment_lockbox_consumptions WHERE project=?1 AND dataset_id=?2)",
         params![project, dataset_id],
         |r| r.get(0),
@@ -810,58 +889,99 @@ pub fn evaluate_and_consume_assessment(
         return Err("assessment lockbox has already been consumed; cannot evaluate holdout a second time".into());
     }
 
+    // 2. Load registered protocol from custom_protocols
+    let (encoded_protocol, protocol_sha): (String, String) = tx.query_row(
+        "SELECT protocol_json, protocol_sha256 FROM custom_protocols WHERE project=?1 AND dataset_id=?2",
+        params![project, dataset_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    ).map_err(|e| format!("protocol not found for project '{project}', dataset '{dataset_id}': {e}"))?;
+
+    let p: CustomProtocol = serde_json::from_str(&encoded_protocol).map_err(|e| e.to_string())?;
+
+    if expected.dataset_sha256 != p.dataset_sha256 {
+        return Err("assessment identity does not match the registered project and dataset".into());
+    }
+    if expected.split_sha256 != protocol_sha {
+        return Err(format!(
+            "assessment split_sha256 '{}' does not match registered protocol sha256 '{}'",
+            expected.split_sha256, protocol_sha
+        ));
+    }
+    if p.lockbox_rows.is_empty() {
+        return Err("no assessment lockbox was registered for this protocol".into());
+    }
+
+    // 3. Ground truth dataset file MUST be registered in scientific_datasets and exist on disk (fail closed)
+    let raw_path: String = tx.query_row(
+        "SELECT path FROM scientific_datasets WHERE project=?1 AND id=?2",
+        params![project, dataset_id],
+        |r| r.get(0),
+    ).map_err(|_| format!("dataset '{dataset_id}' not found in scientific_datasets; authoritative evaluation requires a registered dataset file"))?;
+
+    if raw_path.trim().is_empty() {
+        return Err(format!("registered dataset path for '{dataset_id}' is empty; authoritative evaluation requires a dataset file on disk"));
+    }
+    let pth = Path::new(&raw_path);
+    if !pth.is_file() {
+        return Err(format!("registered dataset file for '{dataset_id}' not found at '{raw_path}'"));
+    }
+
+    // 4. Extract authoritative lockbox labels directly from the registered file
+    let gt_labels = extract_lockbox_ground_truth(pth, &p.target_column, &p.lockbox_rows, &p.dataset_sha256)?;
+
+    // 5. If caller provided labels, verify exact match with authoritative ground truth
     let mut label_row_ids: Vec<u64> = trusted_lockbox_labels.iter().map(|(id, _)| *id).collect();
     label_row_ids.sort_unstable();
     if label_row_ids != p.lockbox_rows {
         return Err("trusted lockbox labels do not match registered lockbox rows".into());
     }
-
-    // Verify labels against authoritative scientific_datasets ground truth if available on disk
-    let raw_path: Option<String> = match connection.query_row(
-        "SELECT path FROM scientific_datasets WHERE project=?1 AND id=?2",
-        params![project, dataset_id],
-        |r| r.get(0),
-    ) {
-        Ok(p) => Some(p),
-        Err(rusqlite::Error::QueryReturnedNoRows) => None,
-        Err(e) if e.to_string().contains("no such column: path") => None,
-        Err(e) => return Err(e.to_string()),
-    };
-
-    if let Some(path_str) = raw_path {
-        if !path_str.is_empty() {
-            let pth = Path::new(&path_str);
-            if !pth.is_file() {
-                return Err(format!("registered dataset file for '{dataset_id}' not found at '{path_str}'"));
+    let gt_map: BTreeMap<u64, f64> = gt_labels.iter().copied().collect();
+    for (id, val) in trusted_lockbox_labels {
+        if let Some(gt_val) = gt_map.get(id) {
+            if (val - gt_val).abs() > 1e-9 {
+                return Err(format!(
+                    "trusted lockbox label value mismatch for row {id}: caller passed {val}, registered dataset has {gt_val}"
+                ));
             }
-            let gt_labels = extract_lockbox_ground_truth(pth, &p.target_column, &p.lockbox_rows, &p.dataset_sha256)?;
-            let gt_map: BTreeMap<u64, f64> = gt_labels.into_iter().collect();
-            for (id, val) in trusted_lockbox_labels {
-                if let Some(gt_val) = gt_map.get(id) {
-                    if (val - gt_val).abs() > 1e-9 {
-                        return Err(format!(
-                            "trusted lockbox label value mismatch for row {id}: caller passed {val}, registered dataset has {gt_val}"
-                        ));
-                    }
-                } else {
-                    return Err(format!("trusted lockbox row id {id} not found in registered lockbox rows"));
-                }
-            }
+        } else {
+            return Err(format!("trusted lockbox row id {id} not found in registered lockbox rows"));
         }
     }
 
-    let receipt = crate::trusted_evaluation::evaluate(expected, p.metric, trusted_lockbox_labels, predictions)?;
+    // 6. Compute independent score
+    let receipt = crate::trusted_evaluation::evaluate(expected, p.metric, &gt_labels, predictions)?;
     let receipt_json = serde_json::to_string(&receipt).map_err(|e| e.to_string())?;
-    let binding = AssessmentBinding {
-        candidate_id: expected.candidate_id.clone(),
-        artifact_sha256: expected.weights_sha256.clone(),
-        predictions_sha256: receipt.predictions_sha256.clone(),
-        metric: receipt.metric.clone(),
-        score: receipt.score,
-        receipt_identity: format!("{}:{}:{}", expected.project_id, expected.job_id, expected.candidate_id),
-        receipt_json,
-    };
-    consume_assessment(connection, project, dataset_id, &binding)?;
+    let metric_str = serde_json::to_string(&receipt.metric)
+        .unwrap_or_else(|_| "unknown".into())
+        .trim_matches('"')
+        .to_string();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+    let receipt_identity = format!("{}:{}:{}", expected.project_id, expected.job_id, expected.candidate_id);
+
+    // 7. Insert consumption record inside the same transaction
+    tx.execute(
+        "INSERT INTO assessment_lockbox_consumptions(
+            project, dataset_id, candidate_id, artifact_sha256, predictions_sha256,
+            metric, score, receipt_identity, receipt_json, consumed_at_ms
+         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![
+            project,
+            dataset_id,
+            expected.candidate_id,
+            expected.weights_sha256,
+            receipt.predictions_sha256,
+            metric_str,
+            receipt.score,
+            receipt_identity,
+            receipt_json,
+            now_ms,
+        ],
+    ).map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
     Ok(receipt)
 }
 

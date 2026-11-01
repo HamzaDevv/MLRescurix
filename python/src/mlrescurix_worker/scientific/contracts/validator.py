@@ -232,20 +232,28 @@ def verify_authoritative_fit_scope(
                 False,
                 f"permitted_label_row_ids_hash mismatch: computed '{h_label}', declared '{binding.get('permitted_label_row_ids_hash')}'",
             )
-    if feature_rows is not None:
+    declared_feat_hash = binding.get("permitted_feature_row_ids_hash")
+    if declared_feat_hash:
+        if feature_rows is None:
+            return False, "authoritative verification requires feature_rows when permitted_feature_row_ids_hash is declared"
         h_feat = hash_row_ids(feature_rows)
-        if h_feat != binding.get("permitted_feature_row_ids_hash"):
+        if h_feat != declared_feat_hash:
             return (
                 False,
-                f"permitted_feature_row_ids_hash mismatch: computed '{h_feat}', declared '{binding.get('permitted_feature_row_ids_hash')}'",
+                f"permitted_feature_row_ids_hash mismatch: computed '{h_feat}', declared '{declared_feat_hash}'",
             )
-    if exclusion_rows is not None and binding.get("exclusion_row_ids_hash"):
+
+    declared_excl_hash = binding.get("exclusion_row_ids_hash")
+    if declared_excl_hash:
+        if exclusion_rows is None:
+            return False, "authoritative verification requires exclusion_rows when exclusion_row_ids_hash is declared"
         h_excl = hash_row_ids(exclusion_rows)
-        if h_excl != binding.get("exclusion_row_ids_hash"):
+        if h_excl != declared_excl_hash:
             return (
                 False,
-                f"exclusion_row_ids_hash mismatch: computed '{h_excl}', declared '{binding.get('exclusion_row_ids_hash')}'",
+                f"exclusion_row_ids_hash mismatch: computed '{h_excl}', declared '{declared_excl_hash}'",
             )
+
     if label_rows is not None and evaluated_label_rows is not None:
         overlap = set(label_rows).intersection(set(evaluated_label_rows))
         if overlap:

@@ -248,11 +248,38 @@ fn fold_adversarial_validation_checks() {
 #[test]
 fn end_to_end_assessment_evaluation_and_consumption() {
     use mlrescurix_harness::trusted_evaluation::{EvaluationIdentity, PredictionBatch};
+    use sha2::{Digest, Sha256};
+
+    let temp = tempfile::tempdir().unwrap();
+    let csv_path = temp.path().join("dataset.csv");
+    let mut csv_content = String::from("feature,target\n");
+    for i in 0..30 {
+        let t = if i == 10 {
+            1.0
+        } else if i == 11 {
+            0.0
+        } else if i == 20 {
+            1.0
+        } else if i == 21 {
+            0.0
+        } else {
+            0.5
+        };
+        csv_content.push_str(&format!("{i},{t:.1}\n"));
+    }
+    std::fs::write(&csv_path, &csv_content).unwrap();
+    let raw_bytes = std::fs::read(&csv_path).unwrap();
+    let ds_hash = format!("{:x}", Sha256::digest(&raw_bytes));
 
     let mut c = Connection::open_in_memory().unwrap();
     setup(&c);
+    c.execute(
+        "UPDATE scientific_datasets SET path=?1, sha256=?2 WHERE project='p' AND id='d'",
+        rusqlite::params![csv_path.to_string_lossy(), &ds_hash],
+    ).unwrap();
 
     let mut p = protocol();
+    p.dataset_sha256 = ds_hash.clone();
     p.lockbox_rows = vec![10, 11];
     p.metric = Metric::Accuracy;
     let protocol_sha = freeze(&mut c, "p", "d", p).unwrap();
@@ -262,7 +289,7 @@ fn end_to_end_assessment_evaluation_and_consumption() {
         job_id: "job_01".into(),
         candidate_id: "cand_01".into(),
         dataset_id: "d".into(),
-        dataset_sha256: "a".repeat(64),
+        dataset_sha256: ds_hash.clone(),
         split_sha256: protocol_sha,
         source_sha256: "0".repeat(64),
         environment_id: "env_01".into(),
@@ -316,7 +343,12 @@ fn end_to_end_assessment_evaluation_and_consumption() {
     // 4. Mismatched labels for a new protocol fails before consumption
     let mut c2 = Connection::open_in_memory().unwrap();
     setup(&c2);
+    c2.execute(
+        "UPDATE scientific_datasets SET path=?1, sha256=?2 WHERE project='p' AND id='d'",
+        rusqlite::params![csv_path.to_string_lossy(), &ds_hash],
+    ).unwrap();
     let mut p2 = protocol();
+    p2.dataset_sha256 = ds_hash.clone();
     p2.lockbox_rows = vec![20, 21];
     let protocol2_sha = freeze(&mut c2, "p", "d", p2).unwrap();
     let mut identity2 = identity.clone();
@@ -327,6 +359,7 @@ fn end_to_end_assessment_evaluation_and_consumption() {
     ).unwrap_err();
     assert!(err2.contains("trusted lockbox labels do not match registered lockbox rows"));
 }
+
 
 #[test]
 fn group_separation_and_leakage_rejection() {

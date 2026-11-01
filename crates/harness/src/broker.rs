@@ -582,7 +582,23 @@ pub fn check_request_feasibility_with_probe(
     probe: &impl CapabilityProbe,
     headroom: &ResourceHeadroom,
 ) -> Result<()> {
-    let is_container_job = matches!(spec.probe, Probe::Scientific { .. }) || spec.environment_id.is_some();
+    let is_container_job = if let Some(env_id) = &spec.environment_id {
+        if let Ok(c) = rusqlite::Connection::open(root.join("state.sqlite")) {
+            let py: rusqlite::Result<String> = c.query_row(
+                "SELECT python FROM environments WHERE id=?1",
+                [env_id],
+                |r| r.get(0),
+            );
+            match py {
+                Ok(ref p) => p.starts_with("docker:"),
+                Err(_) => matches!(spec.probe, Probe::Scientific { .. }),
+            }
+        } else {
+            matches!(spec.probe, Probe::Scientific { .. })
+        }
+    } else {
+        matches!(spec.probe, Probe::Scientific { .. })
+    };
     let host = probe.probe_host(root)?;
     let container_vm = probe.probe_container_vm()?;
 

@@ -244,11 +244,26 @@ pub fn verify_bundle_with_state(
             ));
         }
         (sha, bytes)
-    } else if bundle_dir.join("weights.safetensors").is_file() {
-        let p = bundle_dir.join("weights.safetensors");
+    } else if bundle_dir.join("model_weights.json").is_file() {
+        let p = bundle_dir.join("model_weights.json");
         let sha = hash_file(&p)?;
         let bytes = fs::metadata(&p).map_err(|e| e.to_string())?.len();
-        let declared = verification_json["weights_safetensors_sha256"].as_str()
+        let declared = verification_json["model_weights_sha256"].as_str()
+            .or_else(|| verification_json["frozen_model_sha256"].as_str())
+            .unwrap_or("");
+        if !declared.is_empty() && declared != sha {
+            return Err(format!(
+                "tampered bundle: verification.json weights sha256 mismatch (declared {}, actual {})",
+                declared, sha
+            ));
+        }
+        (sha, bytes)
+    } else if bundle_dir.join("weights.json").is_file() {
+        let p = bundle_dir.join("weights.json");
+        let sha = hash_file(&p)?;
+        let bytes = fs::metadata(&p).map_err(|e| e.to_string())?.len();
+        let declared = verification_json["weights_json_sha256"].as_str()
+            .or_else(|| verification_json["model_weights_sha256"].as_str())
             .or_else(|| verification_json["frozen_model_sha256"].as_str())
             .unwrap_or("");
         if !declared.is_empty() && declared != sha {
@@ -259,7 +274,7 @@ pub fn verify_bundle_with_state(
         }
         (sha, bytes)
     } else {
-        return Err("bundle missing required weights file ('frozen_model.joblib' or 'weights.safetensors')".into());
+        return Err("bundle missing required weights file ('frozen_model.joblib', 'weights.safetensors', or 'model_weights.json')".into());
     };
 
     let final_json: Value = serde_json::from_slice(
