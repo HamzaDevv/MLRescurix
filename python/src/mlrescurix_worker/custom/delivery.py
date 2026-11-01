@@ -72,11 +72,20 @@ class CustomBundlePackager:
         raw_example_records: List[Dict[str, Any]],
         candidate_id: Optional[str] = None,
         accepted_evaluation: Optional[Dict[str, Any]] = None,
-        decision_threshold: float = 0.5,
+        decision_threshold: Optional[float] = None,
         source_weights_path: Optional[Union[str, Path]] = None,
         project_id: Optional[str] = None,
     ) -> ResultBundleContract:
         """Packages fitted custom candidate into a complete, verified delivery bundle."""
+        candidate_threshold = getattr(candidate, "decision_threshold", None)
+        if decision_threshold is None:
+            decision_threshold = float(candidate_threshold if candidate_threshold is not None else 0.5)
+        else:
+            decision_threshold = float(decision_threshold)
+        if not np.isfinite(decision_threshold) or not 0.0 <= decision_threshold <= 1.0:
+            raise BundleVerificationError("decision threshold must be finite and between 0 and 1")
+        if candidate_threshold is not None and float(candidate_threshold) != decision_threshold:
+            raise BundleVerificationError("decision threshold differs from the candidate's prediction rule")
         bundle_dir = Path(output_bundle_dir).resolve()
         if bundle_dir.exists():
             raise BundleVerificationError(f"Bundle destination already exists: {bundle_dir}")
@@ -93,6 +102,8 @@ class CustomBundlePackager:
                 )
 
         is_classification = "classification" in task_type.lower()
+        from .tabular_candidate import TabularCandidatePlugin
+        uses_binary_index_threshold = isinstance(candidate, TabularCandidatePlugin)
         classes = getattr(candidate, "classes_", [0, 1] if is_classification else None)
         if classes is not None:
             classes = [int(c) if isinstance(c, (np.integer, int)) else str(c) for c in classes]
@@ -250,6 +261,7 @@ IN_FEATURES = {in_features}
 HIDDEN_DIM = {hidden_dim}
 OUT_FEATURES = {out_features}
 THRESHOLD = {decision_threshold}
+USES_BINARY_INDEX_THRESHOLD = {repr(uses_binary_index_threshold)}
 
 def load_model(bundle_dir):
     weights_path = os.path.join(bundle_dir, WEIGHTS_FILE)
@@ -348,6 +360,8 @@ def main():
         if IS_CLASSIFICATION and hasattr(model, "predict_proba"):
             probs_arr = model.predict_proba(arr)
             probs = probs_arr.tolist() if isinstance(probs_arr, np.ndarray) else list(probs_arr)
+            if USES_BINARY_INDEX_THRESHOLD and len(probs) and len(probs[0]) == 2:
+                preds = [int(row[1] >= THRESHOLD) for row in probs]
 
     latency_ms = (time.time() - t0) * 1000.0
     end_rss = psutil.Process().memory_info().rss if HAS_PSUTIL else 0
