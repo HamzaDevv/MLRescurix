@@ -27,3 +27,11 @@
 ## Next work
 
 Replace host subprocess execution with a real governed worker and test filesystem, environment, network, resources, label access and adversarial code. Remove destructive initialization and centralize exact-host credential handling. Repair accounting races and recovery, use independently admitted reference data, wire source/split provenance, preserve agent-authored model and inference behavior without template substitution, and demonstrate real provider/Kaggle workflows and portable artifacts. Audit remaining master-plan packages with evidence and explicit gaps before calling this complete.
+
+## Follow-up fixes
+
+- Controller initialization now refuses an existing unowned path instead of deleting it. The campaign remains disabled, so this is defense in depth rather than an end-to-end initialization test.
+- Implicit OpenRouter credentials now require the shared exact HTTPS authority check in campaign, gateway dispatch, and agent run. Explicitly supplied credentials remain caller-directed.
+- Gateway reconciliation preserves in-flight receipts and reservations, including stored responses: without a durable dispatch lease and endpoint-bound price evidence it cannot safely infer ownership or final cost. It reports manual reconciliation rather than freeing budget or settling at zero. This deliberately restricts recovery; a complete lease-based recovery protocol is still required.
+- Removed the fabricated fixed-model fallback and the JSON-as-joblib copy. Agent code and its manifest must exist. CSV output escapes special fields and preserves feature whitespace.
+- These fixes do not make the campaign operational. The sandbox, general agent-authored delivery and inference parity, trusted reference admission, durable recovery, research and multi-agent scientific search, and verified live provider/Kaggle workflows remain unfinished. The hard-coded model delivery assumptions in the disabled prototype still require replacement, not merely test changes.

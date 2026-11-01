@@ -11,6 +11,13 @@ use serde_json::Value;
 
 use crate::Result;
 
+/// Implicit OpenRouter credentials are valid only for its exact HTTPS authority.
+pub fn is_openrouter_endpoint(endpoint: &str) -> bool {
+    endpoint.strip_prefix("https://")
+        .and_then(|rest| rest.split(['/', '?', '#']).next())
+        .is_some_and(|authority| authority.eq_ignore_ascii_case("openrouter.ai"))
+}
+
 fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis().min(i64::MAX as u128) as i64
 }
@@ -837,104 +844,29 @@ fn abort_gateway_receipt(root: &Path, project: &str, task: &str, request_id: &st
 }
 
 /// Durable reconciliation for gateway receipts and provider accounting across process crashes.
-/// Reconciles:
-/// - In-flight `awaiting_response` -> transitions to `outcome_unknown`, preserving reserved spend in `provider_accounting`.
-/// - Persisted `response_received` where accounting is still `reserved` -> settles to `ok` with exact tokens and pricing.
-/// - Stranded `reserved` with no gateway receipt (pre-dispatch abort) -> cleans up the aborted reservation.
+/// Reports unresolved gateway state without guessing whether a dispatcher is alive.
+/// Reservations cannot be released or settled until ownership and endpoint-specific
+/// pricing are durably established by the dispatch protocol.
 pub fn reconcile_gateway_receipts(root: &Path, project_id: &str) -> Result<Value> {
-    use rusqlite::OptionalExtension;
     crate::execution::migrate(root)?;
-    let mut connection = rusqlite::Connection::open(root.join("state.sqlite")).map_err(|e| e.to_string())?;
+    let connection = rusqlite::Connection::open(root.join("state.sqlite")).map_err(|e| e.to_string())?;
     connection.busy_timeout(Duration::from_secs(10)).map_err(|e| e.to_string())?;
-    let tx = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e| e.to_string())?;
-
-    // 1. In-flight receipts in gateway_dispatch_receipts with status='awaiting_response'
-    let mut awaiting_stmt = tx.prepare(
-        "SELECT task_id, request_id, request_sha256 FROM gateway_dispatch_receipts WHERE project=?1 AND status='awaiting_response'"
+    let awaiting: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM gateway_dispatch_receipts WHERE project=?1 AND status='awaiting_response'",
+        [project_id], |r| r.get(0),
     ).map_err(|e| e.to_string())?;
-    let awaiting_rows: Vec<(String, String, String)> = awaiting_stmt.query_map([project_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
-        .map_err(|e| e.to_string())?.collect::<rusqlite::Result<Vec<_>>>().map_err(|e| e.to_string())?;
-    drop(awaiting_stmt);
-
-    let mut in_flight_reconciled = 0;
-    for (t_id, r_id, _sha) in awaiting_rows {
-        tx.execute(
-            "UPDATE gateway_dispatch_receipts SET status='outcome_unknown', updated_ms=?1 WHERE project=?2 AND task_id=?3 AND request_id=?4",
-            rusqlite::params![now_ms(), project_id, t_id, r_id],
-        ).map_err(|e| e.to_string())?;
-
-        let request_key = accounting_request_key(project_id, &t_id, &r_id);
-        tx.execute(
-            "UPDATE provider_accounting SET status='outcome_unknown' WHERE project=?1 AND (request_id=?2 OR request_id=?3) AND status='reserved'",
-            rusqlite::params![project_id, &request_key, &r_id],
-        ).map_err(|e| e.to_string())?;
-        in_flight_reconciled += 1;
-    }
-
-    // 2. Completed receipts in gateway_dispatch_receipts with status='response_received' where accounting is still 'reserved'
-    let mut response_stmt = tx.prepare(
-        "SELECT task_id, request_id, response_json FROM gateway_dispatch_receipts WHERE project=?1 AND status='response_received'"
+    let reserved: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM provider_accounting WHERE project=?1 AND status='reserved'",
+        [project_id], |r| r.get(0),
     ).map_err(|e| e.to_string())?;
-    let response_rows: Vec<(String, String, Option<String>)> = response_stmt.query_map([project_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
-        .map_err(|e| e.to_string())?.collect::<rusqlite::Result<Vec<_>>>().map_err(|e| e.to_string())?;
-    drop(response_stmt);
-
-    let mut responses_settled = 0;
-    for (t_id, r_id, resp_json_opt) in response_rows {
-        let request_key = accounting_request_key(project_id, &t_id, &r_id);
-        let cur_status: Option<String> = tx.query_row(
-            "SELECT status FROM provider_accounting WHERE project=?1 AND (request_id=?2 OR request_id=?3)",
-            rusqlite::params![project_id, &request_key, &r_id],
-            |r| r.get(0),
-        ).optional().map_err(|e| e.to_string())?;
-
-        if cur_status.as_deref() == Some("reserved") {
-            if let Some(resp_json) = resp_json_opt {
-                if let Ok(resp) = serde_json::from_str::<ChatCompletionResponse>(&resp_json) {
-                    let rates = resolve_namespaced_model_pricing(root, "", &resp.model)
-                        .ok().flatten()
-                        .or_else(|| resolve_model_pricing(root, &resp.model).ok().flatten())
-                        .unwrap_or((0, 0));
-                    let cost = cost_from_pricing(&resp.usage, rates).unwrap_or(0);
-                    tx.execute(
-                        "UPDATE provider_accounting SET prompt_tokens=?1, completion_tokens=?2, cost_millicents=?3, latency_ms=?4, status='ok'
-                         WHERE project=?5 AND (request_id=?6 OR request_id=?7) AND status='reserved'",
-                        rusqlite::params![resp.usage.prompt_tokens, resp.usage.completion_tokens, cost, resp.latency_ms, project_id, &request_key, &r_id],
-                    ).map_err(|e| e.to_string())?;
-                    responses_settled += 1;
-                }
-            }
-        }
-    }
-
-    // 3. Stranded 'reserved' rows in provider_accounting where no gateway receipt exists (pre-dispatch abort before network transport)
-    let mut stranded_stmt = tx.prepare(
-        "SELECT request_id, task_id FROM provider_accounting
-         WHERE project=?1 AND status='reserved'
-           AND request_id NOT IN (SELECT request_id FROM gateway_dispatch_receipts WHERE project=?1)
-           AND request_id NOT IN (SELECT project || ':' || task_id || ':' || request_id FROM gateway_dispatch_receipts WHERE project=?1)"
-    ).map_err(|e| e.to_string())?;
-    let stranded_rows: Vec<(String, String)> = stranded_stmt.query_map([project_id], |r| Ok((r.get(0)?, r.get(1)?)))
-        .map_err(|e| e.to_string())?.collect::<rusqlite::Result<Vec<_>>>().map_err(|e| e.to_string())?;
-    drop(stranded_stmt);
-
-    let mut stranded_cleaned = 0;
-    for (r_key, _) in stranded_rows {
-        tx.execute(
-            "DELETE FROM provider_accounting WHERE project=?1 AND request_id=?2 AND status='reserved'",
-            rusqlite::params![project_id, &r_key],
-        ).map_err(|e| e.to_string())?;
-        stranded_cleaned += 1;
-    }
-
-    tx.commit().map_err(|e| e.to_string())?;
-
     Ok(serde_json::json!({
-        "status": "reconciled",
+        "status": "manual_reconciliation_required",
         "project_id": project_id,
-        "in_flight_reconciled": in_flight_reconciled,
-        "responses_settled": responses_settled,
-        "stranded_cleaned": stranded_cleaned,
+        "awaiting_response": awaiting,
+        "reserved": reserved,
+        "in_flight_reconciled": 0,
+        "responses_settled": 0,
+        "stranded_cleaned": 0,
     }))
 }
 
@@ -1618,6 +1550,15 @@ fn validate_provider_price_cap(provider: &Value, rates: (i64, i64)) -> Result<()
 
 #[cfg(test)]
 mod campaign_admission_tests {
+    #[test]
+    fn implicit_openrouter_credentials_require_exact_https_authority() {
+        assert!(super::is_openrouter_endpoint("https://openrouter.ai/api/v1"));
+        assert!(super::is_openrouter_endpoint("https://OPENROUTER.AI/"));
+        for endpoint in ["http://openrouter.ai/", "https://openrouter.ai.evil/", "https://openrouter.ai@evil/", "https://evil/openrouter.ai", "https://openrouter.ai:443/"] {
+            assert!(!super::is_openrouter_endpoint(endpoint), "{endpoint}");
+        }
+    }
+
     use super::*;
     #[test]
     fn transport_sends_exact_json_and_auth_over_pipe() {

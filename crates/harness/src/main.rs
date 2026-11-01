@@ -256,9 +256,7 @@ async fn run()->Result<(),String>{
                 let effective_endpoint = endpoint
                     .or_else(|| std::env::var("OPENROUTER_BASE_URL").ok())
                     .unwrap_or(default_ep);
-                let is_openrouter = effective_endpoint.strip_prefix("https://")
-                    .and_then(|rest| rest.split(['/', '?', '#']).next())
-                    .is_some_and(|authority| authority.eq_ignore_ascii_case("openrouter.ai"));
+                let is_openrouter = mlrescurix_harness::agents::gateway::is_openrouter_endpoint(&effective_endpoint);
                 let effective_key = if let Some(prov) = resolved_provider {
                     if let Some(s_ref) = prov.secret_ref.as_deref() {
                         let policy_secret = std::env::var(s_ref).ok().or_else(|| {
@@ -353,8 +351,15 @@ async fn run()->Result<(),String>{
                 model: effective_model,
                 max_turns,
             };
-            let effective_key = api_key
-                .or_else(|| std::env::var("OPENROUTER_API_KEY").ok())
+            let default_ep = provider_cfg.as_ref()
+                .and_then(|c| c["endpoint"].as_str())
+                .unwrap_or("https://openrouter.ai/api/v1/chat/completions");
+            let effective_endpoint = endpoint
+                .or_else(|| std::env::var("OPENROUTER_BASE_URL").ok())
+                .unwrap_or_else(|| default_ep.to_string());
+            let effective_key = api_key.or_else(|| {
+                if !mlrescurix_harness::agents::gateway::is_openrouter_endpoint(&effective_endpoint) { return None; }
+                std::env::var("OPENROUTER_API_KEY").ok()
                 .or_else(|| {
                     std::fs::read_to_string(".config/openrouter.key")
                         .ok()
@@ -367,13 +372,8 @@ async fn run()->Result<(),String>{
                         .ok()
                         .map(|s| s.trim().to_string())
                         .filter(|s| !s.is_empty())
-                });
-            let default_ep = provider_cfg.as_ref()
-                .and_then(|c| c["endpoint"].as_str())
-                .unwrap_or("https://openrouter.ai/api/v1/chat/completions");
-            let effective_endpoint = endpoint
-                .or_else(|| std::env::var("OPENROUTER_BASE_URL").ok())
-                .unwrap_or_else(|| default_ep.to_string());
+                })
+            });
             let gateway: std::sync::Arc<dyn mlrescurix_harness::agents::ProviderGateway> = if let Some(mock_path) = mock {
                 let mock_bytes = std::fs::read(&mock_path).map_err(|e| format!("cannot read mock file: {e}"))?;
                 let responses: Vec<mlrescurix_harness::agents::ChatCompletionResponse> = serde_json::from_slice(&mock_bytes).map_err(|e| format!("invalid mock JSON: {e}"))?;

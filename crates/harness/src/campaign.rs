@@ -1,19 +1,7 @@
-//! Autonomous Campaign Production Entry Point
+//! Experimental autonomous campaign prototype.
 //!
-//! Provides the governed end-to-end production pipeline from a raw user problem specification
-//! and dataset to an independently verified, runnable delivery bundle:
-//! 1. Controller budget admission and namespaced provider accounting.
-//! 2. Authoritative dataset registration, deterministic lockbox carving, and split freezing.
-//! 3. Strict physical label isolation (worker workspace receives zero holdout labels).
-//! 4. Fresh-context agent program authoring with arbitrary model architecture support.
-//! 5. Isolated subprocess training (fit phase) producing deterministic weights.
-//! 6. Controller-owned independent inference and scoring against private validation data.
-//! 7. One-shot authoritative assessment lockbox evaluation with database-level consumption fence.
-//! 8. Usable model delivery bundle v2 with demonstrated inference parity:
-//!    - Standalone CLI inference (--input / --output),
-//!    - Loopback HTTP serving recipe (/health and /predict),
-//!    - Strict schema enforcement (missing and extra column rejection).
-//! 9. Provider spend reconciliation and crash recovery across all four lifecycle states.
+//! The entry point is disabled until a verified isolated execution boundary and
+//! general artifact delivery are implemented. Do not treat this module as production ready.
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -109,6 +97,16 @@ pub struct CampaignOutcome {
     pub duration_ms: u64,
 }
 
+fn csv_record(fields: &[String]) -> String {
+    fields.iter().map(|field| {
+        if field.contains([',', '"', '\r', '\n']) {
+            format!("\"{}\"", field.replace('"', "\"\""))
+        } else {
+            field.clone()
+        }
+    }).collect::<Vec<_>>().join(",")
+}
+
 fn sha256_bytes(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
@@ -166,8 +164,8 @@ pub fn run_autonomous_campaign(
     let runtime = if controller_root.join("OWNED").is_file() {
         Runtime::open(&controller_root)?
     } else {
-        if controller_root.exists() {
-            let _ = fs::remove_dir_all(&controller_root);
+        if fs::symlink_metadata(&controller_root).is_ok() {
+            return Err("controller path already exists without a valid ownership marker".into());
         }
         Runtime::init(&controller_root, m1_default_policy(spec.budget_millicents))?
     };
@@ -240,7 +238,7 @@ pub fn run_autonomous_campaign(
             api_key.clone(),
         )))
     } else if let Ok(env_key) = std::env::var("OPENROUTER_API_KEY") {
-        if !env_key.trim().is_empty() && endpoint.contains("openrouter.ai") {
+        if !env_key.trim().is_empty() && crate::agents::gateway::is_openrouter_endpoint(&endpoint) {
             Some(Arc::new(crate::agents::gateway::OpenAICompatibleAdapter::new(
                 endpoint.clone(),
                 env_key,
@@ -397,12 +395,12 @@ pub fn run_autonomous_campaign(
     // 7a. Worker train.csv (features + target for train rows ONLY)
     let worker_train_csv = worker_workspace.join("train.csv");
     let mut train_csv_out = String::new();
-    train_csv_out.push_str(&header.join(","));
+    train_csv_out.push_str(&csv_record(&header));
     train_csv_out.push('\n');
     let train_set: HashSet<u64> = train_rows.iter().copied().collect();
     for (idx, record) in raw_rows_data.iter().enumerate() {
         if train_set.contains(&(idx as u64)) {
-            train_csv_out.push_str(&record.join(","));
+            train_csv_out.push_str(&csv_record(record));
             train_csv_out.push('\n');
         }
     }
@@ -411,7 +409,7 @@ pub fn run_autonomous_campaign(
     // 7b. Worker val_features.csv (features ONLY, target column stripped)
     let worker_val_csv = worker_workspace.join("val_features.csv");
     let mut val_features_out = String::from("__mlr_row_id,");
-    val_features_out.push_str(&feature_columns.join(","));
+    val_features_out.push_str(&csv_record(&feature_columns));
     val_features_out.push('\n');
     let val_set: HashSet<u64> = val_rows.iter().copied().collect();
     let mut val_ground_truth = Vec::new();
@@ -423,9 +421,9 @@ pub fn run_autonomous_campaign(
                 .iter()
                 .enumerate()
                 .filter(|(c_idx, _)| *c_idx != target_idx)
-                .map(|(_, v)| v.trim().to_string())
+                .map(|(_, v)| v.clone())
                 .collect();
-            val_features_out.push_str(&row_feats.join(","));
+            val_features_out.push_str(&csv_record(&row_feats));
             val_features_out.push('\n');
             val_ground_truth.push((row_u64, ground_truth_rows[idx].1));
         }
@@ -435,7 +433,7 @@ pub fn run_autonomous_campaign(
     // 7c. Lockbox features (features ONLY, target column stripped)
     let worker_lockbox_csv = worker_workspace.join("lockbox_features.csv");
     let mut lockbox_features_out = String::from("__mlr_row_id,");
-    lockbox_features_out.push_str(&feature_columns.join(","));
+    lockbox_features_out.push_str(&csv_record(&feature_columns));
     lockbox_features_out.push('\n');
     let lockbox_set: HashSet<u64> = lockbox_rows.iter().copied().collect();
     for (idx, record) in raw_rows_data.iter().enumerate() {
@@ -446,9 +444,9 @@ pub fn run_autonomous_campaign(
                 .iter()
                 .enumerate()
                 .filter(|(c_idx, _)| *c_idx != target_idx)
-                .map(|(_, v)| v.trim().to_string())
+                .map(|(_, v)| v.clone())
                 .collect();
-            lockbox_features_out.push_str(&row_feats.join(","));
+            lockbox_features_out.push_str(&csv_record(&row_feats));
             lockbox_features_out.push('\n');
         }
     }
@@ -538,31 +536,12 @@ pub fn run_autonomous_campaign(
         }
     }
 
-    let (solution_code, program_manifest) = if branch_dir.join("solution.py").is_file() {
-        let s_code = fs::read_to_string(branch_dir.join("solution.py"))
-            .map_err(|e| format!("failed to read agent-authored solution.py: {e}"))?;
-        let p_manifest = if branch_dir.join("program.json").is_file() {
-            serde_json::from_slice(&fs::read(branch_dir.join("program.json")).unwrap_or_default())
-                .unwrap_or_else(|_| serde_json::json!({"entry_point": "solution.py"}))
-        } else {
-            serde_json::json!({"entry_point": "solution.py"})
-        };
-        (s_code, p_manifest)
-    } else {
-        // Fallback to local agent solution generator
-        let (fallback_code, fallback_manifest) = generate_agent_solution(
-            &spec.task_type,
-            &feature_columns,
-            &spec.target_column,
-            &candidate_id,
-        )?;
-        fs::write(branch_dir.join("solution.py"), &fallback_code).map_err(|e| e.to_string())?;
-        fs::write(
-            branch_dir.join("program.json"),
-            serde_json::to_string_pretty(&fallback_manifest).map_err(|e| e.to_string())?,
-        ).map_err(|e| e.to_string())?;
-        (fallback_code, fallback_manifest)
-    };
+    let solution_code = fs::read_to_string(branch_dir.join("solution.py"))
+        .map_err(|e| format!("agent did not author solution.py: {e}"))?;
+    let program_manifest: Value = serde_json::from_slice(
+        &fs::read(branch_dir.join("program.json"))
+            .map_err(|e| format!("agent did not author program.json: {e}"))?,
+    ).map_err(|e| format!("invalid agent-authored program.json: {e}"))?;
 
     let worker_solution_py = worker_workspace.join("solution.py");
     fs::write(&worker_solution_py, &solution_code).map_err(|e| e.to_string())?;
@@ -745,7 +724,6 @@ pub fn run_autonomous_campaign(
 
     // Model weights
     fs::copy(&weights_file, bundle_dir.join("model_weights.json")).map_err(|e| e.to_string())?;
-    fs::copy(&weights_file, bundle_dir.join("frozen_model.joblib")).map_err(|e| e.to_string())?;
     let frozen_model_sha = sha256_file(&bundle_dir.join("model_weights.json"))?;
 
     // Schemas
@@ -962,172 +940,6 @@ fn campaign_isolation_available() -> bool {
     false
 }
 
-/// Generates agent-authored solution code and program manifest for arbitrary model families.
-fn generate_agent_solution(
-    task_type: &str,
-    features: &[String],
-    target: &str,
-    candidate_id: &str,
-) -> Result<(String, Value)> {
-    let features_json = serde_json::to_string(features).unwrap();
-    let is_regression = if task_type.to_lowercase() == "regression" { "True" } else { "False" };
-
-    let code = format!(
-        r#"import sys
-import os
-import json
-import math
-import csv
-import argparse
-from pathlib import Path
-
-FEATURES = {features_json}
-TARGET = "{target}"
-IS_REGRESSION = {is_regression}
-
-def extract_features(row):
-    vec = []
-    for f in FEATURES:
-        val = float(row.get(f, 0.0))
-        vec.append(val)
-    return vec
-
-def basis_expansion(vec):
-    # Non-linear basis expansion: [1.0] + linear + squares + sines
-    expanded = [1.0]
-    for v in vec:
-        expanded.append(v)
-    for v in vec:
-        expanded.append(v * v)
-    for v in vec:
-        expanded.append(math.sin(v))
-    return expanded
-
-def fit(train_csv_path, weights_out_path):
-    rows = []
-    with open(train_csv_path, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for r in reader:
-            x_vec = extract_features(r)
-            phi = basis_expansion(x_vec)
-            y = float(r[TARGET])
-            rows.append((phi, y))
-
-    if not rows:
-        raise ValueError("no training rows found")
-
-    dim = len(rows[0][0])
-    w = [0.0] * dim
-    lr = 0.05
-    n = len(rows)
-
-    if IS_REGRESSION:
-        gamma = 2.0
-        for _ in range(800):
-            grad = [0.0] * dim
-            for phi, y in rows:
-                y_pred = sum(w[j] * phi[j] for j in range(dim))
-                r = y_pred - y
-                # Cauchy loss gradient: L'(r) = r / (1 + (r/gamma)^2)
-                factor = r / (1.0 + (r / gamma) ** 2)
-                for j in range(dim):
-                    grad[j] += factor * phi[j]
-            for j in range(dim):
-                w[j] -= lr * (grad[j] / n)
-    else:
-        # Binary classification with logistic cross-entropy
-        for _ in range(800):
-            grad = [0.0] * dim
-            for phi, y in rows:
-                z = sum(w[j] * phi[j] for j in range(dim))
-                p = 1.0 / (1.0 + math.exp(-max(min(z, 20.0), -20.0)))
-                r = p - y
-                for j in range(dim):
-                    grad[j] += r * phi[j]
-            for j in range(dim):
-                w[j] -= lr * (grad[j] / n)
-
-    model_payload = {{
-        "candidate_id": "{candidate_id}",
-        "task_type": "{task_type}",
-        "features": FEATURES,
-        "target": TARGET,
-        "weights": w,
-        "basis_dim": dim,
-        "gamma": 2.0 if IS_REGRESSION else None
-    }}
-    with open(weights_out_path, "w", encoding="utf-8") as f:
-        json.dump(model_payload, f, indent=2)
-
-def infer(features_csv_path, weights_in_path, predictions_out_path):
-    with open(weights_in_path, "r", encoding="utf-8") as f:
-        model = json.load(f)
-    w = model["weights"]
-    dim = len(w)
-
-    preds = []
-    with open(features_csv_path, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for r in reader:
-            row_id = int(r["__mlr_row_id"])
-            x_vec = extract_features(r)
-            phi = basis_expansion(x_vec)
-            if len(phi) != dim:
-                raise ValueError("basis dimension mismatch")
-            val = sum(w[j] * phi[j] for j in range(dim))
-            if not IS_REGRESSION:
-                p = 1.0 / (1.0 + math.exp(-max(min(val, 20.0), -20.0)))
-                pred_val = 1.0 if p >= 0.5 else 0.0
-            else:
-                pred_val = val
-            preds.append({{"row_id": row_id, "prediction": round(pred_val, 6)}})
-
-    with open(predictions_out_path, "w", encoding="utf-8") as f:
-        json.dump(preds, f, indent=2)
-
-def main():
-    parser = argparse.ArgumentParser()
-    subparsers = parser.add_subparsers(dest="cmd")
-
-    fit_p = subparsers.add_parser("fit")
-    fit_p.add_argument("--train-data", required=True)
-    fit_p.add_argument("--weights-out", required=True)
-
-    infer_p = subparsers.add_parser("infer")
-    infer_p.add_argument("--features-in", required=True)
-    infer_p.add_argument("--weights-in", required=True)
-    infer_p.add_argument("--predictions-out", required=True)
-
-    args = parser.parse_args()
-    if args.cmd == "fit":
-        fit(args.train_data, args.weights_out)
-    elif args.cmd == "infer":
-        infer(args.features_in, args.weights_in, args.predictions_out)
-    else:
-        parser.print_help()
-        sys.exit(1)
-
-if __name__ == "__main__":
-    main()
-"#
-    );
-
-    let manifest = serde_json::json!({
-        "schema_version": "mlrescurix.program.v1",
-        "candidate_id": candidate_id,
-        "task_type": task_type,
-        "features": features,
-        "target": target,
-        "entry_point": "solution.py",
-        "commands": {
-            "fit": "python3 solution.py fit --train-data {train_data} --weights-out {weights_out}",
-            "infer": "python3 solution.py infer --features-in {features_in} --weights-in {weights_in} --predictions-out {predictions_out}"
-        }
-    });
-
-    Ok((code, manifest))
-}
-
 /// Generates production-ready standalone inference.py and serve.py for delivery bundle.
 fn generate_bundle_runtime_scripts(
     task_type: &str,
@@ -1306,4 +1118,15 @@ if __name__ == "__main__":
 "#.to_string();
 
     Ok((inference_code, serve_code))
+}
+
+#[cfg(test)]
+mod csv_serialization_tests {
+    use super::csv_record;
+
+    #[test]
+    fn quotes_special_csv_fields_and_preserves_whitespace() {
+        let fields = vec!["hello, world".into(), "say \"hi\"".into(), " a ".into(), "line\nnext".into()];
+        assert_eq!(csv_record(&fields), "\"hello, world\",\"say \"\"hi\"\"\", a ,\"line\nnext\"");
+    }
 }

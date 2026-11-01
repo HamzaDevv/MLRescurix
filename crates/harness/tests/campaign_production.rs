@@ -429,35 +429,35 @@ fn test_gateway_spend_reconciliation_all_states() {
         300, Some(10_000),
     ).unwrap();
 
-    // Reconcile across all 4 states
+    // Reconciliation conservatively preserves all uncertain states
     let recon = reconcile_gateway_receipts(&root, project_id).unwrap();
-    assert_eq!(recon["in_flight_reconciled"], 1);
-    assert_eq!(recon["responses_settled"], 1);
-    assert_eq!(recon["stranded_cleaned"], 1);
+    assert_eq!(recon["in_flight_reconciled"], 0);
+    assert_eq!(recon["responses_settled"], 0);
+    assert_eq!(recon["stranded_cleaned"], 0);
 
-    // Verify State 1 transitioned to outcome_unknown
+    // Verify live in-flight state remains untouched
     let status_1: String = conn.query_row(
         "SELECT status FROM gateway_dispatch_receipts WHERE project=?1 AND request_id=?2",
         rusqlite::params![project_id, req_id_1],
         |r| r.get(0),
     ).unwrap();
-    assert_eq!(status_1, "outcome_unknown");
+    assert_eq!(status_1, "awaiting_response");
 
-    // Verify State 2 settled to ok
+    // Verify response without endpoint-bound pricing remains reserved
     let acc_status_2: String = conn.query_row(
         "SELECT status FROM provider_accounting WHERE project=?1 AND request_id LIKE ?2",
         rusqlite::params![project_id, format!("%{req_id_2}%")],
         |r| r.get(0),
     ).unwrap();
-    assert_eq!(acc_status_2, "ok");
+    assert_eq!(acc_status_2, "reserved");
 
-    // Verify State 3 stranded reservation was deleted
+    // Verify reservation without a receipt is preserved
     let count_3: i64 = conn.query_row(
         "SELECT COUNT(*) FROM provider_accounting WHERE project=?1 AND request_id LIKE ?2",
         rusqlite::params![project_id, format!("%{req_id_3}%")],
         |r| r.get(0),
     ).unwrap();
-    assert_eq!(count_3, 0);
+    assert_eq!(count_3, 1);
 }
 
 #[test]
@@ -510,18 +510,18 @@ fn test_real_os_process_crash_recovery() {
     assert_eq!(integrity, "ok", "database integrity corrupted after process crash");
     drop(check_conn);
 
-    // Run reconciliation recovery: cleans up in-flight state and reclaims spend
+    // Reconciliation cannot infer dispatcher ownership from this fixture
     let recon = reconcile_gateway_receipts(&root, project_id).unwrap();
-    assert_eq!(recon["in_flight_reconciled"], 1);
+    assert_eq!(recon["in_flight_reconciled"], 0);
 
-    // Verify receipt and accounting status transitioned to outcome_unknown
+    // Verify the receipt remains untouched
     let final_conn = Connection::open(root.join("state.sqlite")).unwrap();
     let status: String = final_conn.query_row(
         "SELECT status FROM gateway_dispatch_receipts WHERE project=?1 AND request_id=?2",
         rusqlite::params![project_id, req_id],
         |r| r.get(0),
     ).unwrap();
-    assert_eq!(status, "outcome_unknown");
+    assert_eq!(status, "awaiting_response");
 }
 
 #[test]
