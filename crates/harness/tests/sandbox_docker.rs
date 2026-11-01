@@ -165,3 +165,34 @@ for _ in range(1000):
     assert!(err.contains("exceeded output byte bound"), "Error must indicate output limit exceeded: {err}");
 }
 
+
+#[cfg(unix)]
+#[test]
+fn test_docker_live_cannot_read_controller_file_via_host_path_or_workspace_symlink() {
+    use std::os::unix::fs::symlink;
+
+    if matches!(SandboxDetector::detect(), SandboxStatus::Unavailable { .. }) {
+        eprintln!("Skipping Docker test: daemon unavailable");
+        return;
+    }
+    let controller = tempfile::tempdir().unwrap();
+    let secret = controller.path().join("heldout-labels.json");
+    fs::write(&secret, "controller-only-sentinel").unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    symlink(&secret, workspace.path().join("leaked-labels.json")).unwrap();
+    let path_literal = serde_json::to_string(&secret.to_string_lossy().to_string()).unwrap();
+    let script = format!(r#"
+from pathlib import Path
+for path in [{path_literal}, '/workspace/leaked-labels.json']:
+    try:
+        Path(path).read_bytes()
+    except OSError:
+        continue
+    raise SystemExit('controller file accessible: ' + path)
+print('VERIFIED_CONTROLLER_FILE_ISOLATION')
+"#);
+    fs::write(workspace.path().join("isolation.py"), script).unwrap();
+    let result = SandboxRunner::execute(workspace.path(), "isolation.py", &[], &SandboxLimits::default(), None).unwrap();
+    assert_eq!(result.exit_code, 0, "stderr: {}", result.stderr);
+    assert!(result.stdout.contains("VERIFIED_CONTROLLER_FILE_ISOLATION"));
+}
