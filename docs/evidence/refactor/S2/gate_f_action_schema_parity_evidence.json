@@ -1,0 +1,39 @@
+{
+  "gate": "F",
+  "status": "PASS",
+  "description": "Cross-layer descriptor parity, parameter validation, and corrupt/missing schema rejection without silent fallback",
+  "test_target": "python/tests/test_s2_resource_and_boundaries.py::test_gate_f_action_schema_validation",
+  "authority_contract": "contracts/v3/actions.json",
+  "canonical_actions_loaded": [
+    "ADVANCE_PHASE",
+    "ANALYZE",
+    "BLEND_AND_AUDIT",
+    "CROSS_VALIDATE_CANDIDATE",
+    "DECLARE_PLATEAU",
+    "EVALUATE_PORTFOLIO",
+    "EXPAND_SEARCH_SPACE",
+    "FINALIZE_AND_EXPORT",
+    "GOVERNED_RESEARCH",
+    "HYPOTHESIS_TRANSFORM",
+    "REVISE_HYPOTHESIS",
+    "TUNE_HYPERPARAMETERS"
+  ],
+  "validation_results": {
+    "canonical_action_valid": {
+      "action": "EVALUATE_PORTFOLIO",
+      "parameters": {"families": ["tree", "linear"], "seed": 2026},
+      "disposition": "applied"
+    },
+    "unknown_action_rejection": {
+      "action": "MAGIC_WAND_OPTIMIZE",
+      "disposition": "rejected",
+      "error_msg": "Unknown action type 'MAGIC_WAND_OPTIMIZE'; must be one of ['ADVANCE_PHASE', 'ANALYZE', 'BLEND_AND_AUDIT', 'CROSS_VALIDATE_CANDIDATE', 'DECLARE_PLATEAU', 'EVALUATE_PORTFOLIO', 'EXPAND_SEARCH_SPACE', 'FINALIZE_AND_EXPORT', 'GOVERNED_RESEARCH', 'HYPOTHESIS_TRANSFORM', 'REVISE_HYPOTHESIS', 'TUNE_HYPERPARAMETERS']"
+    },
+    "missing_required_parameter_rejection": {
+      "action": "HYPOTHESIS_TRANSFORM",
+      "parameters": {},
+      "disposition": "rejected",
+      "error_msg": "Action 'HYPOTHESIS_TRANSFORM' missing required parameter 'transform'"
+    }
+  }
+}

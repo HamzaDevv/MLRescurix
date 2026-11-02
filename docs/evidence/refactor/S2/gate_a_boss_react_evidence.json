@@ -1,0 +1,54 @@
+{
+  "gate": "A",
+  "status": "PASS",
+  "description": "Real owner/specialist/challenger serialized requests, alternate evidence-driven owner trajectories, and CLI fixture dispatch",
+  "test_target": "crates/harness/tests/s2_gates.rs::test_gate_a_trajectory_1_boss_delegates_challenger_and_finalizes, test_gate_a_trajectory_2_boss_observes_poor_score_and_stops_early, and test_gate_a_cli_binary_with_mock_fixture",
+  "trajectories": {
+    "trajectory_1": {
+      "observed_evidence": {
+        "candidate": "cand_proj_gate_a_traj1_93b6e828",
+        "task_type": "regression",
+        "metric": "Mae",
+        "validation_score": 0.197326,
+        "validation_rows": 24,
+        "feature_columns": ["x1", "x2"]
+      },
+      "boss_step_1_decision": "DELEGATE_CHALLENGER",
+      "boss_step_1_rationale": "Validation score is competitive; audit for variance and protocol leak.",
+      "challenger_audit_result": {
+        "schema_version": "mlrescurix.challenger.v1",
+        "task_id": "task_challenger_proj_gate_a_traj1",
+        "candidate_id": "cand_proj_gate_a_traj1_93b6e828",
+        "protocol_sha256": "150484262154dba0e810953e3edf192d052da340ee200a9e3d62ca4c8d9ffa73",
+        "validation_score": 0.1973256,
+        "verdict": "APPROVED",
+        "rationale": "Validation split boundaries and metric strictly conform to protocol.",
+        "findings": [
+          "No target leakage detected",
+          "Residuals well-bounded"
+        ]
+      },
+      "boss_step_2_decision": "FINALIZE_AND_STOP",
+      "outcome": "Candidate accepted, holdout assessment lockbox consumed exactly once",
+      "lockbox_consumptions": 1
+    },
+    "trajectory_2": {
+      "observed_evidence": {
+        "candidate": "cand_proj_gate_a_traj2_93b6e828",
+        "task_type": "regression",
+        "metric": "Mae",
+        "validation_score": 0.197326
+      },
+      "boss_step_1_decision": "STOP_EARLY",
+      "boss_step_1_rationale": "Validation error exceeds acceptable scientific tolerance; halting without candidate audit.",
+      "outcome": "Campaign terminated early by owner decision; lockbox NEVER consumed",
+      "lockbox_consumptions": 0
+    }
+  },
+  "cli_mock_fixture_verification": {
+    "command": "mlrescurix autonomous-create --offline-fixture --state <dir> --spec <spec> --mock <mock>",
+    "exit_code": 0,
+    "verified_bundle": true
+  },
+  "structured_challenger_parser_verified": true
+}

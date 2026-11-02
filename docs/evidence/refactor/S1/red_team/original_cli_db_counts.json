@@ -1,0 +1,9 @@
+{
+  "task_assignments": 2,
+  "task_completions": 2,
+  "agent_checkpoints": 0,
+  "provider_turn_receipts": 0,
+  "critic_audits": 0,
+  "campaign_leases": 1,
+  "assessment_lockbox_consumptions": 1
+}

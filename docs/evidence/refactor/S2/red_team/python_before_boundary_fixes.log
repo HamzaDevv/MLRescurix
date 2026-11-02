@@ -1,0 +1,55 @@
+/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/pytest_asyncio/plugin.py:208: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the fixture caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to function scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+__________ test_search_admission_survives_actual_loop_reconstruction ___________
+
+tmp_path = PosixPath('/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-458/test_search_admission_survives0')
+
+    def test_search_admission_survives_actual_loop_reconstruction(tmp_path):
+        first, _ = make_loop(tmp_path, [])
+        budget = first.operational_budgets
+        admitted, attempt = budget.admit_search("tabular models", "tabular models", "mock")
+        assert admitted and attempt
+        second, _ = make_loop(tmp_path, [])
+        restored = second.operational_budgets
+>       assert restored.project_id == budget.project_id == first.project_id
+E       AssertionError: assert 'campaign_9319b35c' == 'campaign_8058572c'
+E         
+E         - campaign_8058572c
+E         + campaign_9319b35c
+
+python/tests/test_s2_red_team.py:13: AssertionError
+_______ test_uncertain_execution_cannot_be_treated_as_candidate_failure ________
+
+tmp_path = PosixPath('/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-458/test_uncertain_execution_canno0')
+
+    def test_uncertain_execution_cannot_be_treated_as_candidate_failure(tmp_path):
+        calls = []
+    
+        def uncertain(spec, frame, folds, metric):
+            calls.append(spec["families"][0])
+            raise RecoveryRequired("remote dispatch outcome unknown")
+    
+        loop, _ = make_loop(tmp_path, [action("EVALUATE_PORTFOLIO", families=["hist_gbdt", "penalized_linear"])], evaluator=uncertain)
+        # The outer loop may record rejection/handoff; it must not run a sibling
+        # after an explicit request to reconcile an uncertain side effect.
+        try:
+            loop.run()
+        except RecoveryRequired:
+            pass
+>       assert calls == ["hist_gbdt"]
+E       AssertionError: assert ['hist_gbdt',...lized_linear'] == ['hist_gbdt']
+E         
+E         Left contains one more item: 'penalized_linear'
+E         Use -v to get more diff
+
+python/tests/test_s2_red_team.py:32: AssertionError
+----------------------------- Captured stdout call -----------------------------
+[OPERATIONAL BUDGET] Turn 0 complete: Tokens recorded: 0 / 5,000,000 (complete: False) | Kaggle and web search accounting not connected or enforced
+=========================== short test summary info ============================
+FAILED python/tests/test_s2_red_team.py::test_search_admission_survives_actual_loop_reconstruction
+FAILED python/tests/test_s2_red_team.py::test_uncertain_execution_cannot_be_treated_as_candidate_failure
+2 failed in 5.09s

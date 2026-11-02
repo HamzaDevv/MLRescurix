@@ -35,7 +35,7 @@ use mlrescurix_harness::{
         reserve_role_spend, ChatCompletionResponse, FunctionCall,
         ScriptedProviderFixture, TokenUsage, ToolCall,
     },
-    campaign::{run_autonomous_campaign, CampaignOutcome, CampaignProblemSpec},
+    campaign::{run_offline_fixture_campaign as run_autonomous_campaign, CampaignOutcome, CampaignProblemSpec},
     contracts::MetricSpec,
     custom_protocol::{
         carve_lockbox_with_min_rows, ensure_custom_protocol_schema,
@@ -80,13 +80,12 @@ fn campaign_fails_closed_before_creating_state_without_isolation() {
         budget_millicents: 1000, model_name: "test".into(), endpoint: None, api_key: None,
         lockbox_fraction: None, seed: None, max_turns: None,
     };
-    let err = run_autonomous_campaign(&state, &spec, None).unwrap_err();
+    let err = mlrescurix_harness::campaign::run_autonomous_campaign(&state, &spec, None).unwrap_err();
     assert!(err.contains("isolated worker execution is not yet implemented"));
     assert!(!state.exists());
 }
 
 #[test]
-#[ignore = "campaign disabled pending a real isolated execution boundary"]
 fn test_autonomous_campaign_end_to_end_production_path() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
@@ -525,7 +524,6 @@ fn test_real_os_process_crash_recovery() {
 }
 
 #[test]
-#[ignore = "campaign disabled pending a real isolated execution boundary"]
 fn test_autonomous_campaign_cli_production_binary() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
@@ -553,6 +551,7 @@ fn test_autonomous_campaign_cli_production_binary() {
     let output = Command::new(bin_path)
         .args([
             "autonomous-create",
+            "--offline-fixture",
             "--state",
             state_dir.to_str().unwrap(),
             "--spec",
@@ -590,7 +589,6 @@ fn test_autonomous_campaign_cli_production_binary() {
 }
 
 #[test]
-#[ignore = "campaign disabled pending a real isolated execution boundary"]
 fn test_autonomous_campaign_with_agent_orchestrator_gateway_override() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
@@ -720,6 +718,33 @@ if __name__ == "__main__":
             usage: TokenUsage { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
             latency_ms: 10,
         },
+        // Turn 4: Boss ReAct Turn 1 observes evidence and delegates to challenger
+        ChatCompletionResponse {
+            id: "turn4-boss-delegate".into(),
+            model: model_name.into(),
+            content: Some("DELEGATE_CHALLENGER: Validation score and model complexity acceptable; proceed with audit.".into()),
+            tool_calls: vec![],
+            usage: TokenUsage { prompt_tokens: 150, completion_tokens: 25, total_tokens: 175 },
+            latency_ms: 12,
+        },
+        // Turn 5: Challenger completes independent audit
+        ChatCompletionResponse {
+            id: "turn5-challenger-audit".into(),
+            model: model_name.into(),
+            content: Some("APPROVED: Validation score and protocol independently verified.".into()),
+            tool_calls: vec![],
+            usage: TokenUsage { prompt_tokens: 250, completion_tokens: 30, total_tokens: 280 },
+            latency_ms: 15,
+        },
+        // Turn 6: Boss ReAct Turn 2 observes challenger audit and approves finalization
+        ChatCompletionResponse {
+            id: "turn6-boss-finalize".into(),
+            model: model_name.into(),
+            content: Some("FINALIZE_AND_STOP: Candidate independently audited and approved.".into()),
+            tool_calls: vec![],
+            usage: TokenUsage { prompt_tokens: 180, completion_tokens: 20, total_tokens: 200 },
+            latency_ms: 10,
+        },
     ]));
 
     let problem_spec = CampaignProblemSpec {
@@ -759,7 +784,6 @@ if __name__ == "__main__":
 }
 
 #[test]
-#[ignore = "campaign disabled pending a real isolated execution boundary"]
 fn test_adversarial_intake_validation() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();

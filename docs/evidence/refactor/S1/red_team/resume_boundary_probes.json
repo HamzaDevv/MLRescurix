@@ -1,0 +1,24 @@
+{
+  "changed_problem": {
+    "exit_code": 0,
+    "stderr": "offline trusted fixture: host subprocesses; no live provider, containment, independent-agent, or release certification",
+    "requested_metric": "rmse",
+    "requested_seed": 7,
+    "reported_protocol_sha256": "001c5faa9772c28bc1b37cb0e608151bb34757a9745272e353a16f4440171797",
+    "original_protocol_sha256": "001c5faa9772c28bc1b37cb0e608151bb34757a9745272e353a16f4440171797",
+    "same_validation_score": true,
+    "same_lockbox_score": true,
+    "same_weights_sha256": true
+  },
+  "changed_weights": {
+    "exit_code": 0,
+    "stderr": "offline trusted fixture: host subprocesses; no live provider, containment, independent-agent, or release certification",
+    "requested_metric": "mae",
+    "requested_seed": 2026,
+    "reported_protocol_sha256": "001c5faa9772c28bc1b37cb0e608151bb34757a9745272e353a16f4440171797",
+    "original_protocol_sha256": "001c5faa9772c28bc1b37cb0e608151bb34757a9745272e353a16f4440171797",
+    "same_validation_score": true,
+    "same_lockbox_score": true,
+    "same_weights_sha256": false
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "properties": {
+    "prediction": {
+      "type": "number"
+    }
+  },
+  "task": "regression",
+  "type": "object"
+}

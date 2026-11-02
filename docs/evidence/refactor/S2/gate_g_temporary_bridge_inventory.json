@@ -1,0 +1,25 @@
+{
+  "gate": "G",
+  "status": "PASS",
+  "description": "Inventory of temporary scientific adapter/bridge surfaces and assigned S3 deletion owner",
+  "inventory": [
+    {
+      "component": "python/src/mlrescurix_worker/scientific/autonomous_loop.py::AutonomousAgentLoop",
+      "purpose": "Temporary Python-side autonomous optimization loop and turn-by-turn exploration executor",
+      "deletion_owner": "Session 3 (Generic execution boundaries & bundle isolation)",
+      "target_architecture": "Harness Rust Campaign Owner acts as sole orchestrator; Python is strictly an invoked sandboxed worker subprocess"
+    },
+    {
+      "component": "python/src/mlrescurix_worker/scientific/governed_research.py::GovernedResearchClient",
+      "purpose": "Python-side search dispatcher and privacy boundary filter",
+      "deletion_owner": "Session 3 / Session 4 (Search authority consolidation)",
+      "target_architecture": "Rust harness gateway acts as sole outbound networking and provider accounting authority"
+    },
+    {
+      "component": "crates/harness/src/campaign.rs::generate_default_solution_template",
+      "purpose": "Built-in fallback linear basis model generator for offline reference diagnostic runs",
+      "deletion_owner": "Session 3 (Standardized recipe asset library)",
+      "target_architecture": "Recipes explicitly loaded from certified asset library rather than hardcoded in Rust source"
+    }
+  ]
+}

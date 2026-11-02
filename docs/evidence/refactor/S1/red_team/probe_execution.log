@@ -1,0 +1,56 @@
+[OPERATIONAL BUDGET] Turn 0 complete: Tokens recorded: 0 / 5,000,000 (complete: False) | Kaggle and web search accounting not connected or enforced
+python_boundary_probes.json {
+  "xgboost": {
+    "declared": {
+      "n_estimators": 100,
+      "learning_rate": 0.05,
+      "max_depth": 5,
+      "subsample": 0.8,
+      "colsample_bytree": 0.8,
+      "reg_alpha": 0.5,
+      "reg_lambda": 2.0
+    },
+    "actual_n_estimators": 150,
+    "actual_max_iter": null
+  },
+  "penalized_linear": {
+    "declared": {
+      "alpha": 1.0,
+      "max_iter": 2000
+    },
+    "actual_n_estimators": null,
+    "actual_max_iter": null
+  },
+  "equal_resolved_configs": true,
+  "equal_execution_keys": false,
+  "search_after_dispatch": 1,
+  "search_after_restart_before_turn_commit": 0,
+  "siblings_attempted_after_first_failure": [
+    "hist_gbdt"
+  ],
+  "turn_disposition": "rejected"
+}
+resume_boundary_probes.json {
+  "changed_problem": {
+    "exit_code": 0,
+    "stderr": "offline trusted fixture: host subprocesses; no live provider, containment, independent-agent, or release certification",
+    "requested_metric": "rmse",
+    "requested_seed": 7,
+    "reported_protocol_sha256": "001c5faa9772c28bc1b37cb0e608151bb34757a9745272e353a16f4440171797",
+    "original_protocol_sha256": "001c5faa9772c28bc1b37cb0e608151bb34757a9745272e353a16f4440171797",
+    "same_validation_score": true,
+    "same_lockbox_score": true,
+    "same_weights_sha256": true
+  },
+  "changed_weights": {
+    "exit_code": 0,
+    "stderr": "offline trusted fixture: host subprocesses; no live provider, containment, independent-agent, or release certification",
+    "requested_metric": "mae",
+    "requested_seed": 2026,
+    "reported_protocol_sha256": "001c5faa9772c28bc1b37cb0e608151bb34757a9745272e353a16f4440171797",
+    "original_protocol_sha256": "001c5faa9772c28bc1b37cb0e608151bb34757a9745272e353a16f4440171797",
+    "same_validation_score": true,
+    "same_lockbox_score": true,
+    "same_weights_sha256": false
+  }
+}

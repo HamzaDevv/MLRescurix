@@ -1,0 +1,8 @@
+{
+  "frozen_model_sha256": "750c6821d6b0eeebb154e5dc4a1ee04eb7d056080069eeb908e3479065f017e8",
+  "lockbox_score": 0.07852033333333341,
+  "model_weights_sha256": "750c6821d6b0eeebb154e5dc4a1ee04eb7d056080069eeb908e3479065f017e8",
+  "validation_score": 0.2276856666666666,
+  "verified": true,
+  "verifier": "mlrescurix_controller"
+}

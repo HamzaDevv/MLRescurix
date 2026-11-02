@@ -15,19 +15,19 @@
     "kaggle_compute": {
       "limit_hours": 30.0,
       "unit": "hours",
-      "description": "Total Kaggle GPU/TPU compute usage measured in hours as provided by the available Kaggle account environment (standard weekly free GPU allocation: 30.0 hours).",
+      "description": "Configured target for Kaggle accelerator hours. Not connected to Kaggle dispatch or account quota; not enforced by the autonomous loop.",
       "accelerator": "gpu"
     },
     "web_search_queries": {
       "limit": 500,
       "unit": "queries",
-      "description": "Total web search query requests permitted across all autonomous research actions. Default: 500 queries.",
+      "description": "Configured target for web search requests. A temporary Python bridge records durable admissions for bound clients; unified Rust authority and enforcement across all callers remain unverified. Provider availability is reported separately.",
       "service": "deepseek_or_governed_web"
     }
   },
   "spending_cap_preservation": {
     "preserve_campaign_usd_ledger": true,
     "campaign_ledger_path": "docs/evidence/v2/robustness/20261021-robustness/campaign_budget_ledger.json",
-    "description": "Preserves dollar-denominated model spending cap and ledger history ($0.28049 campaign ceiling, $0.16015 remaining balance) in accordance with campaign governance rules."
+    "description": "Preserves the existing dollar-denominated model spending cap and ledger history; consult the ledger for the current balance."
   }
 }

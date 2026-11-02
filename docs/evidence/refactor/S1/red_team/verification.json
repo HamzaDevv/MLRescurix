@@ -1,0 +1,77 @@
+{
+  "review_date": "2026-11-02",
+  "baseline_commit": "95a35e915b60a7a253aa989daf1d257bd74d0364",
+  "working_tree": "dirty; existing unrelated changes preserved",
+  "python": "3.13.3 (v3.13.3:6280bb54784, Apr  8 2025, 10:47:54) [Clang 15.0.0 (clang-1500.3.9.4)]",
+  "python_executable": "/Library/Frameworks/Python.framework/Versions/3.13/bin/python3",
+  "cargo": "cargo 1.94.0 (85eff7c80 2026-01-15)",
+  "rustc": "rustc 1.94.0 (4a4ef493e 2026-03-02)",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "source_sha256": {
+    "Cargo.lock": "5286f68defd9a9266023637fe35f34b750ee86d074c05141677dd9516c01c9c1",
+    "python/pyproject.toml": "dd6643c0c9158cb4fbe1c436781affe10d71a74ebdc1d107691e46344460d775",
+    "contracts/v3/actions.json": "aa34f18ecb697cfd31d08c7bd0660a1b5acfc4b60db3c553f22cb6d149aea318",
+    "crates/harness/src/campaign.rs": "0405dca7254c2d6438694e3d61690673bfc1d827d0eba3b1e628114477a44c04",
+    "crates/harness/src/main.rs": "d2bd251fc26dc3a35eeef4bf74059cbf00d0267767d7ed3cffa325f99c08dc2a",
+    "crates/harness/src/assets.rs": "887c8228065073adb2c5927de564d428088284d1d797c1b3989ecd2306e299a1",
+    "crates/harness/src/agents/roles.rs": "341bd9af23c9774ac6a77642b700706eddf5541870e3df6b58f3804acf36158c",
+    "crates/harness/src/agents/gateway.rs": "b993c3f165300b032c8d71ea2cba08375e249bb2891fcadfebda16f3ab2d8ffc",
+    "crates/harness/tests/campaign_boss_specialist_slice.rs": "62db3ebfb3e158a98875806453a3aa3d44f9a284cfd170f19de853f81638ad16",
+    "crates/harness/tests/campaign_production.rs": "0c47325af3e8b8fdecc62fa0c02d58a9bbc9a1b08936ee79d30e5544dc82a7dd",
+    "crates/harness/tests/s1_red_team.rs": "eb52933fe53365ee07809604762de2dabea6ce920dbd35cb2594174718e56a96",
+    "python/src/mlrescurix_worker/scientific/autonomous_loop.py": "6c1f179d88a6ecab37df1b3b98c35f3be6ee5d8342d2aa3809a9927d98348e78",
+    "python/src/mlrescurix_worker/scientific/candidate_pipeline.py": "29411ba79e027d9fb9b622de72d3c3bdcde0fc7f53977473585c6908a2176a22",
+    "python/src/mlrescurix_worker/scientific/model_zoo.py": "5dab84eb08eeecc17264f27ca483431e65bb874ada9639565bd9ef4e4933dc12",
+    "python/src/mlrescurix_worker/scientific/operational_budgets.py": "22f04af99374a73aab8a76e0d3004ae66e53e19c7cc386190c2ee23909592c39",
+    "python/src/mlrescurix_worker/scientific/governed_research.py": "228a0e4c0476b5f7e80385cbdf67a10d995e5f97ff93731a1ead8b498f31aeca",
+    "python/src/mlrescurix_worker/scientific/deepseek_search.py": "d512904d78b9c99c90823d66f8658c57868a74df9149839f32b66e2820188b8a",
+    "scripts/run_live_amazon.sh": "ad2713ce5e603f4a597d1f52747a57e8df055c5f80bfbde15526b026b0128b4a"
+  },
+  "source_manifest_sha256": "6cf1634f24a8ad0886842883e9e8a90cf46809770e720df7d01f44b8898a18be",
+  "binary_sha256": "2d71b637e81e60229e93c0c6fdc9dd02956683818dc78809ef5f5c95135dd53d",
+  "checks": [
+    {
+      "command": "cargo test --locked --workspace",
+      "exit_code": 0,
+      "passed": 348,
+      "failed": 0,
+      "ignored": 17,
+      "log": "workspace_tests.log"
+    },
+    {
+      "command": "cargo test --locked -p mlrescurix-harness --test s1_red_team --test campaign_boss_specialist_slice --test campaign_production",
+      "exit_code": 0,
+      "passed": 23,
+      "log": "after_boundary_fixes.log"
+    },
+    {
+      "command": "cargo test --locked -p mlrescurix-harness --test s1_red_team",
+      "exit_code": 0,
+      "passed": 4,
+      "note": "final test source includes missing/None challenger content",
+      "log": "final_boundary_tests.log"
+    },
+    {
+      "command": "PYTHONPATH=python/src python3 -m pytest -q python/tests/test_s1_contracts_and_parity.py python/tests/test_governed_research.py python/tests/test_operational_budget_accounting.py",
+      "exit_code": 0,
+      "passed": 19,
+      "note": "observed before Rust-only bounded fixes; full 491-test Python suite not independently repeated"
+    },
+    {
+      "command": "python3 docs/evidence/refactor/S1/red_team/reproduce_remaining_gaps.py",
+      "exit_code": 0,
+      "note": "observational probes reproduce remaining defects; command success is not acceptance success",
+      "log": "probe_execution.log"
+    }
+  ],
+  "original_regression_failures": {
+    "command": "cargo test --locked -p mlrescurix-harness --test s1_red_team",
+    "exit_code": 101,
+    "failed": 2,
+    "log": "before_boundary_fixes.log"
+  },
+  "paid_calls": 0,
+  "live_search_queries": 0,
+  "kaggle_jobs": 0,
+  "assurance": "production campaign disabled pending verified isolation; explicit trusted synthetic offline diagnostics only; S1 overall acceptance not established"
+}

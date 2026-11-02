@@ -1,0 +1,49 @@
+{
+  "gate": "E",
+  "status": "PASS",
+  "description": "Changed problem/artifact/dataset/seed rejection, exact duplicate single fit reuse, tampered weights repackaging rejection, and portfolio sibling runtime failure isolation",
+  "test_target": "crates/harness/tests/s2_gates.rs::test_gate_e_resumption_rejects_changed_metric, test_gate_e_resumption_rejects_changed_seed, test_gate_e_resumption_rejects_changed_dataset_bytes, test_gate_e_repackaging_rejects_tampered_model_weights, python/tests/test_s2_resource_and_boundaries.py::test_gate_e_exact_duplicate_candidate_one_fit, and python/tests/test_s2_resource_and_boundaries.py::test_gate_e_portfolio_runtime_sibling_failure_isolation",
+  "rejection_findings": {
+    "changed_metric_resumption": {
+      "frozen_metric": "Mae",
+      "requested_resumption_metric": "Rmse",
+      "rejection_error": "campaign resumption rejected: requested metric 'Rmse' does not match frozen protocol metric 'Mae'"
+    },
+    "changed_seed_resumption": {
+      "frozen_seed": 2026,
+      "requested_resumption_seed": 7,
+      "rejection_error": "campaign resumption rejected: requested seed/split does not match frozen protocol split"
+    },
+    "changed_dataset_bytes_resumption": {
+      "rejection_error": "campaign resumption rejected: dataset bytes changed for project 'proj_dataset_resumption'"
+    },
+    "exact_duplicate_candidate_reuse": {
+      "spec1": "penalized_linear with max_iter=2000",
+      "spec2": "penalized_linear with omitted max_iter (default 2000)",
+      "canonical_hash_parity": true,
+      "fit_count": 1,
+      "turn_1_disposition": "rejected (already evaluated; 0 redundant fits)"
+    },
+    "tampered_bundle_weights": {
+      "manipulation": "modified model_weights.json in delivery bundle",
+      "rejection_error": "bundle model weights SHA-256 does not match authoritative lockbox evaluation artifact SHA-256 or tampered bundle"
+    },
+    "manifest_removal_and_worker_weights_tampering": {
+      "manipulation": "deleted manifest.json and modified worker_workspace/weights.json",
+      "rejection_error": "cannot repackage modified weights with old scores (does not match evaluated artifact SHA-256)"
+    },
+    "portfolio_sibling_runtime_isolation": {
+      "attempted_families": ["penalized_linear", "hist_gbdt"],
+      "penalized_linear_outcome": {
+        "status": "candidate_execution_failure",
+        "error_type": "RuntimeError",
+        "error": "Simulated runtime failure in linear sibling fit"
+      },
+      "hist_gbdt_outcome": {
+        "status": "accepted",
+        "cv_score": 0.82
+      },
+      "portfolio_aborted": false
+    }
+  }
+}

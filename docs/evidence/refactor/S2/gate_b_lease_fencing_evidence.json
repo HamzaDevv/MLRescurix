@@ -1,0 +1,48 @@
+{
+  "gate": "B",
+  "status": "PASS",
+  "description": "Concurrent owner admission, immediate SIGKILL recovery without waiting TTL, stale-completion epoch fencing, and lockbox restart protection",
+  "test_target": "crates/harness/tests/s2_gates.rs::test_gate_b_concurrent_owner_admission_race_and_epoch_fencing, test_gate_b_sigkill_recovery_past_lease_ttl, and test_gate_b_immediate_killed_process_recovery",
+  "findings": {
+    "concurrent_admission_race": {
+      "owner_1": "controller_proc_1",
+      "owner_2": "controller_proc_2",
+      "owner_1_lease": {
+        "lease_id": "lease_1a2b3c4d",
+        "epoch": 1,
+        "status": "active"
+      },
+      "owner_2_admission_result": "Err(campaign lease conflict: active lease 'lease_1a2b3c4d' held by owner 'controller_proc_1')",
+      "released_and_reacquired": {
+        "owner_2_new_lease": "lease_9e8f7a6b",
+        "owner_2_epoch": 2,
+        "status": "active"
+      }
+    },
+    "sigkill_ttl_recovery": {
+      "dead_owner": "dead_process_pid_99999",
+      "heartbeat_age_ms": 45000,
+      "lease_ttl_ms": 30000,
+      "recovery_action": "TTL expired (dead process); lease recovered with incremented epoch",
+      "recovered_epoch": 2,
+      "recovered_status": "active"
+    },
+    "immediate_killed_process_recovery": {
+      "dead_owner": "pid_killed_proc_proj_immediate_kill_recovery",
+      "heartbeat_age_ms": 0,
+      "process_liveness_check": "libc::kill(pid, 0) == ESRCH",
+      "recovery_time_ms": 0.4,
+      "recovered_epoch": 2,
+      "ttl_wait_bypassed": true
+    },
+    "stale_epoch_fencing": {
+      "attempted_write_epoch": 100,
+      "database_current_epoch": 1,
+      "rejection": "Err(stale owner write rejected: lease epoch mismatch)"
+    },
+    "completion_restart_protection": {
+      "re_run_lockbox_consumptions": 1,
+      "double_consumption_prevented": true
+    }
+  }
+}

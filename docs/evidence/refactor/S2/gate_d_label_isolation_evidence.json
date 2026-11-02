@@ -1,0 +1,34 @@
+{
+  "gate": "D",
+  "status": "PASS",
+  "description": "Physical label isolation between worker workspace and controller, and honest backend isolation reporting",
+  "test_target": "crates/harness/tests/s2_gates.rs::test_gate_d_physical_label_isolation_and_honest_reporting",
+  "honest_backend_reporting": {
+    "campaign_isolation_available": false,
+    "environment_flag_override_allowed": false,
+    "thread_override_allowed": false,
+    "containment_status": "unverified_container_on_host; explicit offline diagnostic mode required for host runs"
+  },
+  "physical_label_isolation": {
+    "worker_train_csv": {
+      "path": "worker_workspace/train.csv",
+      "contains_target": true,
+      "rows": "training split only"
+    },
+    "worker_val_features_csv": {
+      "path": "worker_workspace/val_features.csv",
+      "contains_target": false,
+      "columns_present": ["__mlr_row_id", "x1", "x2"],
+      "columns_excluded": ["target"]
+    },
+    "worker_lockbox_features_csv": {
+      "path": "worker_workspace/lockbox_features.csv",
+      "contains_target": false,
+      "columns_excluded": ["target"]
+    },
+    "controller_ground_truth": {
+      "path": "controller/val_ground_truth",
+      "isolated_from_worker": true
+    }
+  }
+}

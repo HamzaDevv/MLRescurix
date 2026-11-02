@@ -1,0 +1,71 @@
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.61s
+     Running tests/campaign_boss_specialist_slice.rs (target/debug/deps/campaign_boss_specialist_slice-35c1686fdd0185eb)
+
+running 9 tests
+test test_evidence_d_action_parity_embedded_assets_json ... ok
+test test_evidence_d_csv_header_whitespace_resilience ... ok
+test test_evidence_a_second_configuration_changes_behavior ... ok
+test test_evidence_b_serialized_context_isolation_and_evidence_binding ... ok
+test test_evidence_c_restart_boundary_preserves_outcome_and_prevents_double_lockbox ... ok
+test test_challenger_rejection_halts_boss_and_rejects_candidate ... ok
+test test_evidence_c_restart_recovers_when_bundle_incomplete_after_lockbox_consumption ... ok
+test test_evidence_c_restart_after_challenger_approval_does_not_re_step_challenger ... ok
+test test_evidence_a_boss_specialist_slice_end_to_end ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.17s
+
+     Running tests/campaign_production.rs (target/debug/deps/campaign_production-5fba6f852676cae2)
+
+running 10 tests
+test campaign_fails_closed_before_creating_state_without_isolation ... ok
+test test_admitted_reference_fixture_authority ... ok
+test test_concurrent_four_threads_lockbox_consumption ... ok
+test test_high_concurrency_sixteen_threads_lockbox_race ... ok
+started
+test test_real_os_process_crash_recovery ... ok
+test test_gateway_spend_reconciliation_all_states ... ok
+test test_adversarial_intake_validation ... ok
+test test_autonomous_campaign_end_to_end_production_path ... ok
+test test_autonomous_campaign_cli_production_binary ... ok
+test test_autonomous_campaign_with_agent_orchestrator_gateway_override ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.36s
+
+     Running tests/s1_red_team.rs (target/debug/deps/s1_red_team-844b6732e072a18f)
+
+running 4 tests
+test production_requires_real_isolation_before_state_creation ... ok
+test offline_fixture_rejects_live_credentials_and_remote_gateways_before_state_creation ... ok
+test malformed_csv_width_is_rejected_without_panic ... ok
+test challenger_must_return_an_unambiguous_explicit_verdict ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.65s
+
+     Running tests/s2_gates.rs (target/debug/deps/s2_gates-cc7def5b513ae7f6)
+
+running 12 tests
+test test_gate_a_structured_challenger_audit_result_parser ... ok
+test test_gate_b_sigkill_recovery_past_lease_ttl ... ok
+test test_gate_b_concurrent_owner_admission_race_and_epoch_fencing ... ok
+test test_gate_b_immediate_killed_process_recovery ... ok
+test test_gate_a_trajectory_2_boss_observes_poor_score_and_stops_early ... ok
+test test_gate_d_physical_label_isolation_and_honest_reporting ... ok
+test test_gate_a_cli_binary_with_mock_fixture ... ok
+test test_gate_e_resumption_rejects_changed_dataset_bytes ... ok
+test test_gate_e_resumption_rejects_changed_metric ... ok
+test test_gate_e_resumption_rejects_changed_seed ... ok
+test test_gate_e_repackaging_rejects_tampered_model_weights ... ok
+test test_gate_a_trajectory_1_boss_delegates_challenger_and_finalizes ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.70s
+
+     Running tests/s2_red_team.rs (target/debug/deps/s2_red_team-fc5969ff210d96a9)
+
+running 3 tests
+test challenger_cannot_rebind_mismatched_identity_or_omit_findings ... ok
+test post_audit_owner_reply_requires_explicit_finalization ... ok
+test owner_missing_ambiguous_or_negative_decision_cannot_finalize ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.90s
+

@@ -1,0 +1,36 @@
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.60s
+     Running tests/s2_red_team.rs (target/debug/deps/s2_red_team-fc5969ff210d96a9)
+
+running 3 tests
+test challenger_cannot_rebind_mismatched_identity_or_omit_findings ... FAILED
+test owner_missing_ambiguous_or_negative_decision_cannot_finalize ... FAILED
+test post_audit_owner_reply_requires_explicit_finalization ... FAILED
+
+failures:
+
+---- challenger_cannot_rebind_mismatched_identity_or_omit_findings stdout ----
+
+thread 'challenger_cannot_rebind_mismatched_identity_or_omit_findings' (10016922) panicked at crates/harness/tests/s2_red_team.rs:73:9:
+invalid audit accepted: {"verdict":"APPROVED"}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- owner_missing_ambiguous_or_negative_decision_cannot_finalize stdout ----
+
+thread 'owner_missing_ambiguous_or_negative_decision_cannot_finalize' (10016923) panicked at crates/harness/tests/s2_red_team.rs:38:9:
+invalid owner reply finalized: None
+
+---- post_audit_owner_reply_requires_explicit_finalization stdout ----
+
+thread 'post_audit_owner_reply_requires_explicit_finalization' (10016924) panicked at crates/harness/tests/s2_red_team.rs:55:9:
+post-audit invalid reply finalized: None
+
+
+failures:
+    challenger_cannot_rebind_mismatched_identity_or_omit_findings
+    owner_missing_ambiguous_or_negative_decision_cannot_finalize
+    post_audit_owner_reply_requires_explicit_finalization
+
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.28s
+
+error: test failed, to rerun pass `-p mlrescurix-harness --test s2_red_team`

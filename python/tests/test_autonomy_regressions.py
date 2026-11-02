@@ -42,6 +42,28 @@ def make_loop(tmp_path, actions, **kwargs):
 def action(kind, **params): return {"thought_rationale": "Follow observed evidence", "action_type": kind, "parameters": params}
 
 
+def test_selected_controller_score_is_bound_to_candidate_and_recovers_trace(tmp_path):
+    loop, _ = make_loop(tmp_path, [])
+    loop.state["candidate_identity"] = "selected"
+    loop.state["latest_controller_verified_score"] = 3.0
+    loop.state["controller_verified_candidates"] = {"other": 3.0, "selected": 2.0}
+    assert loop._selected_controller_verified_score() == 2.0
+    loop.state["controller_verified_candidates"] = {}
+    trace = loop.workspace_root / "autonomous_trace.jsonl"
+    with trace.open("a") as out:
+        out.write(json.dumps({"event": "independent_controller_evaluation_verified", "candidate_identity": "selected", "controller_recomputed_cv_score": 2.0}) + "\n")
+        out.write(json.dumps({"event": "independent_controller_evaluation_verified", "candidate_identity": "other", "controller_recomputed_cv_score": 3.0}) + "\n")
+    assert loop._selected_controller_verified_score() == 2.0
+    loop.state["candidate_identity"] = "unknown"
+    assert loop._selected_controller_verified_score() is None
+
+
+def test_controller_rejects_missing_claimed_oof_file(tmp_path):
+    loop, _ = make_loop(tmp_path, [])
+    with pytest.raises(ValueError, match="Out-of-fold prediction file is missing"):
+        loop._verify_independent_controller_evaluation({"families": ["penalized_linear"]}, {"oof_sha256": "claimed"})
+
+
 def test_transform_is_fold_local_and_mutates_later_candidate(tmp_path):
     traces = []
     def evaluator(spec, frame, folds, metric):

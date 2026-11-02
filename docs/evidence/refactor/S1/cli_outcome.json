@@ -1,0 +1,47 @@
+{
+  "project_id": "proj_s1_evidence_demo",
+  "dataset_id": "ds_309ff4563f0a",
+  "dataset_sha256": "309ff4563f0a44976914df2c5029f62d8fb187d9f60309396575dfbfc2baefe9",
+  "protocol_sha256": "001c5faa9772c28bc1b37cb0e608151bb34757a9745272e353a16f4440171797",
+  "candidate_id": "cand_proj_s1_evidence_demo_309ff456",
+  "weights_sha256": "750c6821d6b0eeebb154e5dc4a1ee04eb7d056080069eeb908e3479065f017e8",
+  "validation_score": 0.2276856666666666,
+  "lockbox_score": 0.07852033333333341,
+  "lockbox_receipt_sha256": "f6d4887c5001d81568db67d42fdd4c775ff9d8f01490d290fd073959cc363557",
+  "bundle_dir": "/Users/hamza/Developer/Imp_Projects/MLRescurix/docs/evidence/refactor/S1/cli_state/delivery_bundle_cand_proj_s1_evidence_demo_309ff456",
+  "bundle_verification": {
+    "status": "integrity_verified",
+    "bundle_path": "/Users/hamza/Developer/Imp_Projects/MLRescurix/docs/evidence/refactor/S1/cli_state/delivery_bundle_cand_proj_s1_evidence_demo_309ff456",
+    "project_id": "proj_s1_evidence_demo",
+    "candidate_id": "cand_proj_s1_evidence_demo_309ff456",
+    "format": "mlrescurix.bundle.v2",
+    "total_bytes": 14729,
+    "file_count": 17,
+    "manifest_verified": true,
+    "contracts_verified": true,
+    "parity_check": "skipped_by_request",
+    "constraints_verified": true,
+    "details": {
+      "authenticity": "not_established_without_external_trust",
+      "constraints": null,
+      "external_binding": null,
+      "feasibility": "scorecard_claims_not_independently_certified",
+      "frozen_model_bytes": 377,
+      "frozen_model_sha256": "750c6821d6b0eeebb154e5dc4a1ee04eb7d056080069eeb908e3479065f017e8",
+      "sandbox_telemetry": null,
+      "scope": "integrity and optional sandbox example parity; not release acceptance",
+      "scorecard_metrics": null
+    },
+    "verified_at_ms": 1793633905084
+  },
+  "spend_reconciliation": {
+    "awaiting_response": 0,
+    "in_flight_reconciled": 0,
+    "project_id": "proj_s1_evidence_demo",
+    "reserved": 0,
+    "responses_settled": 0,
+    "status": "manual_reconciliation_required",
+    "stranded_cleaned": 0
+  },
+  "duration_ms": 816
+}

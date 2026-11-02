@@ -1,0 +1,25 @@
+{
+  "search": {
+    "terminal_success_after_contradictory_settlement": "timeout",
+    "without_admission_authority_status": "success",
+    "without_admission_authority_provider_calls": 1
+  },
+  "source_rebinding": {
+    "repack_exit": 0,
+    "stderr": "offline trusted fixture: host subprocesses; no live provider, containment, independent-agent, or release certification",
+    "same_validation_score": true,
+    "same_holdout_score": true,
+    "same_weights": true,
+    "exported_source_changed": true,
+    "new_source_predictions_differ_from_scored_predictions": true
+  },
+  "built_wheel": {
+    "build_exit": 0,
+    "action_schema_files": [],
+    "isolated_wheel_import_exit": 1,
+    "error_tail": [
+      "    raise FileNotFoundError(\"Missing canonical actions schema: contracts/v3/actions.json not found in ancestor paths\")",
+      "FileNotFoundError: Missing canonical actions schema: contracts/v3/actions.json not found in ancestor paths"
+    ]
+  }
+}

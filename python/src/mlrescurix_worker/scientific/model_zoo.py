@@ -578,7 +578,7 @@ def create_estimator(
         if HAS_XGBOOST:
             if is_classification:
                 est = XGBClassifier(
-                    n_estimators=kwargs.get("n_estimators", 150),
+                    n_estimators=kwargs.get("n_estimators", 100),
                     learning_rate=kwargs.get("learning_rate", 0.05),
                     max_depth=kwargs.get("max_depth", 5),
                     subsample=kwargs.get("subsample", 0.8),
@@ -591,7 +591,7 @@ def create_estimator(
                 )
             else:
                 est = XGBRegressor(
-                    n_estimators=kwargs.get("n_estimators", 150),
+                    n_estimators=kwargs.get("n_estimators", 100),
                     learning_rate=kwargs.get("learning_rate", 0.05),
                     max_depth=kwargs.get("max_depth", 5),
                     subsample=kwargs.get("subsample", 0.8),
@@ -712,10 +712,11 @@ def create_estimator(
                     random_state=random_state,
                 )
         else:
+            max_iter = kwargs.get("max_iter", 2000)
             if penalty == "elasticnet":
-                linear_model = ElasticNet(alpha=alpha, l1_ratio=l1_ratio, random_state=random_state, max_iter=2000, tol=1e-3)
+                linear_model = ElasticNet(alpha=alpha, l1_ratio=l1_ratio, random_state=random_state, max_iter=max_iter, tol=1e-3)
             else:
-                linear_model = Ridge(alpha=alpha, random_state=random_state)
+                linear_model = Ridge(alpha=alpha, random_state=random_state, max_iter=max_iter)
 
         # Pipeline: RobustScaler + SimpleImputer with missingness indicators
         est = Pipeline([

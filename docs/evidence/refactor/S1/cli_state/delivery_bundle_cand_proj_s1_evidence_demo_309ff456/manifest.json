@@ -1,0 +1,82 @@
+{
+  "format": "mlrescurix.bundle.v2",
+  "project_id": "proj_s1_evidence_demo",
+  "candidate_id": "cand_proj_s1_evidence_demo_309ff456",
+  "files": {
+    "training.lock": {
+      "bytes": 30,
+      "sha256": "a320866600bd2cefc157173b8cf65a686b4bd01a394ddb9889a0186052505080"
+    },
+    "examples_expected.json": {
+      "bytes": 25,
+      "sha256": "3265e2bfc54e4321e3a9298f2eb2fcc8a1c634df19a5c9adc9d8657623316d34"
+    },
+    "program.json": {
+      "bytes": 471,
+      "sha256": "455748e5da63f7079699e4d563d3ca5cde841aaadff5b463609e91a0ae86575e"
+    },
+    "README.md": {
+      "bytes": 134,
+      "sha256": "2802a132db20ada02461e0c11604bbd091ed80da5d94c7a0cc784eeb3557b2d3"
+    },
+    "examples_input.json": {
+      "bytes": 108,
+      "sha256": "04466561a236a694aef63d9fe62d35a1a9fec0e5d06fdfbc3f85f055a9103036"
+    },
+    "scorecard.json": {
+      "bytes": 278,
+      "sha256": "69e58f38ac46bb686efb1b81face531cc76bda2adf9ee61537645bf203bec35a"
+    },
+    "verification.json": {
+      "bytes": 330,
+      "sha256": "323a133524fb42362cd5e2f1d115862ff696bf54f2a4d7ab1b0fda33fd0ea0eb"
+    },
+    "__pycache__/inference.cpython-313.pyc": {
+      "bytes": 19,
+      "sha256": "49a0cf76b4ebad7177a9517a9d80d7614f11d2b63bcb8f0e61238517303ae580"
+    },
+    "output_schema.json": {
+      "bytes": 118,
+      "sha256": "8d4839705608991fccf5e362ebf3ccecaf0990cf0ce6d53bb3ff43bafa01574b"
+    },
+    "input_schema.json": {
+      "bytes": 192,
+      "sha256": "018777dfcd2afd0be0e29fef2f4840fd862126c4864c50573374717e2154c987"
+    },
+    "frozen_model.joblib": {
+      "bytes": 377,
+      "sha256": "750c6821d6b0eeebb154e5dc4a1ee04eb7d056080069eeb908e3479065f017e8"
+    },
+    "inference.lock": {
+      "bytes": 30,
+      "sha256": "a320866600bd2cefc157173b8cf65a686b4bd01a394ddb9889a0186052505080"
+    },
+    "final.json": {
+      "bytes": 171,
+      "sha256": "746efcc43d33e3472cc604e763f57b62be20ace84728f6d37a850c7c36155c0d"
+    },
+    "inference.py": {
+      "bytes": 3482,
+      "sha256": "b1d32dc525fc989d36e7fa8b1a069d390896f09b275bd4d6cbaacb72c1aa26d9"
+    },
+    "model_weights.json": {
+      "bytes": 377,
+      "sha256": "750c6821d6b0eeebb154e5dc4a1ee04eb7d056080069eeb908e3479065f017e8"
+    },
+    "serve.py": {
+      "bytes": 2066,
+      "sha256": "e62ad5fa5eed32d7ce9e86520fa8104e7f514f7f64afcf15837856e51070a6a6"
+    },
+    "solution.py": {
+      "bytes": 3904,
+      "sha256": "a146da4e3a720d6c9539d0452d2b332556ca34dfc9056f611b3ec17fb512800a"
+    }
+  },
+  "model": null,
+  "pipeline": null,
+  "contracts": null,
+  "dependencies": null,
+  "scorecard": null,
+  "lineage": null,
+  "resource_measurements": null
+}

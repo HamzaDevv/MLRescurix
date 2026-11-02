@@ -1,0 +1,32 @@
+{
+  "xgboost": {
+    "declared": {
+      "n_estimators": 100,
+      "learning_rate": 0.05,
+      "max_depth": 5,
+      "subsample": 0.8,
+      "colsample_bytree": 0.8,
+      "reg_alpha": 0.5,
+      "reg_lambda": 2.0
+    },
+    "actual_n_estimators": 100,
+    "actual_max_iter": null
+  },
+  "penalized_linear": {
+    "declared": {
+      "alpha": 1.0,
+      "max_iter": 2000
+    },
+    "actual_n_estimators": null,
+    "actual_max_iter": 2000
+  },
+  "equal_resolved_configs": true,
+  "equal_execution_keys": true,
+  "search_after_dispatch": 1,
+  "search_after_restart_before_turn_commit": 1,
+  "siblings_attempted_after_first_failure": [
+    "hist_gbdt",
+    "penalized_linear"
+  ],
+  "turn_disposition": "rejected"
+}

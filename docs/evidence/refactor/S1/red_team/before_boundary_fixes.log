@@ -1,0 +1,29 @@
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.30s
+     Running tests/s1_red_team.rs (target/debug/deps/s1_red_team-844b6732e072a18f)
+
+running 2 tests
+test production_requires_real_isolation_before_state_creation ... FAILED
+test challenger_must_return_an_unambiguous_explicit_verdict ... FAILED
+
+failures:
+
+---- production_requires_real_isolation_before_state_creation stdout ----
+
+thread 'production_requires_real_isolation_before_state_creation' (8043661) panicked at crates/harness/tests/s1_red_team.rs:27:60:
+called `Result::unwrap_err()` on an `Ok` value: CampaignOutcome { project_id: "review_boundary", dataset_id: "ds_33eadd438704", dataset_sha256: "33eadd4387041cd147c3bc4b817cd2321fd187bf360d9e72ae16d09ec7f7896d", protocol_sha256: "29c4acbf24c45f2e5bedc08e7a5d6f3ab86cc162f46a74eb0fface6a490dd2b7", candidate_id: "cand_review_boundary_33eadd43", weights_sha256: "26a9f98922000b57684373c264009e8c4435bbfe7c34ee9ef6a7ea0310758de7", validation_score: 0.02565555555555547, lockbox_score: 0.021872444444444455, lockbox_receipt_sha256: "c65f4e4c06a065e1f6f839ae7f2fc08e123b508cf36f9379dfd046ca04b09d44", bundle_dir: "/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/.tmpHpBDe1/state/delivery_bundle_cand_review_boundary_33eadd43", bundle_verification: BundleVerificationReport { status: "integrity_verified", bundle_path: "/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/.tmpHpBDe1/state/delivery_bundle_cand_review_boundary_33eadd43", project_id: "review_boundary", candidate_id: "cand_review_boundary_33eadd43", format: "mlrescurix.bundle.v2", total_bytes: 14374, file_count: 17, manifest_verified: true, contracts_verified: true, parity_check: "skipped_by_request", constraints_verified: true, details: Object {"authenticity": String("not_established_without_external_trust"), "constraints": Null, "external_binding": Null, "feasibility": String("scorecard_claims_not_independently_certified"), "frozen_model_bytes": Number(281), "frozen_model_sha256": String("26a9f98922000b57684373c264009e8c4435bbfe7c34ee9ef6a7ea0310758de7"), "sandbox_telemetry": Null, "scope": String("integrity and optional sandbox example parity; not release acceptance"), "scorecard_metrics": Null}, verified_at_ms: 1793636156869 }, spend_reconciliation: Object {"awaiting_response": Number(0), "in_flight_reconciled": Number(0), "project_id": String("review_boundary"), "reserved": Number(0), "responses_settled": Number(0), "status": String("manual_reconciliation_required"), "stranded_cleaned": Number(0)}, duration_ms: 869 }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- challenger_must_return_an_unambiguous_explicit_verdict stdout ----
+
+thread 'challenger_must_return_an_unambiguous_explicit_verdict' (8043660) panicked at crates/harness/tests/s1_red_team.rs:42:92:
+called `Result::unwrap_err()` on an `Ok` value: CampaignOutcome { project_id: "review_boundary", dataset_id: "ds_33eadd438704", dataset_sha256: "33eadd4387041cd147c3bc4b817cd2321fd187bf360d9e72ae16d09ec7f7896d", protocol_sha256: "29c4acbf24c45f2e5bedc08e7a5d6f3ab86cc162f46a74eb0fface6a490dd2b7", candidate_id: "cand_review_boundary_33eadd43", weights_sha256: "26a9f98922000b57684373c264009e8c4435bbfe7c34ee9ef6a7ea0310758de7", validation_score: 0.02565555555555547, lockbox_score: 0.021872444444444455, lockbox_receipt_sha256: "c65f4e4c06a065e1f6f839ae7f2fc08e123b508cf36f9379dfd046ca04b09d44", bundle_dir: "/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/.tmprWsMcK/state/delivery_bundle_cand_review_boundary_33eadd43", bundle_verification: BundleVerificationReport { status: "integrity_verified", bundle_path: "/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/.tmprWsMcK/state/delivery_bundle_cand_review_boundary_33eadd43", project_id: "review_boundary", candidate_id: "cand_review_boundary_33eadd43", format: "mlrescurix.bundle.v2", total_bytes: 14374, file_count: 17, manifest_verified: true, contracts_verified: true, parity_check: "skipped_by_request", constraints_verified: true, details: Object {"authenticity": String("not_established_without_external_trust"), "constraints": Null, "external_binding": Null, "feasibility": String("scorecard_claims_not_independently_certified"), "frozen_model_bytes": Number(281), "frozen_model_sha256": String("26a9f98922000b57684373c264009e8c4435bbfe7c34ee9ef6a7ea0310758de7"), "sandbox_telemetry": Null, "scope": String("integrity and optional sandbox example parity; not release acceptance"), "scorecard_metrics": Null}, verified_at_ms: 1793636156952 }, spend_reconciliation: Object {"awaiting_response": Number(0), "in_flight_reconciled": Number(0), "project_id": String("review_boundary"), "reserved": Number(1), "responses_settled": Number(0), "status": String("manual_reconciliation_required"), "stranded_cleaned": Number(0)}, duration_ms: 952 }
+
+
+failures:
+    challenger_must_return_an_unambiguous_explicit_verdict
+    production_requires_real_isolation_before_state_creation
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.96s
+
+error: test failed, to rerun pass `-p mlrescurix-harness --test s1_red_team`

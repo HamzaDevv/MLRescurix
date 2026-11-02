@@ -45,11 +45,14 @@ pub const EMBEDDED_PYTHON_FILES: &[(&str, &str)] = &[
     ("src/mlrescurix_worker/scientific/anomaly_clustering.py", include_str!("../../../python/src/mlrescurix_worker/scientific/anomaly_clustering.py")),
     ("src/mlrescurix_worker/scientific/arrow_adapter.py", include_str!("../../../python/src/mlrescurix_worker/scientific/arrow_adapter.py")),
     ("src/mlrescurix_worker/scientific/autonomous_loop.py", include_str!("../../../python/src/mlrescurix_worker/scientific/autonomous_loop.py")),
+    ("src/mlrescurix_worker/scientific/operational_budgets.py", include_str!("../../../python/src/mlrescurix_worker/scientific/operational_budgets.py")),
     ("src/mlrescurix_worker/scientific/autonomous_rescue.py", include_str!("../../../python/src/mlrescurix_worker/scientific/autonomous_rescue.py")),
     ("src/mlrescurix_worker/scientific/benchmarks.py", include_str!("../../../python/src/mlrescurix_worker/scientific/benchmarks.py")),
     ("src/mlrescurix_worker/scientific/bundle.py", include_str!("../../../python/src/mlrescurix_worker/scientific/bundle.py")),
     ("src/mlrescurix_worker/scientific/calibration.py", include_str!("../../../python/src/mlrescurix_worker/scientific/calibration.py")),
     ("src/mlrescurix_worker/scientific/candidate_pipeline.py", include_str!("../../../python/src/mlrescurix_worker/scientific/candidate_pipeline.py")),
+    ("src/mlrescurix_worker/scientific/contracts/__init__.py", include_str!("../../../python/src/mlrescurix_worker/scientific/contracts/__init__.py")),
+    ("src/mlrescurix_worker/scientific/contracts/validator.py", include_str!("../../../python/src/mlrescurix_worker/scientific/contracts/validator.py")),
     ("src/mlrescurix_worker/scientific/candidate_runner.py", include_str!("../../../python/src/mlrescurix_worker/scientific/candidate_runner.py")),
     ("src/mlrescurix_worker/scientific/candidate_synthesis.py", include_str!("../../../python/src/mlrescurix_worker/scientific/candidate_synthesis.py")),
     ("src/mlrescurix_worker/scientific/candidate_worker.py", include_str!("../../../python/src/mlrescurix_worker/scientific/candidate_worker.py")),
@@ -57,6 +60,7 @@ pub const EMBEDDED_PYTHON_FILES: &[(&str, &str)] = &[
     ("src/mlrescurix_worker/scientific/critic_engine.py", include_str!("../../../python/src/mlrescurix_worker/scientific/critic_engine.py")),
     ("src/mlrescurix_worker/scientific/dashboard.py", include_str!("../../../python/src/mlrescurix_worker/scientific/dashboard.py")),
     ("src/mlrescurix_worker/scientific/deepseek_search.py", include_str!("../../../python/src/mlrescurix_worker/scientific/deepseek_search.py")),
+    ("src/mlrescurix_worker/scientific/governed_research.py", include_str!("../../../python/src/mlrescurix_worker/scientific/governed_research.py")),
     ("src/mlrescurix_worker/scientific/diagnostic_bridge.py", include_str!("../../../python/src/mlrescurix_worker/scientific/diagnostic_bridge.py")),
     ("src/mlrescurix_worker/scientific/dirty_sanitizer.py", include_str!("../../../python/src/mlrescurix_worker/scientific/dirty_sanitizer.py")),
     ("src/mlrescurix_worker/scientific/dual_gateway.py", include_str!("../../../python/src/mlrescurix_worker/scientific/dual_gateway.py")),
@@ -70,6 +74,7 @@ pub const EMBEDDED_PYTHON_FILES: &[(&str, &str)] = &[
     ("src/mlrescurix_worker/scientific/frozen_embeddings.py", include_str!("../../../python/src/mlrescurix_worker/scientific/frozen_embeddings.py")),
     ("src/mlrescurix_worker/scientific/hypothesis_executor.py", include_str!("../../../python/src/mlrescurix_worker/scientific/hypothesis_executor.py")),
     ("src/mlrescurix_worker/scientific/iteration_loop.py", include_str!("../../../python/src/mlrescurix_worker/scientific/iteration_loop.py")),
+    ("src/mlrescurix_worker/scientific/kaggle_output_transport.py", include_str!("../../../python/src/mlrescurix_worker/scientific/kaggle_output_transport.py")),
     ("src/mlrescurix_worker/scientific/kaggle_pool.py", include_str!("../../../python/src/mlrescurix_worker/scientific/kaggle_pool.py")),
     ("src/mlrescurix_worker/scientific/model_zoo.py", include_str!("../../../python/src/mlrescurix_worker/scientific/model_zoo.py")),
     ("src/mlrescurix_worker/scientific/pareto_ensemble.py", include_str!("../../../python/src/mlrescurix_worker/scientific/pareto_ensemble.py")),
@@ -86,7 +91,10 @@ pub const EMBEDDED_PYTHON_FILES: &[(&str, &str)] = &[
     ("src/mlrescurix_worker/search/__init__.py", include_str!("../../../python/src/mlrescurix_worker/search/__init__.py")),
     ("src/mlrescurix_worker/search/adapter.py", include_str!("../../../python/src/mlrescurix_worker/search/adapter.py")),
     ("src/mlrescurix_worker/search/cli.py", include_str!("../../../python/src/mlrescurix_worker/search/cli.py")),
+    ("contracts/v3/actions.json", ACTIONS_V3_JSON),
 ];
+
+pub const ACTIONS_V3_JSON: &str = include_str!("../../../contracts/v3/actions.json");
 
 fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))

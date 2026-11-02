@@ -24,6 +24,14 @@ from .model_zoo import create_estimator, normalize_family_name
 
 
 def identity(value: Any) -> str:
+    if isinstance(value, dict):
+        if "families" in value or "effective_configuration" in value:
+            canonical = canonical_execution_configuration(value)
+            return hashlib.sha256(json.dumps(canonical, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+        if "spec" in value and isinstance(value["spec"], dict) and ("families" in value["spec"] or "effective_configuration" in value["spec"]):
+            val_copy = dict(value)
+            val_copy["spec"] = canonical_execution_configuration(value["spec"])
+            return hashlib.sha256(json.dumps(val_copy, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
 
 
@@ -63,10 +71,12 @@ class CandidatePipeline:
     """Serializable ensemble; every fold owns a separate instance and encoders."""
     def __init__(self, spec, target_column, task_type):
         self.spec = copy.deepcopy(spec)
-        self.candidate_identity = identity(spec)
         self.target_column = target_column
         self.task_type = task_type
         self.is_classification = "classification" in task_type or task_type in ("binary", "multiclass")
+        validate_spec(self.spec, task_type=self.task_type)
+        self.effective_configuration = resolve_effective_config(self.spec, task_type=self.task_type)
+        self.candidate_identity = identity(spec)
 
     def _frame(self, frame, fit=False):
         if not isinstance(frame, pd.DataFrame): frame = pd.DataFrame(frame)
@@ -250,9 +260,95 @@ def normalize_spec(spec: dict) -> dict:
     return spec
 
 
-def validate_spec(spec):
+FAMILY_DEFAULTS = {
+    "hist_gbdt": {"max_iter": 100, "learning_rate": 0.05, "max_depth": 5, "min_samples_leaf": 20, "l2_regularization": 2.0},
+    "lgbm": {"n_estimators": 100, "learning_rate": 0.05, "max_depth": 5, "min_child_samples": 20, "reg_alpha": 0.5, "reg_lambda": 2.0, "colsample_bytree": 0.8, "subsample": 0.8},
+    "xgboost": {"n_estimators": 100, "learning_rate": 0.05, "max_depth": 5, "subsample": 0.8, "colsample_bytree": 0.8, "reg_alpha": 0.5, "reg_lambda": 2.0},
+    "catboost": {"iterations": 150, "learning_rate": 0.05, "depth": 5, "l2_leaf_reg": 3.0},
+    "penalized_linear_regression": {"alpha": 1.0, "max_iter": 2000},
+    "penalized_linear_classification": {"C": 1.0, "penalty": "l2", "max_iter": 2000},
+    "neural_tabular": {"hidden_dim": 128, "num_blocks": 2, "dropout": 0.1, "lr": 0.001, "epochs": 25, "batch_size": 64},
+}
+
+
+def resolve_effective_config(spec: dict, task_type: Optional[str] = None) -> dict:
+    """Resolve requested parameters, semantic aliases, and defaults into an immutable effective configuration."""
+    spec_copy = copy.deepcopy(spec)
+    normalize_spec(spec_copy)
+    families = spec_copy.get("families", [])
+    options = spec_copy.get("model_parameters", {})
+    is_cls = False
+    if task_type:
+        is_cls = "classification" in task_type or task_type in ("binary", "multiclass")
+
+    resolved_by_family = {}
+    requested_by_family = {}
+    aliases_applied = {}
+
+    for fam in families:
+        norm_fam = normalize_family_name(fam)
+        req = options.get(norm_fam, {})
+        requested_by_family[norm_fam] = copy.deepcopy(req)
+
+        fam_aliases = {}
+        if norm_fam in PARAM_ALIASES:
+            for k, v in req.items():
+                if k in PARAM_ALIASES[norm_fam]:
+                    fam_aliases[k] = PARAM_ALIASES[norm_fam][k]
+        aliases_applied[norm_fam] = fam_aliases
+
+        if norm_fam == "penalized_linear":
+            def_key = "penalized_linear_classification" if is_cls else "penalized_linear_regression"
+            defaults = copy.deepcopy(FAMILY_DEFAULTS.get(def_key, {}))
+        elif norm_fam in FAMILY_DEFAULTS:
+            defaults = copy.deepcopy(FAMILY_DEFAULTS[norm_fam])
+        else:
+            defaults = {}
+
+        for k, v in req.items():
+            canon_k = PARAM_ALIASES.get(norm_fam, {}).get(k, k)
+            defaults[canon_k] = v
+
+        resolved_by_family[norm_fam] = defaults
+
+    return {
+        "requested_parameters": requested_by_family,
+        "resolved_parameters": resolved_by_family,
+        "semantic_aliases_applied": aliases_applied,
+        "families": families,
+        "seed": spec_copy.get("seed", 42),
+        "target_transform": spec_copy.get("target_transform", "none"),
+        "transforms": spec_copy.get("transforms", []),
+    }
+
+
+def canonical_execution_configuration(spec: dict, task_type: Optional[str] = None) -> dict:
+    """Extract canonical executed configuration, stripping requested metadata, aliases, and narrative noise."""
+    eff = spec.get("effective_configuration")
+    if not isinstance(eff, dict) or "resolved_parameters" not in eff:
+        eff = resolve_effective_config(spec, task_type=task_type)
+    families = [normalize_family_name(f) for f in eff.get("families", spec.get("families", []))]
+    weights = list(spec.get("weights", [1] * len(families)))
+    resolved_params = {
+        fam: eff.get("resolved_parameters", {}).get(fam, {})
+        for fam in families
+    }
+    return {
+        "families": families,
+        "weights": weights,
+        "resolved_parameters": resolved_params,
+        "transforms": eff.get("transforms", spec.get("transforms", [])),
+        "target_transform": eff.get("target_transform", spec.get("target_transform", "none")),
+        "seed": eff.get("seed", spec.get("seed", 42)),
+    }
+
+
+effective_configuration = resolve_effective_config
+
+
+def validate_spec(spec, task_type=None):
     normalize_spec(spec)
-    if set(spec) - {"families", "weights", "transforms", "seed", "model_parameters", "target_transform"}:
+    if set(spec) - {"families", "weights", "transforms", "seed", "model_parameters", "target_transform", "effective_configuration", "replication_reason", "attempt_identity"}:
         raise ValueError("Unknown candidate specification fields")
     if spec.get("target_transform", "none") not in ("none", "log", "log1p"):
         raise ValueError("Unsupported target transform")
@@ -281,6 +377,31 @@ def validate_spec(spec):
         for name, value in params.items():
             if name != "penalty" and (isinstance(value, bool) or not isinstance(value, (int, float)) or not np.isfinite(value)):
                 raise ValueError("Hyperparameters must be finite numeric scalars")
+
+        # Task and cross-parameter validation
+        if family == "penalized_linear":
+            is_cls = False
+            if task_type is not None:
+                is_cls = "classification" in task_type or task_type in ("binary", "multiclass")
+            elif spec.get("target_transform", "none") != "none":
+                is_cls = False
+
+            if task_type is not None or spec.get("target_transform", "none") != "none":
+                if not is_cls:  # Regression task
+                    if "C" in params:
+                        raise ValueError(
+                            "Hyperparameter 'C' is a classification parameter and is unsupported for penalized_linear regression; use 'alpha' for Ridge regression."
+                        )
+                    if "penalty" in params and params["penalty"] not in ("elasticnet", "none"):
+                        raise ValueError(
+                            f"Hyperparameter penalty={params['penalty']!r} is unsupported for penalized_linear regression; regression uses Ridge (L2 by default) or penalty='elasticnet'."
+                        )
+                else:  # Classification task
+                    if "alpha" in params:
+                        raise ValueError(
+                            "Hyperparameter 'alpha' is a regression parameter and is unsupported for penalized_linear classification; use 'C' (inverse regularization)."
+                        )
+
     weights = spec.get("weights", [])
     if len(weights) != len(families) or not all(not isinstance(w, bool) and isinstance(w, (float, int)) and np.isfinite(w) and w > 0 for w in weights):
         raise ValueError("Weights must be finite positive values matching families")

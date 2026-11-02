@@ -1,0 +1,48 @@
+{
+  "gate": "C",
+  "status": "PASS",
+  "description": "Shared atomic search authority, pre-turn durable SQLite admission, timeout accounting, and zero external dispatch",
+  "test_target": "python/tests/test_s2_resource_and_boundaries.py::test_gate_c_shared_atomic_search_quota_and_zero_dispatch and test_gate_c_timeout_accounting_and_persistence",
+  "shared_authority": {
+    "project_id": "test_gate_c_shared",
+    "configured_quota": 2,
+    "controller_1_query_1": {
+      "status": "admitted",
+      "dispatched": true,
+      "settled": "success",
+      "cumulative_used": 1
+    },
+    "controller_2_sync": {
+      "durable_searches_seen": 1,
+      "remaining_quota": 1
+    },
+    "controller_2_query_2": {
+      "status": "admitted",
+      "dispatched": true,
+      "settled": "success",
+      "cumulative_used": 2
+    },
+    "controller_1_query_3_denial": {
+      "admission_status": "budget_exhausted",
+      "dispatched": false,
+      "external_provider_calls": 0,
+      "cumulative_used": 2
+    }
+  },
+  "timeout_accounting": {
+    "provider_exception": "TimeoutError",
+    "settle_status_recorded": "timeout",
+    "error_type": "timeout",
+    "attempt_counted_in_budget": true,
+    "durable_sqlite_row": {
+      "status": "timeout",
+      "error_message": "Search provider timed out during query execution"
+    }
+  },
+  "privacy_rejection": {
+    "credential_query": "query with secret sk-1234567890123456789012345",
+    "status": "privacy_rejected",
+    "external_dispatch": false,
+    "usage_consumed": 0
+  }
+}

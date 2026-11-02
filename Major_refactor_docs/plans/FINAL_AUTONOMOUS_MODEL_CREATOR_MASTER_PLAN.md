@@ -1,10 +1,35 @@
 # Final Implementation Plan: Autonomous ML Researcher and Apex Model Creator
 
-**Platform:** MLRescurix  
-**Revision:** 2.3 — November 1, 2026 — recursive code removal and role-based model/provider routing  
-**Status:** Implementation-ready specification; implementation and runtime certification remain outstanding.  
-**Code baseline inspected:** `b03ca77` and the current working tree.  
-**Authority:** This document supersedes conflicting designs in earlier source plans, audit proposals, and `.agents/teamwork` planning records. Existing runtime gates remain enforced until their replacements pass the acceptance criteria below.
+**Platform:** MLRescurix
+
+**Revision:** 3.3 — November 3, 2026 — S2 independent review and major S3 assignment
+
+**Status:** S1/S2 foundations are partially implemented; independent reviews did not uphold their all-PASS claims. S2 adds owner branching, transactional lease acquisition and durable Python search admission. Unified Rust resource authority, atomic fenced mutations, immutable source-to-score release binding and production isolation remain open. See section 10.5 and the S2 red-team review; S3 closes these prerequisites while delivering the open execution slice.
+
+**Code baseline:** `95a35e9` plus the existing working-tree changes inspected on November 2. Earlier detailed inventories are historical, not certification of current behavior.
+
+**Authority:** This is the single implementation plan. It resolves the four reviews in `Major_refactor_docs/plans/Suggestion/` and supersedes conflicting recommendations in those reviews, earlier plans, and `.agents/teamwork` planning records. Existing runtime gates remain enforced until their replacements pass acceptance. Financial authorization comes from the active policy and ledger, never from this document.
+
+### Reading and execution order
+
+Read sections 1–2 for decisions and current gaps, section 4.9 for the approved boss-and-specialist workflow, and section 10.5 for the six implementation sessions. Section 10.1 retains the detailed work-package dependencies; section 11.4 governs the fresh Amazon test. Sections 3–9 define the contracts those changes must satisfy. Source suggestions are review inputs, not additional implementation queues. A blocked external service does not block independent local work.
+
+### Evidence baseline — November 2, 2026
+
+| Evidence | What it establishes | What remains unproven |
+|---|---|---|
+| Run 6: nine turns; selected candidate `cand_4dd30caf643a04af52e06c86`, development SMAPE **62.46631892131646** | Built-in portfolio evaluation on 75,000 rows/two folds; repeated neural attempts; historical handoff score and token attribution defects | Independent generalization, superiority of the neural family, or the precise cause of repeated scores |
+| Run 7: four turns; selected candidate `cand_accf1e986a6d4ee90a3fcfb0`, same development score | Saved scorecard configuration identity matches Run 6 (`79ef1f9c…`); candidate-bound reporting and cumulative accounting have follow-up evidence | Score equality alone does not establish independent retraining or broad reliability |
+| Run 8: four turns; selected candidate `cand_33a0c4a2d20123c09e3d7020`, development SMAPE **62.77886850142577** | Trace `turn_index` 1 and 2 are rejected for unsupported Ridge `C` and `penalty`; launcher specifies four turns | The later parameter-tolerance patch did not prevent these historical failures and has no subsequent live Amazon evidence |
+| Current Python action set excludes `RESEARCH_TOPIC`, although the prompt, handler and Rust gateway include it | Dispatch contract drift; a proposed research action is caught as a rejected turn | This is not necessarily a whole-process crash, and it is not sufficient to explain all absence of research |
+| Current pipeline supports `log` and `log1p`; text SVD is capped at 16 components | Target-transform support already exists; sparse representations and configurable composition need extension | Raw-target-only training is an incorrect description of current capabilities; better representations are hypotheses |
+| Current staging uses `os.link` where possible | Scratch and staged input can share a writable inode | No data corruption was established by this review |
+| Ledger: ceiling **$0.280494020**, recorded billed **$0.084074020**, uncertain **$0.186040000**, reserved **$0**, headroom **$0.010380000** | Current recorded financial feasibility, including unresolved liabilities | Recorded billed amounts can include estimates; recoverable liability and actual provider charges require evidence |
+| Search/Kaggle modules and connected flags exist | Integration groundwork; no demonstrated live research or Kaggle run in the supplied run evidence | Credential availability or a connected flag does not establish reservation, enforcement, quota telemetry or successful execution |
+
+The ledger currently stores `per_run_ceiling_usd: 0.20`; historical runs and policy sources used other ceilings. Resolve effective limits from all applicable authorities at preflight instead of asserting a single universal $0.05 ceiling. Do not edit historical receipts to match current code. Run 6's saved receipts total 60,302 tokens while its handoff reported 1,537; that historical defect remains part of the evidence even after repair.
+
+Evidence sources: [ground-truth handoff](../../docs/EXTERNAL_LLM_GROUND_TRUTH_HANDOFF.md), [historical run report](../../docs/AMAZON_FRESH_TEST_RESULTS_20261102.md), [campaign ledger](../../docs/evidence/v2/robustness/20261021-robustness/campaign_budget_ledger.json), and the Run 6–8 `autonomous_trace.jsonl`/`bundle/scorecard.json` artifacts under `.mlrescurix-state/amazon-2025/`. Local artifacts may be absent in another checkout. This planning revision performed source/artifact inspection and documentation checks; it did not run new training, reconcile billing, or certify services.
 
 ## 1. Final decisions and scope
 
@@ -27,9 +52,9 @@ These are scientific responsibilities and evidence milestones, not a fixed seque
 
 “Universal” means extensible task, modality, metric, validation, and artifact contracts. It cannot mean guaranteed success on every dataset or guaranteed Kaggle rank. “Apex” means the best eligible candidate discovered under the declared search and release policy, with evidence and limitations disclosed. Grandmaster-level quality is an empirical objective, not an architecture certificate.
 
-### 1.2 Disposition of the pasted Argon review
+### 1.2 Earlier architectural decisions retained
 
-The disposition of the Argon review proposals against the baseline architecture:
+These decisions came from the earlier architectural review behind revisions 2.x. They remain part of this consolidated specification. Section 1.8 resolves the four newly supplied reviews separately.
 
 | Review proposal | Final decision | Required correction or addition |
 |---|---|---|
@@ -77,7 +102,7 @@ Presets are editable starting points. Task/model/feature names are versioned ext
 
 ### 1.5 Review of the supplied workflow
 
-The supplied architecture is useful for its campaign owner, fresh role contexts, independent scoring, durable artifacts, and feedback loops. It is not accepted as an executable recipe. Its source is preserved at [PASTED_AGENTIC_WORKFLOW_REVIEW_SOURCE_2026-11-01.md](../Suggestion_of_work/PASTED_AGENTIC_WORKFLOW_REVIEW_SOURCE_2026-11-01.md); the corrected diagrams and detailed review are in [AGENTIC_WORKFLOW_AND_FLEXIBILITY_AUDIT.md](AGENTIC_WORKFLOW_AND_FLEXIBILITY_AUDIT.md).
+The earlier supplied architecture contributed its campaign owner, fresh role contexts, independent scoring, durable artifacts and feedback loops. Its corrected diagrams and detailed review are retained in [AGENTIC_WORKFLOW_AND_FLEXIBILITY_AUDIT.md](AGENTIC_WORKFLOW_AND_FLEXIBILITY_AUDIT.md). The separately referenced original pasted-workflow file is absent from this checkout; no requirement depends on retrieving it. This consolidated plan defines the implementation contract.
 
 Required corrections: no universal LightGBM anchor, fixed model/loss branches, compulsory separate feature stage, 10-row/15%/five-fold schedule, compulsory ensemble, fixed plot count or pickle, mandatory MCTS, or blanket pruning of weak individual models. Add capability discovery/creation and a feedback loop for missing tools, methods, splitters, task schemas and evaluators. Fresh contexts reduce anchoring; label isolation reduces leakage channels; neither proves zero bias or impossible leakage. Claims of 90% quota savings, exact 150-token summaries, and universally sub-five-second repairs require measured evidence and are not product guarantees.
 
@@ -103,15 +128,40 @@ These refinements preserve the open scientific execution path in sections 1.4 an
 
 **Choose LLM providers and models independently for each role/task.** A campaign may use a high-capability model for M1 strategy and difficult decisions, and a lower-cost model for routine research, implementation and repair, with bounded escalation when needed. The user's example of “Opus 5.5” for the orchestrator and “DeepSeek V4.1 Flash” for workers expresses a configurable allocation preference; these names are illustrative, not verified availability, API identifiers, pricing or capability claims. No particular vendor/model is an architectural requirement. Section 4.8 defines routing, provider adapters, budgets and acceptance evidence.
 
+### 1.8 Consolidation of the four new reviews
+
+The reviews were based on the supplied handoff, not direct repository access. Their diagnoses are evaluated against current code and artifacts; agreement between reviewers is not independent empirical confirmation. `Gemini_Argon.md` contains the pasted handoff followed by its response; duplicated handoff text is not a second source.
+
+| Source | Adopted contribution | Correction incorporated into this plan |
+|---|---|---|
+| [GPT 6.1 Sol](Suggestion/GPT_6.1_sol.md) | Separate hypothesis, recipe, execution and evaluation identities; controller-owned recovery; careful failure/cost accounting; operational proof before scientific claims | A plugin registry is a convenient path, not the only admissible scientific program. Add arbitrary source execution early under the same trust boundary. |
+| [GPT 6 Astra](Suggestion/GPT_6_Astra.md) | Explicit authority ownership; typed outcomes; effective-configuration evidence; separate engineering success, predictive improvement and useful negative findings | Cheap local science may proceed while Kaggle remains unavailable. No score target is guaranteed by the architectural changes. |
+| [Claude review](Suggestion/Cluade_Sonnet_5.5.md) | Replay historical failures; deterministic baseline/deduplication/diagnostic work outside LLM calls; compact durable memory; non-Amazon generality checks | Do not derive seeds circularly from IDs containing those seeds. Do not silently translate Ridge parameters. Coarse confirmation feedback is not a reusable-holdout theorem; formal mechanisms are optional separately validated extensions. |
+| [Gemini Argon](Suggestion/Gemini_Argon.md) | Orthogonal axis tracking; target/loss and text ablations; resolved-configuration fingerprints; immutable candidate-specific receipts; explicit preflight and per-turn trace | Reject silent parameter dropping, arbitrary financial buffers, guaranteed liability releases/speed/score gains, fixed splits/fold counts, whole-family bans, AST-only containment and automatic production certification. |
+
+Binding decisions when recommendations conflict:
+
+1. **Repair the experimental system and open the scientific path together.** Establish containment, schemas, provenance and recovery before lengthening paid campaigns. Include an unlisted source program in the first vertical slice; do not defer all scientific freedom until a larger model registry is built.
+2. **Preserve three user-facing operational ceilings:** 5,000,000 total model tokens, 30 Kaggle quota-hours and 500 dispatched search attempts, all configurable. Existing monetary authorization and technical resource limits remain explicit additional admission constraints. No new arbitrary four-turn limit or fixed model-family quota is introduced.
+3. **Exploration changes mechanisms.** Sparse versus dense representations, loss/target choices, data scale and neural architectures are available. Their order follows evidence, compatibility and expected value. Multiple boosting libraries or random seeds alone do not demonstrate breadth.
+4. **Recovery limits repeated uninformative work.** Diagnose and pivot after a configurable stall; allow justified continued work on the same family with a structural hypothesis, replication or useful diagnostic. Do not force web calls, ensembles or architecture switches solely to tick boxes.
+5. **Protect evaluation before extending search.** Use frozen development evidence, limited confirmation and a genuinely untouched final assessment where feasible. More folds, paired standard errors or a bootstrap probability of 0.85 do not control arbitrary adaptive search or establish a false-discovery guarantee.
+6. **Settle only from admitted evidence.** HTTP 200, locally hashed receipts or token-count arithmetic alone do not prove final account charges. No automatic 10% buffer, age-based release, presumed $0.15 recovery, or new campaign used to escape liabilities.
+7. **Integrity and predictive risk are different.** Unauthorized labels, changed inputs and provenance failures block promotion. A train–validation gap, constant baseline or noisy folds ordinarily trigger scientific diagnostics, not an unconditional integrity veto.
+8. **A final holdout assesses the frozen artifact.** It does not alone confer production readiness. Use owner-defined release criteria and preserve `production_certified: false` unless their full evidence is satisfied.
+
 ## 2. Repository ground truth and change ownership
 
-The following were inspected directly. A file's existence does not establish an integrated, certified workflow.
+The first five rows reflect this consolidation's direct source inspection; the remaining rows retain the earlier audited integration inventory and must be revalidated in W0 before implementation. File existence does not establish an integrated, certified workflow. Paths under `scientific/` abbreviate `python/src/mlrescurix_worker/scientific/`; Rust filenames in work packages refer to `crates/harness/src/` unless stated otherwise.
 
 | Existing surface | Observed state | Implementation action |
 |---|---|---|
-| `python/src/mlrescurix_worker/scientific/autonomous_loop.py` | Byte-based token bounds around lines 714/945; output withholding around 309–310; macro-oriented loop | Preserve CLI compatibility; introduce contract-driven campaign dispatch and bounded context construction. |
-| `scientific/governance.py` | Byte-based reservation estimates and an 80,000 cumulative requested-token admission limit | Replace conflated checks; migrate money/token authorization to Rust and delete duplicate Python authorization. Any retained public facade delegates without independent policy. |
-| `crates/harness/src/execution.rs` | Custom scientific admission blocked near 232; legacy `/workflow:rw` near 2923 | Keep custom gate closed until isolated snapshot → train → independent inference → trusted score is integrated. Migrate every applicable launch path. |
+| `python/src/mlrescurix_worker/scientific/autonomous_loop.py` | Separate action set missing research; prompt/handler exist; shared-inode staging; eight-turn prompt history; general deduplication incomplete; loop accepts no turn limit | Shared capability contract, immutable inputs, durable experiment state and bounded context. Preserve supported CLI contracts; replace incompatible internal dispatch. |
+| `scientific/governance.py` and `operational_budgets.py` | Separate Python financial transitions and operational counters; unverified settlement retains unused exposure; terminal entries need explicit reconciliation; connected flags influence enforcement claims | Migrate authority to the existing Rust writer. Add evidenced reconciliation and replay-safe multi-resource reservations; Python becomes a delegating facade. Connectivity and enforcement have distinct statuses. |
+| `config/operational_budgets.json`, active policy, campaign ledger, `scripts/run_live_amazon.sh` | Generous operational defaults coexist with multiple dollar ceilings and a launcher pinned to Run 8/four turns/model/route | One resolved versioned campaign policy, binding-constraint preflight, configurable run identity/routing and optional turn limit. Preserve ledger history and authorized ceilings. |
+| `scientific/candidate_pipeline.py`, `model_zoo.py`, `critic_engine.py` | Log/log1p already supported; text SVD capped at 16; current Ridge compatibility patch maps `C` and ignores some `penalty` values; critic gap can hard-veto | Task-specific strict schemas, portfolio fault isolation, parameter-application evidence, composable sparse/dense programs; replace implicit conversions and gap-only rejection. |
+| `scientific/governed_research.py` | Provider adapters, sanitizer and bounded markdown exist; search recorded after successful response | Reserve before dispatch; count every dispatched attempt and retry; isolate retrieval/extraction; preserve cited evidence and explicit unavailable status. |
+| `crates/harness/src/execution.rs` | Earlier audit found blocked custom scientific admission and a broad writable workflow mount | Keep custom gate closed until isolated snapshot → train → independent inference → trusted score is integrated. Recheck and migrate every applicable launch path. |
 | `crates/harness/src/trusted_evaluation.rs` | Scalar row predictions; Accuracy, MAE, MSE, RMSE; identity-bound receipts | Extend prediction and metric schemas, numerical conventions, and authoritative aggregation. |
 | `crates/harness/src/custom_protocol.rs` | Frozen train/validation/test protocol with dataset hashes | Extend to versioned multi-split protocols, optional unlabeled test/holdout, forecast origins, group IDs, and explicit coverage. |
 | `crates/harness/src/agents/{task_contract,context,orchestrator,roles}.rs` | Existing task assignment and agent infrastructure | Extend these contracts for phase tasks and authoritative scheduling; avoid a competing orchestrator. |
@@ -132,9 +182,9 @@ New module names below are planned additions, not claims that those modules exis
 
 ### 3.1 Required invariants
 
-1. **Per-job label isolation.** A training process receives only labels in its authorized training partition. An isolated scientific inference process receives no label files. Unconsumed assessment labels never enter scientific jobs or remote uploads; only the controller-owned scorer accesses them. An explicitly authorized post-assessment full-data refit may reclassify consumed lockbox rows as training data, producing a new artifact with no inherited independent assessment. With ordinary CV, a row can be validation in one job and training in another: this is per-job isolation, not lifelong secrecy of all development labels. Co-resident development inference has a separate, weaker process-isolation claim as defined in section 6.6.
+1. **Per-job label isolation.** A training process receives only labels in its authorized training partition. An isolated scientific inference process receives no label files. Unconsumed confirmation/assessment labels never enter scientific training jobs or remote uploads; only the controller-owned scorer accesses them. An explicitly authorized post-assessment full-data refit may reclassify consumed lockbox rows as training data, producing a new artifact with no inherited independent assessment. With ordinary CV, a row can be validation in one job and training in another: this is per-job isolation, not lifelong secrecy of all development labels. Co-resident development inference has a separate, weaker process-isolation claim as defined in section 6.6.
 2. **Authority decoupling.** Agents propose code, split strategies, budgets, and promotions. Only Rust commits execution authorization, official scores, resource reservations, and releases.
-3. **Five independent budget families.** Request context, cumulative LLM usage, money, local resources/storage/deadline, and remote accelerator quota are separately enforced. CPU/RAM/disk constraints remain individually enforceable within family four.
+3. **Independent resource dimensions.** The user-facing ceilings are cumulative model tokens, Kaggle quota-hours and dispatched search attempts. Money, per-request context, local resources/storage/concurrency and deadlines remain separate technical/financial admission constraints. Section 6.3 replaces the earlier five-family grouping; no dimension silently grants another's authority.
 4. **Bound scoring identity.** Every official score binds authorized rows and predictions to dataset, split, metric implementation, code, feature state, environment, weights, and attempt identity. Worker metrics and self-authored manifests are untrusted claims.
 5. **Fold fit provenance.** Learned preprocessing, encoders, feature selection, early stopping, calibration, and supervised embeddings respect the declared fitting boundaries. No outer-validation fitting or mutable cross-fold state.
 6. **Durable intent and fencing.** Persist intent and reservations before external effects. Reject stale branch attempts. Reconcile unknown remote outcomes before retrying or freeing reservations.
@@ -152,6 +202,8 @@ Kaggle is an authorized third-party processor when enabled. Private datasets and
 Cross-job collusion, memorized public targets, malicious information embedded in model files, and repeated adaptive CV queries cannot be ruled out by mount isolation alone. Mitigate with frozen code/inputs, separate fold state, controlled artifact flow, score-query budgets, audit inspection, and an untouched assessment set where possible. Reports state this boundary.
 
 ### 3.3 Local execution
+
+Replace writable hard links between staged data and job inputs with independent byte copies or verified copy-on-write snapshots. Workers receive controller-owned read-only mounts under a different identity, with no writable path to the master inode. `chmod 0444` under the same owning user is insufficient containment because that user can change permissions. Read-only mount/ownership checks prevent writes; source hashes before staging and after execution detect unexpected mutation. Avoid rescanning the entire source on every small action when an immutable snapshot and verified content identity provide the required check. Retain protected originals so detection is actionable.
 
 Use separate training and inference containers, managed by Rust:
 
@@ -178,6 +230,22 @@ Maintain local forensic logs under controller access and bounded provider-visibl
 Research queries use approved abstract task descriptions. Allowlisted public competition identifiers may be included when authorized. Dataset substring matching and secret scans supplement the policy; they do not provide differential privacy or prove no disclosure. Unknown diagnostic payloads remain local with a reason code instead of silently hiding all useful errors.
 
 A research broker fetches primary papers, package documentation, and permitted competition writeups. Record URL, access date, source/version, claim, applicability, license/rule constraints, and the experiment that would test it. Treat content as evidence, block prompt-injection instructions, bound response sizes, and isolate asset downloading from code execution. Approved weights/packages are fetched by a trusted broker, pinned and hashed, then supplied offline.
+
+Use `ResearchIntent` containing an approved public task abstraction, technical question, intended decision and disclosure-policy reference. The query constructor has no raw dataset mounts; templates and a public technical lexicon are defaults, with an admitted path for new terminology rather than a permanent closed ML enum. Record benchmark policy: competition-specific solutions/public identifiers may be allowed for task solving or excluded for an independent-method benchmark. Do not accidentally compare those modes as equivalent.
+
+Search/fetch/extraction is isolated from training and controller privileges. The fetcher has no credentials or private mounts, checks destinations and redirects against private-network access, and limits bytes, types and download concurrency. A reader with no action tools emits cited structured evidence; the planner sees explicitly untrusted claims. A summary limit or AST/regex filter does not guarantee resistance to prompt injection or semantic leakage. Authorization remains outside model output. Cache by sanitized question, policy, source version and time; distinguish reused evidence from a fresh external request.
+
+Operational search accounting counts **physical requests dispatched**, independently of result or provider charge:
+
+| Outcome | Search-attempt budget | Financial exposure |
+|---|---|---|
+| Local validation/privacy/availability rejection before dispatch | No dispatched unit; retain diagnostic | No new provider exposure |
+| Success, empty results, HTTP error including 401/403/429, or response parse failure after dispatch | One consumed attempt | Verified charge, admitted verified zero, or unresolved liability according to evidence |
+| Timeout or crash around dispatch | Preserve a pending/unknown attempt until dispatch evidence resolves it; never refund an ambiguous request automatically | Retain unresolved exposure |
+| Retry | New physical attempt with its own reservation and retry link | New possible charge |
+| Local cache hit | No physical attempt; record logical research use | No new provider charge |
+
+Reserve attempts and possible dollars atomically before sending; persist intent before the network effect. `successful`, `failed`, `unknown`, `reserved` and `cancelled_before_dispatch` are separate states. Query budget consumption is not reversed merely because an HTTP error is nonbillable. Provider credits, paid fetches and reader-model calls are separately recorded resource components. Authentication failures open a circuit breaker; transient failures use bounded backoff. Every research record links the question, sources, adopted/rejected claim, resulting hypothesis and any negative finding. Apply equivalent disclosure rules to ordinary LLM prompts and remote uploads.
 
 ## 4. Campaign state machine and phase agents
 
@@ -225,6 +293,8 @@ Every scientific phase records a research decision: fresh search, reuse of versi
 
 Add versioned JSON Schemas in `contracts/` and matching Rust types with unknown-field rejection. Large arrays and code remain in CAS, not JSON prompts.
 
+Use one versioned action/tool descriptor source for Rust gateway validation, Python dispatch and prompt construction. The advertised capability set is the intersection of implemented handlers, backend permissions and connected/admitted services. A missing search credential produces `unavailable` with offline/cached alternatives; a handler name alone is not a live capability. Integration tests traverse the installed CLI and embedded Python assets, so a rebuilt helper cannot leave the shipped executable on stale schemas. Unknown actions yield structured rejection and bounded repair, not guessed default models.
+
 `ProblemSpec` includes: task type; modalities; target/domain; row identity; groups/time/horizon/known-at-inference fields; data and external-resource permissions; metric specification; validation requirements; requested artifacts; deadline and budgets; serving environment; submission schema; independent assessment availability; capability requirements.
 
 Use versioned registry references for scientific task types, role specializations, output schemas, frameworks and methods. Unknown identifiers trigger discovery/extension rather than a generic fallback. Strict schema validation still applies to authority-bearing fields such as artifact identities, capabilities and reservations; extensibility does not mean accepting unchecked arbitrary fields as permissions.
@@ -259,13 +329,42 @@ Artifact references do not grant general filesystem access. The controller mater
 
 ### 4.4 Search memory, diversity, and stop rules
 
-The hypothesis DAG stores parentage, research basis, feature/model changes, expected benefit, falsification criterion, estimated cost, result, uncertainty, and resource tier. Start with a cost-aware priority queue and successive halving. Add MCTS/UCB only after it beats the simpler scheduler under equal budgets; describe it as a heuristic in a nonstationary search, not a proven optimum finder.
+The hypothesis DAG stores parentage, research basis, changed axes, comparison, expected mechanism, falsification criterion, estimated cost, result, uncertainty, and resource tier. Start with a cost-aware priority queue and a task-appropriate fidelity ladder. Add MCTS/UCB only after comparative evidence justifies it. Do not build a distributed scheduler before the existing transactional store and local controller can recover a campaign.
 
 Require appropriate reference evidence: usually a dummy/naive baseline and a simple competitive method for supervised prediction, or a justified task-specific equivalent for other tasks. No estimator name is mandatory. Explore budget-permitting orthogonal hypotheses. Model families are task-specific choices: linear/GBDT, pretrained encoders, fine-tuning, specialized forecasting/ranking models, or new agent-authored implementations. Deep networks, focal loss, SHAP, rank averaging, and stacking are options, not mandatory rituals.
 
-Keep all outcomes in the authoritative SQLite ledger. `dead_end_ledger.json` is a generated compact view. Key a duplicate by data/protocol/code/config/environment/fidelity, not a vague hypothesis name. Distinguish `invalid`, `infra_failed`, `timeout`, `inconclusive`, `no_improvement`, and `improved`. A timeout does not falsify a scientific idea. Allow a retry with changed assumptions or a materially larger justified budget, recording the reason.
+Keep all outcomes in the authoritative SQLite event store. JSON ledgers and prompt digests are generated views, not competing mutable authorities. Separate these identities:
 
-Prompts contain the problem contract, assigned task, relevant evidence, a small diverse portfolio, and scoped negative results. Retrieve more on demand. A roughly 150-token summary is useful for context, but the complete receipt is durable and has no arbitrary 150-token validity requirement.
+```text
+hypothesis_id  = durable scientific question/lineage; not a cache key
+recipe_id      = H(task, data/protocol, canonical resolved program/configuration excluding seed,
+                   source/dependencies, target/loss, external assets)
+execution_key  = H(recipe_id, fit scope, fidelity, explicit seed, relevant runtime)
+attempt_id     = unique retry/replication execution with its lease and costs
+evaluation_id  = H(attempt, actual model/predictions, ordered keys, scorer, tier)
+```
+
+Resolve defaults and documented semantic aliases before hashing. Exclude run/session names and narrative from reusable scientific keys. Derive a seed from campaign seed plus a stable pre-seed recipe identity, or specify it explicitly; do not derive it circularly from an ID that contains itself. A new seed is a replication. Cache hits require matching scope/environment/evidence, not just matching scalar scores. An exact completed execution key returns prior receipts without training; an explicit diagnostic rerun gets a new attempt and recorded reason. In-flight duplicate requests share/reuse the admitted job rather than submit another unreserved copy.
+
+Typed outcomes are `invalid_spec`, `duplicate_reused`, `infrastructure_failure`, `resource_denied`, `integrity_failure`, `evaluated_no_improvement`, `evaluated_improved`, and `inconclusive`. A timeout does not falsify a scientific idea. Candidate schemas are generated from task-compatible component descriptors; unknown or incompatible parameters are rejected before fit. Portfolio members validate and execute independently so malformed siblings do not erase valid results. Reject Ridge `C`/classification `penalty` with a valid schema; remove the silent inverse/ignore patch. A versioned alias is permitted only when semantics are preserved and both requested/resolved values are recorded. Library `get_params()` is useful but not sufficient for cross-parameter, objective, task and backend compatibility.
+
+Use a deterministic steering policy over durable evidence, with `EXPLORE`, `REFINE`, `DIAGNOSE`, `RESEARCH`, `CONFIRM` and `FINALIZE` modes. Initial configurable defaults:
+
+| Trigger | Controller response | Escape/termination rule |
+|---|---|---|
+| Invalid proposal | Structured field errors, actual task/schema, one bounded repair before training | Repeated same error requires a schema-driven configurator or another admitted approach; all repair tokens count |
+| Two duplicate/near-duplicate proposals without new information | Return existing receipts, inspect resolved settings and cache provenance | Next scheduled experiment must change a substantive mechanism or have an explicit diagnostic/replication exception |
+| Changed settings but identical predictions | Compare resolved estimator values, source, prediction hashes, cache hits and training logs | Do not conclude parameters were ignored from scalar equality alone; quarantine results if a contract defect is found |
+| Two gap warnings or repeated scientific rejection in a branch | Check metric units, learning curves, leakage, evaluation mode, slices and split behavior | Confirmation or a structural hypothesis can continue the same family; no blanket family ban |
+| Three valid local variants without practically meaningful progress | End that neighborhood; compare underexplored axes and current diagnostics | Research a concrete uncertainty, run an orthogonal experiment, or stop if none is valuable/feasible |
+| NaN/OOM/timeout or transient infrastructure failure | Classify cause; one bounded stabilization/resource adjustment or reconciled retry | No blind unlimited repair or duplicate remote launch; maintain cost/exposure |
+| Budget denial or finalization threshold | Reduce admitted fidelity, reconcile, then finalize the best eligible candidate | No policy override or liability erasure; record exact limiting resource |
+
+The table is a scheduling guard, not proof that a fixed number of trials detects a plateau. Defaults are configurable before a campaign and auditable when changed. A diagnostic exception names the information sought and a bounded next check; repeated exceptions with no new evidence end the branch. Local parameter repairs and deterministic comparisons need no extra strategist turn, but still consume their actual tokens/compute.
+
+Track coverage across data quality/scale, representation, features, family/architecture, target/loss, optimizer/training and ensemble/postprocessing. One change can affect multiple axes; record confounding rather than claim a clean ablation. A provisional 50% promising-branch / 30% underexplored / 20% diagnostic-replication allocation can guide discretionary scheduling; it is neither spending authority nor a mandatory quota. Preserve a bounded chance for slow-starting neural methods where cheap proxies are misleading.
+
+Prompts contain the frozen contract, feasible resources, coverage gaps, diverse best candidates, diagnostic failures, selected receipts and recent actions. Retrieve full records on demand; an eight-turn window is not campaign memory. Persist requested versus effective configuration, fit logs, prediction hashes, learned lessons and the next evidence-based decision. Keep agent-stated hypotheses/rationales separate from controller-observed facts. A compact summary has no fixed 150-token correctness requirement and cannot discard unresolved liabilities or failed hypotheses.
 
 Stop when the budget/deadline requires finalization, incremental value is low under a configured patience policy, a declared quality goal is reached, no eligible hypotheses remain, or the user cancels. Reserve enough resources to deliver the best verified candidate; never spend the entire allowance on search and leave no inference bundle.
 
@@ -354,6 +453,64 @@ Before each request, validate the provider's disclosure permissions, model capab
 Fresh worker contexts use the same typed task and permitted evidence across providers. Provider thread IDs, private reasoning and incompatible hidden session state never become cross-provider memory. A mid-task switch starts a new attempt from approved artifacts and bounded diagnostics, fences pending duplicate tool work, and preserves earlier usage. Models propose tool actions; the controller retains authorization and scoring authority regardless of provider.
 
 Acceptance requires: (1) M1 and a worker use different configured providers in one campaign; (2) either model ID can change through configuration without scientific-code changes; (3) a compatible-protocol endpoint can be added through configuration and a native adapter through the gateway extension boundary; (4) tool-result round trips, fresh contexts, limits, disclosure rules, normalized errors and usage accounting hold on both; (5) outage, unknown billing and denied escalation cannot cause duplicate unreserved work. Deterministic adapter fixtures verify routing; actual configured providers need bounded live smoke evidence before being marked verified. The adapter mechanism is open to future providers, not a claim that every future provider already works.
+
+### 4.9 Approved target: one campaign owner and independently scoped specialists
+
+The user-approved target is an autonomous research lab with **one durable campaign owner running a single top-level ReAct loop**: assess authoritative state → select the next useful question → delegate an admitted task → observe a verified result → update the portfolio and choose again. Specialist tasks may have bounded local tool/repair loops; they do not become competing project owners. A long training job is asynchronous work, not a reason for repeated paid owner polling. Resume reconstructs this same campaign from stored events rather than starting a second owner or inheriting an unrelated conversation.
+
+Extend the existing Rust `AgentOrchestrator`, context, role, tool, workspace and recovery modules. Python provides scientific execution/proposal helpers and supported CLI facades. Do not add a second Python campaign authority or an unrelated agent framework merely to demonstrate delegation. One active owner lease per campaign, fenced attempts, atomic resource reservations and immutable evidence protect concurrent branches. Role configuration is extensible and does not grant capabilities by itself.
+
+```mermaid
+flowchart TD
+    U[Objective, data, success criteria and resource policy] --> B[Campaign owner: one persistent ReAct loop]
+    B --> D[Scoped task dispatcher: fresh context and permitted evidence]
+    D --> P[Foundation specialists: task architect, data steward, validation designer]
+    D --> H[Research specialists: researcher, hypothesis scientist, representation specialist, model engineer]
+    D --> X[Experiment specialists: operator, results analyst, independent challenger]
+    D --> S[Delivery specialists: selector and release specialist]
+    P --> N[Shared evidence store: contracts, hypotheses, artifacts, receipts and failures]
+    H --> N
+    X --> K[Trusted execution services: contained local or admitted Kaggle jobs]
+    K --> E[Controller-owned evaluator and integrity checks]
+    E --> N
+    X --> N
+    S --> N
+    N -->|Compact findings and evidence references| B
+    A[Resource authority and policy] -.-> D
+    A -.-> K
+    S --> F[Frozen release recipe and reproducible bundle]
+    F --> O[Restricted final assessment, if available]
+    O --> R[Sealed release with measured limitations]
+```
+
+These responsibilities expand C0–C8; they are not twelve mandatory sequential calls:
+
+| Specialist responsibility | Required useful output | Boundary |
+|---|---|---|
+| Task architect | Objective, prediction unit, success criteria and deliverables | Cannot invent unavailable labels or change the user's objective silently |
+| Data steward | Provenance/quality manifest, permissible sources and data findings | Development-only analysis after assessment partitioning; no holdout labels |
+| Validation designer | Proposed splits, metrics, baselines and assessment protocol | Rust validates/freezes semantics; proposer cannot certify its own evaluator |
+| Research specialist | Sourced alternatives, applicability and concrete uncertainties | Sanitized queries; retrieved content cannot grant tools or authority |
+| Hypothesis scientist | Competing mechanisms, falsification criteria and experiment proposals | Avoid unsupported certainty and arbitrary family quotas |
+| Representation specialist | Reproducible preprocessing/features/embeddings and ablations | All learned transforms obey transitive fit scopes |
+| Model engineer | Source, configuration schema, train/infer interface and checkpoints | Algorithms and architectures are extensible, not a central family enum |
+| Experiment operator | Admitted execution, recovery and classified failure receipts | Numerical services handle epochs/checkpointing; operator cannot self-issue scores |
+| Results analyst | Comparisons, uncertainty, slices, resource use and information gained | Distinguish measured observations from causal/scientific interpretations |
+| Independent challenger | Counter-explanations, integrity concerns and falsification requests | Initial view excludes proposer/owner advocacy; receives protocol and primary evidence |
+| Selection specialist | Eligible shortlist, useful combinations and frozen confirmation proposal | Controller enforces promotion and limited confirmation access |
+| Release specialist | Reproducible bundle, replay/profile evidence and documentation | No changed predictions inherit an earlier assessment score |
+
+Monitoring is an optional post-deployment responsibility: drift or failures can open a separately identified campaign under a new admission decision. It is not a prerequisite for an offline Amazon model bundle.
+
+**Context and evidence protocol.** Each specialist receives the question, completion criteria, verified task facts, necessary prior outcomes, approved artifact references, allowed capabilities and resource allocation. It does not receive the whole owner's transcript, hidden reasoning, unsieved logs or another specialist's advocacy. Relevant negative results remain retrievable so context isolation does not cause repeated failed work. Initial challenger evidence excludes persuasive narratives; additional factual context can be requested through the controller. Fresh contexts and a different reviewer model reduce some anchoring opportunities but do not establish statistical or epistemic independence.
+
+The specialist returns `finding`, `evidence_refs`, `uncertainty`, `artifact_refs`, `outcome`, `next_experiment_proposal` and measured `resource_usage_refs`, bound to its task/attempt/protocol identities under section 4.3. Worker interpretations remain claims until controller evidence supports them. The owner consumes concise projections and retrieves detail on demand; the underlying records and liabilities are never discarded to meet a summary token target.
+
+**General ML contract.** Reuse `Task → Data → Protocol → Hypothesis → Experiment → Prediction → Evaluation → Selection → Artifact` across methods. Task adapters supply output/metric/split semantics; program adapters supply preprocess/train/infer/checkpoint capabilities. Classification, forecasting, clustering and generation must not be coerced into scalar-regression semantics. Components can be jointly learned when provenance is explicit. No single estimator interface is assumed to cover every modality; adapters and independently admitted extensions handle the differences.
+
+**Efficiency and anti-fixation.** Invoke specialists on demand, batch justified independent work, cache valid evidence and wake the owner on useful events. Ordinary code handles epochs, metric computation, checkpoint management, deterministic comparisons and safe bounded retries. Section 4.4's durable coverage and stall rules steer across data, representation, algorithm, architecture, loss, optimization and combinations. Measure total campaign tokens/compute/search, time and research outcomes against the single-agent baseline; do not claim that more agents automatically reduce cost or improve quality. A useful falsification is progress even without a better score.
+
+Acceptance must show real delegation and tool execution through the supported entrypoint, distinct specialist context construction, one durable owner, crash-safe task resumption, evidence-bound owner decisions and an independent challenger. Merely adding role prompts or fabricating a multi-agent transcript fails. All enabled specialists share campaign resource accounting; no role-specific budget resets or assessment-data access exceptions.
 
 ## 5. Scientific package, validation, and scoring
 
@@ -483,11 +640,19 @@ Replay compares identical inputs through identical frozen weights and preprocess
 
 ### 5.5 Assessment policy when only one labeled dataset exists
 
+Separate three evidence tiers: **development** for frequent adaptive search, **confirmation** for a limited frozen shortlist, and **lockbox assessment** for the exact final artifact. Confirmation may use a separate disjoint population or a properly nested outer evaluation of the complete selection procedure. In a disjoint scheme, keep its labels out of candidate training; in nested evaluation, train every learned stage inside the outer-training subset. State which design is in use. Merely scoring a globally tuned candidate on extra folds is not an unbiased evaluation of the research procedure.
+
+Freeze the confirmation shortlist, comparators, protocol and query/reveal budget before each assessment batch. Release only the predeclared feedback; once it guides new search, mark those results as adaptive development evidence. Coarsening feedback may reduce exposure but does not establish formal reusable-holdout guarantees. Do not fit blend weights on confirmation rows and report their fitted score as confirmation. Maintain an independent final lockbox even when confirmation is limited to a few uses.
+
 Default `AssessmentPolicy.mode` to `auto_if_feasible` when compatible with the campaign's data and training requirements; alternatives are `external` and `disabled` with a recorded reason. The controller applies it before any target-aware agent profiling, research based on target statistics, development OOF generation or model search. Intake may inspect controller-private schema/group/time/class counts solely to construct a valid partition. The scientific agents then see only the resulting development pool and approved metadata.
 
 If no external assessment set exists, propose a deterministic lockbox using the task's sampling unit and deployment semantics: stratified IID rows, held-out groups, spatial regions, future time blocks, or another admitted scheme. Ten percent is an editable initial target, not a rule. Check effective independent units, rare-class/event counts, forecast horizon coverage, minimum viable development/training data and assessment precision. `N >= 5000` or fifty groups alone cannot establish feasibility. If a useful uncontaminated lockbox cannot be constructed, record `not_available` and why; do not damage validation merely to manufacture an assessment score.
 
 Persist membership hash, split rules/seed, intended population, creation time, access state and consumption status in controller-private storage. Exclude lockbox rows from scientific training, target statistics, learned preprocessing, cache fitting, early stopping and meta-fitting. Unconsumed assessment labels never enter remote sources. A temporal tail estimates future-period behavior, not necessarily the same population as IID CV; report that distinction. A previously accessed dataset cannot become pristine by carving it after search.
+
+For Amazon, the repeatedly used 75,000-row prefix stays development-only. Audit prior runs, EDA, labeling, preprocessing and entity duplicates before calling any of the remaining source rows untouched. Row ordering and available group/time semantics determine the protocol; never assume `brand` alone is the correct held-out entity. Partition sizes and fold counts follow effective independent units, precision needs and affordable training, rather than mandatory 100k/350k/150,209 or five-fold rules. If no uncontaminated set can be established, report `independent_assessment: unavailable` and continue valid development work without inventing certification.
+
+Choose a practical improvement threshold before results, and report paired uncertainty using the actual independent units (groups/time blocks where needed). Correlated folds are not independent samples; a mean-plus-standard-error score or per-candidate bootstrap probability is not a multiple-search correction. Keep protocol/fidelity-specific leaderboards. New splits, larger training samples and different aggregation cannot inherit comparison claims against the historical 62.4663 score.
 
 Freeze the use policy at intake/C2:
 
@@ -519,23 +684,46 @@ Multiple configured accounts are a supported interface, not a multiplied guarant
 
 A 180-second queue threshold or 90-second local estimate can be configurable initial heuristics, not correctness requirements. Queue timeout does not establish remote cancellation. Do not launch an unreserved duplicate while a remote attempt may still run.
 
-### 6.3 Five budget families
+### 6.3 Operational ceilings and independent admission constraints
 
-| Family | Reservation and settlement |
+The user-facing high-default configuration is **5,000,000 model tokens, 30 Kaggle quota-hours and 500 physical search attempts** per authorized campaign. Aggregate usage across every role, reader, repair, retry and resumed session. The 30-hour value is a campaign allowance, not 30 guaranteed hours per registered account. Units and any provider-quota conversion are explicit. These ceilings are configurable, not instructions to spend them all.
+
+| Dimension | Reservation and settlement |
 |---|---|
 | Request context | Count system/messages/tools/images and requested completion against the selected model window with margin. Use a verified tokenizer/counter; provider-specific conservative estimation if unavailable. |
 | Campaign LLM usage | Reserve estimated input plus maximum output and applicable reasoning usage; settle provider-reported usage, including failed/ambiguous billable calls. Track estimates explicitly. |
+| Search attempts | Reserve before physical dispatch; consume on dispatch regardless of result; retain unknown dispatches conservatively. Track logical questions, provider billing credits and page fetches separately. |
 | Money | Reserve maximum authorized call/paid-compute cost using versioned prices; settle actual known charges. All agents and retries share one campaign ceiling. |
 | Local resources, storage, and deadline | Enforce per-job and aggregate CPU/RAM/PIDs/scratch/CAS/output caps and wall deadlines; reserve finalization resources. |
 | Remote accelerator quota | Per-account/provider window: configured allowance, observed external usage, settled usage, active/unknown reservations, finalization reserve, and measurement confidence. |
 
 Do not use `tiktoken` as an exact counter for arbitrary model families. Do not treat cumulative requested context as settled campaign tokens. Byte length remains useful for file/payload size limits, not token accounting. Money and token caps must be mutually feasible; remove the earlier implication that a $0.30 cap supports 2 million arbitrary-provider tokens and 50 research turns.
 
-Start with a configurable `108000` quota seconds per eligible account when consistent with the user's observed allowance. Discover/record actual availability and reset time; do not assume a fixed weekly reset or a reliable public remaining-quota API. Account for manual jobs through observed usage or a conservative adjustment. Unknown quota is not free quota.
+Resolve active policy, config and ledger once into a hashed `EffectiveCampaignPolicy`; display requested limits, inherited obligations, enforceable limits, evidence confidence, protected finalization reserve and the binding constraint. A less restrictive config cannot overrule an authority ceiling. Where limits have a declared hierarchy use the most restrictive applicable value; incompatible units, identities or source precedence produce a precise configuration error. Remove hidden per-turn token limits and hardcoded launcher turn counts when their replacement admission works. `max_turns` remains an optional explicitly requested guard, not the default scientific stopping rule.
+
+Do not present `floor(USD / average_token_price)` as an exact token allowance: routing, input/output mix, cached/reasoning tokens and fees can differ. Use documented bounded costs for admission and labeled estimates for planning. Preflight establishes a viable set of experiments plus finalization under the real remaining envelope; a fixed eight-turn minimum is not universal. Choose cheaper routes/fidelities only under configured permissions. If a meaningful live campaign is infeasible, continue independent offline work and quantify the shortfall instead of consuming the remaining cent on a misleading demonstration.
+
+Discover/record each eligible account's actual quota, availability and reset time; do not assume a fixed weekly reset or a reliable public remaining-quota API. Account for manual jobs through observed usage or a conservative adjustment. Unknown quota is not free quota, and adding an account does not multiply the campaign allowance. Hardware device-hours, wall time and provider quota-hours are separate measurements.
 
 Reserve a conservative runtime upper bound aligned with enforced job deadlines rather than only an optimistic estimate. Finalization reserve includes any outstanding selected-fold/member verification, final refit, inference/harvest/replay time and a margin; two hours can be an initial minimum, not an assurance it suffices. For dual T4, distinguish GPU device-seconds from provider quota-seconds. Kaggle's T4 announcement says a one-hour dual-T4 notebook consumes one hour of quota; confirm current account behavior and record the billing basis. [Kaggle T4 resource announcement](https://www.kaggle.com/product-feedback/361104)
 
-SQLite transactions are the authoritative atomic budget/lease operation. A filesystem lock may coordinate legacy helpers during migration but cannot be a second source of truth. Admission requires settled + active reserved + protected reserve to remain within the authorized allowance. No double settlement or automatic refund of ambiguous external work is permitted. External overruns are recorded as overruns, never hidden to preserve that equation; reconciliation stops further dispatch. Provider enforcement limits are described below.
+SQLite transactions are the authoritative atomic budget/lease operation. A filesystem lock may coordinate legacy helpers during migration but cannot be a second source of truth. Admission requires settled + unresolved exposure + active reservations + protected reserve to remain within the authorized allowance, including the proposed operation. No double settlement or automatic refund of ambiguous external work is permitted. External overruns are recorded as overruns, never hidden to preserve that equation; reconciliation stops further dispatch. Provider enforcement limits are described below.
+
+Use fixed-precision financial amounts and disjoint categories: recorded settled amount (with evidence kind), remaining unresolved exposure, active reservations and protected finalization allocation. Moving a reservation into uncertainty must not count it twice. Reserve the complete resource vector atomically against current epoch/lease, and persist intent before any external effect. Repeated receipt/callback/reconciliation application is idempotent. A response above its reservation is recorded in full, flagged as a breach and stops further admission; accounting never truncates reality to fit a cap.
+
+Add `mlrescurix-harness reconcile-ledger` (proposed command) through the existing Rust authority, with inspect/dry-run and evidence-validated apply modes:
+
+1. Preserve the original ledger bytes/hash and import its liabilities with stable migration identities. Do not claim the current JSON file already has an append-only signed event history; preserve what exists and add authenticated authority events through the new implementation.
+2. Match local operation IDs, provider request/generation IDs, model/route/account, timestamps, retries and available response metadata. Missing historical IDs remain an explicit gap; aggregate account usage cannot automatically identify a single request's releasable amount.
+3. Retrieve admitted provider/account cost evidence where available; retain origin, timestamps and hashes. A locally signed/hash-bound receipt proves local integrity, not a provider signature or final billing truth. Distinguish account charge from upstream inference cost and token-derived estimates.
+4. Produce the proposed balance deltas and evidence matches before mutation. Apply only policy-permitted deterministic matches within existing authorization. An accounting write-down, aggregate attribution or changed spend ceiling needs explicit authority; ordinary evidenced settlement need not repeatedly request user approval.
+5. Append a reconciliation event referencing the original liability and evidence; release only evidenced excess; reconstruct the identical balance after restart/replay. Unmatched or disputed exposure remains unresolved without time-based expiry. Test duplicate apply, delayed evidence, overruns and concurrent admission.
+
+OpenRouter's generation-metadata documentation exposes generation identity, token metadata, `total_cost` and a separate upstream inference cost. Use it as a candidate evidence source, subject to retention, account matching and the active settlement policy; do not assume old records are retrievable or that HTTP 200 alone establishes sufficient finality. [OpenRouter generation metadata](https://openrouter.ai/docs/api/api-reference/generations/get-request-&-usage-metadata-for-a-generation)
+
+Right-size future reservations using the actual bounded route/options and preserve provider IDs as soon as known. Reconcile asynchronously with bounded backoff; a failed metadata request does not turn liability into zero. Token-derived upper bounds may release excess only when an independently admitted pricing contract covers all charge components. Do not substitute a guessed 10% buffer or promise a fixed amount of recovered headroom.
+
+Capability status distinguishes `configured`, `connected`, `dispatch_accounting_enforced`, `usage_reconciled`, and `live_verified`. A configured credential/account cannot set `enforced: true` by itself. Show unknown usage as unknown, retain conservative exposure, and report applicable unavailable services without blocking unrelated local experiments.
 
 ### 6.4 Kaggle job protocol
 
@@ -597,6 +785,22 @@ Before promotion of a selected candidate/ensemble, independently replay all reta
 ### 7.1 Research-driven experiments
 
 Each experiment names one primary hypothesis, its baseline, expected mechanism, metric, fitting scope, falsification criterion, fidelity, compute estimate, and required assets. Test incremental ablations before expensive combinations. Confirm candidate improvements on the complete frozen evaluation protocol; report fold dispersion and paired uncertainty with group/time-aware resampling where justified. Repeated adaptive selection remains biased even with confidence intervals.
+
+Expose these axes as composable, versioned capabilities, while preserving arbitrary-source admission:
+
+| Axis | Initial evidence-producing comparisons | Further options when justified |
+|---|---|---|
+| Task/data | Dummy/naive predictor, label/duplicate/availability audit, representative learning curves | Noise handling, sampling strategy, additional permitted data, modality-specific preprocessing |
+| Text/representation | Direct sparse word/character TF-IDF or hashing versus configurable SVD; fit vocabulary inside each fold | Fixed pinned embeddings, tokenization alternatives, pretrained encoder fine-tuning, text/tabular/image fusion |
+| Features | Appropriate numeric/categorical handling, missingness and reusable quantity/unit parsing | Cross-fitted target encoding, scoped group aggregates, interactions, learned features |
+| Model/architecture | Compatible sparse linear model, a strong GBDT, verified existing MLP with matched resources | Other genuinely different families, FT-Transformer, TabNet, text CNN, custom PyTorch/JAX/training programs |
+| Target/loss | Existing identity/log/log1p choices where valid; compare compatible MAE/MSE/Huber under the same external metric | Quantile/distributional losses, task-specific surrogates, auxiliary objectives and constrained optimization |
+| Learning dynamics | Verify effective settings, inner early stopping, batch size, regularization, learning-rate schedule and convergence | Alternative optimizers/curricula, larger bounded pilots or hardware when curves justify them |
+| Combination | Simple fixed blend of complementary errors with explicit development-selection status | Constrained metric-aware blending, properly cross-fitted stacking/calibration, inference-cost tradeoffs |
+
+Run deterministic schemas, simple baselines, diagnostics, cache comparisons and numerical blending in workers without paying for repeated strategist calls. They still consume measured local resources. For text pricing, a direct sparse linear baseline and data-size/loss ablations are high-priority comparisons, not guaranteed improvements. Do not require sparse inputs to pass through the current dense matrix path. Frozen embedding caching differs from corpus-fitted vocabulary/SVD caching; preserve the corresponding provenance.
+
+Domain and library compatibility govern losses. Focal loss is not a generic pricing-regression objective; log-target MAE is not exact SMAPE; inverse-transform bias corrections depend on the desired statistical functional and require separate evidence. Fit learned correction/scaling/clipping on allowed training/meta data. Additional neural architectures are available through source packages as soon as containment and scoring pass; no need to add every architecture to the core model zoo first.
 
 For Amazon-style product pricing, candidate branches include pack/unit extraction, sparse text plus a linear model, categorical GBDTs, fixed pretrained text/image embeddings, and budget-permitting fine-tuning and multimodal fusion. Backbones are pinned research choices, not universal requirements. Handle missing/corrupt images and inference-time asset availability. Image downloads obey data/resource policy. Benchmark gains and the value of each modality must be demonstrated rather than asserted as a fixed percentage of lost signal.
 
@@ -665,6 +869,12 @@ For a final candidate using calibration/stacking, either obtain nested confirmat
 ### 7.4 Promotion and final refit
 
 Freeze promotion policy with the protocol: primary metric direction, required coverage, allowed uncertainty/complexity tradeoffs, inference ceilings, improvement tolerance, and deterministic tie-breaks. Latency/RAM targets come from the deployment contract, not universal 15 ms/2 GB limits. Optional Pareto axes include robustness, calibration, ensemble diversity, and deployment cost; mark inapplicable axes rather than invent values.
+
+Replace the critic's gap-only veto with separate `integrity_status`, `scientific_warnings` and `promotion_decision`. Hard failures include unauthorized labels/access, mutated inputs, mismatched provenance/coverage, invalid prediction domains and incompatible frozen contracts. A train–validation gap, fold dispersion, feature dominance or constant predictions can merit a diagnostic/confirmation step but does not by itself prove leakage, memorization or inferiority. Any nonfinite prediction fails a finite-output contract; do not allow a universal 1% NaN allowance. A valid dummy model remains an eligible baseline.
+
+Audit gap units, metric direction, training evaluation mode/dropout and train-versus-validation populations before interpreting it. Keep a scientifically concerning but integrity-valid candidate and its predictions for diagnostics or ensembling. Promote only under the registered evidence/uncertainty/deployment policy, rather than automatically accepting any lower development mean or rejecting every larger gap. Avoid an arbitrary standard-error penalty, `3×` fold variance veto or fixed bootstrap confidence as a universal rule.
+
+Every trusted `EvaluationReceipt` binds candidate/recipe/execution/attempt, actual model state, source/environment, data/protocol, permitted fit lineage, ordered evaluation keys, prediction hash, metric/version/aggregation, evidence tier and execution assurance. `SelectionRecord` references an immutable evaluation ID and selected artifact closure. Generate handoff, scorecard, release metadata and verification output from that record. Out-of-order completions, restart or a global `latest_*` field cannot change the selected score. A worker-written manifest or copied scalar is not sufficient authority.
 
 Preserve these maturity labels: best development candidate → replay-verified release candidate → optional independently assessed candidate → released apex. Never call a tuned CV score independent validation.
 
@@ -827,18 +1037,20 @@ The table is the execution queue. Each work package should be reviewable and may
 
 | ID | Work package and primary files | Dependencies | Acceptance gate |
 |---|---|---|---|
-| W0 | Capture baseline reproducers and contracts. `contracts/`, existing Rust/Python tests, capability report | None | Reproduce existing limits; define program/stage/extension, fit-scope, assessment, execution-assurance, remote-source, environment and provider/model/routing schemas. Inventory replacement/deletion ownership, including stale tests and dependencies. Record the existing writer and durability configuration rather than assuming they are absent. |
-| W1 | Context/accounting repair. `scientific/{autonomous_loop,governance,rust_gateway,dual_gateway}.py`, Rust `agents/gateway.rs`, `broker.rs`, `storage.rs`, new ledger migration/types | W0 | Independent budgets and profile-aware context/cost reservations; remove duplicate Python authority and stale hardcoded model/pricing fallbacks. Crash reconciliation uses the existing bounded writer; durable intent precedes side effects; no hashing/network/subprocess waits inside transactions. Concurrent polling/harvest cannot starve reservations. A 50-task mocked campaign stays within configured limits. |
-| W2 | Local trust boundary and environment mounts. `execution.rs`, `development_inputs.rs`, `custom_protocol.rs`, environment broker, tests | W0 | Per-job snapshots, narrow mounts, resource caps, diagnostics and bounded harvest; compatible sealed `/env:ro` imports/native ops work offline, ABI mismatches fail usefully, and source builds stay isolated. Custom gate remains closed. |
-| W3 | Canonical extensible task/metric/prediction and assessment contracts. `trusted_evaluation.rs`, `contracts.rs`, `custom_protocol.rs`, `task_adapters.py` | W0 | Core metric/vector fixtures, conditional property checks and provisional evaluator status; an independently checked custom scorer/splitter needs no central enum change. Lockbox feasibility/exclusion and one-shot identity are verified before model search. |
-| W4 | Manifest-driven source execution and release vertical slice. Existing candidate modules, new `scientific/contracts/validator.py`, Rust execution/bundle hooks | W1–W3 | A non-template source layout completes governed train → independent infer → score → replay with per-operation scope bindings and transitive provenance. Unsafe cross-fold state is rejected; valid fixed/subset/final-inference reuse works. Reference recipes remain optional. |
-| W5 | Fresh role agents, role-based provider routing, adaptive campaign state machine and capability extension. Rust `agents/`, existing tool registry, new `scientific/sub_agents.py` facade and stage/extension schemas | W4 | Real gateway context isolation and section 4.8 multi-provider routing checks pass; M1/worker profiles differ through configuration. All four feedback loops, new tool admission, typed artifact flow, bounded repair, negative results, phase research, challenger and finalization work end-to-end. Python facade has no separate authority. |
-| W6 | Hybrid compute authority. New Rust `compute_router.rs`, `kaggle_backend.rs`, storage migration; refactor `scientific/kaggle_pool.py` | W1–W5 | Lifecycle/quota/recovery, reused scoped datasets, readiness/rate-limit handling, bounded inline source and explicit inference assurance pass. A private bounded live smoke verifies actual staging/hardware/harvest when an eligible account is available; no unmeasured latency/billing promises. |
-| W7 | Scientific search and meta-fitting. Existing feature/model/ensemble modules; new `scientific/objectives.py` | W5; W6 for GPU branches | Feature provenance, paired ablations, optimizer-appropriate objective checks, cost-aware search, meta-selection score labels and nested confirmation implemented. Optional MCTS requires comparative evidence. |
-| W8 | Certify multimodal, forecasting, multilabel and ranking adapters; exercise unseen-task extension. `task_adapters.py`, `panel_contract.py`, modality modules and metric registry | W3–W7 | Each certified family has verified evaluation and inference. A task absent from the built-in list enters through section 4.6 with explicit campaign-specific status rather than a silent tabular substitution. |
-| W9 | Complete bundle v3 and benchmark release. Rust/Python bundle/export/evidence modules, optional `scientific/packaging/bundle_v3.py` | W4 onward; final gate after W7/W8 for enabled families | V3 validators, selected-fold/final replay, requested artifacts, assessment weight identity, provisional-evaluator limits and legacy compatibility pass. Post-assessment refits cannot inherit an independent score of other weights. |
+| W0 | **Freeze evidence and reproduce defects offline.** Existing traces/receipts, `contracts/`, affected Rust/Python tests | None | Record commit plus dirty patch/hash, source/runtime asset versions, dependency and binary identities; inspect source-data exposure and effective policy. Replay Run 8 parameter failures and Run 6 duplicate/warning patterns with a fixture gateway. Capture baseline metric/provenance defects without paid calls. Inventory existing writer, gates and replacement ownership. |
+| W1 | **Repair the current public execution contract.** `autonomous_loop.py`, `candidate_pipeline.py`, `model_zoo.py`, `operational_budgets.py`, `governed_research.py`, `agents/gateway.rs`, `assets.rs`, launcher and shared schemas | W0 | One advertised/validated/dispatched action contract; installed/embedded research path works with a fixture. Invalid parameters never reach fit; valid portfolio siblings survive. Remove silent Ridge conversions/default-model substitution; record effective settings. Exact execution duplicates reuse evidence. Restart restores selected evaluation and usage without double counting. Search dispatch/timeout attempts are durable; reserve before side effects using the current authority until W2 migration. |
+| W2 | **Unify resource authority and reconciliation.** Rust `agents/gateway.rs`, `broker.rs`, `storage.rs`, `read_pool.rs`, ledger migration/adapter; Python governance/gateway facades; policy/config | W0–W1 | Single Rust mutation authority; all three operational ceilings plus financial/technical constraints resolved at preflight. Concurrent reservations, crash-after-dispatch, duplicate settlement and evidenced reconciliation pass. Import historical obligations without clearing them. Show exact binding constraint and finalization allocation. No guessed price, arbitrary refund or automatic cap increase. Connectivity alone cannot report enforcement. |
+| W3 | **Protect inputs, fitting scopes and evaluation.** `execution.rs`, `development_inputs.rs`, `custom_protocol.rs`, `trusted_evaluation.rs`, `contracts.rs`, environment broker, task adapters | W0; W2 for resource-admitted execution | Independent snapshots and actual read-only/identity boundaries resist mutation and label/credential access. Fold preprocessing and inner early stopping have validated scope lineage. Canonical metrics/prediction keys, immutable receipts/selection, confirmation and one-shot lockbox policy pass. Applicable custom-evaluator admission and sealed offline environments work. Custom gate stays closed for uncertified profiles. |
+| W4 | **Deliver an open local vertical slice.** Existing candidate synthesis/runner/pipeline, program/stage/fit schemas and Rust execution/bundle hooks | W1–W3 | An unlisted source layout/model/loss completes admitted train → isolated infer → trusted score → standalone replay. Actual code/environment/state hashes and transitive fit provenance match. No built-in generator or central family enum is needed. A minimal reviewed v3 bundle or explicitly limited v2 export completes from the production entrypoint. |
+| W5 | **Make long-running autonomy recoverable.** Rust `agents/`, storage-backed experiment/hypothesis records, tool registry, Python scientific proposal/digest helpers, routing configuration | W4; replay-controller work may begin after W1 | Section 4.4 recovery policy pivots within two further planner decisions after a fired stall trigger or records a bounded useful exception. No third uninformative duplicate. Resume preserves coverage, failures, incumbent, leases and obligations. Fresh worker/challenger contexts, source-extension admission and role routing work. Validate mixed providers with fixtures, and live evidence only when funded/available. |
+| W6 | **Broaden science and connect useful research.** Existing representations/model/ensemble/objective modules, `governed_research.py`, controlled retrieval/extraction and asset broker | W4–W5; W3 for confirmation | Matched sparse-vs-SVD, structured-feature, target/loss, existing MLP and data-scale ablations can run; new neural source enters the same path. Gap-only veto replaced by integrity/warning/promotion separation. Research sources link to tested hypotheses; failed/retried calls count, untrusted pages cannot obtain capabilities. A minimal real search verifies service integration when admitted. |
+| W7 | **Verify optional Kaggle execution.** New Rust `compute_router.rs`, `kaggle_backend.rs`; refactor existing pool/output transport under shared authority | W2–W5; independent of completion of local W6 | Private scoped staging, bounded source/environment delivery, hardware/assurance evidence, unknown dispatch/recovery/cancellation and quota units pass synthetic fixtures. An admitted small real synthetic job verifies backend claims. No real-data upload before dataset permission/privacy checks. Lack of Kaggle does not block local science/release. |
+| W8 | **Demonstrate generality incrementally.** Existing task/panel/time-series adapters, modality modules, evaluator/extension registry | W3–W6; W7 only when required by the task | Same controller completes non-Amazon regression and grouped classification fixtures; temporal and other modalities admitted individually. One unseen task/output/split exercises independently checked extension, not silent scalar conversion. Hold back some datasets from framework tuning. |
+| W9 | **Complete release and fresh benchmark evidence.** Rust/Python bundle/export/evidence modules, standalone training/inference, preflight/launcher and benchmark report | Minimal path from W4; first local campaign after W6 and applicable W3/W5 gates; enabled-family completion after W8 | Full v3 writer/readers and supported old formats pass. Selected and final artifact replay, inference/resource profiles and candidate-bound reports agree. Execute section 11.4; distinguish operational, autonomy, scientific and delivery results. No changed weights inherit a previous holdout score. |
 
-W4 must include a minimal reviewed v3 path or an explicitly limited v2 development export so replay is exercised early; only W9 certifies the full v3 contract. W7 can begin local science before a live remote gate is complete. W8 enables task families one at a time; a blocked ranking adapter does not prevent certified tabular release.
+The critical local path is **W0 → W1 → W2/W3 → W4 → W5 → W6 → first W9 campaign**. W2/W3 share contracts and can be developed independently once their prerequisites exist; actual mutations remain serialized. W7 is an optional backend branch. W8 expands support family by family. W9 packaging begins at W4 so every milestone can deliver usable evidence. No requirement to finish all modalities or full mixed-provider certification before a valid local Amazon campaign.
+
+W1 contains immediate low-cost repairs, not a second permanent engine. Later packages replace its internal paths through the same public contract and deletion gate. First target a focused, measurable slice; introduce schemas needed for that slice, then version extensions instead of designing every future task before a training run can execute.
 
 Every work package also passes section 10.4's deletion gate. Cleanup is part of its implementation, not deferred to W9 or a future cleanup project. Preserving v1/v2 artifact reads means preserving the supported data contract through the current implementation; it does not require retaining old scientific engines or model dispatchers.
 
@@ -846,14 +1058,16 @@ Every work package also passes section 10.4's deletion gate. Cleanup is part of 
 
 These foundation changes replace the proposed eight “Day 1–3” commits. They are the first implementation sequence, not the entire project:
 
-1. Add baseline reproducers and versioned problem/stage/metric/budget schemas; capture existing gate behavior.
-2. Repair token/context separation and provider-aware counting, with authoritative reservation integration and versioned provider/model/routing profiles; delete the replaced accounting/default paths.
-3. Integrate per-job local snapshots, narrow mounts, process/resource limits, bounded diagnostic/harvest paths.
-4. Add extensible metric/task contracts, canonical SMAPE/RMSLE and essential classification metrics, prediction shapes, protocol and scoring fixtures.
-5. Wire manifest-declared arbitrary source execution plus independent inference into trusted scoring; verify an unlisted method/layout and unlock only verified custom profiles.
-6. Add fresh role contexts, configuration-driven mixed-provider routing, adaptive campaign transitions, capability-extension loop, branch fencing, evidence memory and challenger review; remove the superseded dispatch implementation.
-7. Put the existing Kaggle transport behind Rust quota/lease authority; implement private scoped staging, lifecycle reconciliation, circuit breaker and explicit fallback.
-8. Deliver a minimal clean-room end-to-end bundle with exact fitting/replay identities and v1/v2 compatibility; broaden scientific objectives and artifacts in subsequent changes.
+1. Capture W0 evidence and a fixture replay through the installed entrypoint; distinguish proposal, effective configuration, attempt and evaluation.
+2. Repair action parity, task schemas, portfolio isolation and parameter application; include the embedded runtime assets and remove silent Ridge/action reinterpretation.
+3. Replace hard-link staging and verify source protection under the real worker identity; bind all reported scores to immutable selection/evaluation records.
+4. Add multi-resource durable reservations/replay, effective-policy preflight and inspectable reconciliation; migrate authority without resetting history.
+5. Implement scope-checked train/infer/evaluator isolation, fold fitting and confirmation/assessment contracts for the first supported task.
+6. Execute one unlisted source program through the generic path to an offline standalone bundle; preserve v1/v2 readers through the new implementation.
+7. Add durable recovery/coverage memory and role-based provider configuration; replay the old stagnation pattern and demonstrate a substantive pivot.
+8. Run a matched cheap hypothesis portfolio and governed research integration, then the gated fresh local campaign. Build Kaggle and further modalities through W7/W8 as separate verified capabilities.
+
+These are reviewable increments, not a promise that each requires exactly one commit. Do not start a long paid search before W2/W3/W5 acceptance. Do not defer cheap baseline measurement until remote infrastructure or a complex neural model is complete.
 
 ### 10.3 Migration and rollout
 
@@ -875,6 +1089,36 @@ Apply this loop during every implementation change, across the repository rather
 Aggressive deletion targets implementation debt. Scientific experiment history, valid baseline methods, reusable supported algorithms, current model/checkpoint closures, issued receipts and outstanding job/budget records have separate correctness and retention requirements. Do not destroy them merely because an internal implementation is replaced; use the explicit CAS/retention rules in section 8 and preserve reconciliation until external exposure is settled. Delete abandoned repository model assets only after checking that no supported runtime or retained artifact closure depends on them. This is not permission to reset evidence or remove safety/evaluation checks before their replacement works.
 
 Compatibility is narrowly scoped to declared external contracts, such as supported CLI arguments and old artifact schemas. Implement these through the current architecture or a bounded format translator, with tests and explicit support ownership. It cannot justify a retained old training loop, rigid pipeline, duplicate accounting service, or opaque fallback. Temporary migrations have removal gates; supported format readers do not constitute a second scientific engine.
+
+### 10.5 Six major implementation sessions and review cadence
+
+The user requests approximately **5–7 major Antigravity sessions**. Use the following six substantial delivery boundaries instead of one session per small task. Sessions group the existing W packages; they do not weaken dependencies, evidence gates or deletion requirements. This is a planning target, not a guarantee that unavailable infrastructure or failing evidence can be compressed into six successful sessions.
+
+| Session | Substantial delivered outcome | Work-package coverage and acceptance |
+|---|---|---|
+| S1 — Campaign foundation and execution-contract repair | A runnable, recoverable boss → fresh specialist → existing scientific tool → controller evidence → boss loop, with challenger delegation and the current proposal defects fixed | W0/W1 plus the W5 local orchestration foundation. Reuse existing Rust modules; fix action parity, strict parameters, sibling isolation, independent input snapshots, evidence selection, effective configs, duplicate reuse and durable search-attempt accounting. CLI fixture demo, fresh-context assertions and crash/restart checks pass. Scientific fitting certification and unified resource mutation remain explicit S2 gates. |
+| S2 — Resource authority, data boundaries and scientific validity | One Rust resource mutation authority, safe data scopes and trustworthy evaluation/selection | W2/W3. Import obligations without reset; reconcile only with evidence; implement atomic budgets, effective policy, separate fit/inference/evaluation boundaries, limited confirmation/holdout access and immutable selection. Adversarial mutation, leakage, crash/accounting and replay tests pass. |
+| S3 — Open model creation and reproducible local delivery | Agent-authored unlisted source completes contained training → separate inference → trusted scoring → standalone replay | W4 plus early W9. Generic task/program/environment contracts; arbitrary compatible algorithms, losses and source layouts; transitive fit/environment identities; minimal usable bundle. Remove superseded recipe-only scientific dispatch, keeping reusable algorithms as optional components. |
+| S4 — Autonomous research and scientific breadth | Durable hypothesis-driven exploration, independent challenge and evidence-based pivots across useful scientific axes | Complete W5/W6 and section 4.9 role/context/routing behavior. Research informs experiments; matched representations/loss/data/model ablations and useful negative results are retained. Stagnation and repair replays escape fixation; mixed-provider fixtures and gated live integration distinguish configured from verified capabilities. |
+| S5 — Remote execution and task generality | Optional Kaggle backend follows the same authority/evidence lifecycle; non-Amazon tasks use the same owner loop | W7/W8. Account/quota semantics, uncertain dispatch, cancellation/recovery, staging/privacy and hardware evidence; grouped/temporal and unseen-contract tests. Real synthetic Kaggle smoke only when admitted. If remote access is unavailable, finish local generality and all backend fixtures; record the external gate precisely. |
+| S6 — Fresh live campaign, adversarial closure and release | One command runs the fresh Amazon campaign and produces a reproducible candidate-bound bundle and factual verdicts | Complete W9 and applicable outstanding gates under section 11.4. Resolve review regressions, run affected/full checks, execute admitted live research/compute paths, independent replay and final assessment when available. Engineering/autonomy/scientific/delivery verdicts are separate; no guaranteed score or fabricated remote evidence. |
+
+Local release does not wait for unavailable Kaggle. If S5's only remaining item is remote account access, S6 may establish a local release with that backend explicitly unverified. A seventh session is reserved for demonstrated remaining implementation defects or later remote verification, not another design rewrite. S1 may temporarily call the existing trusted scientific path; that migration seam has S3 deletion ownership and cannot become a permanent second engine. Until S2 passes, S1's resource and isolation demonstrations are appropriately limited, not production certification.
+
+**Antigravity builds; this chat reviews.** After each major session, the user brings the session receipt and relevant results here. This chat reviews the actual diff, entrypoint behavior, provenance, failures, claims and acceptance evidence, reproduces high-risk defects where feasible, and fixes small bounded issues with relevant checks. Cross-cutting defects or missing session outcomes become prioritized requirements in the next major prompt. A red-team finding cannot be marked fixed merely by updating prose, weakening a test or adding a skip. No automatic connection or monitoring of Antigravity is implied.
+
+Use one review packet per session at `docs/refactor_sessions/S<n>_REVIEW.md` and supporting evidence under `docs/evidence/refactor/S<n>/`. The packet contains: baseline and changed-file inventory; implemented behavior and removed surfaces; exact commands/exit statuses and environment; artifact/receipt references; failed/unrun checks with reasons; gate status; external dependencies; resource usage; and concrete remaining risks. Exclude secrets and raw private data. Patch/hash capture is local and must be screened before external sharing.
+
+Update the session row below with the packet link and evidence-based verdict, and update existing affected status documents. Do not create another master plan. Each packet is historical evidence, not an additional implementation authority. Antigravity should complete its entire assigned session and repair failures within scope before handing back; optional unavailable services do not justify abandoning independent work. It should not claim later-session capabilities already exist.
+
+| Session | Current implementation status | Review evidence |
+|---|---|---|
+| S1 | PARTIAL; independent acceptance not established. Numerical/specialist scaffolding exists; boss decisions, recovery/evidence binding, durable accounting and contract gates remain. Bounded isolation/challenger/CSV repairs verified. | [Independent review](../../docs/refactor_sessions/S1_RED_TEAM_REVIEW.md); [original author packet](../../docs/refactor_sessions/S1_REVIEW.md); [evidence](../../docs/evidence/refactor/S1/red_team/) |
+| S2 | PARTIAL; all-PASS not upheld. Provider-backed owner branches, changed-spec/weights rejection and durable search admission exist. Review repaired missing owner authorization, malformed challenger bindings, actual loop search restart identity and uncertain sibling handling. One Rust authority, atomic mutation fences, containment and source-bound release remain unaccepted. | [Independent review](../../docs/refactor_sessions/S2_RED_TEAM_REVIEW.md); [historical author packet](../../docs/refactor_sessions/S2_REVIEW.md); [independent evidence](../../docs/evidence/refactor/S2/red_team/) |
+| S3 | Assigned: close verified S2 authority/provenance gaps as prerequisites, then implement the open contained train→infer→score→standalone delivery path; no further routine design approval required | [Major S3 assignment](./ANTIGRAVITY_SESSION_3_PROMPT.md) |
+| S4 | Not yet executed under this session plan | Pending S3 review |
+| S5 | Not yet executed under this session plan | Pending S4 review |
+| S6 | Not yet executed under this session plan | Pending applicable gates |
 
 ## 11. Verification, benchmarks, and fault coverage
 
@@ -912,6 +1156,12 @@ Compatibility is narrowly scoped to declared external contracts, such as support
 | Oversized inline source or incompatible environment mount | Bounded source staging or a compatible builder is selected; no label/credential payload and no unisolated install. |
 | Co-resident remote subprocess produces plausible scores but fails independent replay | Keep `DEV_SCORED_UNREPLAYED` until verified; invalidate mismatched evidence and block release. |
 | Writer queue saturation or a process dies around push acknowledgement | Backpressure prevents unreserved dispatch; durable intent survives the configured failure model and recovery reconciles unknown outcomes. |
+| Research dispatch succeeds, returns empty/error/timeout, retries or dies before settlement | Every physical attempt has a durable consumed/unknown state and independent charge evidence; cache hits and local rejections do not spend attempts. |
+| A configured API key/account exists but admission/quota hooks are disconnected | Status remains configured/connected, not accounting-enforced or live-verified. |
+| Run 8's malformed portfolio includes a valid sibling | Reject/repair only the invalid member before fit; valid results survive and requested/effective settings are visible. |
+| Different proposals resolve to one execution key, or different runs finish out of order | Reuse the matching receipt without training; selected report remains bound to its immutable evaluation, never the latest completion. |
+| Run 6's repeated neural pattern is replayed through the real dispatcher | Recovery triggers, then a substantive diagnostic/pivot occurs within two planner decisions, or a bounded informative exception is recorded. |
+| A deliberately planted accessible label path, cross-fold state or contaminated feature enters a job | Capability/scope validation rejects the constructed case. Label-permutation diagnostics probe unexpected signal but do not claim universal leak detection. |
 | Old dispatcher survives behind a flag, import alias, CLI route or package entrypoint | Deletion review traces the path and removes it; public entrypoint checks execute the replacement without depending on old modules. |
 | Deletion leaves a dynamic plugin, orphan dependency or stale test enforcing removed behavior | Registration/package/config audit closes references; current-contract regression tests pass without resurrecting the old implementation. |
 | M1 and workers use different providers; one lacks tools, exceeds context or fails mid-request | Capability/context checks reject incompatible routes; configured funded escalation preserves fresh scoped context, exposure and attempt identity. |
@@ -927,6 +1177,7 @@ cargo test --locked -p mlrescurix-harness --test custom_protocol
 cargo test --locked -p mlrescurix-harness --test custom_model_gate
 cargo test --locked -p mlrescurix-harness --test custom_snapshot
 PYTHONPATH=python/src python3 -m pytest python/tests/test_autonomous_agent_loop.py python/tests/test_kaggle_pool.py python/tests/test_ml_task_adapters.py
+PYTHONPATH=python/src python3 -m pytest python/tests/test_autonomy_regressions.py python/tests/test_operational_budget_accounting.py python/tests/test_governed_research.py python/tests/test_portfolio_exploration.py
 cargo test --locked --workspace
 PYTHONPATH=python/src python3 -m pytest python/tests
 ```
@@ -958,6 +1209,64 @@ Record equal data/protocol/resource conditions when comparing to a fixed baselin
 
 At least one real eligible Kaggle run is necessary to certify that backend. If credentials, data permissions, quota, or accelerator availability prevent it, local milestones can complete while Kaggle remains `NOT_VERIFIED`. Do not substitute a mocked API success for remote certification.
 
+### 11.4 Fresh Amazon campaign: operational proof, then scientific assessment
+
+Use a fresh generated run identity under the existing authorized campaign and inherited liabilities; do not reuse the launcher’s Run 8 directory. Freeze code plus dirty diff, built binary/embedded assets, environment, data/protocol, model-route policy and acceptance rules. Planning labels such as “Run 9” do not establish an executed run or a mandatory calendar date.
+
+**Gate A — offline readiness, without new provider/search/Kaggle spend.**
+
+1. Replay action parity, unsupported parameters, sibling fault isolation, deduplication, effective-setting application, out-of-order reporting and checkpoint recovery through the public entrypoint. A fake provider is explicitly labeled a fixture.
+2. Verify snapshots, real worker filesystem/label/credential boundaries, fold preprocessing and selected receipt identity. Produce a baseline table for dummy, current reproducible reference and compatible cheap alternatives on the frozen development protocol. Same configuration identity across historical runs is useful evidence, not proof of an independent retraining event.
+3. Test concurrent admission and dispatch/settlement crash points with synthetic receipts. Produce a read-only historical reconciliation report; apply only adequately evidenced settlements through authority. Record missing provider IDs/evidence without claiming a recovery amount.
+4. Freeze problem/metric semantics, data exposure audit, confirmation/lockbox eligibility, practical improvement threshold and release policy. If genuinely untouched data is unavailable, label this as a development/operational campaign with an explicit final-assessment limitation.
+5. Resolve and hash the feasible resource envelope, including final construction, selected-member replay, evaluation and packaging. Make model/route/run/optional turn limit configurable. Keep admitted local work progressing if research or Kaggle is unavailable.
+
+**Gate B — bounded live integration proof.**
+
+After Gate A and real admission, demonstrate a small real LLM/tool round trip with usage and request identity persisted, one useful sanitized research request if configured/authorized, checkpoint/resume, and candidate-bound export/replay. Fault scenarios are injected offline instead of deliberately wasting paid turns. Research unavailable is a disclosed unverified capability, not a fabricated search; a campaign cannot claim live research verification without a real request.
+
+Verify Kaggle separately on synthetic data only when that backend is intended and its account/quota/data policy permits it. Capture actual hardware, source/environment/artifact binding, lifecycle and usage uncertainty. Do not require GPU allocation merely to prove that the local agent is autonomous. A miniature smoke test is integration evidence, not the full campaign result.
+
+**Gate C — evidence-guided scientific search.**
+
+Use this starting portfolio, adapting to observations rather than executing every row mechanically:
+
+| Question | Matched comparison / diagnostic |
+|---|---|
+| Is the current reference reproducible? | Reconstruct its exact configuration/environment where possible; otherwise establish a new named reference and disclose the difference |
+| Does compression lose useful text signal? | Direct sparse word/character text plus regularized linear model versus current/configurable SVD under compatible folds/resources |
+| Do reusable structured features add information? | Quantity/unit/count or missingness/categorical features with the same estimator and fit boundaries |
+| Does target/loss choice matter? | Identity/log/log1p and compatible stable objectives, evaluated on the same exact SMAPE variant |
+| Is the current neural model actually using proposed settings? | Inspect resolved settings/training logs; compare a verified MLP to a strong tree baseline fairly, with inner early stopping |
+| Would more data or a different representation help? | Eligible learning curves, pinned embeddings or a custom architecture justified by residuals/convergence and admitted compute |
+| Are errors complementary? | Fixed simple blend first; fitted weights/stacking get selection labels and independent confirmation |
+
+For the first adequately funded search, pre-register at least **three materially distinct hypotheses** across more than one representation/family mechanism and **one useful diagnostic or ablation** as a minimum process demonstration. Additional families, losses and neural experiments follow available evidence and resources, not obligatory counts. If the envelope cannot support this scope and finalization, label the attempt a smaller integration test or defer paid search; never silently lower the criterion after seeing results.
+
+Freeze a small shortlist for confirmation. Select and construct the final deployment artifact using only permitted data, replay it, then open the eligible lockbox once. If release criteria fail, record failure. Further exploration can use consumed evidence as development only; it cannot repeatedly retest against an “untouched” lockbox. No fixed score such as SMAPE <56, mandatory five folds, or universal one-point drift threshold is a success promise.
+
+**Trace and report contract.** Store full private operational evidence locally under access controls; the public report contains disclosure-approved aggregates and references. Capture:
+
+- Frozen policy/snapshot identities, actual provider/model/backend, capability/enforcement status and admission/finalization decisions.
+- Hypothesis mechanism, changed/controlled axes, comparison, falsification criterion, source citations and concise agent-stated rationale.
+- Requested/resolved program/configuration; recipe/execution/attempt/evaluation IDs; duplicate/cache/repair events; source/environment/data/fit/weights/prediction hashes.
+- Fold or task-equivalent metrics, training curves, permitted slice diagnostics, uncertainty method, integrity warnings, promotion/confirmation decisions and assessment consumption.
+- All external request/job IDs, retries, dispatch/terminal/unknown states, tokens, search attempts, quota units, money reservations/settlements/reconciliation and stop reasons.
+- Recovery mode transitions, restart/fencing events, branch coverage, best incumbent and final release identity. Capture evidence and decisions, not hidden chain-of-thought.
+
+The handoff/scorecard/resource totals must be reproducible from controller records after restart. A report template cannot fill an unknown cost or unavailable assessment with zero. Actual token receipts sum exactly when complete; missing receipts remain explicit conservative exposure. Score formatting may round for display, but underlying selected numeric identity and provenance must match.
+
+| Result axis | Passing evidence | Failure / limited outcome |
+|---|---|---|
+| Engineering | Every dispatched operation has a terminal or explicitly unresolved state; input protection, restart, resource admission and selected-candidate reporting hold | Missing usage, altered source, unauthorized effects, mismatched predictions/scores or unreconciled duplicate work |
+| Autonomous behavior | Distinct hypotheses execute; repeated errors/stalls cause bounded diagnosis/pivot; memory survives restart | Cosmetic parameter/family changes, repeated invalid specs, unexplained score reuse, or failure to respond to evidence |
+| Scientific value | Frozen candidate beats a matched comparator by the preregistered practically useful margin on valid independent evidence, with uncertainty and applicable slices | No improvement or uncertain effect is reported honestly; useful negative evidence can still pass engineering/autonomy |
+| Delivery | Standalone frozen inference and receipt-bound artifacts replay; applicable deployment/release requirements pass | Integrity-only verification does not substitute for predictive or production evidence |
+
+If the system explores reliably without improvement, inspect residuals, label/feature availability, learning curves and baseline strength before spending on a larger net. If development gains vanish on confirmation, examine adaptive selection and topology; do not declare leakage from the score difference alone. If identical predictions recur, audit settings/cache/fit logs before blaming the planner. If accounting, containment or provenance fails, fix and replay that layer before interpreting model results. An optional bounded equal-state stronger-model comparison can diagnose planner limits; record all cost and do not infer general superiority from one run.
+
+Write one campaign evidence manifest and a factual results report linking receipts, baselines, hypothesis outcomes, assessment/release status and remaining gaps. Continue repair/replay while authorized work remains; finish with a verified artifact or an explicit scientifically justified terminal verdict. External service unavailability never licenses fabricated success and never prevents unrelated offline implementation work.
+
 ## 12. Definition of done and implementation handoff
 
 The plan is ready for implementation because design choices, authority boundaries, artifact contracts, sequencing, and gates are explicit. The system is complete only when all applicable conditions below have executed evidence:
@@ -971,7 +1280,7 @@ The plan is ready for implementation because design choices, authority boundarie
 - Research informs testable competing hypotheses, and the best verified candidate is retained under resource/finalization constraints.
 - Enabled adapters choose valid frozen evaluation protocols and produce correctly shaped predictions scored by controller-owned metrics.
 - Local generated code executes only inside the certified boundary; Kaggle jobs obey permitted source scopes and disclose their different assurance level.
-- Five budget families, retries, branch concurrency, cancellation and restarts reconcile without duplicate authority or unaccounted external exposure.
+- The three configured operational ceilings and all independent financial/technical constraints, retries, branch concurrency, cancellation and restarts reconcile without duplicate authority or unaccounted external exposure.
 - Any fallback affecting scientific semantics becomes a new candidate with new evidence.
 - Per-operation fitting scopes and transitive dependencies govern caches; immutable remote sources/environments are reused only within their permitted content, scope and ABI identities.
 - Evaluator-reference assurance and execution-replay assurance are recorded separately from the numerical score; conditional property checks and co-resident development runs cannot certify themselves.
@@ -981,9 +1290,15 @@ The plan is ready for implementation because design choices, authority boundarie
 - Full v3 writer/validators and legacy compatibility pass; release sealing is atomic and controller anchored.
 - Real benchmark outcomes, quality limitations and unverified capabilities are reported honestly. No numerical rubric score substitutes for these gates.
 
-**Next implementation action:** W0 baseline reproduction and schemas, followed by W1–W4 to deliver the first governed local vertical slice. No further architecture choice is required to start. Account credentials, task-specific permissions, real-data licenses and hardware availability are runtime inputs; their absence does not justify inventing capabilities or blocking independent local foundation work.
+**Next implementation action:** Execute [the major S3 assignment](./ANTIGRAVITY_SESSION_3_PROMPT.md), closing the specific authority, recovery and source-to-score defects in [the independent S2 review](../../docs/refactor_sessions/S2_RED_TEAM_REVIEW.md) as prerequisites of W4's open execution/delivery slice. Keep the six-session structure and continue S4–S6 through their acceptance gates, with review and bounded fixes in this chat between major sessions. Maintain acceptance receipts and the session status view here rather than creating another competing master plan. No further design approval is needed for routine implementation already within the user's authorized scope. Credentials, task-specific permissions, real-data licenses and hardware availability are runtime inputs; their absence does not justify inventing capabilities or blocking independent local work.
 
 ### Source verification record
+
+Revision 3.3 records the independent S2 review and major S3 assignment. The all-PASS claim is corrected to partial acceptance. Bounded runtime repairs reject invalid owner authorization and contradictory challenger identity, preserve pre-turn search accounting through actual loop reconstruction, propagate explicit uncertain-execution recovery and accurately label host fixture environments. A disposable offline probe still exported changed inference source with unchanged weights and old assessment scores; full immutable execution/release binding and unified resource/worker authority remain S3 prerequisites. No new live Amazon campaign or production containment is certified.
+
+Revision 3.2 records the independent S1 code/evidence review, corrected session acceptance and the corrective S2 assignment. It also accompanies bounded runtime fixes: production isolation remains unavailable until implemented; explicit trusted-host offline diagnostics reject live provider gateways/credentials; missing/ambiguous challenger verdicts block finalization; malformed CSV widths are rejected. The review packet records reproduced score/artifact rebinding, missing owner decisions and durable accounting, assigned to S2 at that revision. These repairs do not certify a production worker, scientific release, autonomous CLI campaign or live provider integration.
+
+Revision 3.1 incorporates the user-approved single-owner/specialist workflow, its concrete role and evidence boundaries, and a six-session Antigravity implementation/review cadence. It links the first substantial implementation prompt and preserves the W0–W9 dependencies. This revision changes documentation only; no new implementation, live execution or certification is claimed.
 
 Revision 2.1 adds the user-requested fixed-recipe audit, runtime capability-extension design, and non-template acceptance tests. Its design changes do not add runtime certification.
 
@@ -991,4 +1306,8 @@ Revision 2.2 reviews the seven operational refinements against the current stora
 
 Revision 2.3 adds the user-required recursive deletion gate and configurable per-role LLM provider/model allocation. Provider/model names are preferences and illustrative configuration targets, not newly verified product claims. This revision changes documentation only; implementation removal and mixed-provider execution still require the specified evidence.
 
-External interface and scientific references were checked on November 1, 2026. Links adjacent to the relevant decisions distinguish sourced behavior from this plan's design choices. Kaggle CLI/interfaces, quotas, platform eligibility and competition rules must be revalidated when the adapter is implemented. The derivative correction in section 7.2 was independently derived and checked numerically during this planning revision. Runtime, model quality, security integration and bundle certification have not been established by editing this document.
+Revision 3.0 consolidates all four files in `plans/Suggestion/`, corrects Run 8 chronology and current target-transform/ledger claims against source and artifacts, and integrates strict proposal contracts, independent identities, deterministic recovery, research-attempt accounting, evidence-based reconciliation, confirmation and a fresh live-test protocol. It retains the earlier generic source path, provider routing, environment, remote lifecycle, objective mathematics, deletion and bundle contracts. It rejects unsupported reviewer score/security/statistical guarantees rather than averaging them into requirements. No new live run, financial mutation or runtime certification occurred during consolidation.
+
+On November 2, the consolidation rechecked primary [OpenRouter generation metadata](https://openrouter.ai/docs/api/api-reference/generations/get-request-&-usage-metadata-for-a-generation), [Ridge parameter documentation](https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.Ridge.html) and [Kaggle CLI kernel commands](https://github.com/Kaggle/kaggle-cli/blob/main/docs/kernels.md). These support the referenced interfaces, not the correctness of this repository's adapters. The Kaggle efficient-GPU-usage page was not text-readable in this check; account quota/reset/cancellation behavior remains a runtime verification requirement. Retained November 1 references below keep their original verification scope.
+
+Other retained external interface and scientific references were checked during the November 1 planning work. Links adjacent to the relevant decisions distinguish sourced behavior from this plan's design choices. Kaggle CLI/interfaces, quotas, platform eligibility and competition rules must be revalidated when the adapter is implemented. The derivative correction in section 7.2 was derived and checked during the earlier planning work, not rerun during this consolidation. Runtime, model quality, security integration and bundle certification have not been established by editing this document.

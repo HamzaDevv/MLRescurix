@@ -1,0 +1,15 @@
+{
+  "candidate_id": "cand_proj_s1_evidence_demo_309ff456",
+  "commands": {
+    "fit": "python3 solution.py fit --train-data {train_data} --weights-out {weights_out}",
+    "infer": "python3 solution.py infer --features-in {features_in} --weights-in {weights_in} --predictions-out {predictions_out}"
+  },
+  "entry_point": "solution.py",
+  "features": [
+    "x1",
+    "x2"
+  ],
+  "schema_version": "mlrescurix.program.v1",
+  "target": "target",
+  "task_type": "regression"
+}

@@ -140,20 +140,19 @@ pub struct ChatCompletionResponse {
 
 pub struct OutboundFilter;
 
-// This is a conservative detector, not a proof that arbitrary prose contains
-// no private data. Free-form worker output must remain withheld upstream.
-const ALLOWED_ACTIONS: &[&str] = &[
-    "ANALYZE",
-    "HYPOTHESIS_TRANSFORM",
-    "EVALUATE_PORTFOLIO",
-    "BLEND_AND_AUDIT",
-    "WRITE_PYTHON",
-    "RUN_PYTHON",
-    "HANDOFF",
-    "FINALIZE_AND_STOP",
-    "STOP_EARLY",
-    "PARSE_ERROR",
-];
+fn is_admitted_action(act_str: &str) -> bool {
+    if act_str == "PARSE_ERROR" {
+        return true;
+    }
+    let schema: Value = match serde_json::from_str(crate::assets::ACTIONS_V3_JSON) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    schema.get("actions")
+        .and_then(|a| a.as_array())
+        .map(|arr| arr.iter().any(|act| act.get("name").and_then(|n| n.as_str()) == Some(act_str)))
+        .unwrap_or(false)
+}
 
 const ALLOWED_DISPOSITIONS: &[&str] = &[
     "applied",
@@ -186,7 +185,7 @@ fn validate_turn_receipt(receipt_val: &Value, expected_min_turn: u32) -> std::re
     if let Some(act) = obj.get("proposed_action") {
         if !act.is_null() {
             let act_str = act.as_str().ok_or("proposed_action must be string or null")?;
-            if !ALLOWED_ACTIONS.contains(&act_str) {
+            if !is_admitted_action(act_str) {
                 return Err("proposed_action is not an admitted action");
             }
         }
@@ -435,6 +434,8 @@ fn validate_receipt_measurements(val: &Value) -> std::result::Result<(), &'stati
                     validate_fold_receipts(arr)?;
                 } else if k == "error_slices" {
                     validate_error_slices(arr)?;
+                } else if k == "sources" {
+                    validate_research_sources(arr)?;
                 } else {
                     if arr.len() > 128 { return Err("measurement array exceeds length bound"); }
                     for item in arr {
@@ -458,6 +459,30 @@ fn validate_receipt_measurements(val: &Value) -> std::result::Result<(), &'stati
                     for (_fam, fam_res) in nested {
                         validate_receipt_measurements(fam_res)?;
                     }
+                } else if k == "portfolio_audits" {
+                    for (_fam, audit) in nested {
+                        validate_receipt_critic_result(audit)?;
+                    }
+                } else if k == "previously_evaluated" {
+                    for (_fam, prev) in nested {
+                        if let Value::Object(m) = prev {
+                            for (_pk, pv) in m {
+                                if !pv.is_number() && !pv.is_string() && !pv.is_null() && !pv.is_boolean() {
+                                    return Err("previously_evaluated values must be scalar");
+                                }
+                            }
+                        }
+                    }
+                } else if k == "rejected_siblings" {
+                    for (_fam, rej) in nested {
+                        if let Value::Object(m) = rej {
+                            for (_rk, rv) in m {
+                                if !rv.is_number() && !rv.is_string() && !rv.is_null() && !rv.is_boolean() {
+                                    return Err("rejected_siblings values must be scalar");
+                                }
+                            }
+                        }
+                    }
                 } else {
                     for (nk, nv) in nested {
                         if nk == "__mlr_row_id" { return Err("nested measurement contains row identifier"); }
@@ -469,6 +494,8 @@ fn validate_receipt_measurements(val: &Value) -> std::result::Result<(), &'stati
                             Value::Array(narr) => {
                                 if nk == "fold_receipts" {
                                     validate_fold_receipts(narr)?;
+                                } else if nk == "sources" {
+                                    validate_research_sources(narr)?;
                                 } else {
                                     for item in narr {
                                         if !item.is_number() && !item.is_string() {
@@ -590,6 +617,30 @@ fn validate_error_slices(arr: &[Value]) -> std::result::Result<(), &'static str>
                     if !v.is_number() { return Err("slice metric must be numeric"); }
                 }
                 _ => return Err("error_slice has unknown field"),
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_research_sources(arr: &[Value]) -> std::result::Result<(), &'static str> {
+    if arr.len() > 16 { return Err("sources exceeds limit"); }
+    for item in arr {
+        let obj = item.as_object().ok_or("research source must be an object")?;
+        for (k, v) in obj {
+            match k.as_str() {
+                "title" | "url" | "snippet" => {
+                    let s = v.as_str().ok_or("source title/url/snippet must be string")?;
+                    if contains_raw_tabular_text(s) {
+                        return Err("source content contains tabular delimiters");
+                    }
+                }
+                "rerank_score" => {
+                    if !v.is_number() && !v.is_null() {
+                        return Err("rerank_score must be numeric or null");
+                    }
+                }
+                _ => return Err("research source has unknown field"),
             }
         }
     }
@@ -969,6 +1020,32 @@ mod disclosure_regression_tests {
                     "critic_result": null,
                     "error": null,
                     "resource_observability": null
+                },
+                {
+                    "turn": 3,
+                    "proposed_action": "RESEARCH_TOPIC",
+                    "parameters": {
+                        "query": "neural tabular architectures for SMAPE",
+                        "rationale": "explore loss formulations"
+                    },
+                    "disposition": "applied",
+                    "measurements": {
+                        "status": "success",
+                        "query": "neural tabular architectures for SMAPE",
+                        "provider": "mock",
+                        "summary": "### Findings on architectures",
+                        "sources": [
+                            {
+                                "title": "Paper on Tabular",
+                                "url": "https://arxiv.org/abs/2106.11959",
+                                "snippet": "State of the art results",
+                                "rerank_score": 0.95
+                            }
+                        ]
+                    },
+                    "critic_result": null,
+                    "error": null,
+                    "resource_observability": null
                 }
             ]
         });
@@ -1254,17 +1331,20 @@ pub trait ProviderGateway: Send + Sync {
             std::env::var("MLRESCURIX_CAMPAIGN_RUN").map_err(|_| "campaign run identity required")?))
     }
     fn chat_completion(&self, request: &ChatCompletionRequest) -> Result<ChatCompletionResponse>;
+    fn peek_next_response_id(&self) -> Option<String> { None }
 }
 
 /// Scripted provider fixture for deterministic offline testing and CI.
 pub struct ScriptedProviderFixture {
     responses: Mutex<Vec<ChatCompletionResponse>>,
+    recorded_requests: Mutex<Vec<ChatCompletionRequest>>,
 }
 
 impl ScriptedProviderFixture {
     pub fn new(responses: Vec<ChatCompletionResponse>) -> Self {
         Self {
             responses: Mutex::new(responses),
+            recorded_requests: Mutex::new(Vec::new()),
         }
     }
 
@@ -1272,13 +1352,29 @@ impl ScriptedProviderFixture {
         let mut guard = self.responses.lock().unwrap();
         guard.push(resp);
     }
+
+    pub fn recorded_requests(&self) -> Vec<ChatCompletionRequest> {
+        self.recorded_requests.lock().unwrap().clone()
+    }
+
+    pub fn peek_response(&self) -> Option<ChatCompletionResponse> {
+        self.responses.lock().unwrap().first().cloned()
+    }
+
+    pub fn remaining_responses_count(&self) -> usize {
+        self.responses.lock().unwrap().len()
+    }
 }
 
 impl ProviderGateway for ScriptedProviderFixture {
     fn is_offline_fixture(&self) -> bool { true }
     fn adapter_protocol(&self) -> &str { "scripted_fixture" }
     fn endpoint_url(&self) -> &str { "fixture://scripted" }
-    fn chat_completion(&self, _request: &ChatCompletionRequest) -> Result<ChatCompletionResponse> {
+    fn peek_next_response_id(&self) -> Option<String> {
+        self.peek_response().map(|r| r.id)
+    }
+    fn chat_completion(&self, request: &ChatCompletionRequest) -> Result<ChatCompletionResponse> {
+        self.recorded_requests.lock().unwrap().push(request.clone());
         let mut guard = self.responses.lock().unwrap();
         if guard.is_empty() {
             return Err("ScriptedProviderFixture has no remaining queued responses".into());

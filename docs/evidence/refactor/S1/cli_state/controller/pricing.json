@@ -1,0 +1,6 @@
+{
+  "https://openrouter.ai/api/v1/chat/completions::deepseek/deepseek-chat": {
+    "completion_millicents_per_1k": 8,
+    "prompt_millicents_per_1k": 2
+  }
+}

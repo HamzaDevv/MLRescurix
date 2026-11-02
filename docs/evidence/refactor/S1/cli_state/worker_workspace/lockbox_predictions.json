@@ -1,0 +1,26 @@
+[
+  {
+    "row_id": 3,
+    "prediction": 3.582239
+  },
+  {
+    "row_id": 5,
+    "prediction": 2.193723
+  },
+  {
+    "row_id": 6,
+    "prediction": 1.598877
+  },
+  {
+    "row_id": 7,
+    "prediction": 1.073847
+  },
+  {
+    "row_id": 22,
+    "prediction": 1.964253
+  },
+  {
+    "row_id": 28,
+    "prediction": 6.147483
+  }
+]

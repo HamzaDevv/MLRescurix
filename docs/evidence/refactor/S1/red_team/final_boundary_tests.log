@@ -1,0 +1,12 @@
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.09s
+     Running tests/s1_red_team.rs (target/debug/deps/s1_red_team-844b6732e072a18f)
+
+running 4 tests
+test production_requires_real_isolation_before_state_creation ... ok
+test offline_fixture_rejects_live_credentials_and_remote_gateways_before_state_creation ... ok
+test malformed_csv_width_is_rejected_without_panic ... ok
+test challenger_must_return_an_unambiguous_explicit_verdict ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.83s
+

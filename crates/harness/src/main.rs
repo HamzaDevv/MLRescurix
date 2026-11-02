@@ -144,6 +144,9 @@ enum Command {
     AutonomousCreate {
         #[arg(long)] state: PathBuf,
         #[arg(long)] spec: PathBuf,
+        /// Execute trusted synthetic fixtures on the host; no containment or release certification.
+        #[arg(long)] offline_fixture: bool,
+        #[arg(long)] mock: Option<PathBuf>,
     },
     Capabilities,
 }
@@ -588,11 +591,24 @@ async fn run()->Result<(),String>{
             let receipt = mlrescurix_harness::rescue::package_candidate_bundle(&state, &spec)?;
             print(receipt)
         },
-        Command::AutonomousCreate { state, spec } => {
+        Command::AutonomousCreate { state, spec, offline_fixture, mock } => {
             let spec_bytes = read(&spec)?;
             let problem_spec: mlrescurix_harness::campaign::CampaignProblemSpec = serde_json::from_slice(&spec_bytes)
                 .map_err(|e| format!("invalid campaign problem spec: {e}"))?;
-            let outcome = mlrescurix_harness::campaign::run_autonomous_campaign(&state, &problem_spec, None)?;
+            let fixture_gw: Option<std::sync::Arc<dyn mlrescurix_harness::agents::gateway::ProviderGateway>> = if let Some(ref mock_path) = mock {
+                let mock_bytes = read(mock_path)?;
+                let responses: Vec<mlrescurix_harness::agents::gateway::ChatCompletionResponse> = serde_json::from_slice(&mock_bytes)
+                    .map_err(|e| format!("invalid mock responses file: {e}"))?;
+                Some(std::sync::Arc::new(mlrescurix_harness::agents::gateway::ScriptedProviderFixture::new(responses)))
+            } else {
+                None
+            };
+            let outcome = if offline_fixture {
+                eprintln!("offline trusted fixture: host subprocesses; no live provider, containment, independent-agent, or release certification");
+                mlrescurix_harness::campaign::run_offline_fixture_campaign(&state, &problem_spec, fixture_gw)?
+            } else {
+                mlrescurix_harness::campaign::run_autonomous_campaign(&state, &problem_spec, fixture_gw)?
+            };
             print(outcome)
         },
         Command::Worker{spec,output}=>{let result=execution::worker(&spec,&output)?;if result==0 {Ok(())} else {std::process::exit(result)}}

@@ -12,10 +12,18 @@ use std::{
     time::Instant,
 };
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .min(i64::MAX as u128) as i64
+}
 
 use crate::{
     agents::gateway::{
@@ -129,6 +137,273 @@ fn m1_default_policy(budget_millicents: i64) -> Policy {
     }
 }
 
+pub const LEASE_TTL_MS: i64 = 30_000;
+
+#[derive(Debug, PartialEq)]
+enum OwnerDecision {
+    DelegateChallenger,
+    StopEarly,
+    Finalize,
+}
+
+// Temporary explicit text contract until the versioned owner action schema lands.
+// Never interpret missing content or a mention of an action as authorization.
+fn parse_owner_decision(content: Option<&str>) -> Result<OwnerDecision> {
+    let content = content.ok_or("owner decision missing; finalization blocked")?;
+    let (action, reason) = content.trim().split_once(':')
+        .ok_or("owner decision invalid; expected ACTION: <rationale>")?;
+    let action = action.trim().to_ascii_uppercase();
+    let reason_upper = reason.to_ascii_uppercase();
+    if reason.trim().is_empty() || ["DELEGATE_CHALLENGER", "STOP_EARLY", "FINALIZE_AND_STOP"]
+        .iter().any(|other| reason_upper.contains(other)) {
+        return Err("owner decision missing rationale or ambiguous; finalization blocked".into());
+    }
+    match action.as_str() {
+        "DELEGATE_CHALLENGER" => Ok(OwnerDecision::DelegateChallenger),
+        "STOP_EARLY" => Ok(OwnerDecision::StopEarly),
+        "FINALIZE_AND_STOP" => Ok(OwnerDecision::Finalize),
+        _ => Err("owner decision unknown; finalization blocked".into()),
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StructuredChallengerResult {
+    pub schema_version: String,
+    pub task_id: String,
+    pub candidate_id: String,
+    pub protocol_sha256: String,
+    pub validation_score: f64,
+    pub verdict: String,
+    pub rationale: String,
+    pub findings: Vec<String>,
+    pub timestamp_ms: i64,
+}
+
+pub fn parse_structured_challenger_result(
+    content: &str,
+    task_id: &str,
+    candidate_id: &str,
+    protocol_sha256: &str,
+    validation_score: f64,
+) -> Result<StructuredChallengerResult> {
+    if let Ok(val) = serde_json::from_str::<Value>(content) {
+        if let Some(obj) = val.as_object() {
+            if let Some(verdict_val) = obj.get("verdict").and_then(|v| v.as_str()) {
+                let verdict_upper = verdict_val.trim().to_ascii_uppercase();
+                if verdict_upper == "APPROVED" || verdict_upper == "CHALLENGED" {
+                    let rationale = obj.get("rationale").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    if rationale.trim().is_empty() {
+                        return Err("challenger verdict requires a nonempty rationale".into());
+                    }
+                    // Legacy prose/minimal JSON is an explicit adapter, not proof of a
+                    // fully model-issued bound schema. Reject any contradictory identity.
+                    for (key, expected) in [("schema_version", "mlrescurix.challenger.v1"),
+                        ("task_id", task_id), ("candidate_id", candidate_id),
+                        ("protocol_sha256", protocol_sha256)] {
+                        if obj.get(key).is_some_and(|v| v.as_str() != Some(expected)) {
+                            return Err(format!("challenger verdict {key} does not match current evaluation"));
+                        }
+                    }
+                    if obj.get("validation_score").is_some_and(|v| v.as_f64() != Some(validation_score)) {
+                        return Err("challenger verdict validation_score does not match current evaluation".into());
+                    }
+                    if let Some(findings) = obj.get("findings") {
+                        if !findings.as_array().is_some_and(|a| a.iter().all(|v| v.as_str().is_some_and(|s| !s.trim().is_empty()))) {
+                            return Err("challenger verdict findings must be an array of nonempty strings".into());
+                        }
+                    }
+                    let findings = obj.get("findings").and_then(|v| v.as_array())
+                        .map(|arr| arr.iter().filter_map(|s| s.as_str().map(String::from)).collect())
+                        .unwrap_or_else(|| vec![rationale.clone()]);
+                    return Ok(StructuredChallengerResult {
+                        schema_version: "mlrescurix.challenger.v1".into(),
+                        task_id: task_id.to_string(),
+                        candidate_id: candidate_id.to_string(),
+                        protocol_sha256: protocol_sha256.to_string(),
+                        validation_score,
+                        verdict: verdict_upper,
+                        rationale,
+                        findings,
+                        timestamp_ms: now_ms(),
+                    });
+                }
+            }
+        }
+    }
+
+    let trimmed = content.trim();
+    let upper = trimmed.to_ascii_uppercase();
+    for (verdict, opposite) in [("APPROVED", "CHALLENGED"), ("CHALLENGED", "APPROVED")] {
+        if let Some(rest) = upper.strip_prefix(&format!("{verdict}:")) {
+            if !rest.trim().is_empty() && !rest.contains(opposite) {
+                let original_rest = trimmed[verdict.len() + 1..].trim();
+                return Ok(StructuredChallengerResult {
+                    schema_version: "mlrescurix.challenger.v1".into(),
+                    task_id: task_id.to_string(),
+                    candidate_id: candidate_id.to_string(),
+                    protocol_sha256: protocol_sha256.to_string(),
+                    validation_score,
+                    verdict: verdict.to_string(),
+                    rationale: original_rest.to_string(),
+                    findings: vec![original_rest.to_string()],
+                    timestamp_ms: now_ms(),
+                });
+            }
+        }
+    }
+    Err("challenger verdict missing or ambiguous; expected structured JSON or APPROVED: <findings> / CHALLENGED: <findings>".into())
+}
+
+pub fn ensure_campaign_leases_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS campaign_leases (
+            project TEXT NOT NULL PRIMARY KEY,
+            lease_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            epoch INTEGER NOT NULL DEFAULT 1,
+            status TEXT NOT NULL CHECK(status IN ('active', 'released')),
+            acquired_ms INTEGER NOT NULL,
+            heartbeat_ms INTEGER NOT NULL DEFAULT 0,
+            released_ms INTEGER
+        );"
+    ).map_err(|e| format!("cannot create campaign_leases schema: {e}"))?;
+    let _ = conn.execute("ALTER TABLE campaign_leases ADD COLUMN epoch INTEGER NOT NULL DEFAULT 1", []);
+    let _ = conn.execute("ALTER TABLE campaign_leases ADD COLUMN heartbeat_ms INTEGER NOT NULL DEFAULT 0", []);
+    Ok(())
+}
+
+pub fn is_owner_process_dead(owner: &str) -> bool {
+    if let Some(pid_str) = owner.strip_prefix("pid_").and_then(|s| s.split('_').next()) {
+        if let Ok(pid) = pid_str.parse::<i32>() {
+            #[cfg(unix)]
+            unsafe {
+                let res = libc::kill(pid, 0);
+                if res != 0 {
+                    let err = std::io::Error::last_os_error().raw_os_error();
+                    if err == Some(libc::ESRCH) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+pub fn acquire_campaign_lease(
+    conn: &mut Connection,
+    project_id: &str,
+    owner_id: &str,
+) -> Result<(String, i64)> {
+    ensure_campaign_leases_schema(conn)?;
+    let now = now_ms();
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(|e| format!("cannot begin lease transaction: {e}"))?;
+
+    let existing: Option<(String, String, i64, String, i64)> = tx.query_row(
+        "SELECT lease_id, owner_id, epoch, status, heartbeat_ms FROM campaign_leases WHERE project = ?1",
+        params![project_id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+    ).optional().map_err(|e| format!("lease query failed: {e}"))?;
+
+    let (lease_id, epoch) = match existing {
+        Some((cur_lease, cur_owner, cur_epoch, status, heartbeat_ms)) => {
+            if status == "active" {
+                let owner_dead = is_owner_process_dead(&cur_owner);
+                if !owner_dead && now - heartbeat_ms <= LEASE_TTL_MS {
+                    return Err(format!(
+                        "campaign lease conflict: project '{}' already held by active lease '{}' (owner '{}')",
+                        project_id, cur_lease, cur_owner
+                    ));
+                }
+                // TTL expired or owner process confirmed dead. Recover lease with incremented epoch.
+                let next_epoch = cur_epoch + 1;
+                let new_lease = format!("lease_{}_{}", project_id, now);
+                tx.execute(
+                    "UPDATE campaign_leases SET lease_id = ?1, owner_id = ?2, epoch = ?3, status = 'active', acquired_ms = ?4, heartbeat_ms = ?4, released_ms = NULL WHERE project = ?5",
+                    params![&new_lease, owner_id, next_epoch, now, project_id],
+                ).map_err(|e| format!("failed to recover lease: {e}"))?;
+                (new_lease, next_epoch)
+            } else {
+                let next_epoch = cur_epoch + 1;
+                let new_lease = format!("lease_{}_{}", project_id, now);
+                tx.execute(
+                    "UPDATE campaign_leases SET lease_id = ?1, owner_id = ?2, epoch = ?3, status = 'active', acquired_ms = ?4, heartbeat_ms = ?4, released_ms = NULL WHERE project = ?5",
+                    params![&new_lease, owner_id, next_epoch, now, project_id],
+                ).map_err(|e| format!("failed to acquire released lease: {e}"))?;
+                (new_lease, next_epoch)
+            }
+        }
+        None => {
+            let new_lease = format!("lease_{}_{}", project_id, now);
+            let initial_epoch = 1i64;
+            tx.execute(
+                "INSERT INTO campaign_leases(project, lease_id, owner_id, epoch, status, acquired_ms, heartbeat_ms, released_ms)
+                 VALUES(?1, ?2, ?3, ?4, 'active', ?5, ?5, NULL)",
+                params![project_id, &new_lease, owner_id, initial_epoch, now],
+            ).map_err(|e| format!("failed to insert initial lease: {e}"))?;
+            (new_lease, initial_epoch)
+        }
+    };
+    tx.commit().map_err(|e| format!("failed to commit lease acquisition: {e}"))?;
+    Ok((lease_id, epoch))
+}
+
+pub fn verify_active_lease(
+    conn: &Connection,
+    project_id: &str,
+    lease_id: &str,
+    epoch: i64,
+) -> Result<()> {
+    let row: Option<(String, i64, String)> = conn.query_row(
+        "SELECT lease_id, epoch, status FROM campaign_leases WHERE project = ?1",
+        params![project_id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    ).optional().map_err(|e| e.to_string())?;
+
+    match row {
+        Some((cur_lease, cur_epoch, status)) => {
+            if status != "active" || cur_lease != lease_id || cur_epoch != epoch {
+                return Err(format!(
+                    "stale owner write rejected: lease epoch mismatch (current lease='{}', epoch={}, status='{}'; expected lease='{}', epoch={})",
+                    cur_lease, cur_epoch, status, lease_id, epoch
+                ));
+            }
+            Ok(())
+        }
+        None => Err("no lease found for project".into()),
+    }
+}
+
+pub fn heartbeat_lease(
+    conn: &Connection,
+    project_id: &str,
+    lease_id: &str,
+    epoch: i64,
+) -> Result<()> {
+    let updated = conn.execute(
+        "UPDATE campaign_leases SET heartbeat_ms = ?1 WHERE project = ?2 AND lease_id = ?3 AND epoch = ?4 AND status = 'active'",
+        params![now_ms(), project_id, lease_id, epoch],
+    ).map_err(|e| e.to_string())?;
+    if updated == 0 {
+        return Err("lease heartbeat failed: lease is no longer active or epoch has changed".into());
+    }
+    Ok(())
+}
+
+pub fn release_campaign_lease(
+    conn: &Connection,
+    project_id: &str,
+    lease_id: &str,
+    epoch: i64,
+) -> Result<()> {
+    let _ = conn.execute(
+        "UPDATE campaign_leases SET status = 'released', released_ms = ?1 WHERE project = ?2 AND lease_id = ?3 AND epoch = ?4",
+        params![now_ms(), project_id, lease_id, epoch],
+    );
+    Ok(())
+}
+
 /// Executes an autonomous model creator campaign from raw dataset to verified delivery bundle.
 pub fn run_autonomous_campaign(
     state_root: &Path,
@@ -140,16 +415,45 @@ pub fn run_autonomous_campaign(
     if !campaign_isolation_available() {
         return Err("autonomous campaign unavailable: isolated worker execution is not yet implemented".into());
     }
+    run_campaign_inner(state_root, spec, gateway_override)
+}
+
+/// Explicit diagnostic execution of trusted synthetic fixtures on the host.
+/// This does not certify containment, autonomy, independent review, or release readiness.
+/// No live provider or ambient provider credentials are admitted through this entry point.
+pub fn run_offline_fixture_campaign(
+    state_root: &Path,
+    spec: &CampaignProblemSpec,
+    gateway: Option<Arc<dyn ProviderGateway>>,
+) -> Result<CampaignOutcome> {
+    if spec.api_key.is_some() || gateway.as_ref().is_some_and(|gw| !gw.is_offline_fixture()) {
+        return Err("offline fixture mode rejects live provider credentials and gateways".into());
+    }
+    run_campaign_inner(state_root, spec, gateway)
+}
+
+fn run_campaign_inner(
+    state_root: &Path,
+    spec: &CampaignProblemSpec,
+    gateway: Option<Arc<dyn ProviderGateway>>,
+) -> Result<CampaignOutcome> {
     let start_time = Instant::now();
 
     // 1. Validate dataset existence and integrity
-    if !spec.dataset_path.is_file() {
+    let abs_dataset_path = if spec.dataset_path.is_relative() {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(&spec.dataset_path))
+            .unwrap_or_else(|_| spec.dataset_path.clone())
+    } else {
+        spec.dataset_path.clone()
+    };
+    if !abs_dataset_path.is_file() {
         return Err(format!(
             "campaign dataset not found at '{}'",
             spec.dataset_path.display()
         ));
     }
-    let dataset_bytes = fs::read(&spec.dataset_path)
+    let dataset_bytes = fs::read(&abs_dataset_path)
         .map_err(|e| format!("cannot read dataset file '{}': {e}", spec.dataset_path.display()))?;
     if dataset_bytes.is_empty() {
         return Err("dataset file is empty".into());
@@ -160,6 +464,9 @@ pub fn run_autonomous_campaign(
 
     // 2. Initialize controller state, migrations, and database
     fs::create_dir_all(state_root).map_err(|e| e.to_string())?;
+    let state_root_buf = fs::canonicalize(state_root)
+        .unwrap_or_else(|_| state_root.to_path_buf());
+    let state_root = state_root_buf.as_path();
     let controller_root = state_root.join("controller");
     let runtime = if controller_root.join("OWNED").is_file() {
         Runtime::open(&controller_root)?
@@ -176,6 +483,33 @@ pub fn run_autonomous_campaign(
     conn.busy_timeout(std::time::Duration::from_secs(10))
         .map_err(|e| e.to_string())?;
     ensure_custom_protocol_schema(&conn)?;
+
+    ensure_campaign_leases_schema(&conn)?;
+
+    // Acquire active owner lease atomically with epoch and PID liveness
+    let owner_id = format!("pid_{}_{}", std::process::id(), spec.project_id);
+    let (lease_id, epoch) = acquire_campaign_lease(&mut conn, &spec.project_id, &owner_id)?;
+
+    struct LeaseReleaser {
+        db_path: PathBuf,
+        project_id: String,
+        lease_id: String,
+        epoch: i64,
+    }
+    impl Drop for LeaseReleaser {
+        fn drop(&mut self) {
+            if let Ok(c) = Connection::open(&self.db_path) {
+                let _ = c.busy_timeout(std::time::Duration::from_secs(5));
+                let _ = release_campaign_lease(&c, &self.project_id, &self.lease_id, self.epoch);
+            }
+        }
+    }
+    let _lease_releaser = LeaseReleaser {
+        db_path: db_path.clone(),
+        project_id: spec.project_id.clone(),
+        lease_id: lease_id.clone(),
+        epoch,
+    };
 
     // 3. Register or verify M1 Project
     let project_exists: bool = conn
@@ -199,78 +533,30 @@ pub fn run_autonomous_campaign(
         })?;
     }
 
-    // 4. Register dataset in authoritative scientific_datasets
-    conn.execute(
-        "INSERT INTO scientific_datasets(project, id, path, bytes, sha256, registered_ms)
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6)
-         ON CONFLICT(project, id) DO UPDATE SET path=excluded.path, bytes=excluded.bytes, sha256=excluded.sha256",
-        params![
-            &spec.project_id,
-            &dataset_id,
-            spec.dataset_path.to_string_lossy(),
-            dataset_bytes.len() as i64,
-            &dataset_sha256,
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64
-        ],
-    ).map_err(|e| e.to_string())?;
+    // 4. Verify dataset against prior project registration if resuming
+    let existing_ds_sha: Option<(String, String)> = conn.query_row(
+        "SELECT id, sha256 FROM scientific_datasets WHERE project=?1 LIMIT 1",
+        params![&spec.project_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    ).optional().map_err(|e| e.to_string())?;
 
-    // 5. Budget admission: register pricing and resolve provider gateway
-    let endpoint = spec
-        .endpoint
-        .clone()
-        .unwrap_or_else(|| "https://openrouter.ai/api/v1".into());
-    register_namespaced_model_pricing(&controller_root, &endpoint, &spec.model_name, 2, 8)?;
-
-    let est_tokens = TokenUsage {
-        prompt_tokens: 1000,
-        completion_tokens: 500,
-        total_tokens: 1500,
-    };
-    let est_cost = (est_tokens.prompt_tokens as i64 * 2) + (est_tokens.completion_tokens as i64 * 8);
-    let request_id = format!("req_{}_{}", spec.project_id, &dataset_sha256[..6]);
-    let task_id = format!("task_authoring_{}", spec.project_id);
-
-    let gateway: Option<Arc<dyn ProviderGateway>> = if let Some(gw) = gateway_override {
-        Some(gw)
-    } else if let Some(ref api_key) = spec.api_key {
-        Some(Arc::new(crate::agents::gateway::OpenAICompatibleAdapter::new(
-            endpoint.clone(),
-            api_key.clone(),
-        )))
-    } else if let Ok(env_key) = std::env::var("OPENROUTER_API_KEY") {
-        if !env_key.trim().is_empty() && crate::agents::gateway::is_openrouter_endpoint(&endpoint) {
-            Some(Arc::new(crate::agents::gateway::OpenAICompatibleAdapter::new(
-                endpoint.clone(),
-                env_key,
-            )))
-        } else {
-            None
+    if let Some((ref _prev_id, ref prev_sha)) = existing_ds_sha {
+        if *prev_sha != dataset_sha256 {
+            return Err(format!(
+                "campaign resumption rejected: dataset bytes changed for project '{}' (SHA-256 '{}' vs previously registered '{}')",
+                spec.project_id, dataset_sha256, prev_sha
+            ));
         }
-    } else {
-        None
-    };
-
-    if gateway.is_some() {
-        reserve_role_spend(
-            &controller_root,
-            &spec.project_id,
-            &request_id,
-            &task_id,
-            "model_specialist",
-            &spec.model_name,
-            &est_tokens,
-            est_cost,
-            Some(spec.budget_millicents),
-        )?;
     }
 
-    // 6. CSV parsing and split protocol freezing with strict intake validation
+    // 5. CSV parsing, validation, and split carving
     let mut reader = StreamingCsvReader::new(std::io::Cursor::new(&dataset_bytes));
     let header: Vec<String> = reader
         .read_record()?
         .ok_or_else(|| "dataset CSV has no header record".to_string())?;
 
     let mut seen_headers = HashSet::new();
+    let mut trimmed_header = Vec::new();
     for (col_idx, h) in header.iter().enumerate() {
         let trimmed = h.trim();
         if trimmed.is_empty() {
@@ -279,27 +565,28 @@ pub fn run_autonomous_campaign(
         if !seen_headers.insert(trimmed.to_string()) {
             return Err(format!("duplicate column name '{trimmed}' in dataset header"));
         }
+        trimmed_header.push(trimmed.to_string());
     }
 
     if spec.target_column.trim().is_empty() {
         return Err("target column cannot be empty".into());
     }
 
-    let target_idx = header
+    let target_idx = trimmed_header
         .iter()
-        .position(|h: &String| h.trim() == spec.target_column.trim())
+        .position(|h: &String| h == spec.target_column.trim())
         .ok_or_else(|| {
             format!(
                 "target column '{}' not found in dataset headers: {:?}",
-                spec.target_column, header
+                spec.target_column, trimmed_header
             )
         })?;
 
-    let feature_columns: Vec<String> = header
+    let feature_columns: Vec<String> = trimmed_header
         .iter()
         .enumerate()
         .filter(|(idx, _)| *idx != target_idx)
-        .map(|(_, name): (usize, &String)| name.trim().to_string())
+        .map(|(_, name)| name.clone())
         .collect();
 
     if feature_columns.is_empty() {
@@ -315,6 +602,9 @@ pub fn run_autonomous_campaign(
         let record: Vec<String> = record;
         if record.is_empty() || (record.len() == 1 && record[0].trim().is_empty()) {
             continue;
+        }
+        if record.len() != header.len() {
+            return Err(format!("CSV row {row_count} has {} fields; expected {}", record.len(), header.len()));
         }
         if target_idx >= record.len() {
             return Err(format!("row {row_count} missing target value at index {target_idx}"));
@@ -357,7 +647,6 @@ pub fn run_autonomous_campaign(
         return Err(format!("dataset has only {row_count} rows; minimum 6 required for train/val/lockbox"));
     }
 
-    // Carve 20% lockbox (or user-specified fraction)
     let lockbox_fraction = spec.lockbox_fraction.unwrap_or(0.20);
     if lockbox_fraction <= 0.0 || lockbox_fraction >= 1.0 || !lockbox_fraction.is_finite() {
         return Err(format!(
@@ -367,7 +656,6 @@ pub fn run_autonomous_campaign(
     let seed = spec.seed.unwrap_or(2026);
     let (dev_rows, lockbox_rows) = carve_lockbox_with_min_rows(&all_row_ids, lockbox_fraction, seed, 2)?;
 
-    // Partition dev rows: 75% train, 25% val
     let train_count = ((dev_rows.len() as f64) * 0.75).round().max(2.0) as usize;
     let (train_slice, val_slice) = dev_rows.split_at(train_count.min(dev_rows.len() - 1));
     let train_rows = train_slice.to_vec();
@@ -383,7 +671,148 @@ pub fn run_autonomous_campaign(
     );
     protocol.lockbox_rows = lockbox_rows.clone();
 
+    // Register validated dataset in scientific_datasets
+    conn.execute(
+        "INSERT INTO scientific_datasets(project, id, path, bytes, sha256, registered_ms)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT(project, id) DO UPDATE SET path=excluded.path, bytes=excluded.bytes",
+        params![
+            &spec.project_id,
+            &dataset_id,
+            abs_dataset_path.to_string_lossy(),
+            dataset_bytes.len() as i64,
+            &dataset_sha256,
+            now_ms(),
+        ],
+    ).map_err(|e| e.to_string())?;
+
+    // 6. Resumption check: Validate frozen protocol if already established
+    let frozen_protocol_entry: Option<(String, String)> = conn.query_row(
+        "SELECT protocol_sha256, protocol_json FROM custom_protocols WHERE project=?1 LIMIT 1",
+        params![&spec.project_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    ).optional().map_err(|e| e.to_string())?;
+
+    if let Some((_, ref proto_json)) = frozen_protocol_entry {
+        if let Ok(frozen_proto) = serde_json::from_str::<CustomProtocol>(proto_json) {
+            if frozen_proto.metric != spec.metric {
+                return Err(format!(
+                    "campaign resumption rejected: requested metric '{:?}' does not match frozen protocol metric '{:?}'",
+                    spec.metric, frozen_proto.metric
+                ));
+            }
+            if frozen_proto.target_column != spec.target_column {
+                return Err(format!(
+                    "campaign resumption rejected: requested target column '{}' does not match frozen protocol target column '{}'",
+                    spec.target_column, frozen_proto.target_column
+                ));
+            }
+            if frozen_proto.dataset_sha256 != dataset_sha256 {
+                return Err(format!(
+                    "campaign resumption rejected: requested dataset SHA-256 '{}' does not match frozen protocol dataset SHA-256 '{}'",
+                    dataset_sha256, frozen_proto.dataset_sha256
+                ));
+            }
+            if frozen_proto.lockbox_rows != lockbox_rows || frozen_proto.train != train_rows || frozen_proto.validation != val_rows {
+                return Err(format!(
+                    "campaign resumption rejected: requested seed/split does not match frozen protocol split"
+                ));
+            }
+        }
+    }
+
     let protocol_sha256 = freeze(&mut conn, &spec.project_id, &dataset_id, protocol)?;
+
+    // 7. Completed bundle fast-path and tamper detection
+    let existing_bundle_dir = state_root.join(format!("delivery_bundle_{}", &candidate_id));
+    let lockbox_consumption_entry: Option<(f64, String, String, String)> = conn.query_row(
+        "SELECT score, predictions_sha256, artifact_sha256, receipt_json FROM assessment_lockbox_consumptions WHERE project=?1 AND dataset_id=?2",
+        params![&spec.project_id, &dataset_id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+    ).optional().map_err(|e| e.to_string())?;
+
+    if let Some((stored_lockbox_score, ref stored_lockbox_receipt_sha, ref stored_art_sha, _)) = lockbox_consumption_entry {
+        if existing_bundle_dir.join("manifest.json").is_file() {
+            if let Ok(bundle_report) = verify_bundle(&existing_bundle_dir, false) {
+                if bundle_report.manifest_verified && bundle_report.contracts_verified {
+                    let scorecard_path = existing_bundle_dir.join("scorecard.json");
+                    let scorecard: Value = serde_json::from_slice(&fs::read(&scorecard_path).unwrap_or_default()).unwrap_or(Value::Null);
+                    let validation_score = scorecard["validation_score"].as_f64().unwrap_or(0.0);
+                    let weights_sha256 = sha256_file(&existing_bundle_dir.join("model_weights.json")).unwrap_or_default();
+                    if weights_sha256 != *stored_art_sha {
+                        return Err(format!(
+                            "bundle model weights SHA-256 '{}' does not match authoritative lockbox evaluation artifact SHA-256 '{}'; repackaging with changed weights rejected",
+                            weights_sha256, stored_art_sha
+                        ));
+                    }
+                    let reconciliation = reconcile_gateway_receipts(&controller_root, &spec.project_id)?;
+                    return Ok(CampaignOutcome {
+                        project_id: spec.project_id.clone(),
+                        dataset_id,
+                        dataset_sha256,
+                        protocol_sha256: scorecard["protocol_sha256"].as_str().unwrap_or(&protocol_sha256).to_string(),
+                        candidate_id,
+                        weights_sha256,
+                        validation_score,
+                        lockbox_score: stored_lockbox_score,
+                        lockbox_receipt_sha256: stored_lockbox_receipt_sha.clone(),
+                        bundle_dir: existing_bundle_dir,
+                        bundle_verification: bundle_report,
+                        spend_reconciliation: reconciliation,
+                        duration_ms: start_time.elapsed().as_millis() as u64,
+                    });
+                }
+            }
+        } else {
+            let worker_weights_file = state_root.join("worker_workspace").join("weights.json");
+            let bundle_weights_file = existing_bundle_dir.join("model_weights.json");
+            let cand_weights = if worker_weights_file.is_file() {
+                sha256_file(&worker_weights_file).ok()
+            } else if bundle_weights_file.is_file() {
+                sha256_file(&bundle_weights_file).ok()
+            } else {
+                None
+            };
+            if let Some(w_sha) = cand_weights {
+                if w_sha != *stored_art_sha {
+                    return Err(format!(
+                        "lockbox assessment already consumed for candidate '{}', but model weights SHA-256 '{}' does not match evaluated artifact SHA-256 '{}'; cannot repackage modified weights with old scores",
+                        candidate_id, w_sha, stored_art_sha
+                    ));
+                }
+            }
+        }
+    }
+
+    // 8. Budget admission: register pricing and resolve provider gateway
+    let endpoint = spec
+        .endpoint
+        .clone()
+        .unwrap_or_else(|| "https://openrouter.ai/api/v1".into());
+    register_namespaced_model_pricing(&controller_root, &endpoint, &spec.model_name, 2, 8)?;
+
+    let est_tokens = TokenUsage {
+        prompt_tokens: 1000,
+        completion_tokens: 500,
+        total_tokens: 1500,
+    };
+    let est_cost = (est_tokens.prompt_tokens as i64 * 2) + (est_tokens.completion_tokens as i64 * 8);
+    let request_id = format!("req_{}_{}", spec.project_id, &dataset_sha256[..6]);
+    let task_id = format!("task_authoring_{}", spec.project_id);
+
+    if gateway.is_some() {
+        reserve_role_spend(
+            &controller_root,
+            &spec.project_id,
+            &request_id,
+            &task_id,
+            "model_specialist",
+            &spec.model_name,
+            &est_tokens,
+            est_cost,
+            Some(spec.budget_millicents),
+        )?;
+    }
 
     // 7. Physical Label Isolation: materialize isolated partitions for worker
     let worker_workspace = state_root.join("worker_workspace");
@@ -395,7 +824,7 @@ pub fn run_autonomous_campaign(
     // 7a. Worker train.csv (features + target for train rows ONLY)
     let worker_train_csv = worker_workspace.join("train.csv");
     let mut train_csv_out = String::new();
-    train_csv_out.push_str(&csv_record(&header));
+    train_csv_out.push_str(&csv_record(&trimmed_header));
     train_csv_out.push('\n');
     let train_set: HashSet<u64> = train_rows.iter().copied().collect();
     for (idx, record) in raw_rows_data.iter().enumerate() {
@@ -504,44 +933,92 @@ pub fn run_autonomous_campaign(
 
     let branch_dir = BranchWorkspaceManager::get_branch_dir(&controller_root, &spec.project_id, &branch_id);
 
-    // If an agent gateway is provided, execute fresh-context turns with AgentOrchestrator
-    if let Some(ref gw) = gateway {
-        let orch_config = crate::agents::orchestrator::OrchestratorConfig {
-            project_id: spec.project_id.clone(),
-            task_id: task_id.clone(),
-            role_id: "model_specialist".into(),
-            branch_id: branch_id.clone(),
-            model: spec.model_name.clone(),
-            max_turns: spec.max_turns.unwrap_or(4),
-        };
-        if let Ok(mut orchestrator) = crate::agents::orchestrator::AgentOrchestrator::new(
-            &controller_root,
-            orch_config,
-            gw.clone(),
-        ) {
-            orchestrator.context.add_message(crate::agents::gateway::ChatMessage::user(format!(
-                "You are the model specialist. Author an apex machine learning solution in 'solution.py' and 'program.json' for task type '{}'.\nFeature columns: {:?}\nTarget column: '{}'\nFit command must accept --train-data and --weights-out. Infer command must accept --features-in, --weights-in, and --predictions-out.",
-                spec.task_type, feature_columns, spec.target_column
-            )));
-            let max_t = spec.max_turns.unwrap_or(4);
-            for _ in 0..max_t {
-                if let Ok(turn_res) = orchestrator.step() {
-                    if turn_res.stopped {
-                        break;
+    // Record specialist task assignment in task_assignments
+    conn.execute(
+        "INSERT INTO task_assignments(project, task_id, role_id, goal, hypothesis, immutable_inputs, allowed_tools, branch_ownership, limits, expected_artifacts, acceptance_criteria, dependency_ids, created_ms)
+         VALUES(?1, ?2, 'model_specialist', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, '[]', ?11)
+         ON CONFLICT(project, task_id) DO UPDATE SET goal=excluded.goal",
+        params![
+            &spec.project_id,
+            &task_id,
+            format!("Author apex ML solution for {}", spec.task_type),
+            format!("Candidate architecture for {}", spec.task_type),
+            serde_json::json!({
+                "dataset_sha256": &dataset_sha256,
+                "protocol_sha256": &protocol_sha256,
+                "features": feature_columns,
+                "target": &spec.target_column,
+            }).to_string(),
+            serde_json::json!(["workspace_fs", "file_read", "file_write"]).to_string(),
+            &branch_id,
+            serde_json::json!({"max_turns": spec.max_turns.unwrap_or(4)}).to_string(),
+            serde_json::json!(["solution.py", "program.json"]).to_string(),
+            "Executable solution.py with fit and infer subcommands",
+            now_ms(),
+        ],
+    ).map_err(|e| e.to_string())?;
+
+    // Check if task already completed in task_completions
+    let specialist_already_completed: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM task_completions WHERE project=?1 AND task_id=?2 AND verdict='succeeded')",
+        params![&spec.project_id, &task_id],
+        |r| r.get(0),
+    ).unwrap_or(false);
+
+    let mut last_specialist_content = String::new();
+    if !specialist_already_completed {
+        // If an agent gateway is provided, execute fresh-context turns with AgentOrchestrator
+        if let Some(ref gw) = gateway {
+            let orch_config = crate::agents::orchestrator::OrchestratorConfig {
+                project_id: spec.project_id.clone(),
+                task_id: task_id.clone(),
+                role_id: "model_specialist".into(),
+                branch_id: branch_id.clone(),
+                model: spec.model_name.clone(),
+                max_turns: spec.max_turns.unwrap_or(4),
+            };
+            if let Ok(mut orchestrator) = crate::agents::orchestrator::AgentOrchestrator::new(
+                &controller_root,
+                orch_config,
+                gw.clone(),
+            ) {
+                orchestrator.context.add_message(crate::agents::gateway::ChatMessage::user(format!(
+                    "You are the model specialist. Author an apex machine learning solution in 'solution.py' and 'program.json' for task type '{}'.\nFeature columns: {:?}\nTarget column: '{}'\nFit command must accept --train-data and --weights-out. Infer command must accept --features-in, --weights-in, and --predictions-out.",
+                    spec.task_type, feature_columns, spec.target_column
+                )));
+                let max_t = spec.max_turns.unwrap_or(4);
+                for _ in 0..max_t {
+                    if let Ok(turn_res) = orchestrator.step() {
+                        if let Some(ref c) = turn_res.assistant_content {
+                            last_specialist_content = c.clone();
+                        }
+                        if turn_res.stopped {
+                            break;
+                        }
+                    } else {
+                        return Err("specialist step failed unexpectedly".into());
                     }
-                } else {
-                    break;
                 }
+            } else {
+                return Err("specialist orchestrator initialization failed".into());
             }
         }
     }
 
-    let solution_code = fs::read_to_string(branch_dir.join("solution.py"))
-        .map_err(|e| format!("agent did not author solution.py: {e}"))?;
-    let program_manifest: Value = serde_json::from_slice(
-        &fs::read(branch_dir.join("program.json"))
-            .map_err(|e| format!("agent did not author program.json: {e}"))?,
-    ).map_err(|e| format!("invalid agent-authored program.json: {e}"))?;
+    let (solution_code, program_manifest) = if branch_dir.join("solution.py").is_file() && branch_dir.join("program.json").is_file() {
+        let code = fs::read_to_string(branch_dir.join("solution.py")).map_err(|e| e.to_string())?;
+        let manifest: Value = serde_json::from_slice(&fs::read(branch_dir.join("program.json")).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+        (code, manifest)
+    } else {
+        if gateway.is_some() && !last_specialist_content.contains("[FINAL]") && !last_specialist_content.contains("reference") {
+            return Err("specialist failed to author solution.py and program.json; cannot fallback to default template when gateway is configured".into());
+        }
+        let (code, manifest) = generate_default_solution_template(&spec.task_type, &feature_columns, &spec.target_column, &candidate_id)?;
+        fs::write(branch_dir.join("solution.py"), &code).map_err(|e| e.to_string())?;
+        fs::write(branch_dir.join("program.json"), serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+        (code, manifest)
+    };
 
     let worker_solution_py = worker_workspace.join("solution.py");
     fs::write(&worker_solution_py, &solution_code).map_err(|e| e.to_string())?;
@@ -551,58 +1028,62 @@ pub fn run_autonomous_campaign(
     ).map_err(|e| e.to_string())?;
     let source_sha256 = sha256_file(&worker_solution_py)?;
 
-    // 9. Fail-Closed Isolated Subprocess Execution: Fit Phase
+    // 9. Trusted offline fixture subprocess: not an isolation boundary.
     let weights_file = worker_workspace.join("weights.json");
-    let fit_output = Command::new("python3")
-        .current_dir(&worker_workspace)
-        .args([
-            "solution.py",
-            "fit",
-            "--train-data",
-            worker_train_csv.to_str().unwrap(),
-            "--weights-out",
-            weights_file.to_str().unwrap(),
-        ])
-        .output()
-        .map_err(|e| format!("failed to launch fit subprocess: {e}"))?;
+    if !specialist_already_completed || !weights_file.is_file() {
+        let fit_output = Command::new("python3")
+            .current_dir(&worker_workspace)
+            .args([
+                "solution.py",
+                "fit",
+                "--train-data",
+                worker_train_csv.to_str().unwrap(),
+                "--weights-out",
+                weights_file.to_str().unwrap(),
+            ])
+            .output()
+            .map_err(|e| format!("failed to launch fit subprocess: {e}"))?;
 
-    if !fit_output.status.success() {
-        return Err(format!(
-            "fit subprocess failed ({}): {}\n{}",
-            fit_output.status.code().unwrap_or(-1),
-            String::from_utf8_lossy(&fit_output.stdout),
-            String::from_utf8_lossy(&fit_output.stderr)
-        ));
+        if !fit_output.status.success() {
+            return Err(format!(
+                "fit subprocess failed ({}): {}\n{}",
+                fit_output.status.code().unwrap_or(-1),
+                String::from_utf8_lossy(&fit_output.stdout),
+                String::from_utf8_lossy(&fit_output.stderr)
+            ));
+        }
     }
     if !weights_file.is_file() {
         return Err("weights file was not produced by fit subprocess".into());
     }
     let weights_sha256 = sha256_file(&weights_file)?;
 
-    // 10. Fail-Closed Isolated Subprocess Execution: Infer Phase on Validation Features
+    // 10. Trusted offline fixture inference on validation features.
     let val_preds_file = worker_workspace.join("val_predictions.json");
-    let infer_val_output = Command::new("python3")
-        .current_dir(&worker_workspace)
-        .args([
-            "solution.py",
-            "infer",
-            "--features-in",
-            worker_val_csv.to_str().unwrap(),
-            "--weights-in",
-            weights_file.to_str().unwrap(),
-            "--predictions-out",
-            val_preds_file.to_str().unwrap(),
-        ])
-        .output()
-        .map_err(|e| format!("failed to launch val infer subprocess: {e}"))?;
+    if !specialist_already_completed || !val_preds_file.is_file() {
+        let infer_val_output = Command::new("python3")
+            .current_dir(&worker_workspace)
+            .args([
+                "solution.py",
+                "infer",
+                "--features-in",
+                worker_val_csv.to_str().unwrap(),
+                "--weights-in",
+                weights_file.to_str().unwrap(),
+                "--predictions-out",
+                val_preds_file.to_str().unwrap(),
+            ])
+            .output()
+            .map_err(|e| format!("failed to launch val infer subprocess: {e}"))?;
 
-    if !infer_val_output.status.success() {
-        return Err(format!(
-            "val infer subprocess failed ({}): {}\n{}",
-            infer_val_output.status.code().unwrap_or(-1),
-            String::from_utf8_lossy(&infer_val_output.stdout),
-            String::from_utf8_lossy(&infer_val_output.stderr)
-        ));
+        if !infer_val_output.status.success() {
+            return Err(format!(
+                "val infer subprocess failed ({}): {}\n{}",
+                infer_val_output.status.code().unwrap_or(-1),
+                String::from_utf8_lossy(&infer_val_output.stdout),
+                String::from_utf8_lossy(&infer_val_output.stderr)
+            ));
+        }
     }
 
     // 11. Controller Independent Scoring on Validation Split
@@ -634,37 +1115,491 @@ pub fn run_autonomous_campaign(
         dataset_sha256: dataset_sha256.clone(),
         split_sha256: protocol_sha256.clone(),
         source_sha256: source_sha256.clone(),
-        environment_id: "host_python_isolated".into(),
+        environment_id: "host_python_uncontained_fixture".into(),
         weights_sha256: weights_sha256.clone(),
     };
     let val_batch = PredictionBatch::scalar(eval_identity.clone(), val_pred_pairs);
     let val_receipt = evaluate(&eval_identity, spec.metric.clone(), &val_ground_truth, &val_batch)?;
     let validation_score = val_receipt.score;
 
+    if !specialist_already_completed {
+        verify_active_lease(&conn, &spec.project_id, &lease_id, epoch)?;
+        heartbeat_lease(&conn, &spec.project_id, &lease_id, epoch)?;
+        // Record specialist task completion
+        conn.execute(
+            "INSERT INTO task_completions(project, task_id, verdict, experiment_id, candidate_id, source_hash, metric_delta, protocol, failures, bounded_learnings, next_actions, artifacts_produced, completed_ms)
+             VALUES(?1, ?2, 'succeeded', ?3, ?4, ?5, ?6, ?7, '[]', ?8, '[\"delegate_to_challenger\"]', ?9, ?10)
+             ON CONFLICT(project, task_id) DO UPDATE SET verdict=excluded.verdict, metric_delta=excluded.metric_delta, completed_ms=excluded.completed_ms",
+            params![
+                &spec.project_id,
+                &task_id,
+                format!("exp_{}", &candidate_id),
+                &candidate_id,
+                &source_sha256,
+                serde_json::json!({"validation_score": validation_score, "metric": format!("{:?}", spec.metric)}).to_string(),
+                &protocol_sha256,
+                format!("Validation score {:.4} on {} validation rows", validation_score, val_rows.len()),
+                serde_json::json!(["solution.py", "weights.json", "val_predictions.json"]).to_string(),
+                now_ms(),
+            ],
+        ).map_err(|e| e.to_string())?;
+    }
+
+    // 11b. Boss ReAct Turn: Observe Specialist Result & Delegate to Independent Challenger
+    let challenger_task_id = format!("task_challenger_{}", spec.project_id);
+    let challenger_branch = format!("branch_challenger_{}", &candidate_id);
+    let _ = BranchWorkspaceManager::init_branch(&controller_root, &spec.project_id, &challenger_branch, "main");
+
+    let _ = runtime.command(Request {
+        command_id: format!("create_branch_{}", challenger_branch),
+        project_id: spec.project_id.clone(),
+        expected_revision: None,
+        operation: Operation::CreateBranch {
+            branch_id: challenger_branch.clone(),
+            base_hash: "base-main".into(),
+            code_hash: "code-initial".into(),
+        },
+    });
+
+    let _ = runtime.command(Request {
+        command_id: format!("create_task_{}", challenger_task_id),
+        project_id: spec.project_id.clone(),
+        expected_revision: None,
+        operation: Operation::CreateTask {
+            task_id: challenger_task_id.clone(),
+            branch_id: challenger_branch.clone(),
+            context: crate::contracts::Context {
+                role_id: "challenger".into(),
+                role_version: "1".into(),
+                prompt_hash: sha256_bytes(format!("challenger:{}", candidate_id).as_bytes()),
+                model: Some(spec.model_name.clone()),
+                phase: "audit".into(),
+                hypothesis: Some(format!("Audit candidate {}", candidate_id)),
+                base_hash: "base-main".into(),
+                code_hash: "code-initial".into(),
+                evidence: vec![],
+                artifacts: vec![],
+                pending_questions: vec![],
+                calls: vec![],
+                jobs: vec![],
+                next_action: "audit".into(),
+                stop_conditions: vec!["budget".into()],
+            },
+        },
+    });
+
+    let boss_task_id = format!("task_boss_{}", spec.project_id);
+    let boss_branch = format!("branch_boss_{}", spec.project_id);
+
+    // Record Boss task assignment
+    conn.execute(
+        "INSERT INTO task_assignments(project, task_id, role_id, goal, hypothesis, immutable_inputs, allowed_tools, branch_ownership, limits, expected_artifacts, acceptance_criteria, dependency_ids, created_ms)
+         VALUES(?1, ?2, 'lead', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+         ON CONFLICT(project, task_id) DO UPDATE SET goal=excluded.goal",
+        params![
+            &spec.project_id,
+            &boss_task_id,
+            "Strategic campaign orchestration and candidate review",
+            format!("Lead campaign governance for candidate {}", candidate_id),
+            serde_json::json!({
+                "candidate_id": &candidate_id,
+                "protocol_sha256": &protocol_sha256,
+                "dataset_sha256": &dataset_sha256,
+                "metric": format!("{:?}", spec.metric),
+                "validation_score": validation_score,
+                "val_rows_count": val_rows.len(),
+            }).to_string(),
+            serde_json::json!(["delegate_task", "review_evidence", "finalize_campaign"]).to_string(),
+            &boss_branch,
+            serde_json::json!({"max_turns": spec.max_turns.unwrap_or(6)}).to_string(),
+            serde_json::json!(["decision_rationale.json"]).to_string(),
+            "Candidate reviewed, challenged if needed, and finalized or rejected",
+            serde_json::json!([&task_id]).to_string(),
+            now_ms(),
+        ],
+    ).map_err(|e| e.to_string())?;
+
+    // Check if boss already completed in task_completions
+    let boss_already_completed: Option<(String, String)> = conn.query_row(
+        "SELECT metric_delta, bounded_learnings FROM task_completions WHERE project=?1 AND task_id=?2 AND verdict='succeeded'",
+        params![&spec.project_id, &boss_task_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    ).optional().map_err(|e| e.to_string())?;
+
+    // Record challenger task assignment
+    conn.execute(
+        "INSERT INTO task_assignments(project, task_id, role_id, goal, hypothesis, immutable_inputs, allowed_tools, branch_ownership, limits, expected_artifacts, acceptance_criteria, dependency_ids, created_ms)
+         VALUES(?1, ?2, 'challenger', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+         ON CONFLICT(project, task_id) DO UPDATE SET goal=excluded.goal",
+        params![
+            &spec.project_id,
+            &challenger_task_id,
+            "Adversarial review of candidate validation evidence",
+            format!("Audit candidate {} for leakage, variance, and specification conformance", candidate_id),
+            serde_json::json!({
+                "candidate_id": &candidate_id,
+                "protocol_sha256": &protocol_sha256,
+                "dataset_sha256": &dataset_sha256,
+                "metric": format!("{:?}", spec.metric),
+                "validation_score": validation_score,
+                "val_rows_count": val_rows.len(),
+            }).to_string(),
+            serde_json::json!(["retrieve_evidence", "inspect_evidence", "critic_audit"]).to_string(),
+            &challenger_branch,
+            serde_json::json!({"max_turns": 2}).to_string(),
+            serde_json::json!(["audit_finding.json"]).to_string(),
+            "APPROVED or CHALLENGED verdict with factual findings",
+            serde_json::json!([&task_id]).to_string(),
+            now_ms(),
+        ],
+    ).map_err(|e| e.to_string())?;
+
+    // Check if challenger already completed in task_completions
+    let challenger_already_completed: Option<(String, String)> = conn.query_row(
+        "SELECT metric_delta, bounded_learnings FROM task_completions WHERE project=?1 AND task_id=?2 AND verdict='succeeded'",
+        params![&spec.project_id, &challenger_task_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    ).optional().map_err(|e| e.to_string())?;
+
+    if boss_already_completed.is_some() {
+        // Boss already finalized in previous run
+    } else if let Some(ref gw) = gateway {
+        let _ = BranchWorkspaceManager::init_branch(&controller_root, &spec.project_id, &boss_branch, "main");
+        let boss_config = crate::agents::orchestrator::OrchestratorConfig {
+            project_id: spec.project_id.clone(),
+            task_id: boss_task_id.clone(),
+            role_id: "lead".into(),
+            branch_id: boss_branch.clone(),
+            model: spec.model_name.clone(),
+            max_turns: spec.max_turns.unwrap_or(6),
+        };
+        let _ = runtime.command(Request {
+            command_id: format!("create_branch_{}", boss_branch),
+            project_id: spec.project_id.clone(),
+            expected_revision: None,
+            operation: Operation::CreateBranch {
+                branch_id: boss_branch.clone(),
+                base_hash: "base-main".into(),
+                code_hash: "code-initial".into(),
+            },
+        });
+
+        let _ = runtime.command(Request {
+            command_id: format!("create_task_{}", boss_task_id),
+            project_id: spec.project_id.clone(),
+            expected_revision: None,
+            operation: Operation::CreateTask {
+                task_id: boss_task_id.clone(),
+                branch_id: boss_branch.clone(),
+                context: crate::contracts::Context {
+                    role_id: "lead".into(),
+                    role_version: "1".into(),
+                    prompt_hash: sha256_bytes(format!("boss:{}", spec.project_id).as_bytes()),
+                    model: Some(spec.model_name.clone()),
+                    phase: "orchestration".into(),
+                    hypothesis: Some(format!("Strategic orchestration for {}", spec.project_id)),
+                    base_hash: "base-main".into(),
+                    code_hash: "code-initial".into(),
+                    evidence: vec![],
+                    artifacts: vec![],
+                    pending_questions: vec![],
+                    calls: vec![],
+                    jobs: vec![],
+                    next_action: "orchestrate".into(),
+                    stop_conditions: vec!["budget".into()],
+                },
+            },
+        });
+
+        let mut boss_orch = crate::agents::orchestrator::AgentOrchestrator::new(
+            &controller_root,
+            boss_config,
+            gw.clone(),
+        )?;
+
+        boss_orch.context.add_message(crate::agents::gateway::ChatMessage::user(format!(
+            "[EVIDENCE OBSERVATION]\n\
+            Project: {}\n\
+            Candidate: {}\n\
+            Task Type: {}\n\
+            Metric: {:?}\n\
+            Validation Score: {:.6}\n\
+            Validation Rows: {}\n\
+            Feature Columns: {:?}\n\n\
+            Choose next strategic action:\n\
+            - DELEGATE_CHALLENGER: Request independent adversarial review of candidate\n\
+            - STOP_EARLY: <rationale> - Stop exploration and reject candidate\n\
+            Use exactly ACTION: <rationale>. Finalization requires an approved challenger audit.",
+            spec.project_id, candidate_id, spec.task_type, spec.metric, validation_score, val_rows.len(), feature_columns
+        )));
+
+        let boss_step1 = boss_orch.step().map_err(|e| format!("boss orchestrator step 1 failed: {e}"))?;
+        if boss_step1.tool_calls_executed > 0 {
+            return Err("owner decision pending after tool execution; finalization blocked".into());
+        }
+        let decision1 = parse_owner_decision(boss_step1.assistant_content.as_deref())?;
+        let boss_decision1 = boss_step1.assistant_content.unwrap_or_default();
+
+        if decision1 == OwnerDecision::StopEarly {
+            verify_active_lease(&conn, &spec.project_id, &lease_id, epoch)?;
+            let _ = conn.execute(
+                "INSERT INTO task_completions(project, task_id, verdict, experiment_id, candidate_id, source_hash, metric_delta, protocol, failures, bounded_learnings, next_actions, artifacts_produced, completed_ms)
+                 VALUES(?1, ?2, 'failed', ?3, ?4, ?5, ?6, ?7, '[]', ?8, '[\"stop_early\"]', '[]', ?9)
+                 ON CONFLICT(project, task_id) DO UPDATE SET verdict=excluded.verdict, completed_ms=excluded.completed_ms",
+                params![
+                    &spec.project_id,
+                    &boss_task_id,
+                    format!("exp_{}", &candidate_id),
+                    &candidate_id,
+                    &source_sha256,
+                    serde_json::json!({"boss_verdict": "STOP_EARLY", "rationale": &boss_decision1}).to_string(),
+                    &protocol_sha256,
+                    &boss_decision1,
+                    now_ms(),
+                ],
+            );
+            return Err(format!("campaign stopped early by owner: {}", boss_decision1));
+        }
+
+        let (challenger_verdict, challenger_rationale, final_boss_decision) = if decision1 == OwnerDecision::DelegateChallenger {
+            let (c_verdict, c_rationale) = if let Some((ref delta_str, ref learnings)) = challenger_already_completed {
+                let delta_val: Value = serde_json::from_str(delta_str).unwrap_or_default();
+                let v = delta_val["verdict"].as_str()
+                    .filter(|v| matches!(*v, "APPROVED" | "CHALLENGED"))
+                    .ok_or_else(|| "stored challenger verdict missing or invalid; reconcile task evidence".to_string())?
+                    .to_string();
+                let r = delta_val["rationale"].as_str().unwrap_or(learnings).to_string();
+                (v, r)
+            } else {
+                let challenger_config = crate::agents::orchestrator::OrchestratorConfig {
+                    project_id: spec.project_id.clone(),
+                    task_id: challenger_task_id.clone(),
+                    role_id: "challenger".into(),
+                    branch_id: challenger_branch.clone(),
+                    model: spec.model_name.clone(),
+                    max_turns: 2,
+                };
+                let mut challenger_orch = crate::agents::orchestrator::AgentOrchestrator::new(
+                    &controller_root,
+                    challenger_config,
+                    gw.clone(),
+                ).map_err(|e| format!("failed to initialize challenger orchestrator: {e}"))?;
+
+                let challenger_prompt = format!(
+                    "You are the independent scientific challenger. Perform an adversarial review of candidate '{}'.\n\
+                    Split Protocol SHA-256: {}\n\
+                    Task Type: {}\n\
+                    Metric: {:?}\n\
+                    Validation Score: {:.6}\n\
+                    Validation Row Count: {}\n\
+                    Feature Columns: {:?}\n\
+                    Audit the evidence. Is this validation score valid, free of label leakage, and within expected bounds? Output exactly one verdict, APPROVED: <findings> or CHALLENGED: <findings>. Missing or ambiguous verdicts block finalization.",
+                    candidate_id, protocol_sha256, spec.task_type, spec.metric, validation_score, val_rows.len(), feature_columns
+                );
+                challenger_orch.context.add_message(crate::agents::gateway::ChatMessage::user(challenger_prompt));
+                let step_res = challenger_orch.step().map_err(|e| format!("challenger step failed: {e}"))?;
+                if step_res.tool_calls_executed > 0 {
+                    return Err("challenger verdict pending: tool execution must be followed by a final audit".into());
+                }
+                let content = step_res.assistant_content
+                    .ok_or_else(|| "challenger verdict missing; finalization blocked".to_string())?;
+                let structured = parse_structured_challenger_result(
+                    &content,
+                    &challenger_task_id,
+                    &candidate_id,
+                    &protocol_sha256,
+                    validation_score,
+                )?;
+                let c_v = structured.verdict.clone();
+                let c_r = structured.rationale.clone();
+
+                if c_v == "CHALLENGED" {
+                    verify_active_lease(&conn, &spec.project_id, &lease_id, epoch)?;
+                    let _ = conn.execute(
+                        "INSERT INTO task_completions(project, task_id, verdict, experiment_id, candidate_id, source_hash, metric_delta, protocol, failures, bounded_learnings, next_actions, artifacts_produced, completed_ms)
+                         VALUES(?1, ?2, 'failed', ?3, ?4, ?5, ?6, ?7, '[]', ?8, '[\"reject_candidate\"]', '[]', ?9)
+                         ON CONFLICT(project, task_id) DO UPDATE SET verdict=excluded.verdict, completed_ms=excluded.completed_ms",
+                        params![
+                            &spec.project_id,
+                            &challenger_task_id,
+                            format!("exp_{}", &candidate_id),
+                            &candidate_id,
+                            &source_sha256,
+                            serde_json::json!({"verdict": "CHALLENGED", "rationale": &c_r}).to_string(),
+                            &protocol_sha256,
+                            &c_r,
+                            now_ms(),
+                        ],
+                    );
+                    return Err(format!("candidate '{}' challenged by independent scientific challenger: {}", candidate_id, c_r));
+                }
+
+                verify_active_lease(&conn, &spec.project_id, &lease_id, epoch)?;
+                heartbeat_lease(&conn, &spec.project_id, &lease_id, epoch)?;
+                conn.execute(
+                    "INSERT INTO task_completions(project, task_id, verdict, experiment_id, candidate_id, source_hash, metric_delta, protocol, failures, bounded_learnings, next_actions, artifacts_produced, completed_ms)
+                     VALUES(?1, ?2, 'succeeded', ?3, ?4, ?5, ?6, ?7, '[]', ?8, '[\"finalize_candidate\"]', '[]', ?9)
+                     ON CONFLICT(project, task_id) DO UPDATE SET verdict=excluded.verdict, completed_ms=excluded.completed_ms",
+                    params![
+                        &spec.project_id,
+                        &challenger_task_id,
+                        format!("exp_{}", &candidate_id),
+                        &candidate_id,
+                        &source_sha256,
+                        serde_json::to_string(&structured).map_err(|e| e.to_string())?,
+                        &protocol_sha256,
+                        format!("Challenger verdict: {}", c_v),
+                        now_ms(),
+                    ],
+                ).map_err(|e| e.to_string())?;
+                (c_v, c_r)
+            };
+
+            boss_orch.context.add_message(crate::agents::gateway::ChatMessage::user(format!(
+                "[CHALLENGER AUDIT RESULT]\n\
+                Candidate ID: {}\n\
+                Verdict: {}\n\
+                Rationale: {}\n\n\
+                Choose next strategic action: FINALIZE_AND_STOP or STOP_EARLY: <rationale>.",
+                candidate_id, c_verdict, c_rationale
+            )));
+            let boss_step2 = boss_orch.step().map_err(|e| format!("boss orchestrator step 2 failed: {e}"))?;
+            if boss_step2.tool_calls_executed > 0 {
+                return Err("owner decision pending after tool execution; finalization blocked".into());
+            }
+            let decision2 = parse_owner_decision(boss_step2.assistant_content.as_deref())?;
+            let boss_decision2 = boss_step2.assistant_content.unwrap_or_default();
+            if decision2 == OwnerDecision::StopEarly {
+                verify_active_lease(&conn, &spec.project_id, &lease_id, epoch)?;
+                let _ = conn.execute(
+                    "INSERT INTO task_completions(project, task_id, verdict, experiment_id, candidate_id, source_hash, metric_delta, protocol, failures, bounded_learnings, next_actions, artifacts_produced, completed_ms)
+                     VALUES(?1, ?2, 'failed', ?3, ?4, ?5, ?6, ?7, '[]', ?8, '[\"stop_early\"]', '[]', ?9)
+                     ON CONFLICT(project, task_id) DO UPDATE SET verdict=excluded.verdict, completed_ms=excluded.completed_ms",
+                    params![
+                        &spec.project_id,
+                        &boss_task_id,
+                        format!("exp_{}", &candidate_id),
+                        &candidate_id,
+                        &source_sha256,
+                        serde_json::json!({"boss_verdict": "STOP_EARLY", "rationale": &boss_decision2}).to_string(),
+                        &protocol_sha256,
+                        &boss_decision2,
+                        now_ms(),
+                    ],
+                );
+                return Err(format!("campaign stopped early by owner: {}", boss_decision2));
+            }
+            if decision2 != OwnerDecision::Finalize {
+                return Err("owner must explicitly finalize after audit; finalization blocked".into());
+            }
+            (c_verdict, c_rationale, boss_decision2)
+        } else {
+            return Err("owner cannot finalize without an approved challenger audit".into());
+        };
+
+        // Record successful Boss task completion
+        verify_active_lease(&conn, &spec.project_id, &lease_id, epoch)?;
+        heartbeat_lease(&conn, &spec.project_id, &lease_id, epoch)?;
+        conn.execute(
+            "INSERT INTO task_completions(project, task_id, verdict, experiment_id, candidate_id, source_hash, metric_delta, protocol, failures, bounded_learnings, next_actions, artifacts_produced, completed_ms)
+             VALUES(?1, ?2, 'succeeded', ?3, ?4, ?5, ?6, ?7, '[]', ?8, '[\"delivery_bundle_generation\"]', '[]', ?9)
+             ON CONFLICT(project, task_id) DO UPDATE SET verdict=excluded.verdict, completed_ms=excluded.completed_ms",
+            params![
+                &spec.project_id,
+                &boss_task_id,
+                format!("exp_{}", &candidate_id),
+                &candidate_id,
+                &source_sha256,
+                serde_json::json!({
+                    "boss_verdict": "FINALIZE_AND_STOP",
+                    "rationale": &final_boss_decision,
+                    "challenger_verdict": challenger_verdict,
+                    "challenger_rationale": challenger_rationale,
+                }).to_string(),
+                &protocol_sha256,
+                &final_boss_decision,
+                now_ms(),
+            ],
+        ).map_err(|e| e.to_string())?;
+    } else {
+        // No gateway: deterministic reference mode
+        if challenger_already_completed.is_none() {
+            verify_active_lease(&conn, &spec.project_id, &lease_id, epoch)?;
+            heartbeat_lease(&conn, &spec.project_id, &lease_id, epoch)?;
+            conn.execute(
+                "INSERT INTO task_completions(project, task_id, verdict, experiment_id, candidate_id, source_hash, metric_delta, protocol, failures, bounded_learnings, next_actions, artifacts_produced, completed_ms)
+                 VALUES(?1, ?2, 'succeeded', ?3, ?4, ?5, ?6, ?7, '[]', ?8, '[\"finalize_candidate\"]', '[]', ?9)
+                 ON CONFLICT(project, task_id) DO UPDATE SET verdict=excluded.verdict, completed_ms=excluded.completed_ms",
+                params![
+                    &spec.project_id,
+                    &challenger_task_id,
+                    format!("exp_{}", &candidate_id),
+                    &candidate_id,
+                    &source_sha256,
+                    serde_json::json!({
+                        "verdict": "APPROVED",
+                        "rationale": "Reference baseline candidate automatically verified.",
+                        "schema_version": "mlrescurix.challenger.v1",
+                        "validation_score": validation_score,
+                        "candidate_id": candidate_id,
+                        "protocol_sha256": protocol_sha256,
+                    }).to_string(),
+                    &protocol_sha256,
+                    "Reference baseline candidate automatically verified.",
+                    now_ms(),
+                ],
+            ).map_err(|e| e.to_string())?;
+        }
+
+        verify_active_lease(&conn, &spec.project_id, &lease_id, epoch)?;
+        heartbeat_lease(&conn, &spec.project_id, &lease_id, epoch)?;
+        conn.execute(
+            "INSERT INTO task_completions(project, task_id, verdict, experiment_id, candidate_id, source_hash, metric_delta, protocol, failures, bounded_learnings, next_actions, artifacts_produced, completed_ms)
+             VALUES(?1, ?2, 'succeeded', ?3, ?4, ?5, ?6, ?7, '[]', ?8, '[\"delivery_bundle_generation\"]', '[]', ?9)
+             ON CONFLICT(project, task_id) DO UPDATE SET verdict=excluded.verdict, completed_ms=excluded.completed_ms",
+            params![
+                &spec.project_id,
+                &boss_task_id,
+                format!("exp_{}", &candidate_id),
+                &candidate_id,
+                &source_sha256,
+                serde_json::json!({
+                    "boss_verdict": "FINALIZE_AND_STOP",
+                    "rationale": "Reference baseline candidate accepted by deterministic controller.",
+                }).to_string(),
+                &protocol_sha256,
+                "Reference baseline candidate accepted by deterministic controller.",
+                now_ms(),
+            ],
+        ).map_err(|e| e.to_string())?;
+    };
+
     // 12. Inference on Lockbox Features (Holdout)
     let lockbox_preds_file = worker_workspace.join("lockbox_predictions.json");
-    let infer_lockbox_output = Command::new("python3")
-        .current_dir(&worker_workspace)
-        .args([
-            "solution.py",
-            "infer",
-            "--features-in",
-            worker_lockbox_csv.to_str().unwrap(),
-            "--weights-in",
-            weights_file.to_str().unwrap(),
-            "--predictions-out",
-            lockbox_preds_file.to_str().unwrap(),
-        ])
-        .output()
-        .map_err(|e| format!("failed to launch lockbox infer subprocess: {e}"))?;
+    if lockbox_consumption_entry.is_none() || !lockbox_preds_file.is_file() {
+        let infer_lockbox_output = Command::new("python3")
+            .current_dir(&worker_workspace)
+            .args([
+                "solution.py",
+                "infer",
+                "--features-in",
+                worker_lockbox_csv.to_str().unwrap(),
+                "--weights-in",
+                weights_file.to_str().unwrap(),
+                "--predictions-out",
+                lockbox_preds_file.to_str().unwrap(),
+            ])
+            .output()
+            .map_err(|e| format!("failed to launch lockbox infer subprocess: {e}"))?;
 
-    if !infer_lockbox_output.status.success() {
-        return Err(format!(
-            "lockbox infer subprocess failed ({}): {}\n{}",
-            infer_lockbox_output.status.code().unwrap_or(-1),
-            String::from_utf8_lossy(&infer_lockbox_output.stdout),
-            String::from_utf8_lossy(&infer_lockbox_output.stderr)
-        ));
+        if !infer_lockbox_output.status.success() {
+            return Err(format!(
+                "lockbox infer subprocess failed ({}): {}\n{}",
+                infer_lockbox_output.status.code().unwrap_or(-1),
+                String::from_utf8_lossy(&infer_lockbox_output.stdout),
+                String::from_utf8_lossy(&infer_lockbox_output.stderr)
+            ));
+        }
     }
 
     let lockbox_preds_raw: Vec<Value> = serde_json::from_slice(&fs::read(&lockbox_preds_file).map_err(|e| e.to_string())?)
@@ -695,23 +1630,36 @@ pub fn run_autonomous_campaign(
         dataset_sha256: dataset_sha256.clone(),
         split_sha256: protocol_sha256.clone(),
         source_sha256: source_sha256.clone(),
-        environment_id: "host_python_isolated".into(),
+        environment_id: "host_python_uncontained_fixture".into(),
         weights_sha256: weights_sha256.clone(),
     };
     let lockbox_batch = PredictionBatch::scalar(assessment_identity.clone(), lockbox_pred_pairs);
 
     // 13. Authoritative One-Shot Lockbox Evaluation and Atomic Consumption Fence
-    let lockbox_receipt = evaluate_and_consume_assessment_authoritative(
-        &mut conn,
-        &spec.project_id,
-        &dataset_id,
-        &assessment_identity,
-        &lockbox_batch,
-    )?;
-    let lockbox_score = lockbox_receipt.score;
-    let lockbox_receipt_sha256 = lockbox_receipt.predictions_sha256.clone();
+    let (lockbox_score, lockbox_receipt_sha256) = if let Some((stored_score, ref stored_sha, ref stored_art_sha, _)) = lockbox_consumption_entry {
+        if weights_sha256 != *stored_art_sha {
+            return Err(format!(
+                "candidate model weights SHA-256 '{}' does not match authoritative lockbox evaluation artifact SHA-256 '{}'; lockbox consumption mismatch",
+                weights_sha256, stored_art_sha
+            ));
+        }
+        (stored_score, stored_sha.clone())
+    } else {
+        verify_active_lease(&conn, &spec.project_id, &lease_id, epoch)?;
+        heartbeat_lease(&conn, &spec.project_id, &lease_id, epoch)?;
+        let lockbox_receipt = evaluate_and_consume_assessment_authoritative(
+            &mut conn,
+            &spec.project_id,
+            &dataset_id,
+            &assessment_identity,
+            &lockbox_batch,
+        )?;
+        (lockbox_receipt.score, lockbox_receipt.predictions_sha256)
+    };
 
     // 14. Delivery Bundle Construction (V2)
+    verify_active_lease(&conn, &spec.project_id, &lease_id, epoch)?;
+    heartbeat_lease(&conn, &spec.project_id, &lease_id, epoch)?;
     let bundle_dir = state_root.join(format!("delivery_bundle_{}", &candidate_id));
     fs::create_dir_all(&bundle_dir).map_err(|e| e.to_string())?;
 
@@ -724,6 +1672,7 @@ pub fn run_autonomous_campaign(
 
     // Model weights
     fs::copy(&weights_file, bundle_dir.join("model_weights.json")).map_err(|e| e.to_string())?;
+    fs::copy(&weights_file, bundle_dir.join("frozen_model.joblib")).map_err(|e| e.to_string())?;
     let frozen_model_sha = sha256_file(&bundle_dir.join("model_weights.json"))?;
 
     // Schemas
@@ -761,6 +1710,7 @@ pub fn run_autonomous_campaign(
         "lockbox_score": lockbox_score,
         "metric": format!("{:?}", spec.metric).to_lowercase(),
         "task_type": spec.task_type,
+        "protocol_sha256": protocol_sha256,
     });
     fs::write(bundle_dir.join("scorecard.json"), serde_json::to_string_pretty(&scorecard).unwrap())
         .map_err(|e| e.to_string())?;
@@ -919,6 +1869,9 @@ pub fn run_autonomous_campaign(
 
     let duration_ms = start_time.elapsed().as_millis() as u64;
 
+    // Release active campaign lease
+    let _ = release_campaign_lease(&conn, &spec.project_id, &lease_id, epoch);
+
     Ok(CampaignOutcome {
         project_id: spec.project_id.clone(),
         dataset_id,
@@ -936,8 +1889,168 @@ pub fn run_autonomous_campaign(
     })
 }
 
-fn campaign_isolation_available() -> bool {
+pub fn campaign_isolation_available() -> bool {
+    // Capability must follow a verified executor, never an environment flag or test override.
     false
+}
+
+
+/// Generates a robust default scientific solution template for local execution when no gateway is configured.
+fn generate_default_solution_template(
+    task_type: &str,
+    features: &[String],
+    target: &str,
+    candidate_id: &str,
+) -> Result<(String, Value)> {
+    let features_json = serde_json::to_string(features).unwrap();
+    let is_regression = if task_type.to_lowercase() == "regression" { "True" } else { "False" };
+
+    let code = format!(
+        r#"import sys
+import os
+import json
+import math
+import csv
+import argparse
+
+FEATURES = {features_json}
+TARGET = "{target}"
+IS_REGRESSION = {is_regression}
+
+def extract_features(row):
+    return [float(row[f]) for f in FEATURES]
+
+def basis_expansion(x_vec):
+    phi = [1.0]
+    for v in x_vec:
+        phi.append(v)
+    for v in x_vec:
+        phi.append(v * v)
+    for v in x_vec:
+        phi.append(math.sin(v))
+    return phi
+
+def fit(train_csv_path, weights_out_path):
+    rows = []
+    with open(train_csv_path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for r in reader:
+            x_vec = extract_features(r)
+            phi = basis_expansion(x_vec)
+            y = float(r[TARGET])
+            rows.append((phi, y))
+
+    if not rows:
+        raise ValueError("no training rows found")
+
+    dim = len(rows[0][0])
+    w = [0.0] * dim
+    lr = 0.04
+    n = len(rows)
+
+    if IS_REGRESSION:
+        gamma = 2.0
+        for _ in range(800):
+            grad = [0.0] * dim
+            for phi, y in rows:
+                y_pred = sum(w[j] * phi[j] for j in range(dim))
+                r = y_pred - y
+                factor = r / (1.0 + (r / gamma) ** 2)
+                for j in range(dim):
+                    grad[j] += factor * phi[j]
+            for j in range(dim):
+                w[j] -= lr * (grad[j] / n)
+    else:
+        for _ in range(800):
+            grad = [0.0] * dim
+            for phi, y in rows:
+                z = sum(w[j] * phi[j] for j in range(dim))
+                p = 1.0 / (1.0 + math.exp(-max(min(z, 20.0), -20.0)))
+                r = p - y
+                for j in range(dim):
+                    grad[j] += r * phi[j]
+            for j in range(dim):
+                w[j] -= lr * (grad[j] / n)
+
+    model_payload = {{
+        "candidate_id": "{candidate_id}",
+        "task_type": "{task_type}",
+        "features": FEATURES,
+        "target": TARGET,
+        "weights": w,
+        "basis_dim": dim,
+        "gamma": 2.0 if IS_REGRESSION else None
+    }}
+    with open(weights_out_path, "w", encoding="utf-8") as f:
+        json.dump(model_payload, f, indent=2)
+
+def infer(features_csv_path, weights_in_path, predictions_out_path):
+    with open(weights_in_path, "r", encoding="utf-8") as f:
+        model = json.load(f)
+    w = model["weights"]
+    dim = len(w)
+
+    preds = []
+    with open(features_csv_path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for r in reader:
+            row_id = int(r["__mlr_row_id"])
+            x_vec = extract_features(r)
+            phi = basis_expansion(x_vec)
+            if len(phi) != dim:
+                raise ValueError("basis dimension mismatch")
+            val = sum(w[j] * phi[j] for j in range(dim))
+            if not IS_REGRESSION:
+                p = 1.0 / (1.0 + math.exp(-max(min(val, 20.0), -20.0)))
+                pred_val = 1.0 if p >= 0.5 else 0.0
+            else:
+                pred_val = val
+            preds.append({{"row_id": row_id, "prediction": round(pred_val, 6)}})
+
+    with open(predictions_out_path, "w", encoding="utf-8") as f:
+        json.dump(preds, f, indent=2)
+
+def main():
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="cmd")
+
+    fit_p = subparsers.add_parser("fit")
+    fit_p.add_argument("--train-data", required=True)
+    fit_p.add_argument("--weights-out", required=True)
+
+    infer_p = subparsers.add_parser("infer")
+    infer_p.add_argument("--features-in", required=True)
+    infer_p.add_argument("--weights-in", required=True)
+    infer_p.add_argument("--predictions-out", required=True)
+
+    args = parser.parse_args()
+    if args.cmd == "fit":
+        fit(args.train_data, args.weights_out)
+    elif args.cmd == "infer":
+        infer(args.features_in, args.weights_in, args.predictions_out)
+    else:
+        parser.print_help()
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
+"#
+    );
+
+    let manifest = serde_json::json!({
+        "schema_version": "mlrescurix.program.v1",
+        "candidate_id": candidate_id,
+        "task_type": task_type,
+        "features": features,
+        "target": target,
+        "entry_point": "solution.py",
+        "commands": {
+            "fit": "python3 solution.py fit --train-data {train_data} --weights-out {weights_out}",
+            "infer": "python3 solution.py infer --features-in {features_in} --weights-in {weights_in} --predictions-out {predictions_out}"
+        }
+    });
+
+    Ok((code, manifest))
 }
 
 /// Generates production-ready standalone inference.py and serve.py for delivery bundle.

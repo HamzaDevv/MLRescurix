@@ -1,0 +1,16 @@
+{
+  "features": [
+    "x1",
+    "x2"
+  ],
+  "properties": {
+    "x1": {
+      "type": "number"
+    },
+    "x2": {
+      "type": "number"
+    }
+  },
+  "task": "regression",
+  "type": "object"
+}

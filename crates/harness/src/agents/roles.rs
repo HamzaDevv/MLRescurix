@@ -295,6 +295,41 @@ Only approve finalization if evidence is unambiguous and robust."#.into(),
     ]
 }
 
+pub fn get_challenger_role() -> AgentRoleSpec {
+    AgentRoleSpec {
+        role_id: "challenger".into(),
+        version: "v1".into(),
+        description: "Independent scientific challenger performing adversarial review, integrity checks, and falsification of proposed candidate models and evidence.".into(),
+        system_prompt: r#"You are the Independent Scientific Challenger.
+Your responsibility is to conduct an independent, adversarial audit of candidate model evaluation evidence before acceptance or finalization.
+You receive the data split protocol and primary controller evaluation receipts. You do NOT receive the proposer's subjective advocacy.
+Verify that:
+1. Performance gains are statistically credible and not artifacts of evaluation leakage, high fold variance, or over-optimistic selection.
+2. The model satisfies contract requirements and metric constraints.
+Provide a clear verdict: APPROVED or CHALLENGED with specific factual findings."#.into(),
+        capabilities: vec![
+            "inspect_dataset".into(),
+            "query_budget".into(),
+            "retrieve_evidence".into(),
+            "submit_critic_audit".into(),
+            "inspect_evidence".into(),
+            "compare_contenders".into(),
+            "audit_lineage".into(),
+            "inspect_scientific_lineage".into(),
+            "approve_or_reject_finalization".into(),
+            "discover_capabilities".into(),
+            "dataset_query".into(),
+            "experiment_tree".into(),
+            "artifact_crud".into(),
+            "estimate_feasibility".into(),
+            "negotiate_execution_plan".into(),
+            "critic_audit".into(),
+        ],
+        max_tokens_per_turn: 4096,
+        model_hint: None,
+    }
+}
+
 pub fn get_consolidated_default_roles() -> Vec<AgentRoleSpec> {
     let standard = get_standard_roles();
     let lead = standard.iter().find(|r| r.role_id == "lead").unwrap().clone();
@@ -354,6 +389,9 @@ Ensure all transformations strictly isolate train vs validation folds and adhere
 }
 
 pub fn get_role(role_id: &str) -> Option<AgentRoleSpec> {
+    if role_id == "challenger" {
+        return Some(get_challenger_role());
+    }
     let normalized = match role_id {
         "data/diagnostics" | "data-diagnostics" => "data_diagnostics",
         "experiment/engineer" | "experiment-engineer" => "experiment_engineer",

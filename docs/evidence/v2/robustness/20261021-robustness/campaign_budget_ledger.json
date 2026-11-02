@@ -3,7 +3,7 @@
   "campaign_ceiling_usd": "0.280494020",
   "contingency_usd": "0.05",
   "per_run_ceiling_usd": "0.20",
-  "remaining_campaign_usd": "0.031560000",
+  "remaining_campaign_usd": "0.010380000",
   "request_records": {
     "amazon-2025-20261030-continuation:5976bfb693d50b2c:turn:0": {
       "amount_usd": "0.00264",
@@ -553,14 +553,102 @@
     },
     "amazon-live-20261102-run6:21f99d64961f9d17:turn:8": {
       "amount_usd": "0.00788",
+      "cost_kind": "calculated_estimate",
       "gateway_digest": "969565ecda41ecc397ccd05ee463b4ad2dd7542fac40869d95da0cab255254b2",
       "gateway_scope": "amazon-live-20261102\u0000default-task",
       "gateway_state_root": "/Users/hamza/Developer/Imp_Projects/MLRescurix/.mlrescurix-state/amazon-2025/live-20261102-run6/rust_harness_state",
       "run_id": "amazon-live-20261102-run6",
-      "status": "settled",
       "settled_usd": "0.00115",
-      "cost_kind": "calculated_estimate",
+      "status": "settled",
       "unreconciled_usd": "0.00673"
+    },
+    "amazon-live-20261102-run7:8c992737fef19da2:turn:0": {
+      "amount_usd": "0.0019",
+      "cost_kind": "calculated_estimate",
+      "gateway_digest": "9263532cd7afecc63342bdde5ddfbfc08585c04d36b06c945fa426262f250943",
+      "gateway_scope": "amazon-live-20261102\u0000default-task",
+      "gateway_state_root": "/Users/hamza/Developer/Imp_Projects/MLRescurix/.mlrescurix-state/amazon-2025/live-20261102-run7/rust_harness_state",
+      "run_id": "amazon-live-20261102-run7",
+      "settled_usd": "0.00018",
+      "status": "settled",
+      "unreconciled_usd": "0.00172"
+    },
+    "amazon-live-20261102-run7:8c992737fef19da2:turn:1": {
+      "amount_usd": "0.00226",
+      "cost_kind": "calculated_estimate",
+      "gateway_digest": "c02ff760936e451e88710ea6ff9512a366137e770f1bc935426e400b6fc1ada9",
+      "gateway_scope": "amazon-live-20261102\u0000default-task",
+      "gateway_state_root": "/Users/hamza/Developer/Imp_Projects/MLRescurix/.mlrescurix-state/amazon-2025/live-20261102-run7/rust_harness_state",
+      "run_id": "amazon-live-20261102-run7",
+      "settled_usd": "0.00034",
+      "status": "settled",
+      "unreconciled_usd": "0.00192"
+    },
+    "amazon-live-20261102-run7:8c992737fef19da2:turn:2": {
+      "amount_usd": "0.00381",
+      "cost_kind": "calculated_estimate",
+      "gateway_digest": "a646484e8ac39142e487b29af35af92e3a881cce56bc302ea746702856423ef9",
+      "gateway_scope": "amazon-live-20261102\u0000default-task",
+      "gateway_state_root": "/Users/hamza/Developer/Imp_Projects/MLRescurix/.mlrescurix-state/amazon-2025/live-20261102-run7/rust_harness_state",
+      "run_id": "amazon-live-20261102-run7",
+      "settled_usd": "0.0007",
+      "status": "settled",
+      "unreconciled_usd": "0.00311"
+    },
+    "amazon-live-20261102-run7:8c992737fef19da2:turn:3": {
+      "amount_usd": "0.00411",
+      "cost_kind": "calculated_estimate",
+      "gateway_digest": "52d208795b1e0c76840ac2efaa746dcda062b9154341d377f13b66d7993ee7cb",
+      "gateway_scope": "amazon-live-20261102\u0000default-task",
+      "gateway_state_root": "/Users/hamza/Developer/Imp_Projects/MLRescurix/.mlrescurix-state/amazon-2025/live-20261102-run7/rust_harness_state",
+      "run_id": "amazon-live-20261102-run7",
+      "settled_usd": "0.00052",
+      "status": "settled",
+      "unreconciled_usd": "0.00359"
+    },
+    "amazon-live-20261102-run8:43eddf4991211fac:turn:0": {
+      "amount_usd": "0.0019",
+      "cost_kind": "calculated_estimate",
+      "gateway_digest": "e5d4d0e862fdbb5709737f912228339dcdc6f7d2c8b93448102de9fcd161eff5",
+      "gateway_scope": "amazon-live-20261102\u0000default-task",
+      "gateway_state_root": "/Users/hamza/Developer/Imp_Projects/MLRescurix/.mlrescurix-state/amazon-2025/live-20261102-run8/rust_harness_state",
+      "run_id": "amazon-live-20261102-run8",
+      "settled_usd": "0.00017",
+      "status": "settled",
+      "unreconciled_usd": "0.00173"
+    },
+    "amazon-live-20261102-run8:43eddf4991211fac:turn:1": {
+      "amount_usd": "0.00226",
+      "cost_kind": "calculated_estimate",
+      "gateway_digest": "601c4dab0098b402f6db0407b0ad3ea58f3a7b809bee1d10b52e2b5ff06639fe",
+      "gateway_scope": "amazon-live-20261102\u0000default-task",
+      "gateway_state_root": "/Users/hamza/Developer/Imp_Projects/MLRescurix/.mlrescurix-state/amazon-2025/live-20261102-run8/rust_harness_state",
+      "run_id": "amazon-live-20261102-run8",
+      "settled_usd": "0.00047",
+      "status": "settled",
+      "unreconciled_usd": "0.00179"
+    },
+    "amazon-live-20261102-run8:43eddf4991211fac:turn:2": {
+      "amount_usd": "0.00241",
+      "cost_kind": "calculated_estimate",
+      "gateway_digest": "b97bffe0e4660f87ebbe1e235faa0274998a5c08cc09743ba80e029e48141df4",
+      "gateway_scope": "amazon-live-20261102\u0000default-task",
+      "gateway_state_root": "/Users/hamza/Developer/Imp_Projects/MLRescurix/.mlrescurix-state/amazon-2025/live-20261102-run8/rust_harness_state",
+      "run_id": "amazon-live-20261102-run8",
+      "settled_usd": "0.00048",
+      "status": "settled",
+      "unreconciled_usd": "0.00193"
+    },
+    "amazon-live-20261102-run8:43eddf4991211fac:turn:3": {
+      "amount_usd": "0.00253",
+      "gateway_digest": "118e4d3b9f9b26c2db971af13a9ee7bed75562b488b70e84ba72e49ccd01e393",
+      "gateway_scope": "amazon-live-20261102\u0000default-task",
+      "gateway_state_root": "/Users/hamza/Developer/Imp_Projects/MLRescurix/.mlrescurix-state/amazon-2025/live-20261102-run8/rust_harness_state",
+      "run_id": "amazon-live-20261102-run8",
+      "status": "settled",
+      "settled_usd": "0.00088",
+      "cost_kind": "calculated_estimate",
+      "unreconciled_usd": "0.00165"
     },
     "live-iris-20261030:cc638f46b4d69f86:turn:0": {
       "amount_usd": "0.0026",
@@ -656,6 +744,18 @@
       "requests": 9,
       "reserved_usd": "0.00000",
       "uncertain_usd": "0.03872"
+    },
+    "amazon-live-20261102-run7": {
+      "billed_usd": "0.00174",
+      "requests": 4,
+      "reserved_usd": "0.00000",
+      "uncertain_usd": "0.01034"
+    },
+    "amazon-live-20261102-run8": {
+      "billed_usd": "0.00200",
+      "requests": 4,
+      "reserved_usd": "0.00000",
+      "uncertain_usd": "0.00710"
     },
     "live-iris-20261030": {
       "billed_usd": "0.00165",
@@ -838,7 +938,7 @@
       "uncertain_usd": "0.00"
     }
   },
-  "total_billed_usd": "0.080334020",
+  "total_billed_usd": "0.084074020",
   "total_reserved_usd": "0.00000",
-  "total_uncertain_usd": "0.16860"
+  "total_uncertain_usd": "0.18604"
 }

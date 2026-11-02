@@ -1,0 +1,21 @@
+{
+  "crates/harness/src/campaign.rs": "56a18b630003cc8e8c8e3244e3c76c23b13ddbcd7df859978f71bade69f0d304",
+  "crates/harness/src/main.rs": "67d70fe6f4aac4cb59f3b0990d09e16cd3d1d5e2e65a792d887437020bdcd874",
+  "crates/harness/src/agents/gateway.rs": "b02c85ca7f8b46067e3580f1186e9f06215cb0ab4bd03277fa6ef09580d45cf7",
+  "crates/harness/src/agents/roles.rs": "341bd9af23c9774ac6a77642b700706eddf5541870e3df6b58f3804acf36158c",
+  "crates/harness/src/assets.rs": "887c8228065073adb2c5927de564d428088284d1d797c1b3989ecd2306e299a1",
+  "python/src/mlrescurix_worker/scientific/autonomous_loop.py": "3b6c776b28c270dccda4e99af3ce2153d60d3ac2c7a8eaf4f9a679dc5e9f401c",
+  "python/src/mlrescurix_worker/scientific/operational_budgets.py": "9ed72a6a05ad9f9651d9be9a342c388b8fa7b73bbb50e4948a40aad81434e1b6",
+  "python/src/mlrescurix_worker/scientific/governed_research.py": "8e8557c3ffdd6b3c820441a45e4dab301553ac80a1d1789b17d85ee4ad899e7d",
+  "python/src/mlrescurix_worker/scientific/candidate_pipeline.py": "5c4b5bf2e9c06da11e303fc757ae24cb49ca08f3868f3d37615dd45d95f0b003",
+  "python/src/mlrescurix_worker/scientific/model_zoo.py": "953f19771f6d580ffea659e1893c472234ce73bcc41651947a3ea15f1d1a2c1f",
+  "python/src/mlrescurix_worker/scientific/deepseek_search.py": "e0f23eb91f4624be61b4d8bb8ff023b0cb9d80a898909f925694d676155ec9bd",
+  "contracts/v3/actions.json": "70b7928595c524d735d04042d0cee937de00b13cf415a6e1e69ee825f7e61473",
+  "config/operational_budgets.json": "4a41ea14147230633d477969c0bfd98947c550ea6cf98f10f59286d6312a7599",
+  "crates/harness/tests/s2_red_team.rs": "be3fe77d843af4088f3357d067122d8f559712ebc88f13bce8b396d6a4ff2c64",
+  "crates/harness/tests/s2_gates.rs": "b765ad75e357ddf93aef337ad94bf9dadedd0cb3ddaf0ae00c8d147fda8d5d9a",
+  "python/tests/test_s2_red_team.py": "bc9463bd9ed6b90a78f11ecf9f1cb0c176a4006bed78a2fc8e7a08b47af4a3d3",
+  "python/tests/test_s2_resource_and_boundaries.py": "023051707cd9f48a0a4191e6d6071d4b09ae382e369c5e28e651e07063c247ea",
+  "Cargo.lock": "5286f68defd9a9266023637fe35f34b750ee86d074c05141677dd9516c01c9c1",
+  "python/pyproject.toml": "dd6643c0c9158cb4fbe1c436781affe10d71a74ebdc1d107691e46344460d775"
+}

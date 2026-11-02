@@ -1,0 +1,8 @@
+{
+  "candidate_id": "cand_proj_s1_evidence_demo_309ff456",
+  "lockbox_score": 0.07852033333333341,
+  "metric": "mae",
+  "protocol_sha256": "001c5faa9772c28bc1b37cb0e608151bb34757a9745272e353a16f4440171797",
+  "task_type": "regression",
+  "validation_score": 0.2276856666666666
+}
