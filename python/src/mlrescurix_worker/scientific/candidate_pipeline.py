@@ -293,7 +293,7 @@ def extract_split_importances(estimator: Any, n_features: int) -> Optional[np.nd
     return values / total if total > 1e-12 else None
 
 
-def evaluate_candidate(spec, frame, target, task_type, folds, metric_name, topology=None):
+def evaluate_candidate(spec, frame, target, task_type, folds, metric_name, topology=None, oof_path=None):
     """Evaluate exact spec on caller-owned folds; never train on validation rows."""
     validate_spec(spec)
     y = frame[target].to_numpy()
@@ -468,11 +468,24 @@ def evaluate_candidate(spec, frame, target, task_type, folds, metric_name, topol
                 slices.append({"column": col, "slice": label, "support": int(mask.sum()), "mean_error": float(error[mask].mean())})
     slices.sort(key=lambda item: item["mean_error"], reverse=True)
 
+    oof_sha = None
+    if oof_path is not None:
+        try:
+            import hashlib
+            from pathlib import Path as _P
+            p = _P(oof_path)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            np.save(str(p), np.asarray(predictions, dtype=float))
+            oof_sha = hashlib.sha256(p.read_bytes()).hexdigest()
+        except Exception:
+            oof_sha = None
+
     # Mean of pinned fold metrics, not pooled rows (rolling folds may overlap).
     return {
         "cv_score": float(scores.mean()),
         "cv_scores": scores.tolist(),
         "fold_receipts": fold_receipts,
+        "oof_sha256": oof_sha,
         "train_score": float(np.mean([f["train_score"] for f in fold_receipts])),
         "critic_train_score": float(np.mean([f["critic_train_score"] for f in fold_receipts])),
         "critic_validation_score": float(np.mean([f["critic_validation_score"] for f in fold_receipts])),

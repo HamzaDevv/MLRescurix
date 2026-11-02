@@ -301,4 +301,7 @@ def package_accepted_candidate(
     if verify_proc.returncode != 0:
         err_msg = (verify_proc.stderr or verify_proc.stdout or "").strip()
         return False, True, f"bundle verification failed (exit {verify_proc.returncode}): {err_msg}"
+    agent_loop.state["bundle_verified"] = True
+    agent_loop.state["bundle_dir"] = str(bundle_dir)
+    agent_loop._save_state(agent_loop.state)
     return True, True, "accepted candidate bundled and identity verified"

@@ -1,18 +1,19 @@
 #!/bin/bash
 set -euo pipefail
 
-WORKSPACE=".mlrescurix-state/amazon-2025/live-20261102-run2"
+WORKSPACE=".mlrescurix-state/amazon-2025/live-20261102-run3"
 PROJECT="amazon-live-20261102"
-SESSION="amazon-live-20261102-run2"
+SESSION="amazon-live-20261102-run3"
 POLICY="docs/v2/POLICY_AMAZON_LIVE_20261102.json"
 DEV_CSV=".mlrescurix-state/amazon-2025/staged/development.csv"
 FOLDS=".mlrescurix-state/amazon-2025/development_folds.json"
 MODEL="deepseek/deepseek-v4.1-flash-1017"
 ROUTE="wafer/us"
+PROBLEM="Autonomous ML engineering for Amazon catalog pricing: progressively hypothesize, extract text features, evaluate diverse tree families (hist_gbdt, lgbm, xgboost, catboost) with log1p target transform, explore hyperparameters, and form an ensemble blend (BLEND_AND_AUDIT) to beat the prior apex CV scores before finalizing."
 
 mkdir -p "$WORKSPACE"
 
-echo "=== Launching MLRescurix Amazon 2025 Live Run ==="
+echo "=== Launching MLRescurix Amazon 2025 Live Run (Run 3) ==="
 echo "Workspace: $WORKSPACE"
 echo "Project: $PROJECT"
 echo "Session: $SESSION"
@@ -29,11 +30,12 @@ PYTHONPATH=python/src python3 -m mlrescurix_worker.scientific.agent_cli \
   --task regression \
   --metric smape \
   --direction minimize \
+  --problem "$PROBLEM" \
   --model "$MODEL" \
   --provider-route "$ROUTE" \
   --policy "$POLICY" \
   --approval-wait-seconds 120 \
-  --max-turns 6 \
+  --max-turns 8 \
   --development-live \
   > "$WORKSPACE/agent.log" 2>&1 &
 AGENT_PID=$!

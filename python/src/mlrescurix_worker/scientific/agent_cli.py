@@ -74,6 +74,25 @@ def main(argv=None):
             "budget": authority.get_status(), "production_certified": False}, default=str, indent=2))
         return 0
     state = loop.run()
+    if state.get("accepted_candidate_id") and state.get("accepted_audit", {}).get("status") == "APPROVED":
+        try:
+            from .benchmark_contracts import package_accepted_candidate
+            bundle_dir = loop.workspace_root / "bundle"
+            candidate_dir = loop.workspace_root / "candidate"
+            package_accepted_candidate(
+                loop, state, loop.raw_df,
+                candidate_dir=candidate_dir,
+                bundle_dir=bundle_dir,
+                dataset_path=loop.dataset_path,
+                test_access_id=f"delivery_{loop.session_id}",
+                project_id=loop.project_id,
+                task_type="regression" if loop.task_type in ("regression", "panel_forecasting") else loop.task_type,
+                target_column=loop.target_column,
+                primary_metric=loop.metric_name,
+            )
+            loop.export_handoff()
+        except Exception as exc:
+            print(f"[NOTICE] Candidate packaging notice: {exc}", file=sys.stderr)
     print(json.dumps({"mode": "offline_fixture" if args.fixture_actions else "development_live", "turns_completed": state["turns_completed"],
         "accepted_candidate_id": state["accepted_candidate_id"], "best_cv_score": state["best_cv_score"],
         "stop_reason": state["stop_reason"], "handoff": str(loop.workspace_root / "handoff.json"), "production_certified": False}, indent=2))

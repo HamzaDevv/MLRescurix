@@ -54,3 +54,4 @@ __pycache__/
 /docs/evidence/v2/robustness/*/run_*/script_data/
 
 /docs/evidence/v2/robustness/*/run_*/development.csv
+catboost_info/

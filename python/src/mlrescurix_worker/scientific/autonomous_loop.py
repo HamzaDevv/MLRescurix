@@ -23,7 +23,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
-from .candidate_pipeline import CandidatePipeline, evaluate_candidate, identity, validate_spec
+from .candidate_pipeline import CandidatePipeline, evaluate_candidate, identity, validate_spec, score_metric
 from .critic_engine import CriticEngine
 from .model_zoo import PredefinedSplitter, normalize_family_name
 from .resource_monitor import ProcessTreeSampler
@@ -113,6 +113,7 @@ class AutonomousAgentLoop:
             provider_caller.bind_campaign(campaign_authority.ledger_path, session_id)
         self.provider_is_fixture = provider_is_fixture
         self.allow_development_provider = allow_development_provider
+        self.max_run_tokens = 500000
         self.worker_memory_bytes = int(worker_memory_bytes)
         self.problem_statement = problem_statement
         self.sandbox_image = sandbox_image
@@ -252,7 +253,43 @@ class AutonomousAgentLoop:
             trace.flush(); os.fsync(trace.fileno())
 
     def _evaluate(self, spec, operation="evaluate"):
-        return self.execution.evaluate(self, spec, operation)
+        measured = self.execution.evaluate(self, spec, operation)
+        if operation == "evaluate" and isinstance(measured, dict) and measured.get("oof_sha256"):
+            self._verify_independent_controller_evaluation(spec, measured)
+        return measured
+
+    def _verify_independent_controller_evaluation(self, spec, measured):
+        """Controller independently recomputes validation score from raw predictions on pinned ground truth."""
+        try:
+            token = identity({"spec": spec, "binding": self.binding, "operation": "evaluate"})
+            oof_file = self.workspace_root / "evaluations" / f"{token}.oof.npy"
+            if not oof_file.is_file():
+                return
+            if streaming_file_sha256(oof_file) != measured.get("oof_sha256"):
+                raise ValueError("Out-of-fold prediction file checksum mismatch")
+            raw_oof = np.load(oof_file)
+            y_all = self.raw_df[self.target_column].to_numpy()
+            offset = 0
+            ctrl_fold_scores = []
+            for i, (train, valid) in enumerate(self.locked_folds):
+                val_len = len(valid)
+                fold_pred = raw_oof[offset : offset + val_len]
+                offset += val_len
+                ctrl_score = score_metric(self.metric_name, y_all[valid], fold_pred)
+                ctrl_fold_scores.append(float(ctrl_score))
+            ctrl_cv = float(np.mean(ctrl_fold_scores))
+            # Verify numerical agreement between worker and controller
+            if not np.isclose(ctrl_cv, measured["cv_score"], rtol=1e-4, atol=1e-4):
+                raise ValueError(f"Controller independent evaluation ({ctrl_cv}) differs from worker ({measured['cv_score']})")
+            self.state["latest_controller_verified_score"] = ctrl_cv
+            self._event("independent_controller_evaluation_verified",
+                        candidate_identity=identity(spec),
+                        controller_recomputed_cv_score=ctrl_cv,
+                        worker_reported_cv_score=measured["cv_score"],
+                        fold_count=len(ctrl_fold_scores),
+                        oof_sha256=measured["oof_sha256"])
+        except Exception as exc:
+            self._event("independent_controller_evaluation_flaw", error=str(exc))
 
     def build_diagnostic_dossier(self):
         df = self.raw_df
@@ -328,7 +365,10 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
             "instruction": "Review task context, diagnostic dossier, and turn history. Choose your next action and return strictly a single valid JSON object with keys: thought_rationale, action_type, parameters.",
             "task_context": {"problem_statement": self.problem_statement, "target": self.target_column,
                 "metric": self.metric_name, "metric_direction": self.metric_direction, "turn": turn + 1,
-                "max_turns": self.max_turns}, "diagnostic_dossier": dossier, "turn_history": history,
+                "max_turns": self.max_turns,
+                "best_cv_score_to_beat": self.state.get("best_cv_score"),
+                "selected_apex_iteration": self.state.get("selected_apex_iteration"),
+                "available_model_families": ["hist_gbdt", "penalized_linear", "lgbm", "xgboost", "catboost"]}, "diagnostic_dossier": dossier, "turn_history": history,
             "active_spec": self.state["active_spec"], "accepted_candidate_id": self.state["accepted_candidate_id"],
             "remaining_campaign": self.campaign_authority.get_status().get("remaining_campaign_usd"),
             "script_registry": self.state["script_registry"], "script_output_outbound_approved": self.outbound_script_output_approved
@@ -721,9 +761,10 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
         amount = self._reservation(messages, 3500)
         if Decimal(str(self.campaign_authority.get_status().get("remaining_campaign_usd", 0))) < amount:
             raise ValueError("Budget admission rejected")
-        token_bound = len(json.dumps(messages).encode()) + 4096 + 3500
-        if sum(t.get("requested_token_upper_bound", 0) for t in self.state["turns"]) + token_bound > 80000:
-            raise ValueError("Run token admission limit (80000) exceeded before dispatch")
+        token_bound = (len(json.dumps(messages).encode()) // 3) + 4096 + 3500
+        max_run_tokens = getattr(self, "max_run_tokens", 500000)
+        if sum(t.get("requested_token_upper_bound", 0) for t in self.state["turns"]) + token_bound > max_run_tokens:
+            raise ValueError(f"Run token admission limit ({max_run_tokens}) exceeded before dispatch")
         if sum(Decimal(str(t["provider_cost_usd"])) for t in self.state["turns"]) + amount > self.per_run_budget_usd:
             raise ValueError("Per-run budget admission rejected before dispatch")
         self.state["pending_turn"] = {"turn": turn_index, "request_id": f"{self.session_id}:{identity({'binding': self.binding, 'workspace': str(self.workspace_root)})[:16]}:turn:{turn_index}", "phase": "prepared"}
@@ -890,12 +931,15 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
             "iterations_count": len(self.state.get("iterations", [])),
             "next_steps": self.state.get("handoff_request", {}).get("next_steps", ["Inspect last receipts and unresolved critic flaws", "Resume with identical dataset and locked folds"]),
             "human_control": self.interface.status(),
+            "bundle_verified": bool(self.state.get("bundle_verified", False)),
+            "controller_verified": bool(self.state.get("latest_controller_verified_score") is not None),
             "budget": self.campaign_authority.get_status(), "production_certified": False}
         atomic_json(self.workspace_root / "handoff.json", payload)
         lines = ["# MLRescurix session handoff", "", f"Session: {self.session_id}", f"Stop: {self.state['stop_reason']}",
             f"Checkpoint: {self.state_file}", f"Accepted candidate: {self.state['accepted_candidate_id']}",
             f"Selected Apex Iteration: {self.state.get('selected_apex_iteration')} (Latest Apex: {self.state.get('latest_apex_iteration')})",
             f"Pinned Iteration: {self.state.get('pinned_iteration')}",
+            f"Bundle verified: {bool(self.state.get('bundle_verified', False))}",
             "", "Production certification: false. Preserve data/fold hashes and shared campaign budget."]
 
         if self.state.get("iterations"):
@@ -952,9 +996,10 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
                 amount = self._reservation(messages, 3500)
                 spent = sum(Decimal(str(t["provider_cost_usd"])) for t in self.state["turns"])
                 remaining = Decimal(str(self.campaign_authority.get_status().get("remaining_campaign_usd", 0)))
-                token_bound = len(json.dumps(messages).encode()) + 4096 + 3500
+                token_bound = (len(json.dumps(messages).encode()) // 3) + 4096 + 3500
                 token_used = sum(t.get("requested_token_upper_bound", 0) for t in self.state["turns"])
-                if token_used + token_bound > 80000:
+                max_run_tokens = getattr(self, "max_run_tokens", 500000)
+                if token_used + token_bound > max_run_tokens:
                     self.state["stop_reason"] = "token_budget_exhaustion"; break
                 if remaining < amount or spent + amount > self.per_run_budget_usd:
                     self.state["stop_reason"] = "budget_exhaustion"; break

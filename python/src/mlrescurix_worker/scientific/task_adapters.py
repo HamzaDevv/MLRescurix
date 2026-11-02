@@ -61,7 +61,8 @@ class TaskAdapter:
     def evaluate(self, request, frame):
         from .candidate_pipeline import evaluate_candidate
         return evaluate_candidate(request['spec'], frame, request['target'], request['task_type'],
-                                  request['folds'], request['metric'], request.get('topology'))
+                                  request['folds'], request['metric'], request.get('topology'),
+                                  oof_path=request.get('oof_path'))
 
     def refit(self, request, frame):
         from .candidate_pipeline import CandidatePipeline

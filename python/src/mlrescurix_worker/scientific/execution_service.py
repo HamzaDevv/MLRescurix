@@ -55,11 +55,13 @@ class ExecutionService:
         token = identity({"spec": spec, "binding": session.binding, "operation": operation})
         jobs = session.workspace_root / "evaluations"; jobs.mkdir(exist_ok=True)
         request, output = jobs / f"{token}.request.json", jobs / f"{token}.result.json"
+        oof_path = jobs / f"{token}.oof.npy"
         request_data = {"spec": spec, "dataset": str(session.dataset_path), "target": session.target_column,
             "task_type": session.task_type, "metric": session.metric_name, "folds": session.locked_folds,
             "topology": session.topology, "binding": session.binding,
             "cpu_seconds": int(session.evaluation_timeout_seconds), "memory_bytes": session.worker_memory_bytes,
-            "operation": operation, "model_path": str(jobs / f"{token}.joblib")}
+            "operation": operation, "model_path": str(jobs / f"{token}.joblib"),
+            "oof_path": str(oof_path)}
         request_identity = identity(request_data)
         if output.exists():
             return read_worker_result(output, request_identity)
