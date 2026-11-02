@@ -1,0 +1,555 @@
+{
+  "manifest_version": "mlrescurix.robustness.plan.v1",
+  "updated_local_date": "2026-11-02",
+  "timezone": "Asia/Kolkata",
+  "status": "planned_not_executed",
+  "runtime_runner_status": "partial_S1_repair_live_and_certify_blocked",
+  "baseline_review_commit": "5be287b",
+  "release_profile": [
+    "tabular_binary",
+    "tabular_multiclass",
+    "tabular_regression",
+    "panel_forecasting",
+    "bounded_short_text_features"
+  ],
+  "excluded_certification": [
+    "vision",
+    "long_document_text",
+    "reinforcement_learning",
+    "general_unsupervised_tasks",
+    "post_deployment_monitoring"
+  ],
+  "development_seeds": [
+    2026,
+    42,
+    101
+  ],
+  "shared_final_split_seed": 81731,
+  "holdout_policy": {
+    "final_accesses_per_problem_campaign": 1,
+    "select_candidate_using": "development_only",
+    "freeze_source_config_split_and_selection_rule_before_final": true,
+    "no_repair_loop_on_final_labels": true
+  },
+  "comparison": {
+    "modes": [
+      "pre_upgrade_baseline",
+      "upgraded"
+    ],
+    "same_data_folds_seeds_cpu_memory_wall": true,
+    "max_relative_development_regression": 0.005,
+    "ensemble_min_relative_gain": 0.005,
+    "near_zero_epsilon": 1e-08,
+    "uncertainty": "paired_stratified_group_or_time_block_as_appropriate",
+    "bootstrap_replicates": 1000,
+    "extra_final_revision_development_validation_passes": 2,
+    "score_from": "trusted_evaluator_predictions",
+    "final_revision_pass_scope": {
+      "problem_ids": [
+        "K1",
+        "K2",
+        "K3",
+        "K4",
+        "K5"
+      ],
+      "mode": "upgraded",
+      "seed": 2026,
+      "include_required_integration_fault_cases": true,
+      "invocations": 2
+    }
+  },
+  "campaign_budget": {
+    "wall_seconds_max": 72000,
+    "main_jobs_concurrent": 1,
+    "host_vm_memory_reserve_fraction_min": 0.3,
+    "provider_usd_max": "0.280494020",
+    "raw_data_disk_gib_max": 20,
+    "retained_artifact_disk_gib_max": 8,
+    "managed_state_mib_max": 128,
+    "required_provider_cost_reservation": true,
+    "if_current_price_unknown": "refuse_next_billed_request"
+  },
+  "repair_policy": {
+    "attempts_per_issue_per_run_max": 3,
+    "candidate_evaluations_per_problem_seed_max": 12,
+    "stop_after_consecutive_non_improvements": 3,
+    "retry_consumes_original_budget": true,
+    "required_before_promotion": [
+      "reproducer_passes",
+      "affected_cross_task_checks_pass",
+      "constraints_pass"
+    ]
+  },
+  "provider": {
+    "route": "production_gateway_and_orchestrator_only",
+    "model_id": "deepseek/deepseek-v4.1-flash-1017",
+    "model_selection": "verify_configured_model_availability_and_current_price_at_preflight",
+    "temperature_requested": 0,
+    "live_task_solves_required": 5,
+    "requests_per_run_max_including_retries": 20,
+    "requested_tokens_per_run_total_max": 80000,
+    "usd_per_main_live_run_max": "0.05",
+    "retries_per_request_max": 2,
+    "attempt_timeout_seconds": 60,
+    "request_total_deadline_seconds": 180,
+    "credentials_in_worker": false,
+    "outbound_view_policy": "existing_authorized_staging_and_approval_contract",
+    "fixtures_count_as_live": false,
+    "transport": "openrouter",
+    "provider_routing": {
+      "only": [
+        "wafer/us"
+      ],
+      "order": [
+        "wafer/us"
+      ],
+      "allow_fallbacks": false
+    },
+    "pricing_snapshot": {
+      "checked_local_date": "2026-11-02",
+      "source": "https://openrouter.ai/api/v1/models/deepseek/deepseek-v4.1-flash-1017/endpoints",
+      "input_usd_per_million": "0.038",
+      "output_usd_per_million": "0.50",
+      "cache_read_usd_per_million": "0.0038",
+      "must_revalidate_before_live": false,
+      "verified_for_live": true
+    },
+    "budget_scope": "all_campaign_runs_sessions_retries_repairs_and_uncertain_requests_combined",
+    "contingency_usd": "0.05",
+    "live_authorized": true
+  },
+  "resource_measurement": {
+    "sample_interval_ms": 250,
+    "certification_backend": "linux_cgroup_v2",
+    "host_vs_vm_reported_separately": true,
+    "memory_peak": "per_job_cgroup_or_fresh_container",
+    "memory_scope": [
+      "worker_cgroup",
+      "controller",
+      "worker_process_tree"
+    ],
+    "cpu_utilization_formula": "100 * delta_usage_usec / (delta_wall_usec * allocated_cores)",
+    "include": [
+      "cpu_quota",
+      "cpu_throttling",
+      "memory_limit",
+      "oom_events",
+      "disk_high_water",
+      "io_bytes",
+      "cleanup_residuals",
+      "collector_gaps",
+      "collector_overhead"
+    ],
+    "fault_memory_mib": 512,
+    "inference_batch_sizes": [
+      1,
+      32,
+      1024
+    ],
+    "inference_warmup_calls": 10,
+    "inference_timed_calls": 100
+  },
+  "required_case_groups": [
+    "A1",
+    "A2",
+    "A3",
+    "H1",
+    "H2",
+    "H3",
+    "H4",
+    "R1",
+    "P1",
+    "V1",
+    "V2",
+    "Q1"
+  ],
+  "typed_actions": [
+    "APPLY_SKEW_TRANSFORM",
+    "ENCODE_HIGH_CARD_CAT",
+    "DECOMPOSE_QUASI_ID",
+    "EMBED_SHORT_TEXT",
+    "ADD_MNAR_INDICATOR",
+    "ADD_INTERACTION",
+    "DELETE_FEATURE",
+    "REORDER_MODEL_PRIORITY",
+    "UPDATE_SEARCH_SPACE",
+    "TRANSFORM_TARGET"
+  ],
+  "evidence_root": "docs/evidence/v2/robustness",
+  "problems": [
+    {
+      "id": "K1",
+      "name": "Titanic",
+      "competition": "titanic",
+      "target": "Survived",
+      "task": "binary_classification",
+      "metric": "accuracy",
+      "direction": "maximize",
+      "secondary_metrics": [
+        "balanced_accuracy",
+        "log_loss"
+      ],
+      "split": {
+        "kind": "group_disjoint",
+        "group": "frozen_family_ticket_mapping",
+        "final_fraction": 0.2,
+        "development_folds": 5
+      },
+      "files": [
+        "train.csv",
+        "test.csv"
+      ],
+      "budget": {
+        "memory_mib": 2048,
+        "wall_seconds_per_seed_per_mode": 600,
+        "cpu_cores": 2
+      },
+      "baseline": "fold_local_imputer_onehot_logistic_regression",
+      "stresses": [
+        "dirty_data",
+        "short_text",
+        "quasi_id",
+        "missingness",
+        "group_leakage",
+        "autonomous_repair"
+      ],
+      "near_zero_absolute_tolerance": 0.001,
+      "source_url": "https://www.kaggle.com/competitions/titanic",
+      "evaluation_url": "https://www.kaggle.com/competitions/titanic/overview/evaluation",
+      "data_status": "pinned",
+      "official_metric_snapshot_status": "pinned_accuracy_maximize",
+      "authenticity": {
+        "archive_sha256": "bb1bda464cc6819d412b41d34be69fd89d26b372dc24c09421c3dbca1b0dbe9f",
+        "files_sha256": {
+          "train.csv": "7d118fef8b6ccf7f81111877bc388536f7b1e498a655e3d649d19aaa010e9f6f",
+          "test.csv": "56023b9948236f3c7a1c9448fcf418b283e109ef177fa8c7e069158dd7dd52b2",
+          "gender_submission.csv": "7a262a7f4cb807f53911dccc84257ed3976b21b7b50ffc468b58446bff8bb6a4"
+        },
+        "license_rules_receipt": "official_kaggle_competition_rules_accepted_at_download",
+        "split_manifest_sha256": "8a6240ef8c3fee27df50211378b680b8d77daafdd8fbd5c3bea49dd91e8637b6"
+      },
+      "final_quality_criteria": {
+        "status": "inconclusive_no_independent_acceptance_requirement",
+        "threshold": null,
+        "justification": "The master plan defines metric/direction and baseline non-inferiority, but no independently fixed absolute quality requirement. Historical observed scores and ad hoc thresholds cannot establish one. Threshold remains null; product owner must freeze an independent requirement before further adaptive search.",
+        "evidence": "docs/v2/PREREQUISITE_REPAIRS_20261023.md"
+      },
+      "live_result": "exploratory_runs_invalid_holdout_reused_after_leakage_discovery",
+      "scale_profiles": [
+        "official_labeled_training",
+        "unlabeled_batch_inference"
+      ]
+    },
+    {
+      "id": "K2",
+      "name": "House Prices",
+      "competition": "house-prices-advanced-regression-techniques",
+      "target": "SalePrice",
+      "task": "regression",
+      "metric": "rmse_log_price",
+      "direction": "minimize",
+      "secondary_metrics": [
+        "mae",
+        "rmse"
+      ],
+      "split": {
+        "kind": "shuffled_kfold_with_separate_final",
+        "final_fraction": 0.2,
+        "development_folds": 5
+      },
+      "files": [
+        "train.csv",
+        "test.csv",
+        "data_description.txt"
+      ],
+      "budget": {
+        "memory_mib": 2048,
+        "wall_seconds_per_seed_per_mode": 900,
+        "cpu_cores": 2
+      },
+      "baseline": "fold_local_imputer_onehot_ridge_log_target",
+      "stresses": [
+        "skew",
+        "positive_prediction_domain",
+        "high_cardinality",
+        "fold_local_encoding",
+        "ensemble_parsimony"
+      ],
+      "near_zero_absolute_tolerance": 0.0001,
+      "source_url": "https://www.kaggle.com/competitions/house-prices-advanced-regression-techniques",
+      "evaluation_url": "https://www.kaggle.com/competitions/house-prices-advanced-regression-techniques/overview/evaluation",
+      "data_status": "pinned",
+      "official_metric_snapshot_status": "pinned_rmse_log_price_minimize",
+      "authenticity": {
+        "archive_sha256": "65f769a9157a2581671957ed08da8a8162d53e67b4e9970ee856b634deb11d9f",
+        "files_sha256": {
+          "train.csv": "1e18addf81e5e4d347cc17ee6075bbe4a42b7fa26b9e5b063e8f692a5f929d41",
+          "test.csv": "8fdd3d829d4d986b58f845c9553b225e67dd8383624d90fb6ca1d4bed5798c1e",
+          "sample_submission.csv": "f19e99699b925aa3085c8d2ae43c62f15fbcd35e4a953b98025f8392c3ffa807",
+          "data_description.txt": "356a4670aa688afa8ba44b1365b633fbbac2dae535fe4638532630607d64070d"
+        },
+        "license_rules_receipt": "official_kaggle_competition_rules_accepted_at_download",
+        "split_manifest_sha256": "93a726c923b451d81caad118e6cd81a9bbb1802310bb4a2d45fbe4778fa21d42"
+      },
+      "final_quality_criteria": {
+        "status": "inconclusive_no_independent_acceptance_requirement",
+        "threshold": null,
+        "justification": "The master plan defines metric/direction and baseline non-inferiority, but no independently fixed absolute quality requirement. Historical observed scores and ad hoc thresholds cannot establish one. Threshold remains null; product owner must freeze an independent requirement before further adaptive search.",
+        "evidence": "docs/v2/PREREQUISITE_REPAIRS_20261023.md"
+      },
+      "live_result": {
+        "run_id": "run_20261021_183624",
+        "status": "passed_development_only",
+        "development_rows": 1168,
+        "holdout_rows_sealed": 292,
+        "holdout_accesses": 0,
+        "metric_name": "rmse_log_price",
+        "metric_direction": "minimize",
+        "best_cv_rmse": 0.145593,
+        "holdout_score": null,
+        "bundle_verified": true,
+        "provider_billed_usd": 0.00070202,
+        "duration_s": 29.42
+      },
+      "scale_profiles": [
+        "official_labeled_training",
+        "unlabeled_batch_inference"
+      ]
+    },
+    {
+      "id": "K3",
+      "name": "Forest Cover Type Prediction",
+      "competition": "forest-cover-type-prediction",
+      "target": "Cover_Type",
+      "task": "multiclass_classification",
+      "metric": "accuracy",
+      "direction": "maximize",
+      "secondary_metrics": [
+        "macro_f1",
+        "log_loss"
+      ],
+      "split": {
+        "kind": "stratified_kfold_with_separate_final",
+        "final_fraction": 0.2,
+        "development_folds": 5
+      },
+      "files": [
+        "train.csv",
+        "test.csv"
+      ],
+      "budget": {
+        "memory_mib": 2048,
+        "wall_seconds_per_seed_per_mode": 1200,
+        "cpu_cores": 2
+      },
+      "baseline": "fold_local_hist_gradient_boosting_multiclass",
+      "stresses": [
+        "class_order",
+        "seven_classes",
+        "numeric_onehot_mix",
+        "batched_large_unlabeled_inference",
+        "rare_class_slices"
+      ],
+      "near_zero_absolute_tolerance": 0.001,
+      "source_url": "https://www.kaggle.com/competitions/forest-cover-type-prediction",
+      "evaluation_url": "https://www.kaggle.com/competitions/forest-cover-type-prediction/overview/evaluation",
+      "data_status": "pinned",
+      "official_metric_snapshot_status": "locked",
+      "authenticity": {
+        "archive_sha256": "aeb02e3a4dd37437f4014c3009c48c1fe613ac069f13ce1025e37c3d6e91ca82",
+        "files_sha256": {
+          "train.csv": "45d9949029e81059332efa1dcb22af082f7ad344859984b5dc761d1f328d88f5",
+          "test.csv": "7961bff97a67450b97825e123d91e367f6d7a0d3ab6aa7a0e6525b59ac9317dc",
+          "sampleSubmission.csv": "59ed9eac317505f555b714f6f64888cc471d821c5f4515a1448fa59e05a7b1dc"
+        },
+        "license_rules_receipt": "official_kaggle_api_token_verified_forest_cover_type_prediction",
+        "split_manifest_sha256": "bb4e2ffde162cf02d2a282ba868d5e84d28228273b0bd70c5e8b658fc84dec75"
+      },
+      "final_quality_criteria": {
+        "status": "locked",
+        "threshold": 0.75
+      },
+      "live_result": "run_20261021_191510: CV Accuracy 0.8578, bundle verified, 0 holdout accesses, $0.00065",
+      "scale_profiles": [
+        "official_labeled_training",
+        "unlabeled_batch_inference"
+      ]
+    },
+    {
+      "id": "K4",
+      "name": "IEEE-CIS Fraud Detection",
+      "competition": "ieee-fraud-detection",
+      "target": "isFraud",
+      "task": "binary_classification",
+      "metric": "roc_auc",
+      "direction": "maximize",
+      "secondary_metrics": [
+        "average_precision",
+        "log_loss",
+        "brier_score"
+      ],
+      "split": {
+        "kind": "chronological_rolling_origin",
+        "time": "TransactionDT",
+        "join_key": "TransactionID",
+        "final_fraction": 0.2,
+        "development_origins": 3,
+        "gap": "must_be_locked_from_prediction_context_before_search",
+        "group_overlap": "report_known_vs_new_entity_assumption"
+      },
+      "files": [
+        "train_transaction.csv",
+        "train_identity.csv",
+        "test_transaction.csv",
+        "test_identity.csv"
+      ],
+      "budget": {
+        "memory_mib": 4096,
+        "wall_seconds_per_seed_per_mode": 1800,
+        "cpu_cores": 2
+      },
+      "baseline": "bounded_fold_local_hist_gradient_boosting_binary",
+      "stresses": [
+        "rare_events",
+        "wide_data",
+        "join_integrity",
+        "category_explosion",
+        "temporal_leakage",
+        "memory_admission"
+      ],
+      "near_zero_absolute_tolerance": 0.001,
+      "source_url": "https://www.kaggle.com/competitions/ieee-fraud-detection",
+      "evaluation_url": "https://www.kaggle.com/competitions/ieee-fraud-detection/overview/evaluation",
+      "data_status": "pinned",
+      "official_metric_snapshot_status": "locked",
+      "authenticity": {
+        "archive_sha256": "multi_file_archive",
+        "files_sha256": {
+          "train_transaction.csv": "3a5c83ab6b3cc13dcabe5ffa9f522307fd5f7f7b6e6f6a60c32284ca6283d642",
+          "train_identity.csv": "b63c725d8377be90a995268d97f347c17d456b95db45807adcf9f59cd603c37c",
+          "test_transaction.csv": "2a8e51f1d335a86025d2b7f45beb9b78d0ab1edd726ef531d8b71a8a0065c011",
+          "test_identity.csv": "3e5978cb13ca5e72f52babc4349ae0125e14b87ca8bfabe952ab67bb4ff1e10b",
+          "sample_submission.csv": "50d7e0d6fcfc6e498efc297001f252101512ccdcb34aefbde6db98f8242a3626"
+        },
+        "license_rules_receipt": "official_kaggle_api_token_verified_ieee_fraud_detection",
+        "split_manifest_sha256": "a49434c0852e94e4bc72ed09c20c96d0151980e37b6858a873defb8abefca0b9"
+      },
+      "final_quality_criteria": {
+        "status": "locked",
+        "threshold": 0.85
+      },
+      "live_result": "run_20261021_193634: CV ROC-AUC 0.9495, bundle verified, 0 holdout accesses, $0.00112",
+      "scale_profiles": [
+        "deterministic_bounded_subset",
+        "full_if_admitted"
+      ],
+      "subset_manifest_required": [
+        "entity_or_time_selection",
+        "seed",
+        "row_count",
+        "join_coverage",
+        "selection_method",
+        "sha256"
+      ],
+      "execution_contract": {
+        "status": "blocked_missing_authoritative_provenance",
+        "missing": [
+          "development_folds_index_space",
+          "locked prediction-context gap and units",
+          "authoritative train time bounds for each origin",
+          "frozen subset-to-origin mapping retaining every train/validation row"
+        ],
+        "note": "Do not change the frozen split hash or infer a gap from observed timestamps."
+      }
+    },
+    {
+      "id": "K5",
+      "name": "Store Sales - Time Series Forecasting",
+      "competition": "store-sales-time-series-forecasting",
+      "target": "sales",
+      "task": "panel_forecasting",
+      "metric": "rmsle",
+      "direction": "minimize",
+      "secondary_metrics": [
+        "mae",
+        "wape"
+      ],
+      "split": {
+        "kind": "panel_expanding_origin",
+        "time": "date",
+        "entities": [
+          "store_nbr",
+          "family"
+        ],
+        "final_horizon_dates": 15,
+        "development_origins": 3,
+        "development_horizon_dates": 15,
+        "covariates": "explicit_known_at_forecast_allowlist"
+      },
+      "files": [
+        "train.csv",
+        "test.csv",
+        "stores.csv",
+        "holidays_events.csv",
+        "oil.csv",
+        "transactions.csv"
+      ],
+      "budget": {
+        "memory_mib": 4096,
+        "wall_seconds_per_seed_per_mode": 1800,
+        "cpu_cores": 2
+      },
+      "baseline": "seasonal_naive_period_7_with_declared_cold_start_fallback",
+      "stresses": [
+        "causal_lags",
+        "panel_date_boundaries",
+        "multistep_forecasting",
+        "join_integrity",
+        "out_of_core",
+        "resource_admission"
+      ],
+      "near_zero_absolute_tolerance": 0.0001,
+      "source_url": "https://www.kaggle.com/competitions/store-sales-time-series-forecasting",
+      "evaluation_url": "https://www.kaggle.com/competitions/store-sales-time-series-forecasting/overview/evaluation",
+      "data_status": "pinned",
+      "official_metric_snapshot_status": "locked",
+      "authenticity": {
+        "archive_sha256": "12e9c1dc4833cc804b3ff1515bd7b688f45fd8216fb2b340525036b006d625be",
+        "files_sha256": {
+          "train.csv": "99a1b7f4241821df10fa71f23abdd71c634f71f901e3cab1400c0f0c583f862c",
+          "test.csv": "087ec1ecec76dbba9ea2adb48b8b2fd527c7c59adb82b0dfb9f6f82739400d26",
+          "stores.csv": "af503b2bce11d7906d249f81cc0598f10e2addcc9f6c59aa2d95c9f2652c296b",
+          "oil.csv": "944b23b857580f9d804399346fd3ed69bffcb7facfd98c55fdb408b8d057cca7",
+          "holidays_events.csv": "81a183d6c4d691b57f84a0fde6bbf734a5b3c36a74b97378bf33a592648e2999",
+          "transactions.csv": "e116384a6981af74932832436aa2f6a43121f77ca81accc44e3a5160158ca03c",
+          "sample_submission.csv": "17505ec561d9bc64a3c10c3eb00474becf162d9053cebf014a58a6c82ed530c4"
+        },
+        "license_rules_receipt": "official_kaggle_api_token_verified_store_sales",
+        "split_manifest_sha256": "26387dbed0b7df7d7236f391afd8e18c4bbf626c93f8f0baa2c37a4b5404e33d"
+      },
+      "final_quality_criteria": {
+        "status": "locked",
+        "threshold": 0.55
+      },
+      "live_result": "run_20261021_202038: CV RMSLE 0.4131, bundle verified, 0 holdout accesses, $0.00106, Critic APPROVED",
+      "scale_profiles": [
+        "deterministic_bounded_subset",
+        "full_if_admitted"
+      ],
+      "subset_manifest_required": [
+        "entity_or_time_selection",
+        "seed",
+        "row_count",
+        "join_coverage",
+        "selection_method",
+        "sha256"
+      ],
+      "execution_contract": {
+        "status": "locked_source_bound_panel_protocol",
+        "protocol_path": "docs/v2/K5_PANEL_PROTOCOL.json",
+        "protocol_sha256": "b6606cfed014f1de93634077e2d5d7ad8034e788429fc7529a0b251ac089158d",
+        "note": "Full frozen observation history; deterministic Gregorian calendar predictors only; reject missing/unseen entities. This is a protocol commitment, not model quality or resource certification."
+      }
+    }
+  ]
+}

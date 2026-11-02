@@ -1006,7 +1006,9 @@ fn p1_concurrent_workspace_writers_cannot_share_the_same_remaining_room() {
     let successes=threads.into_iter().map(|t|t.join().unwrap().is_ok()).filter(|ok|*ok).count();assert_eq!(successes,1);
     assert!(execution::total_state_bytes(&root).unwrap()<=limit);
     fs::write(root.join("storage_budgets.json"),json!({"max_state_total_bytes":512*1024*1024}).to_string()).unwrap();
-    assert_eq!(execution::StorageBudgetConfig::load(&root).max_state_total_bytes,128*1024*1024);
+    assert_eq!(execution::StorageBudgetConfig::load(&root).max_state_total_bytes,512*1024*1024);
+    fs::write(root.join("storage_budgets.json"),json!({"max_state_total_bytes":2_u64*1024*1024*1024}).to_string()).unwrap();
+    assert_eq!(execution::StorageBudgetConfig::load(&root).max_state_total_bytes,execution::MAX_CONFIGURED_STATE_TOTAL_BYTES);
 }
 
 #[test]

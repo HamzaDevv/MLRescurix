@@ -38,6 +38,8 @@ import re
 import shutil
 import sqlite3
 import subprocess
+import sys
+import tempfile
 import time
 import uuid
 from dataclasses import asdict, dataclass
@@ -106,6 +108,12 @@ def resolve_credential(credential_ref: str, storage_dir: Optional[Path] = None) 
     return credential_ref
 
 
+def _validate_username(username: str) -> str:
+    if not isinstance(username, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", username):
+        raise ValueError("invalid Kaggle username")
+    return username
+
+
 @dataclass
 class KaggleAccount:
     username: str
@@ -137,7 +145,7 @@ class KaggleAccount:
         created_at: Optional[float] = None,
         storage_dir: Optional[Path] = None,
     ):
-        self.username = username
+        self.username = _validate_username(username)
         self.credential_ref = credential_ref or api_key or ""
         self.is_anchor = is_anchor
         self.phone_verified = phone_verified
@@ -198,13 +206,12 @@ class KaggleAccountPool:
         self.storage_dir = Path(storage_dir).resolve()
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.credentials_dir = self.storage_dir / "credentials"
-        self.credentials_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            os.chmod(self.credentials_dir, 0o700)
-        except OSError:
-            pass
         self.staging_dir = self.storage_dir / "staging"
-        self.staging_dir.mkdir(parents=True, exist_ok=True)
+        for directory in (self.credentials_dir, self.staging_dir):
+            directory.mkdir(mode=0o700, exist_ok=True)
+            if directory.is_symlink() or not directory.is_dir():
+                raise SecurityViolationError("Kaggle storage directory must not be a symlink")
+            os.chmod(directory, 0o700)
         self.db_path = self.storage_dir / "pool_state.sqlite"
         self.enable_secondary_accounts = enable_secondary_accounts
         self._init_db()
@@ -289,9 +296,7 @@ class KaggleAccountPool:
 
         Persists credentials as external references (files/env vars), never raw in SQLite.
         """
-        username = username.strip()
-        if not username:
-            raise ValueError("Username must not be empty")
+        username = _validate_username(username.strip())
 
         final_ref = ""
         if credential_ref:
@@ -303,11 +308,25 @@ class KaggleAccountPool:
             else:
                 # Store secret in restricted credentials file outside the DB
                 key_file = self.credentials_dir / f"{username}.key"
-                key_file.write_text(api_key, encoding="utf-8")
+                if key_file.is_symlink():
+                    raise SecurityViolationError("credential destination must not be a symlink")
+                fd, temporary = tempfile.mkstemp(prefix=".credential-", dir=self.credentials_dir)
                 try:
-                    os.chmod(key_file, 0o600)
-                except OSError:
-                    pass
+                    with os.fdopen(fd, "w", encoding="utf-8") as key_stream:
+                        os.fchmod(key_stream.fileno(), 0o600)
+                        key_stream.write(api_key)
+                        key_stream.flush()
+                        os.fsync(key_stream.fileno())
+                    # Replace the directory entry; never truncate a hard-linked file.
+                    os.replace(temporary, key_file)
+                    dir_fd = os.open(self.credentials_dir, os.O_RDONLY)
+                    try:
+                        os.fsync(dir_fd)
+                    finally:
+                        os.close(dir_fd)
+                finally:
+                    if os.path.exists(temporary):
+                        os.unlink(temporary)
                 final_ref = f"file:{key_file}"
 
         if not final_ref:
@@ -551,10 +570,12 @@ class KaggleAccountPool:
         - Staging directory is isolated.
         - Subprocess environment isolates credentials per call.
         - Credential scrubber blocks raw secret embedding in staged scripts.
-        - Duplicate submissions with identical payload/job_id are idempotent.
+        - Existing job IDs are fenced; reconcile or inspect them before any new attempt.
         - Intent is logged to durable SQLite before submission.
         - Timeouts are captured for reconciliation.
         """
+        # Revalidate mutable account objects at the filesystem boundary.
+        _validate_username(account.username)
         # 1. Credential Scrubbing Guard
         if re.search(r"sk-[A-Za-z0-9_\-]{16,}", script_code):
             raise SecurityViolationError(
@@ -575,12 +596,10 @@ class KaggleAccountPool:
 
         payload_hash = hashlib.sha256(script_code.encode("utf-8")).hexdigest()
 
-        # 2. Duplicate Submission Idempotency Check
-        if job_id:
-            existing_job = self.get_job(job_id)
-            if existing_job and existing_job.status in (JobLifecycleState.SUBMITTED, JobLifecycleState.RUNNING):
-                logger.info("Found existing submitted/running job with job_id=%s; returning existing record", job_id)
-                return existing_job
+        # Never overwrite an existing intent, including unknown outcomes. The
+        # database's unique constraint also fences concurrent callers below.
+        if job_id and self.get_job(job_id):
+            raise UnknownRemoteOutcomeError(f"Job {job_id} already exists; inspect and reconcile the original intent before any new attempt")
 
         if add_jitter:
             time.sleep(random.uniform(2.0, 5.0))
@@ -590,8 +609,12 @@ class KaggleAccountPool:
         title = f"Optimization Job {slug}"
 
         # 3. Setup isolated staging directory
-        stage_dir = self.staging_dir / account.username / slug
-        stage_dir.mkdir(parents=True, exist_ok=True)
+        account_dir = self.staging_dir / account.username
+        account_dir.mkdir(mode=0o700, exist_ok=True)
+        if account_dir.is_symlink() or not account_dir.is_dir():
+            raise SecurityViolationError("Kaggle account staging directory must not be a symlink")
+        stage_dir = account_dir / slug
+        stage_dir.mkdir(mode=0o700, exist_ok=False)
 
         script_path = stage_dir / "kernel.py"
         script_path.write_text(script_code, encoding="utf-8")
@@ -605,7 +628,7 @@ class KaggleAccountPool:
             "is_private": "true",
             "enable_gpu": "true" if accelerator.lower() == "gpu" else "false",
             "enable_tpu": "true" if accelerator.lower() == "tpu" else "false",
-            "enable_internet": "true",
+            "enable_internet": "false",
             "dataset_sources": dataset_sources or [],
             "competition_sources": [],
             "kernel_sources": [],
@@ -624,19 +647,7 @@ class KaggleAccountPool:
                     accelerator, status, attempt, lease_token, lease_expires_at, payload_hash,
                     checkpoint_version, pushed_at, completed_at, gpu_hours_billed, local_staging_dir
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, NULL, 0.0, ?)
-                ON CONFLICT(job_id) DO UPDATE SET
-                    account_username = excluded.account_username,
-                    kernel_slug = excluded.kernel_slug,
-                    kernel_title = excluded.kernel_title,
-                    is_private = excluded.is_private,
-                    accelerator = excluded.accelerator,
-                    status = excluded.status,
-                    lease_token = excluded.lease_token,
-                    lease_expires_at = excluded.lease_expires_at,
-                    payload_hash = excluded.payload_hash,
-                    checkpoint_version = excluded.checkpoint_version,
-                    pushed_at = excluded.pushed_at,
-                    local_staging_dir = excluded.local_staging_dir
+
             """, (
                 actual_job_id, account.username, slug, title, 1, accelerator,
                 JobLifecycleState.STAGED, lease_token, lease_expires_at, payload_hash,
@@ -665,8 +676,8 @@ class KaggleAccountPool:
                 final_status = JobLifecycleState.SUBMITTED
                 failure_msg = None
             else:
-                final_status = JobLifecycleState.FAILED
-                failure_msg = proc.stderr.strip() or proc.stdout.strip()
+                final_status = JobLifecycleState.RETRY_WAIT
+                failure_msg = "Push returned nonzero; remote outcome unknown, reconciliation required"
         except subprocess.TimeoutExpired as exc:
             final_status = JobLifecycleState.RETRY_WAIT
             failure_msg = "Push command timed out; outcome unknown on Kaggle, reconciliation required"
@@ -680,14 +691,13 @@ class KaggleAccountPool:
 
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
-                "UPDATE kaggle_jobs SET status = ?, failure_reason = ? WHERE job_id = ?",
-                (final_status, failure_msg, actual_job_id),
+                "UPDATE kaggle_jobs SET status = ?, failure_reason = ?, reconciliation_notes = ? WHERE job_id = ?",
+                (final_status, failure_msg, "NONZERO_UNKNOWN_OUTCOME" if failure_msg else None, actual_job_id),
             )
             conn.commit()
 
-        if final_status == JobLifecycleState.FAILED:
-            logger.error("Failed to push kernel: %s", failure_msg)
-            raise RuntimeError(f"Kaggle kernel push failed: {failure_msg}")
+        if final_status == JobLifecycleState.RETRY_WAIT:
+            raise UnknownRemoteOutcomeError(f"Push failed for {actual_job_id}; remote outcome unknown; reconciliation required")
 
         return self.get_job(actual_job_id)  # type: ignore
 
@@ -705,21 +715,37 @@ class KaggleAccountPool:
             timeout=30,
         )
         output = (proc.stdout.strip() + " " + proc.stderr.strip()).strip()
-        output_lower = output.lower()
-        if "404" in output_lower or "not found" in output_lower:
-            status = JobLifecycleState.RETRY_WAIT
-        elif "cancelpending" in output_lower or "canceled" in output_lower or "cancelled" in output_lower:
+        # Only interpret explicit status text from a successful response about
+        # the exact requested kernel. Errors and unrecognized output cannot
+        # establish what happened remotely.
+        remote_state = ""
+        if proc.returncode == 0:
+            lines = output.splitlines()
+            first = lines[0] if lines else ""
+            # The installed Kaggle CLI prints: owner/slug has status
+            # "KernelWorkerStatus.COMPLETE", optionally followed by a failure message.
+            current = re.fullmatch(re.escape(f"{account.username}/{slug}")
+                                   + r' has status "KernelWorkerStatus\.([A-Z_]+)"', first)
+            legacy = re.fullmatch(r'Kernel "' + re.escape(f"{account.username}/{slug}")
+                                  + r'" is ([A-Za-z]+)', output, flags=re.IGNORECASE)
+            if current:
+                remote_state = current.group(1).lower()
+            elif legacy:
+                remote_state = legacy.group(1).lower()
+        if remote_state in ("cancelpending", "cancel_requested"):
+            status = JobLifecycleState.CANCEL_REQUESTED
+        elif remote_state in ("canceled", "cancelled", "cancel_acknowledged"):
             status = JobLifecycleState.CANCELLED
-        elif "ready" in output_lower or "complete" in output_lower:
+        elif remote_state in ("ready", "complete"):
             status = JobLifecycleState.COLLECTING
-        elif "running" in output_lower:
+        elif remote_state == "running":
             status = JobLifecycleState.RUNNING
-        elif "queued" in output_lower:
+        elif remote_state == "queued":
             status = JobLifecycleState.SUBMITTED
-        elif "error" in output_lower or proc.returncode != 0:
+        elif remote_state in ("error", "failed"):
             status = JobLifecycleState.FAILED
         else:
-            status = JobLifecycleState.RUNNING if proc.returncode == 0 else JobLifecycleState.FAILED
+            status = JobLifecycleState.RETRY_WAIT
 
         return {"raw": output, "status": status, "exit_code": proc.returncode}
 
@@ -736,7 +762,7 @@ class KaggleAccountPool:
         raw = status_res.get("raw", "").lower()
         if "404" in raw or "not found" in raw:
             new_status = JobLifecycleState.RETRY_WAIT
-            notes = "Remote kernel not found; marked RETRY_WAIT"
+            notes = "Remote kernel not found; outcome remains unknown and redispatch is fenced"
         elif status_res["status"] == JobLifecycleState.COLLECTING:
             new_status = JobLifecycleState.COLLECTING
             notes = "Remote kernel completed; ready for collection"
@@ -746,6 +772,15 @@ class KaggleAccountPool:
         elif status_res["status"] == JobLifecycleState.SUBMITTED:
             new_status = JobLifecycleState.SUBMITTED
             notes = "Remote kernel queued"
+        elif status_res["status"] == JobLifecycleState.RETRY_WAIT:
+            new_status = JobLifecycleState.RETRY_WAIT
+            notes = "Remote status unavailable or unrecognized; outcome remains unknown"
+        elif status_res["status"] == JobLifecycleState.CANCEL_REQUESTED:
+            new_status = JobLifecycleState.CANCEL_REQUESTED
+            notes = "Remote cancellation is pending"
+        elif status_res["status"] == JobLifecycleState.CANCELLED:
+            new_status = JobLifecycleState.CANCELLED
+            notes = "Remote kernel reports cancellation"
         else:
             new_status = JobLifecycleState.FAILED
             notes = f"Remote kernel status: {status_res['status']}"
@@ -765,60 +800,65 @@ class KaggleAccountPool:
         destination_dir: Union[str, Path],
         verify_manifest: bool = True,
     ) -> Path:
-        """Download output files from a completed kernel and verify manifest SHA-256 hashes."""
-        dest = Path(destination_dir).resolve()
-        dest.mkdir(parents=True, exist_ok=True)
-
+        """Collect bounded remote files into a private stage, then publish verified output."""
+        if not verify_manifest:
+            raise SecurityViolationError("remote output requires manifest verification")
+        _validate_username(account.username)
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,99}", slug):
+            raise ValueError("invalid Kaggle kernel slug")
+        dest = Path(os.path.abspath(destination_dir))
+        parent = dest.parent.resolve(strict=True)
+        if dest.parent != parent or dest.is_symlink() or (dest.exists() and (not dest.is_dir() or any(dest.iterdir()))):
+            raise SecurityViolationError("output destination must be absent or an empty non-symlink directory")
         env = {k: v for k, v in os.environ.items() if k in ("PATH", "SYSTEMROOT", "LANG", "TMPDIR", "HOME", "USER")}
         env["KAGGLE_USERNAME"] = account.username
         env["KAGGLE_KEY"] = account.api_key
-
-        proc = subprocess.run(
-            ["kaggle", "kernels", "output", f"{account.username}/{slug}", "-p", str(dest)],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=120,
-        )
-        if proc.returncode != 0:
-            raise RuntimeError(f"Failed to download kernel output: {proc.stderr.strip() or proc.stdout.strip()}")
-
-        if verify_manifest:
-            manifest_path = dest / "manifest.json"
-            if not manifest_path.exists():
-                found = list(dest.rglob("manifest.json"))
-                if found:
-                    manifest_path = found[0]
-
-            if not manifest_path.exists():
-                raise ChecksumMismatchError(
-                    f"Incomplete download: manifest.json is missing in output directory '{dest}'"
-                )
-
-            manifest_dir = manifest_path.parent
+        transport = Path(__file__).with_name("kaggle_output_transport.py")
+        with tempfile.TemporaryDirectory(prefix=".kaggle-output-", dir=parent) as temporary:
+            stage = Path(temporary)
+            proc = subprocess.run([sys.executable, str(transport), account.username, slug, str(stage)],
+                                  stdin=subprocess.DEVNULL, capture_output=True, text=True, env=env, timeout=120)
+            if proc.returncode != 0:
+                raise RuntimeError("bounded Kaggle output transport failed")
+            manifest_path = stage / "manifest.json"
+            if not manifest_path.is_file() or manifest_path.is_symlink() or manifest_path.stat().st_size > 1_000_000:
+                raise ChecksumMismatchError("Incomplete download: manifest.json is missing or invalid in output")
             try:
                 manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
-                files_manifest = manifest_data.get("files")
-                if not isinstance(files_manifest, dict) or not files_manifest:
-                    raise ChecksumMismatchError("Output manifest must contain a non-empty files mapping")
-                for rel_name, expected_sha in files_manifest.items():
-                    if not isinstance(rel_name, str) or not isinstance(expected_sha, str):
-                        raise ChecksumMismatchError("Invalid output manifest entry")
-                    target_file = (manifest_dir / rel_name).resolve()
-                    if not target_file.is_relative_to(manifest_dir.resolve()) or target_file == manifest_dir.resolve():
-                        raise ChecksumMismatchError(f"Output manifest path escapes output directory: {rel_name}")
-                    if not target_file.is_file():
-                        raise ChecksumMismatchError(
-                            f"Incomplete download: manifest file '{rel_name}' is missing in output"
-                        )
-                    actual_sha = streaming_file_sha256(target_file)
-                    if actual_sha != expected_sha:
-                        raise ChecksumMismatchError(
-                            f"Checksum mismatch for '{rel_name}': expected {expected_sha}, got {actual_sha}"
-                        )
-            except json.JSONDecodeError as exc:
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
                 raise ChecksumMismatchError("Corrupt manifest.json in downloaded output") from exc
-
+            files_manifest = manifest_data.get("files") if isinstance(manifest_data, dict) else None
+            if not isinstance(files_manifest, dict) or not files_manifest or len(files_manifest) > 999:
+                raise ChecksumMismatchError("Output manifest must contain a bounded non-empty files mapping")
+            expected_files = {"manifest.json"}
+            for name, expected_sha in files_manifest.items():
+                if (not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,199}", name)
+                        or name == "manifest.json" or not isinstance(expected_sha, str)
+                        or not re.fullmatch(r"[0-9a-f]{64}", expected_sha)):
+                    raise ChecksumMismatchError("Invalid output manifest entry")
+                target = stage / name
+                if target.is_symlink() or not target.is_file():
+                    raise ChecksumMismatchError(f"Incomplete download: manifest file '{name}' is missing in output")
+                if streaming_file_sha256(target) != expected_sha:
+                    raise ChecksumMismatchError(f"Checksum mismatch for '{name}'")
+                expected_files.add(name)
+            if {entry.name for entry in stage.iterdir()} != expected_files:
+                raise ChecksumMismatchError("Downloaded files do not match manifest")
+            # The SDK transport has its own streaming limits; recheck before
+            # publication, including if a replacement transport is installed.
+            if sum(entry.stat().st_size for entry in stage.iterdir()) > 100_000_000:
+                raise ChecksumMismatchError("Downloaded output exceeds byte limit")
+            dir_fd = os.open(stage, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+            os.replace(stage, dest)
+            parent_fd = os.open(parent, os.O_RDONLY)
+            try:
+                os.fsync(parent_fd)
+            finally:
+                os.close(parent_fd)
         return dest
 
     def cancel_kernel(self, job_id: str) -> Dict[str, Any]:

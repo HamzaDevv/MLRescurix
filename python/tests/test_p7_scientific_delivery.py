@@ -63,10 +63,48 @@ class TestP7ScientificDelivery(unittest.TestCase):
         out = pred.predict(test_rows)
         self.assertEqual(out["prediction"], [0, 1])
 
+        metadata = exp_dir / "safetensors_meta.json"
+        metadata.write_text(metadata.read_text() + " ")
+        with self.assertRaisesRegex(ValueError, "artifact integrity mismatch"):
+            verify_export_parity(clf, exp_dir, test_rows, task="binary_classification")
+
         # Sandbox traversal check: must reject '..'
         with self.assertRaises(ValueError) as ctx:
             export_model(clf, exp_dir / ".." / "escaped", formats=["safetensors"])
         self.assertIn("escapes sandbox boundaries", str(ctx.exception))
+
+    def test_joblib_parity_checks_the_saved_artifact(self):
+        import joblib
+        X = np.array([[0.0], [1.0], [2.0], [3.0]])
+        model = Ridge().fit(X, [0.0, 1.0, 2.0, 3.0])
+        export_dir = self.tmp / "joblib_export"
+        export_model(model, export_dir, formats=["joblib"], task="regression", features=["x"])
+        rows = [{"x": 0.5}, {"x": 2.5}]
+        self.assertTrue(verify_export_parity(model, export_dir, rows, task="regression")["formats"]["joblib"]["verified"])
+        for invalid in [[{}], [{"x": 0.5, "unexpected": 1}]]:
+            with self.assertRaisesRegex(ValueError, "declared features exactly"):
+                verify_export_parity(model, export_dir, invalid, task="regression")
+        from unittest.mock import patch
+        with patch.object(model, "predict", return_value=np.array([float("inf"), 0.0])):
+            with self.assertRaisesRegex(ValueError, "must be finite"):
+                verify_export_parity(model, export_dir, rows, task="regression")
+        joblib.dump(Ridge().fit(X, [3.0, 2.0, 1.0, 0.0]), export_dir / "frozen_model.joblib")
+        with self.assertRaisesRegex(ValueError, "artifact integrity mismatch"):
+            verify_export_parity(model, export_dir, rows, task="regression")
+        # Even if a manifest is rewritten to match a substituted model, parity
+        # must still compare predictions with the original trusted estimator.
+        import hashlib
+        manifest_path = export_dir / "export_manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["formats"]["joblib"]["sha256"] = hashlib.sha256((export_dir / "frozen_model.joblib").read_bytes()).hexdigest()
+        manifest_path.write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, "Joblib prediction parity violation"):
+            verify_export_parity(model, export_dir, rows, task="regression")
+        manifest = json.loads(manifest_path.read_text())
+        manifest["formats"] = {}
+        manifest_path.write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, "No verifiable exported formats"):
+            verify_export_parity(model, export_dir, rows, task="regression")
 
     def test_model_export_regression(self):
         X = np.array([[1.0, 2.0], [2.0, 3.0], [3.0, 4.0], [4.0, 5.0]], dtype=np.float32)
@@ -83,6 +121,10 @@ class TestP7ScientificDelivery(unittest.TestCase):
         test_rows = [{"a": 1.5, "b": 2.5}]
         pred = SafeTensorsPredictor(exp_dir)
         res = pred.predict(test_rows)
+        parity = verify_export_parity(reg, exp_dir, test_rows, task="regression")
+        self.assertEqual(set(parity["formats"]), {"safetensors"})
+        with self.assertRaisesRegex(ValueError, "at least one input"):
+            verify_export_parity(reg, exp_dir, [], task="regression")
         self.assertEqual(len(res["prediction"]), 1)
         expected_val = float(reg.predict(np.array([[1.5, 2.5]], dtype=np.float32))[0])
         self.assertAlmostEqual(res["prediction"][0], expected_val, places=5)

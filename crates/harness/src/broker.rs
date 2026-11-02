@@ -591,10 +591,10 @@ pub fn check_request_feasibility_with_probe(
             );
             match py {
                 Ok(ref p) => p.starts_with("docker:"),
-                Err(_) => matches!(spec.probe, Probe::Scientific { .. }),
+                Err(_) => matches!(spec.probe, Probe::Scientific { .. }) || !env_id.contains("host"),
             }
         } else {
-            matches!(spec.probe, Probe::Scientific { .. })
+            matches!(spec.probe, Probe::Scientific { .. }) || !env_id.contains("host")
         }
     } else {
         matches!(spec.probe, Probe::Scientific { .. })

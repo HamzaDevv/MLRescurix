@@ -26,4 +26,5 @@ pub mod trusted_evaluation;
 pub mod development_inputs;
 pub mod custom_protocol;
 pub mod custom_snapshot;
+pub mod isolated_inference;
 pub mod campaign;

@@ -143,20 +143,69 @@ def test_duplicate_submission_idempotency(mock_run, tmp_path: Path):
     assert job1.status == JobLifecycleState.SUBMITTED
     assert mock_run.call_count == 1
 
-    # Second submission with the same job_id should return existing record without calling push again
-    job2 = pool.push_private_kernel(
-        account=anchor,
-        script_code=script_code,
-        job_id="job-idempotent-1",
-        add_jitter=False,
-    )
-    assert job2.job_id == "job-idempotent-1"
-    assert mock_run.call_count == 1  # No duplicate push
+    # Even the same ID cannot overwrite or dispatch another intent.
+    with pytest.raises(UnknownRemoteOutcomeError, match="already exists"):
+        pool.push_private_kernel(account=anchor, script_code=script_code,
+                                 job_id="job-idempotent-1", add_jitter=False)
+    assert mock_run.call_count == 1
+
+
+
+def test_concurrent_duplicate_job_ids_dispatch_at_most_once(tmp_path, monkeypatch):
+    import concurrent.futures
+    import threading
+    pool = KaggleAccountPool(storage_dir=tmp_path / "pool")
+    anchor = pool.register_account(username="user_anchor", api_key="k_anchor", is_anchor=True)
+    barrier = threading.Barrier(2)
+    original_get_job = pool.get_job
+    calls = 0
+    lock = threading.Lock()
+    def synchronized_lookup(job_id):
+        nonlocal calls
+        result = original_get_job(job_id)
+        with lock:
+            calls += 1
+            initial = calls <= 2
+        if initial:
+            barrier.wait(timeout=5)
+        return result
+    monkeypatch.setattr(pool, "get_job", synchronized_lookup)
+    pushes = []
+    def fake_run(args, **kwargs):
+        pushes.append(args)
+        return subprocess.CompletedProcess(args, 0, stdout="Pushed", stderr="")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    def submit():
+        try:
+            return pool.push_private_kernel(anchor, "print(1)", job_id="race", add_jitter=False)
+        except (sqlite3.IntegrityError, UnknownRemoteOutcomeError) as exc:
+            return exc
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _: submit(), range(2)))
+    assert len(pushes) == 1
+    assert sum(isinstance(result, Exception) for result in results) == 1
+    assert original_get_job("race").status == JobLifecycleState.SUBMITTED
 
 
 # =============================================================================
 # 4. Timeout With Unknown Outcome Reconciliation
 # =============================================================================
+
+@patch("subprocess.run")
+def test_nonzero_push_remains_uncertain_and_fenced(mock_run, tmp_path):
+    mock_run.return_value = subprocess.CompletedProcess(args=["kaggle"], returncode=1,
+                                                        stdout="", stderr="network failure")
+    pool = KaggleAccountPool(storage_dir=tmp_path / "pool")
+    anchor = pool.register_account(username="user_anchor", api_key="k_anchor", is_anchor=True)
+    with pytest.raises(UnknownRemoteOutcomeError, match="outcome unknown"):
+        pool.push_private_kernel(anchor, "print(1)", job_id="nonzero", add_jitter=False)
+    job = pool.get_job("nonzero")
+    assert job.status == JobLifecycleState.RETRY_WAIT
+    assert job.reconciliation_notes == "NONZERO_UNKNOWN_OUTCOME"
+    with pytest.raises(UnknownRemoteOutcomeError, match="already exists"):
+        pool.push_private_kernel(anchor, "print(1)", job_id="nonzero", add_jitter=False)
+    assert mock_run.call_count == 1
+
 
 @patch("subprocess.run")
 def test_timeout_unknown_outcome_reconciliation(mock_run, tmp_path: Path):
@@ -194,7 +243,7 @@ def test_timeout_unknown_outcome_reconciliation(mock_run, tmp_path: Path):
     assert reconciled.status == JobLifecycleState.COLLECTING
     assert "completed" in reconciled.reconciliation_notes
 
-    # Case B: Kaggle reports 404 (kernel was never received by Kaggle)
+    # Case B: 404 is not proof the timed-out push never reached Kaggle.
     mock_run.return_value = subprocess.CompletedProcess(
         args=["kaggle", "kernels", "status"],
         returncode=1,
@@ -203,7 +252,10 @@ def test_timeout_unknown_outcome_reconciliation(mock_run, tmp_path: Path):
     )
     reconciled_404 = pool.reconcile_job("job-timeout-1")
     assert reconciled_404.status == JobLifecycleState.RETRY_WAIT
-    assert "marked RETRY_WAIT" in reconciled_404.reconciliation_notes
+    assert "outcome remains unknown" in reconciled_404.reconciliation_notes
+    with pytest.raises(UnknownRemoteOutcomeError, match="already exists"):
+        pool.push_private_kernel(account=anchor, script_code=script_code,
+                                 job_id="job-timeout-1", add_jitter=False)
 
 
 # =============================================================================
@@ -308,48 +360,28 @@ def test_incomplete_download_hash_mismatch_rejection(mock_run, tmp_path: Path):
     pool = KaggleAccountPool(storage_dir=tmp_path / "pool")
     anchor = pool.register_account(username="user_anchor", api_key="k_anchor", is_anchor=True)
 
-    # Prepare mock remote output directory
     dest = tmp_path / "downloaded_output"
     dest.mkdir()
-
-    # Create weights file and manifest
-    weights_path = dest / "weights.pt"
-    weights_path.write_text("model_weights_content_v1")
-    correct_sha = hashlib.sha256(b"model_weights_content_v1").hexdigest()
-
-    manifest = {
-        "status": "complete",
-        "files": {
-            "weights.pt": correct_sha,
-            "extra.pt": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        },
-    }
-    (dest / "manifest.json").write_text(json.dumps(manifest))
-
-    mock_run.return_value = subprocess.CompletedProcess(
-        args=["kaggle", "kernels", "output"],
-        returncode=0,
-        stdout="Output downloaded",
-        stderr="",
-    )
-
-    # 1. Test missing file in output -> ChecksumMismatchError
+    remote = {"weights.pt": b"model_weights_content_v1"}
+    correct_sha = hashlib.sha256(remote["weights.pt"]).hexdigest()
+    manifest = {"status": "complete", "files": {"weights.pt": correct_sha, "extra.pt": "0" * 64}}
+    remote["manifest.json"] = json.dumps(manifest).encode()
+    def download(args, **kwargs):
+        stage = Path(args[-1])
+        for name, data in remote.items():
+            (stage / name).write_bytes(data)
+        return subprocess.CompletedProcess(args, 0, "", "")
+    mock_run.side_effect = download
     with pytest.raises(ChecksumMismatchError, match="is missing in output"):
-        pool.download_kernel_output(anchor, "opt-job-123", dest, verify_manifest=True)
-
-    # 2. Add extra.pt with corrupted content -> ChecksumMismatchError
-    (dest / "extra.pt").write_text("corrupted_content")
-    with pytest.raises(ChecksumMismatchError, match="Checksum mismatch for 'extra.pt'"):
-        pool.download_kernel_output(anchor, "opt-job-123", dest, verify_manifest=True)
-
-    # 3. Fix content to match correct SHA -> should succeed cleanly
-    (dest / "extra.pt").write_text("proper_content")
-    correct_extra_sha = hashlib.sha256(b"proper_content").hexdigest()
-    manifest["files"]["extra.pt"] = correct_extra_sha
-    (dest / "manifest.json").write_text(json.dumps(manifest))
-
-    verified_dest = pool.download_kernel_output(anchor, "opt-job-123", dest, verify_manifest=True)
-    assert verified_dest == dest
+        pool.download_kernel_output(anchor, "opt-job-123", dest)
+    remote["extra.pt"] = b"corrupted_content"
+    with pytest.raises(ChecksumMismatchError, match="Checksum mismatch"):
+        pool.download_kernel_output(anchor, "opt-job-123", dest)
+    remote["extra.pt"] = b"proper_content"
+    manifest["files"]["extra.pt"] = hashlib.sha256(remote["extra.pt"]).hexdigest()
+    remote["manifest.json"] = json.dumps(manifest).encode()
+    assert pool.download_kernel_output(anchor, "opt-job-123", dest) == dest
+    assert (dest / "extra.pt").read_bytes() == b"proper_content"
 
 
 # =============================================================================
@@ -552,27 +584,19 @@ def test_deadline_aware_segment_and_checkpoint_resume(mock_run, tmp_path: Path):
     (staged_dir / "kernel.py").write_text("print('Segment 1')")
     handle1 = backend.submit(staged_dir, {"job_id": "seg-job-1"})
 
-    # Mock output collection for segment 1
-    ckpt_dir = tmp_path / "output_seg1" / "checkpoint"
-    ckpt_dir.mkdir(parents=True)
-    (ckpt_dir / "weights.pt").write_text("step_50_weights")
-    manifest = {
-        "status": "complete",
-        "step": 50,
-        "files": {
-            "weights.pt": hashlib.sha256(b"step_50_weights").hexdigest(),
-        },
-    }
-    (ckpt_dir / "manifest.json").write_text(json.dumps(manifest))
-
-    mock_run.return_value = subprocess.CompletedProcess(
-        args=["kaggle", "kernels", "output"],
-        returncode=0,
-        stdout="Output downloaded",
-        stderr="",
-    )
-    collect_res = backend.collect(handle1, target_dir=tmp_path / "output_seg1")
+    # Mock a flat remote output; collection stages and publishes it atomically.
+    ckpt_dir = tmp_path / "output_seg1"
+    manifest = {"status": "complete", "step": 50,
+                "files": {"weights.pt": hashlib.sha256(b"step_50_weights").hexdigest()}}
+    def download(args, **kwargs):
+        stage = Path(args[-1])
+        (stage / "weights.pt").write_bytes(b"step_50_weights")
+        (stage / "manifest.json").write_text(json.dumps(manifest))
+        return subprocess.CompletedProcess(args, 0, "", "")
+    mock_run.side_effect = download
+    collect_res = backend.collect(handle1, target_dir=ckpt_dir)
     assert collect_res["status"] == JobLifecycleState.VERIFIED
+    mock_run.side_effect = None
 
     # Resume training in segment 2
     mock_run.return_value = subprocess.CompletedProcess(
@@ -635,8 +659,6 @@ def test_missing_manifest_in_download_raises_error(mock_run, tmp_path: Path):
 
     dest = tmp_path / "empty_output"
     dest.mkdir()
-    (dest / "orphan.pt").write_text("some_weights")
-
     mock_run.return_value = subprocess.CompletedProcess(
         args=["kaggle", "kernels", "output"],
         returncode=0,
@@ -659,7 +681,7 @@ def test_remote_status_cancellation_parsed_correctly(mock_run, tmp_path: Path):
         stderr="",
     )
     res = pool.check_kernel_status(anchor, "opt-job-123")
-    assert res["status"] == JobLifecycleState.CANCELLED
+    assert res["status"] == JobLifecycleState.CANCEL_REQUESTED
 
     mock_run.return_value = subprocess.CompletedProcess(
         args=["kaggle", "kernels", "status"],
@@ -669,3 +691,72 @@ def test_remote_status_cancellation_parsed_correctly(mock_run, tmp_path: Path):
     )
     res2 = pool.check_kernel_status(anchor, "opt-job-123")
     assert res2["status"] == JobLifecycleState.CANCELLED
+
+
+def test_kaggle_username_cannot_escape_credential_or_staging_directory(tmp_path):
+    pool = KaggleAccountPool(tmp_path / "pool")
+    for username in ("../escape", "/tmp/escape", "a/b", ".", "user\nname"):
+        with pytest.raises(ValueError, match="invalid Kaggle username"):
+            pool.register_account(username=username, api_key="secret")
+        with pytest.raises(ValueError, match="invalid Kaggle username"):
+            KaggleAccount(username=username, api_key="secret")
+    target = tmp_path / "protected"
+    target.write_text("original")
+    (pool.credentials_dir / "user.key").symlink_to(target)
+    with pytest.raises(SecurityViolationError, match="symlink"):
+        pool.register_account(username="user", api_key="secret")
+    assert target.read_text() == "original"
+    (pool.credentials_dir / "user.key").unlink()
+    import os
+    os.link(target, pool.credentials_dir / "user.key")
+    pool.register_account(username="user", api_key="new-secret")
+    assert target.read_text() == "original"
+
+
+@patch("subprocess.run")
+def test_staged_private_kernel_has_network_disabled(mock_run, tmp_path):
+    mock_run.return_value = subprocess.CompletedProcess(["kaggle"], 0, stdout="ok", stderr="")
+    pool = KaggleAccountPool(tmp_path / "pool")
+    anchor = pool.register_account(username="user", api_key="secret", is_anchor=True)
+    job = pool.push_private_kernel(anchor, "print(1)", add_jitter=False)
+    metadata = json.loads((Path(job.local_staging_dir) / "kernel-metadata.json").read_text())
+    assert metadata["is_private"] == "true"
+    assert metadata["enable_internet"] == "false"
+
+
+def test_kaggle_staging_refuses_mutated_account_and_symlink(tmp_path):
+    pool = KaggleAccountPool(tmp_path / "pool")
+    account = pool.register_account(username="user", api_key="secret", is_anchor=True)
+    account.username = "../escape"
+    with pytest.raises(ValueError, match="invalid Kaggle username"):
+        pool.push_private_kernel(account, "print(1)", add_jitter=False)
+    account.username = "user"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (pool.staging_dir / "user").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(SecurityViolationError, match="must not be a symlink"):
+        pool.push_private_kernel(account, "print(1)", add_jitter=False)
+    assert list(outside.iterdir()) == []
+
+
+@patch("subprocess.run")
+def test_untrusted_status_errors_do_not_certify_remote_outcome(mock_run, tmp_path):
+    pool = KaggleAccountPool(tmp_path / "pool")
+    account = pool.register_account(username="user", api_key="secret", is_anchor=True)
+    for code, output in [(1, 'Kernel "user/job" is complete'), (0, 'already complete'),
+                         (0, 'Kernel "other/job" is complete'), (1, "network error")]:
+        mock_run.return_value = subprocess.CompletedProcess(["kaggle"], code, stdout=output, stderr="")
+        assert pool.check_kernel_status(account, "job")["status"] == JobLifecycleState.RETRY_WAIT
+
+
+@patch("subprocess.run")
+def test_installed_kaggle_cli_exact_status_format(mock_run, tmp_path):
+    pool = KaggleAccountPool(tmp_path / "pool")
+    account = pool.register_account(username="user", api_key="secret", is_anchor=True)
+    for state, expected in [("QUEUED", JobLifecycleState.SUBMITTED), ("RUNNING", JobLifecycleState.RUNNING),
+                            ("COMPLETE", JobLifecycleState.COLLECTING), ("ERROR", JobLifecycleState.FAILED),
+                            ("CANCEL_REQUESTED", JobLifecycleState.CANCEL_REQUESTED),
+                            ("CANCEL_ACKNOWLEDGED", JobLifecycleState.CANCELLED), ("NEW_SCRIPT", JobLifecycleState.RETRY_WAIT)]:
+        mock_run.return_value = subprocess.CompletedProcess(["kaggle"], 0,
+            stdout=f'user/job has status "KernelWorkerStatus.{state}"\n', stderr="")
+        assert pool.check_kernel_status(account, "job")["status"] == expected

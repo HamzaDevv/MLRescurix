@@ -8,11 +8,20 @@ Enforces:
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 # Explicit documented numerical tolerances per modality and export format
@@ -168,6 +177,7 @@ def export_model(
         manifest["formats"]["joblib"] = {
             "file": "frozen_model.joblib",
             "bytes": joblib_path.stat().st_size,
+            "sha256": _file_sha256(joblib_path),
         }
 
     # 2. SafeTensors Zero-Pickle Tensor Export
@@ -211,7 +221,9 @@ def export_model(
             manifest["formats"]["safetensors"] = {
                 "file": "weights.safetensors",
                 "bytes": safetensors_path.stat().st_size,
+                "sha256": _file_sha256(safetensors_path),
                 "meta": "safetensors_meta.json",
+                "meta_sha256": _file_sha256(out_dir / "safetensors_meta.json"),
                 "zero_pickle": True,
             }
 
@@ -241,28 +253,95 @@ def verify_export_parity(
     test_inputs: list[dict[str, Any]],
     task: str = "binary_classification",
 ) -> dict[str, Any]:
-    """Verify inference parity across exported formats against native model outputs."""
+    """Verify exported formats against native outputs; only load trusted joblib files."""
     root = Path(export_dir).resolve()
     meta_path = root / "export_manifest.json"
     if not meta_path.is_file():
         raise FileNotFoundError(f"Export manifest missing at {meta_path}")
 
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    if not test_inputs:
+        raise ValueError("Parity verification requires at least one input")
+    if meta.get("task") != task:
+        raise ValueError("Parity task differs from export manifest")
+    formats = meta.get("formats")
+    if not isinstance(formats, dict) or not formats or set(formats) - {"joblib", "safetensors"}:
+        raise ValueError("No verifiable exported formats or unsupported format")
+    # These hashes detect corruption relative to this manifest. A caller must
+    # separately bind the manifest itself to a trusted controller receipt.
+    for kind, entry in formats.items():
+        if not isinstance(entry, dict):
+            raise ValueError("Invalid export format entry")
+        expected_name = "frozen_model.joblib" if kind == "joblib" else "weights.safetensors"
+        if entry.get("file") != expected_name:
+            raise ValueError("Invalid export artifact path")
+        paths = [(expected_name, entry.get("sha256"))]
+        if kind == "safetensors":
+            if entry.get("meta") != "safetensors_meta.json":
+                raise ValueError("Invalid SafeTensors metadata path")
+            paths.append(("safetensors_meta.json", entry.get("meta_sha256")))
+        for name, expected_hash in paths:
+            path = root / name
+            if (path.is_symlink() or not path.is_file() or not isinstance(expected_hash, str)
+                    or _file_sha256(path) != expected_hash):
+                raise ValueError(f"Export artifact integrity mismatch: {name}")
     tolerances = meta.get("tolerances", DEFAULT_TOLERANCES.get(task, {}))
     results: dict[str, Any] = {"verified": True, "formats": {}}
 
     # Compute baseline predictions from native model
     import pandas as pd
     features = meta.get("features", [])
+    if features:
+        expected_features = set(features)
+        if len(expected_features) != len(features) or any(
+            not isinstance(row, dict) or set(row) != expected_features for row in test_inputs
+        ):
+            raise ValueError("Parity inputs must match the declared features exactly")
     df = pd.DataFrame(test_inputs)
     if features:
-        df = df.reindex(columns=features, fill_value=0)
+        df = df.reindex(columns=features)
 
     is_classif = task in ("binary_classification", "multiclass_classification")
     native_pred = model.predict(df).tolist()
     native_prob = model.predict_proba(df).tolist() if is_classif and hasattr(model, "predict_proba") else None
+    if not is_classif and not np.isfinite(np.asarray(native_pred, dtype=float)).all():
+        raise ValueError("Native predictions must be finite for parity verification")
+    if native_prob is not None and not np.isfinite(np.asarray(native_prob, dtype=float)).all():
+        raise ValueError("Native probabilities must be finite for parity verification")
 
-    results["formats"]["joblib"] = {"verified": True, "max_prob_diff": 0.0}
+    # Joblib uses pickle and may execute code while loading. This function is
+    # only for artifacts from a trusted export, not arbitrary worker uploads.
+    if "joblib" in meta["formats"]:
+        import joblib
+        joblib_file = meta["formats"]["joblib"].get("file")
+        if joblib_file != "frozen_model.joblib" or (root / joblib_file).is_symlink():
+            raise ValueError("Invalid joblib artifact path")
+        restored = joblib.load(root / joblib_file)
+        restored_pred = np.asarray(restored.predict(df))
+        native_pred_arr = np.asarray(native_pred)
+        if restored_pred.shape != native_pred_arr.shape:
+            raise ValueError("Joblib prediction shape mismatch")
+        if is_classif:
+            if not np.array_equal(restored_pred, native_pred_arr):
+                raise ValueError("Joblib class parity violation")
+        elif not np.allclose(restored_pred, native_pred_arr,
+                             rtol=tolerances.get("prediction_rtol", 1e-5),
+                             atol=tolerances.get("prediction_atol", 1e-6)):
+            raise ValueError("Joblib prediction parity violation")
+        detail = {"verified": True}
+        if native_prob is not None:
+            if not hasattr(restored, "predict_proba"):
+                raise ValueError("Joblib probabilities missing")
+            restored_prob = np.asarray(restored.predict_proba(df), dtype=float)
+            native_prob_arr = np.asarray(native_prob, dtype=float)
+            if restored_prob.shape != native_prob_arr.shape or not np.allclose(
+                restored_prob, native_prob_arr,
+                rtol=tolerances.get("probabilities_rtol", 1e-5),
+                atol=tolerances.get("probabilities_atol", 1e-7),
+            ):
+                raise ValueError("Joblib probability parity violation")
+            detail["max_prob_diff"] = float(np.max(np.abs(restored_prob - native_prob_arr)))
+        results["formats"]["joblib"] = detail
 
     # Verify SafeTensors if exported
     if "safetensors" in meta["formats"]:
@@ -286,8 +365,10 @@ def verify_export_parity(
                         f"SafeTensors probability parity violation: max diff {diff:.2e} exceeds rtol={rtol}, atol={atol}"
                     )
                 results["formats"]["safetensors"] = {"verified": True, "max_prob_diff": float(diff)}
+            elif native_prob is not None:
+                raise ValueError("SafeTensors probabilities missing")
             else:
-                results["formats"]["safetensors"] = {"verified": True, "max_prob_diff": 0.0}
+                results["formats"]["safetensors"] = {"verified": True}
         else:
             # Regression continuous comparison
             st_pred_arr = np.asarray(st_pred, dtype=float)

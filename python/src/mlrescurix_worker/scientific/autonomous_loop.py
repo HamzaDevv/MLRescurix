@@ -287,7 +287,7 @@ HYPOTHESIS_TRANSFORM {action, parameters}: ADD_MNAR_INDICATOR {columns}, DELETE_
 EVALUATE_PORTFOLIO {families:[hist_gbdt,penalized_linear,lgbm,xgboost,catboost,neural_tabular]} measures families on active pipeline. Optional model_parameters keyed by family. Regression target_transform may be none, log, log1p and is fitted/inverted inside the exact candidate.
 BLEND_AND_AUDIT {families:[...], weights:[positive,...]} evaluates exact weighted ensemble; requires 3 genuinely different available families and critic approval.
 WRITE_PYTHON {filename:name.py, code:python_source} writes dynamic analysis script.
-RUN_PYTHON {filename:name.py} runs registered script in configured isolated container with no network. Development CSV is /data/development.csv; write outputs under /outputs. stdout/errors/artifact hashes return next turn. Scripts cannot promote a model or change pinned folds. Fix script errors with WRITE_PYTHON then rerun.
+RUN_PYTHON {filename:name.py} runs registered script in configured isolated container with no network. Development CSV is /data/development.csv; write outputs under /outputs. Script output and error details may be withheld from outbound context; use the available status and receipts. Scripts cannot promote a model or change pinned folds. Fix script errors with WRITE_PYTHON then rerun.
 HANDOFF {reason, next_steps:[...]} exports checkpoint/evidence for another session and stops.
 FINALIZE_AND_STOP {} only succeeds with accepted audited candidate. STOP_EARLY {reason} stops without acceptance.
 Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refuted transform. Respect budget/turn/resource limits."""
@@ -299,16 +299,30 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
                 result = receipt["measurements"].get("python_result")
                 if result:
                     receipt["measurements"] = copy.deepcopy(receipt["measurements"])
-                    result = receipt["measurements"]["python_result"]
                     local_stderr = result.get("stderr", "")
-                    error_classes = re.findall(r"\b[A-Za-z]+(?:Error|Exception)\b", result.get("stderr", ""))
-                    result["stdout"] = "[local output withheld pending outbound approval]"
-                    result["stderr"] = ", ".join(sorted(set(error_classes))) or "[local stderr withheld]"
-                    result["error"] = result.get("status")
+                    if not isinstance(local_stderr, str):
+                        local_stderr = ""
+                    # Worker-controlled filenames, error strings, artifact paths and
+                    # even exception class names can contain private data. Export
+                    # only a small controller-defined projection until approved.
+                    allowed_errors = {"ArithmeticError", "AssertionError", "AttributeError", "EOFError",
+                        "FileNotFoundError", "ImportError", "IndexError", "KeyError", "MemoryError",
+                        "ModuleNotFoundError", "NameError", "NotImplementedError", "OSError",
+                        "OverflowError", "PermissionError", "RuntimeError", "SyntaxError",
+                        "TimeoutError", "TypeError", "ValueError", "ZeroDivisionError"}
+                    error_classes = set(re.findall(r"\b[A-Za-z]+(?:Error|Exception)\b", local_stderr)) & allowed_errors
+                    statuses = {"success", "script_error", "timeout", "output_limit", "artifact_error",
+                        "sandbox_unavailable", "sandbox_error", "execution_error"}
+                    status = result.get("status")
+                    status = status if isinstance(status, str) and status in statuses else "unknown"
+                    projected = {"status": status, "error": status,
+                        "stdout": "[local output withheld pending outbound approval]",
+                        "stderr": ", ".join(sorted(error_classes)) or "[local stderr withheld]"}
                     # Bounded structured locations help repair without uploading data-bearing exception text.
                     locations = re.findall(r'File "[^"\n]*[\/]([A-Za-z0-9_.-]+\.py)", line ([0-9]{1,7})', local_stderr)
-                    result["repair_locations"] = [{"script": name, "line": int(line)} for name, line in locations[-8:]
-                                                if name in self.state["script_registry"]]
+                    projected["repair_locations"] = [{"script": name, "line": int(line)} for name, line in locations[-8:]
+                                                   if name in self.state["script_registry"]]
+                    receipt["measurements"]["python_result"] = projected
         user = {
             "human_guidance": self.state.get("human_guidance", []),
             "instruction": "Review task context, diagnostic dossier, and turn history. Choose your next action and return strictly a single valid JSON object with keys: thought_rationale, action_type, parameters.",

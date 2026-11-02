@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import base64
 import json
+import math
 import os
 import shutil
 import signal
@@ -71,7 +72,11 @@ def _reject_symlink_components(path: Path) -> None:
 
 
 def _validate_limits(limits: PythonToolLimits) -> None:
-    if (limits.timeout_seconds <= 0 or limits.memory_mb <= 0 or limits.cpus <= 0
+    integer_limits = (limits.memory_mb, limits.pids, limits.max_output_bytes,
+                      limits.max_artifact_bytes, limits.max_artifact_files)
+    if (any(not isinstance(value, int) or isinstance(value, bool) for value in integer_limits)
+            or not math.isfinite(limits.timeout_seconds) or not math.isfinite(limits.cpus)
+            or limits.timeout_seconds <= 0 or limits.memory_mb <= 0 or limits.cpus <= 0
             or limits.pids <= 0 or limits.max_output_bytes <= 0
             or limits.max_artifact_bytes <= 0 or limits.max_artifact_files <= 0):
         raise ValueError("all Python tool limits must be positive")
@@ -117,36 +122,23 @@ def _kill_container(name: str) -> None:
 
 def _copy_container_artifacts(docker: str, name: str, output_dir: Path,
                               max_bytes: int = 100_000_000, max_files: int = 1_000) -> None:
+    # Never let docker cp extract untrusted container paths onto the host.
+    # Stream a tar archive and validate every entry before creating it.
+    exec_proc = subprocess.Popen([docker, "exec", name, "tar", "-C", "/outputs", "-cf", "-", "."],
+                                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                 stderr=subprocess.DEVNULL, start_new_session=True)
+    timer = threading.Timer(10, exec_proc.kill)
+    timer.start()
     try:
-        result = subprocess.run([docker, "cp", f"{name}:/outputs/.", str(output_dir)],
-                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                stderr=subprocess.PIPE, timeout=15, check=False,
-                                start_new_session=True)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise RuntimeError(f"could not retrieve sandbox artifacts: {exc}") from exc
-    if result.returncode:
-        detail = result.stderr.decode("utf-8", "replace")[-2000:]
-        raise RuntimeError(f"could not retrieve sandbox artifacts: {detail}")
-
-    # Note: On Docker Desktop and certain storage engines, `docker cp` reads from the
-    # container rootfs on host, which ignores files created in tmpfs mounts (/outputs).
-    # If output_dir is empty, retrieve tmpfs contents directly via container streaming.
-    if not any(output_dir.iterdir()):
-        exec_proc = subprocess.Popen([docker, "exec", name, "tar", "-C", "/outputs", "-cf", "-", "."],
-                                     stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                     stderr=subprocess.DEVNULL, start_new_session=True)
-        timer = threading.Timer(10, exec_proc.kill)
-        timer.start()
-        try:
-            _extract_bounded_artifacts(exec_proc.stdout, output_dir, max_bytes, max_files)
-            if exec_proc.wait(timeout=2) != 0:
-                raise RuntimeError("sandbox artifact stream failed or timed out")
-        finally:
-            timer.cancel()
-            if exec_proc.poll() is None:
-                exec_proc.kill()
-            exec_proc.wait(timeout=2)
-            exec_proc.stdout.close()
+        _extract_bounded_artifacts(exec_proc.stdout, output_dir, max_bytes, max_files)
+        if exec_proc.wait(timeout=2) != 0:
+            raise RuntimeError("sandbox artifact stream failed or timed out")
+    finally:
+        timer.cancel()
+        if exec_proc.poll() is None:
+            exec_proc.kill()
+        exec_proc.wait(timeout=2)
+        exec_proc.stdout.close()
 
 
 def _extract_bounded_artifacts(stream, output_dir: Path, max_bytes: int, max_files: int) -> None:
@@ -217,13 +209,23 @@ def drain(pipe, i, cap):
         room = max(0, cap - len(captures[i]))
         captures[i].extend(data[:room])
         if len(data) > room: overflow[i] = True
+def drop_privileges():
+    os.setgroups([])
+    os.setgid(1000)
+    os.setuid(1000)
 proc = subprocess.Popen([sys.executable, sys.argv[1]], stdin=subprocess.DEVNULL,
-                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
+                        preexec_fn=drop_privileges)
 threads = [threading.Thread(target=drain, args=(proc.stdout, 0, limit_out)),
            threading.Thread(target=drain, args=(proc.stderr, 1, limit_err))]
 for t in threads: t.start()
 code = proc.wait()
 try: os.killpg(proc.pid, signal.SIGKILL)
+except ProcessLookupError: pass
+# A worker can create a new session and escape its original process group.
+# PID 1 is the privileged supervisor; signal every remaining process in this
+# container's PID namespace before inspecting or collecting its outputs.
+try: os.kill(-1, signal.SIGKILL)
 except ProcessLookupError: pass
 for t in threads: t.join(2)
 count, total = 0, 0
@@ -350,8 +352,9 @@ def run_python_script(
         output_dir.mkdir(mode=0o700)
         output_tmpfs_mb = max(1, (limits.max_artifact_bytes + 1024 * 1024 - 1) // (1024 * 1024))
         command = [docker, "run", "--pull=never", "--name", container,
-                   "--network=none", "--read-only", "--user", "1000:1000",
-                   "--cap-drop=ALL", "--security-opt=no-new-privileges:true",
+                   "--network=none", "--read-only", "--user", "0:0",
+                   "--cap-drop=ALL", "--cap-add=SETUID", "--cap-add=SETGID", "--cap-add=KILL",
+                   "--security-opt=no-new-privileges:true",
                    "--memory", f"{limits.memory_mb}m", "--cpus", str(limits.cpus),
                    "--pids-limit", str(limits.pids),
                    "--tmpfs", "/tmp:rw,noexec,nosuid,size=64m,uid=1000,gid=1000",
@@ -448,7 +451,7 @@ def run_python_script(
                                 int((time.monotonic()-started)*1000), manifest,
                                 None if code == 0 else f"script exited with status {code}",
                                 str(output_dir), status.get("resources", {})).to_dict()
-    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError, tarfile.TarError) as exc:
         return PythonToolResult(False, "execution_error", None, "", "",
                                 int((time.monotonic()-started)*1000), [], str(exc)).to_dict()
     finally:

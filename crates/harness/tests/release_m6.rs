@@ -581,7 +581,7 @@ fn m6_existing_version_six_database_receives_boosting_migration() {
     execution::migrate(&root).unwrap();
     let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
     let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-    assert_eq!(version, 11);
+    assert_eq!(version, 12);
     let ddl: String = db.query_row("SELECT sql FROM sqlite_master WHERE name='experiment_dag'", [], |r| r.get(0)).unwrap();
     assert!(ddl.contains("hist_boosting"));
     let foreign_keys: String = db.query_row("SELECT sql FROM sqlite_master WHERE name='trial_results'", [], |r| r.get(0)).unwrap();

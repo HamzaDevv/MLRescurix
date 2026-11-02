@@ -36,7 +36,7 @@ impl Runtime {
         }
         let c=connect(path)?;
         let version:i64=sql(c.query_row("PRAGMA user_version",[],|r|r.get(0)))?;
-        if !(1..=11).contains(&version) {return Err(format!("unsupported database migration version {version}"));}
+        if !(1..=12).contains(&version) {return Err(format!("unsupported database migration version {version}"));}
         let integrity:String=sql(c.query_row("PRAGMA quick_check",[],|r|r.get(0)))?;
         if integrity!="ok" {return Err("database integrity check failed".into());}
         Self::spawn(c)

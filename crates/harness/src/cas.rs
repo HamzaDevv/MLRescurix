@@ -123,7 +123,7 @@ impl ContentAddressableStorage {
             }
         }
 
-        // Pre-admission reservation accounting against the 128 MiB policy ceiling
+        // Pre-admission reservation accounting against the configured policy ceiling
         crate::execution::enforce_state_write_admission(
             &self.root,
             None,

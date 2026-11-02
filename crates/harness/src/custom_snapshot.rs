@@ -6,6 +6,7 @@ use sha2::{Digest, Sha256};
 use std::{fs::{self, OpenOptions}, io::{Read, Write}, os::unix::fs::{DirBuilderExt, OpenOptionsExt}, path::{Path, PathBuf}};
 
 const MAX_FILE: u64 = 64 * 1024 * 1024;
+const MAX_DATA_FILE: u64 = 256 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -49,13 +50,30 @@ fn write_file(path: &Path, bytes: &[u8]) -> Result<()> {
     file.write_all(bytes).and_then(|_| file.sync_all()).map_err(|e| e.to_string())
 }
 fn read_file(path: &Path) -> Result<Vec<u8>> {
-    let mut file = OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(path).map_err(|e| e.to_string())?;
+    // Opening a FIFO for reading can block before metadata can reject it.
+    let mut file = OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(path).map_err(|e| e.to_string())?;
     let meta = file.metadata().map_err(|e| e.to_string())?;
     if !meta.is_file() || meta.len() > MAX_FILE { return Err("invalid snapshot file".into()); }
     let mut bytes = Vec::new();
     Read::by_ref(&mut file).take(MAX_FILE + 1).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
     if bytes.len() as u64 > MAX_FILE { return Err("snapshot file exceeds bound".into()); }
     Ok(bytes)
+}
+fn hash_data_file(path: &Path) -> Result<String> {
+    let mut file = OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(path).map_err(|e| e.to_string())?;
+    let meta = file.metadata().map_err(|e| e.to_string())?;
+    if !meta.is_file() || meta.len() > MAX_DATA_FILE { return Err("invalid snapshot data file".into()); }
+    let mut digest = Sha256::new();
+    let mut bytes = 0u64;
+    let mut buffer = [0u8; 65536];
+    loop {
+        let n = file.read(&mut buffer).map_err(|e| e.to_string())?;
+        if n == 0 { break; }
+        bytes += n as u64;
+        if bytes > MAX_DATA_FILE { return Err("snapshot data file exceeds bound".into()); }
+        digest.update(&buffer[..n]);
+    }
+    Ok(format!("{:x}", digest.finalize()))
 }
 
 /// Exclusive job directory and completion marker; interrupted publication is
@@ -97,7 +115,7 @@ pub fn verify(root: &Path, expected: &SnapshotIdentity) -> Result<SnapshotReceip
     let receipt: SnapshotReceipt = serde_json::from_slice(&read_file(&dir.join("receipt.json"))?).map_err(|e| e.to_string())?;
     if &receipt.identity != expected { return Err("snapshot identity mismatch".into()); }
     for (name, digest) in [("training.csv", &receipt.training_sha256), ("validation_features.csv", &receipt.validation_features_sha256), ("labels.json", &receipt.labels_sha256)] {
-        if sha(&read_file(&dir.join(name))?) != *digest { return Err(format!("snapshot integrity mismatch: {name}")); }
+        if hash_data_file(&dir.join(name))? != *digest { return Err(format!("snapshot integrity mismatch: {name}")); }
     }
     Ok(receipt)
 }
@@ -132,12 +150,55 @@ pub fn prepare_registered(connection: &rusqlite::Connection, root: &Path, datase
     write_file(&stage.join("manifest.json"), &manifest_bytes)?;
     let dev_path = stage.join("dev.csv");
     let dev_hash = crate::execution::prepare_dev_dataset(Path::new(&raw_path), &stage.join("manifest.json"), &dev_path)?;
-    let dev_bytes = read_file(&dev_path)?;
-    let inputs = crate::development_inputs::separate(&dev_bytes, &dev_hash, &protocol.target_column, &protocol.train, &protocol.validation)?;
-    let result = create(root, identity, &inputs)?;
+    let dev = OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(&dev_path).map_err(|e| e.to_string())?;
+    if !dev.metadata().map_err(|e| e.to_string())?.is_file() { return Err("invalid development file".into()); }
+    let train_path = stage.join("training.csv");
+    let validation_path = stage.join("validation_features.csv");
+    let mut train = OpenOptions::new().write(true).create_new(true).mode(0o600).open(&train_path).map_err(|e| e.to_string())?;
+    let mut validation = OpenOptions::new().write(true).create_new(true).mode(0o600).open(&validation_path).map_err(|e| e.to_string())?;
+    let labels = crate::development_inputs::separate_stream(dev, &dev_hash, &protocol.target_column, &protocol.train, &protocol.validation,
+        &mut train, &mut validation, MAX_DATA_FILE)?;
+    train.sync_all().and_then(|_| validation.sync_all()).map_err(|e| e.to_string())?;
+    let labels = serde_json::to_vec(&labels).map_err(|e| e.to_string())?;
+    let receipt = SnapshotReceipt { identity: identity.clone(), training_sha256: hash_data_file(&train_path)?,
+        validation_features_sha256: hash_data_file(&validation_path)?, labels_sha256: sha(&labels) };
+    let result = snapshot_path(root, identity);
+    fs::DirBuilder::new().mode(0o700).create(&result).map_err(|e| format!("snapshot already exists or cannot be created: {e}"))?;
+    // An incomplete final directory remains fenced if publication is interrupted.
+    fs::rename(&train_path, result.join("training.csv")).map_err(|e| e.to_string())?;
+    fs::rename(&validation_path, result.join("validation_features.csv")).map_err(|e| e.to_string())?;
+    write_file(&result.join("labels.json"), &labels)?;
+    fs::File::open(&result).and_then(|f| f.sync_all()).map_err(|e| e.to_string())?;
+    write_file(&result.join("receipt.json"), &serde_json::to_vec(&receipt).map_err(|e| e.to_string())?)?;
+    fs::File::open(&result).and_then(|f| f.sync_all()).map_err(|e| e.to_string())?;
     fs::remove_dir_all(&stage).map_err(|e| format!("snapshot published but staging cleanup failed: {e}"))?;
     fs::File::open(root).and_then(|f| f.sync_all()).map_err(|e| e.to_string())?;
     Ok(result)
+}
+
+/// Prepare under the owned state directory while holding the common SQLite
+/// writer fence. The reservation covers three bounded 256 MiB data streams,
+/// labels, manifests and publication overhead; interrupted files remain counted
+/// by state admission. This deliberately requires an explicit larger state
+/// budget rather than bypassing the default 128 MiB ceiling.
+pub fn prepare_managed(state_root: &Path, dataset_id: &str, identity: &SnapshotIdentity) -> Result<PathBuf> {
+    const PEAK_RESERVE: u64 = 896 * 1024 * 1024;
+    crate::execution::with_state_write(state_root, PEAK_RESERVE, crate::execution::StorageWriteKind::JobAdmission,
+        Some(&identity.project_id), |connection| {
+            let root = state_root.join("custom-snapshots");
+            match fs::DirBuilder::new().mode(0o700).create(&root) {
+                Ok(()) => fs::File::open(state_root).and_then(|f| f.sync_all()).map_err(|e| e.to_string())?,
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {},
+                Err(e) => return Err(e.to_string()),
+            }
+            let meta = fs::symlink_metadata(&root).map_err(|e| e.to_string())?;
+            use std::os::unix::fs::{MetadataExt, PermissionsExt};
+            if !meta.is_dir() || meta.file_type().is_symlink() || meta.uid() != unsafe { libc::geteuid() }
+                || meta.permissions().mode() & 0o077 != 0 {
+                return Err("managed snapshot root must be private and controller-owned".into());
+            }
+            prepare_registered(connection, &root, dataset_id, identity)
+        })
 }
 
 /// Compute metrics against the snapshot's private labels. The caller must

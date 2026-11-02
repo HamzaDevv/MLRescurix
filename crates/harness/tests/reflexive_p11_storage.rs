@@ -39,12 +39,12 @@ fn test_schema_v11_migration_and_tables() {
     // 1. Initialize Runtime (starts at v1 in schema.sql)
     let rt = Runtime::init(&root, policy.clone()).unwrap();
 
-    // 2. Run execution::migrate to bump to user_version = 11
+    // 2. Run execution::migrate through the latest schema.
     execution::migrate(&root).unwrap();
 
     let conn = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-    assert_eq!(version, 11, "PRAGMA user_version must be migrated to 11");
+    assert_eq!(version, 12, "PRAGMA user_version must be migrated to 12");
 
     // 3. Verify all 4 Phase 1 tables exist
     for table in [

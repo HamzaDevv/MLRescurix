@@ -64,8 +64,8 @@ pub fn connect(root:&Path)->Result<Connection>{
     sql(c.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;"))?;
     loop {
         let version:i64=sql(c.query_row("PRAGMA user_version",[],|r|r.get(0)))?;
-        if version==11 { break; }
-        if version==6 { sql(c.execute_batch("PRAGMA foreign_keys=OFF;"))?; }
+        if version==12 { break; }
+        if version==6 || version==11 { sql(c.execute_batch("PRAGMA foreign_keys=OFF;"))?; }
         let tx=sql(c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate))?;
         let confirmed:i64=sql(tx.query_row("PRAGMA user_version",[],|r|r.get(0)))?;
         if confirmed!=version {tx.rollback().map_err(|e|e.to_string())?;sql(c.execute_batch("PRAGMA foreign_keys=ON;"))?;continue;}
@@ -83,6 +83,7 @@ pub fn connect(root:&Path)->Result<Connection>{
                 sql(tx.execute_batch(include_str!("schema_p11_reflexive.sql")))?;
                 sql(tx.execute_batch("PRAGMA user_version = 11;"))?;
             }
+            11=>sql(tx.execute_batch(include_str!("schema_m12_dataset_size.sql")))?,
             _=>return Err(format!("unsupported database migration version {version}")),
         }
         let violation: bool = sql(tx.query_row("SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)", [], |r| r.get(0)))?;
@@ -281,20 +282,33 @@ fn tempfile_for_environment(root:&Path,id:&str)->Result<PathBuf>{
 
 /// Copy an explicitly selected CSV into the owned dataset store before scientific work.
 pub fn register_dataset(root:&Path,project:&str,id:&str,source:&Path)->Result<Value>{
+    const DATASET_LIMIT: u64 = 96 * 1024 * 1024;
     valid_id(project)?;valid_id(id)?;
     let meta=fs::symlink_metadata(source).map_err(|e|e.to_string())?;
-    if meta.file_type().is_symlink()||!meta.is_file()||meta.len()==0||meta.len()>32*1024*1024 {
-        return Err("dataset must be a regular non-symlink CSV between 1 byte and 32 MiB".into());
+    if meta.file_type().is_symlink()||!meta.is_file()||meta.len()==0||meta.len()>DATASET_LIMIT {
+        return Err("dataset must be a regular non-symlink CSV between 1 byte and 96 MiB".into());
     }
-    let mut input=fs::File::open(source).map_err(|e|e.to_string())?;
+    let mut input=fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(source).map_err(|e|e.to_string())?;
+    let opened_meta=input.metadata().map_err(|e|e.to_string())?;
+    if !opened_meta.is_file() || opened_meta.len()==0 || opened_meta.len()>DATASET_LIMIT {return Err("dataset must be a bounded regular file".into());}
     let mut digest=Sha256::new();let mut bytes=0u64;let mut buffer=[0u8;64*1024];
-    loop {let n=input.read(&mut buffer).map_err(|e|e.to_string())?;if n==0{break;}bytes+=n as u64;if bytes>32*1024*1024{return Err("dataset exceeds 32 MiB bound".into());}digest.update(&buffer[..n]);}
+    loop {let n=input.read(&mut buffer).map_err(|e|e.to_string())?;if n==0{break;}bytes+=n as u64;if bytes>DATASET_LIMIT{return Err("dataset exceeds 96 MiB bound".into());}digest.update(&buffer[..n]);}
     let sha=format!("{:x}",digest.finalize());let mut connection=connect(root)?;let conn=sql(connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate))?;
     let project_exists:bool=sql(conn.query_row("SELECT EXISTS(SELECT 1 FROM projects WHERE id=?1)",[project],|r|r.get(0)))?;
     if !project_exists{return Err("unknown project".into());}
     let folder=root.join("datasets").join(project);ensure_dir(root,&folder)?;let path=folder.join(format!("{id}.csv"));
     let existing:Option<(String,String)>=sql(conn.query_row("SELECT path,sha256 FROM scientific_datasets WHERE project=?1 AND id=?2",params![project,id],|r|Ok((r.get(0)?,r.get(1)?))).optional())?;
-    if let Some((old_path,old_hash))=existing {if Path::new(&old_path)==path&&old_hash==sha{return Ok(json!({"project_id":project,"dataset_id":id,"sha256":sha,"bytes":bytes,"reused":true}));}return Err("dataset id already exists with different content".into());}
+    if let Some((old_path,old_hash))=existing {
+        if Path::new(&old_path)!=path || old_hash!=sha{return Err("dataset id already exists with different content".into());}
+        let mut stored=fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(&path).map_err(|e|e.to_string())?;
+        let stored_meta=stored.metadata().map_err(|e|e.to_string())?;
+        if !stored_meta.is_file() || stored_meta.len()!=bytes {return Err("registered dataset integrity mismatch".into());}
+        let mut stored_hash=Sha256::new();let mut stored_bytes=0u64;
+        loop {let n=stored.read(&mut buffer).map_err(|e|e.to_string())?;if n==0{break;}stored_bytes+=n as u64;
+            if stored_bytes>bytes{return Err("registered dataset integrity mismatch".into());}stored_hash.update(&buffer[..n]);}
+        if stored_bytes!=bytes || format!("{:x}",stored_hash.finalize())!=sha{return Err("registered dataset integrity mismatch".into());}
+        return Ok(json!({"project_id":project,"dataset_id":id,"sha256":sha,"bytes":bytes,"reused":true}));
+    }
     let (project_count,device_count,device_bytes):(i64,i64,i64)=sql(conn.query_row(
         "SELECT (SELECT count(*) FROM scientific_datasets WHERE project=?1),(SELECT count(*) FROM scientific_datasets),(SELECT COALESCE(sum(bytes),0) FROM scientific_datasets)",
         [project],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))))?;
@@ -303,10 +317,19 @@ pub fn register_dataset(root:&Path,project:&str,id:&str,source:&Path)->Result<Va
     enforce_state_write_admission(root,Some(&conn),bytes,StorageWriteKind::ManagedBlob,Some(project))?;
     if path.exists(){return Err("owned dataset path already exists".into());}
     let temp=folder.join(format!(".{id}.staging"));
-    let mut src=fs::File::open(source).map_err(|e|e.to_string())?;let mut dst=fs::OpenOptions::new().write(true).create_new(true).open(&temp).map_err(|e|e.to_string())?;
-    std::io::copy(&mut src,&mut dst).map_err(|e|e.to_string())?;dst.sync_all().map_err(|e|e.to_string())?;
-    let copied=fs::read(&temp).map_err(|e|e.to_string())?;if hash(&copied)!=sha{let _=fs::remove_file(&temp);return Err("dataset changed while staging".into());}
-    fs::set_permissions(&temp,std::fs::Permissions::from_mode(0o444)).map_err(|e|e.to_string())?;fs::rename(&temp,&path).map_err(|e|e.to_string())?;
+    let mut dst=fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temp).map_err(|e|e.to_string())?;
+    let staging=UnpublishedDataset(temp);
+    use std::io::Seek;
+    input.rewind().map_err(|e|e.to_string())?;
+    let mut copied_digest=Sha256::new();let mut copied_bytes=0u64;
+    loop {let n=input.read(&mut buffer).map_err(|e|e.to_string())?;if n==0{break;}copied_bytes+=n as u64;
+        if copied_bytes>bytes{return Err("dataset changed while staging".into());}
+        copied_digest.update(&buffer[..n]);dst.write_all(&buffer[..n]).map_err(|e|e.to_string())?;}
+    if copied_bytes!=bytes || format!("{:x}",copied_digest.finalize())!=sha{return Err("dataset changed while staging".into());}
+    dst.sync_all().map_err(|e|e.to_string())?;
+    fs::set_permissions(&staging.0,std::fs::Permissions::from_mode(0o444)).map_err(|e|e.to_string())?;
+    fs::hard_link(&staging.0,&path).map_err(|e|e.to_string())?;
+    fs::File::open(&folder).and_then(|f|f.sync_all()).map_err(|e|e.to_string())?;
     sql(conn.execute("INSERT INTO scientific_datasets(project,id,path,bytes,sha256,registered_ms) VALUES(?1,?2,?3,?4,?5,?6)",params![project,id,path.to_string_lossy(),bytes as i64,sha,now_ms()]))?;
     sql(conn.execute("INSERT INTO events(project,kind,payload) VALUES(?1,'dataset.registered',?2)",params![project,json!({"dataset_id":id,"sha256":sha,"bytes":bytes}).to_string()]))?;
     conn.commit().map_err(|e|e.to_string())?;Ok(json!({"project_id":project,"dataset_id":id,"sha256":sha,"bytes":bytes,"reused":false}))
@@ -513,6 +536,8 @@ pub const MAX_RETAINED_SETTLED_ACTIONS_PER_PROJECT: usize = 24;
 pub const MAX_RETAINED_ACTION_FENCES_PER_PROJECT: i64 = 64;
 pub const MAX_RETAINED_TOMBSTONES_PER_PROJECT: i64 = 128;
 pub const MAX_STATE_TOTAL_BYTES: u64 = 128 * 1024 * 1024;
+/// Explicit configurations may increase the default while retaining a hard ceiling.
+pub const MAX_CONFIGURED_STATE_TOTAL_BYTES: u64 = 1024 * 1024 * 1024;
 
 pub fn record_tombstone_conn(
     tx: &rusqlite::Transaction<'_>,
@@ -664,7 +689,7 @@ impl StorageBudgetConfig {
         if let Ok(val) = std::env::var("MLRESCURIX_PROVIDER_RECEIPT_BYTES") {
             if let Ok(n) = val.parse::<u64>() { cfg.max_provider_receipt_bytes = n; }
         }
-        cfg.max_state_total_bytes=cfg.max_state_total_bytes.min(MAX_STATE_TOTAL_BYTES);
+        cfg.max_state_total_bytes=cfg.max_state_total_bytes.min(MAX_CONFIGURED_STATE_TOTAL_BYTES);
         cfg
     }
 }
@@ -1153,7 +1178,7 @@ pub fn collect_artifacts(root:&Path)->Result<u64>{
         reclaimed = reclaimed.saturating_add(n);
     }
 
-    // 5. Evict rejected Tier-0 scratch artifacts from CAS to enforce the 128 MiB ceiling
+    // 5. Evict rejected Tier-0 scratch artifacts from CAS to enforce the configured state ceiling
     let rejected_shas: Vec<(String, String, String)> = {
         let stmt = c.prepare(
             "SELECT a.project, a.artifact_id, av.blob_sha256 FROM artifacts a
@@ -2727,10 +2752,17 @@ impl<R: std::io::Read> StreamingCsvReader<R> {
     }
 }
 
-struct HashingReader<R> { inner: R, hash: Sha256 }
+const MAX_PREPARED_DATASET_BYTES: u64 = 256 * 1024 * 1024;
+struct HashingReader<R> { inner: R, hash: Sha256, bytes: u64 }
 impl<R: Read> Read for HashingReader<R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let n = self.inner.read(buf)?;
+        let remaining = MAX_PREPARED_DATASET_BYTES.saturating_sub(self.bytes).saturating_add(1);
+        let cap = buf.len().min(remaining as usize);
+        let n = self.inner.read(&mut buf[..cap])?;
+        self.bytes += n as u64;
+        if self.bytes > MAX_PREPARED_DATASET_BYTES {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "raw dataset exceeds byte limit"));
+        }
         self.hash.update(&buf[..n]);
         Ok(n)
     }
@@ -2787,8 +2819,12 @@ pub fn prepare_dev_dataset(raw_dataset_path: &Path, manifest_path: &Path, dev_da
     let expected_raw_sha = manifest.get("sha256").or_else(|| manifest.get("dataset_sha256")).and_then(|v| v.as_str())
         .ok_or("manifest missing dataset sha256")?;
     // Hash exactly the bytes consumed by the parser, from one open handle.
-    let raw_file = fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(raw_dataset_path).map_err(|e| e.to_string())?;
-    let mut hashing_reader = HashingReader { inner: raw_file, hash: Sha256::new() };
+    let raw_file = fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(raw_dataset_path).map_err(|e| e.to_string())?;
+    let raw_meta = raw_file.metadata().map_err(|e| e.to_string())?;
+    if !raw_meta.is_file() || raw_meta.len() == 0 || raw_meta.len() > MAX_PREPARED_DATASET_BYTES {
+        return Err("raw dataset must be a bounded regular file".into());
+    }
+    let mut hashing_reader = HashingReader { inner: raw_file, hash: Sha256::new(), bytes: 0 };
     let mut parser = StreamingCsvReader::new(&mut hashing_reader);
 
     // Read header record
@@ -2808,6 +2844,7 @@ pub fn prepare_dev_dataset(raw_dataset_path: &Path, manifest_path: &Path, dev_da
     let temp = UnpublishedDataset(temp_path);
     let mut out_writer = std::io::BufWriter::new(out_file);
     let mut dev_hasher = Sha256::new();
+    let mut dev_bytes = 0u64;
 
     let mut write_record = |row_id: Option<usize>, fields: &[String]| -> Result<()> {
         let mut line = Vec::new();
@@ -2829,6 +2866,8 @@ pub fn prepare_dev_dataset(raw_dataset_path: &Path, manifest_path: &Path, dev_da
             }
         }
         line.push(b'\n');
+        dev_bytes = dev_bytes.checked_add(line.len() as u64).ok_or("development dataset size overflow")?;
+        if dev_bytes > MAX_PREPARED_DATASET_BYTES { return Err("development dataset exceeds byte limit".into()); }
         dev_hasher.update(&line);
         out_writer.write_all(&line).map_err(|e| e.to_string())?;
         Ok(())
@@ -2854,6 +2893,7 @@ pub fn prepare_dev_dataset(raw_dataset_path: &Path, manifest_path: &Path, dev_da
             written_dev_rows += 1;
         }
         row_idx += 1;
+        if row_idx > 1_000_000 { return Err("raw dataset row count exceeds limit".into()); }
     }
 
     drop(parser);

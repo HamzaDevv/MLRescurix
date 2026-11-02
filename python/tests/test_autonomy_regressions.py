@@ -2,6 +2,7 @@
 import copy
 import json
 from decimal import Decimal
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -104,6 +105,70 @@ def test_dynamic_script_write_error_repair_run_feedback(tmp_path, monkeypatch):
     assert loop.state["accepted_candidate_id"] is None
 
 
+def test_script_execution_uses_checked_snapshot_when_original_changes(tmp_path, monkeypatch):
+    from mlrescurix_worker.scientific import python_tool
+    observed = []
+    def tool(path, root, **kwargs):
+        original = root / "analysis.py"
+        original.write_text("print('changed after staging')")
+        observed.append(path.read_text())
+        return {"status": "success", "stdout": "", "stderr": "", "artifacts": []}
+    monkeypatch.setattr(python_tool, "run_python_script", tool)
+    loop, _ = make_loop(tmp_path, [action("WRITE_PYTHON", filename="analysis.py", code="print('checked')"),
+                                  action("RUN_PYTHON", filename="analysis.py")])
+    loop.run()
+    assert observed == ["print('checked')"]
+    assert not list((loop.workspace_root / "scripts").glob(".run-*"))
+
+
+def test_script_snapshot_rejects_fifo_without_blocking(tmp_path):
+    import os
+    loop, _ = make_loop(tmp_path, [action("WRITE_PYTHON", filename="analysis.py", code="print(1)"),
+                                  action("RUN_PYTHON", filename="analysis.py")])
+    loop.execute_turn(0, loop.build_diagnostic_dossier())
+    path = loop.workspace_root / "scripts" / "analysis.py"
+    path.unlink()
+    os.mkfifo(path)
+    receipt = loop.execute_turn(1, loop.build_diagnostic_dossier())
+    assert receipt["disposition"] == "rejected"
+    assert "bounded regular file" in receipt["error_msg"]
+
+
+def test_script_staged_data_hash_is_checked_before_launch(tmp_path, monkeypatch):
+    from mlrescurix_worker.scientific import execution_service, python_tool
+    original_copy = execution_service.shutil.copyfile
+    def corrupt_copy(src, dst):
+        original_copy(src, dst)
+        with open(dst, "a") as stream:
+            stream.write("corrupted\n")
+    monkeypatch.setattr(execution_service.shutil, "copyfile", corrupt_copy)
+    monkeypatch.setattr(python_tool, "run_python_script", lambda *a, **k: pytest.fail("must reject before Docker"))
+    loop, _ = make_loop(tmp_path, [action("WRITE_PYTHON", filename="analysis.py", code="print(1)"),
+                                  action("RUN_PYTHON", filename="analysis.py")])
+    state = loop.run()
+    assert state["turns"][1]["disposition"] == "rejected"
+    assert "Development data changed" in state["turns"][1]["error_msg"]
+
+
+def test_staged_script_and_development_data_run_in_docker(tmp_path):
+    import shutil
+    import subprocess
+    docker = shutil.which("docker")
+    if docker is None or subprocess.run([docker, "version"], stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL, timeout=5).returncode:
+        pytest.skip("Docker daemon is unavailable")
+    code = ("import os, pathlib\n"
+            "data=pathlib.Path(os.environ['MLRESCURIX_DATA'])/'development.csv'\n"
+            "out=pathlib.Path(os.environ['MLRESCURIX_OUTPUTS'])/'count.txt'\n"
+            "out.write_text(str(len(data.read_text().splitlines()) - 1))\n")
+    loop, _ = make_loop(tmp_path, [action("WRITE_PYTHON", filename="analysis.py", code=code),
+                                  action("RUN_PYTHON", filename="analysis.py")])
+    state = loop.run()
+    result = state["turns"][1]["measurements"]["python_result"]
+    assert result["status"] == "success", result
+    assert (Path(result["artifact_dir"]) / "count.txt").read_text() == "120"
+
+
 def test_provider_crash_is_not_redispatched_on_restart(tmp_path):
     budget = Budget()
     loop, _ = make_loop(tmp_path, [], budget=budget)
@@ -184,6 +249,22 @@ def test_freeform_script_output_stays_local_without_outbound_approval(tmp_path, 
     assert loop.state["turns"][1]["measurements"]["python_result"]["stdout"] == "PRIVATE_ROW"
 
 
+def test_unapproved_script_result_does_not_upload_other_worker_controlled_fields(tmp_path, monkeypatch):
+    from mlrescurix_worker.scientific import python_tool
+    secret = "PrivateCustomerSecret"
+    monkeypatch.setattr(python_tool, "run_python_script", lambda *a, **kw: {
+        "status": secret, "stdout": secret, "stderr": f"{secret}Error: {secret}",
+        "error": secret, "artifacts": [{"path": secret}], "artifact_dir": secret,
+        "resources": {"detail": secret}, "extra": secret})
+    loop, prompts = make_loop(tmp_path, [action("WRITE_PYTHON", filename="a.py", code="print(1)"),
+        action("RUN_PYTHON", filename="a.py"), action("HANDOFF")])
+    loop.run()
+    result = prompts[-1]["turn_history"][1]["measurements"]["python_result"]
+    assert secret not in json.dumps(result)
+    assert result["status"] == "unknown"
+    assert loop.state["turns"][1]["measurements"]["python_result"]["artifact_dir"] == secret
+
+
 def test_live_callback_cannot_bypass_verified_pricing(tmp_path):
     loop, _ = make_loop(tmp_path, [])
     loop.provider_is_fixture = False
@@ -214,6 +295,21 @@ def test_real_worker_is_terminated_on_resource_limit(tmp_path, monkeypatch, limi
     with pytest.raises(RuntimeError, match="RSS budget|wall-time"):
         loop._evaluate(loop.state["active_spec"])
     assert children and children[0].poll() is not None
+
+
+def test_multiple_failed_worker_executions_keep_each_resource_receipt(tmp_path, monkeypatch):
+    import subprocess
+    import sys
+    from mlrescurix_worker.scientific import autonomous_loop
+    loop, _ = make_loop(tmp_path, [])
+    actual_popen = subprocess.Popen
+    monkeypatch.setattr(autonomous_loop.subprocess, "Popen",
+                        lambda *a, **kw: actual_popen([sys.executable, "-c", "raise SystemExit(1)"], **kw))
+    loop._turn_worker_resource_receipts = []
+    for _ in range(2):
+        with pytest.raises(RuntimeError, match="Candidate worker failed"):
+            loop._evaluate(loop.state["active_spec"])
+    assert len(loop._turn_worker_resource_receipts) == 2
 
 
 def test_log_target_pipeline_inverts_predictions_and_accepts_raw_records():

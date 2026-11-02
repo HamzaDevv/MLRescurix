@@ -142,23 +142,719 @@ pub struct OutboundFilter;
 
 // This is a conservative detector, not a proof that arbitrary prose contains
 // no private data. Free-form worker output must remain withheld upstream.
-fn contains_tabular_records(text: &str) -> bool {
-    fn records(v: &Value) -> bool {
-        match v {
-            Value::Array(a) => a.iter().any(|x| x.is_object() || x.is_array()) || a.iter().any(records),
-            Value::Object(m) => m.iter().any(|(k, v)| k == "__mlr_row_id" || records(v)),
-            Value::String(s) => contains_tabular_records(s),
-            _ => false,
+const ALLOWED_ACTIONS: &[&str] = &[
+    "ANALYZE",
+    "HYPOTHESIS_TRANSFORM",
+    "EVALUATE_PORTFOLIO",
+    "BLEND_AND_AUDIT",
+    "WRITE_PYTHON",
+    "RUN_PYTHON",
+    "HANDOFF",
+    "FINALIZE_AND_STOP",
+    "STOP_EARLY",
+    "PARSE_ERROR",
+];
+
+const ALLOWED_DISPOSITIONS: &[&str] = &[
+    "applied",
+    "rejected",
+    "unsupported",
+    "failed",
+    "completed",
+    "stopped",
+    "unknown",
+];
+
+fn validate_turn_receipt(receipt_val: &Value, expected_min_turn: u32) -> std::result::Result<u32, &'static str> {
+    let obj = receipt_val.as_object().ok_or("receipt must be an object")?;
+
+    for k in obj.keys() {
+        match k.as_str() {
+            "turn" | "proposed_action" | "parameters" | "disposition"
+            | "measurements" | "critic_result" | "error" | "resource_observability" => {}
+            _ => return Err("receipt has unknown fields"),
         }
     }
+
+    let turn = obj.get("turn")
+        .and_then(|v| v.as_u64())
+        .ok_or("turn must be a non-negative integer")? as u32;
+    if turn > 64 || turn < expected_min_turn {
+        return Err("turn index invalid or out of sequence");
+    }
+
+    if let Some(act) = obj.get("proposed_action") {
+        if !act.is_null() {
+            let act_str = act.as_str().ok_or("proposed_action must be string or null")?;
+            if !ALLOWED_ACTIONS.contains(&act_str) {
+                return Err("proposed_action is not an admitted action");
+            }
+        }
+    }
+
+    if let Some(disp) = obj.get("disposition") {
+        if !disp.is_null() {
+            let disp_str = disp.as_str().ok_or("disposition must be string or null")?;
+            if !ALLOWED_DISPOSITIONS.contains(&disp_str) {
+                return Err("disposition is not an admitted status");
+            }
+        }
+    }
+
+    if let Some(params) = obj.get("parameters") {
+        if !params.is_null() {
+            validate_receipt_parameters(params)?;
+        }
+    }
+
+    if let Some(meas) = obj.get("measurements") {
+        if !meas.is_null() {
+            validate_receipt_measurements(meas)?;
+        }
+    }
+
+    if let Some(critic) = obj.get("critic_result") {
+        if !critic.is_null() {
+            validate_receipt_critic_result(critic)?;
+        }
+    }
+
+    if let Some(err) = obj.get("error") {
+        if let Some(err_str) = err.as_str() {
+            if contains_raw_tabular_text(err_str) {
+                return Err("error contains raw tabular text");
+            }
+        }
+    }
+
+    // 8. resource_observability
+    if let Some(res) = obj.get("resource_observability") {
+        if !res.is_null() {
+            validate_resource_observability(res)?;
+        }
+    }
+
+    Ok(turn)
+}
+
+fn validate_resource_observability(val: &Value) -> std::result::Result<(), &'static str> {
+    let res_obj = val.as_object().ok_or("resource_observability must be an object")?;
+    for (k, v) in res_obj {
+        if k == "__mlr_row_id" { return Err("row identifier prohibited"); }
+        match v {
+            Value::Null | Value::Bool(_) | Value::Number(_) => {}
+            Value::String(s) => {
+                if contains_raw_tabular_text(s) { return Err("resource metric text contains delimiters"); }
+            }
+            Value::Array(arr) => {
+                if k == "worker_executions" {
+                    validate_worker_executions(arr)?;
+                } else if k == "worker_pids" {
+                    for item in arr {
+                        if !item.is_u64() && !item.is_i64() {
+                            return Err("worker_pids must be integers");
+                        }
+                    }
+                } else if k == "errors" {
+                    for item in arr {
+                        if let Some(s) = item.as_str() {
+                            if contains_raw_tabular_text(s) { return Err("error string contains delimiters"); }
+                        } else {
+                            return Err("errors must be strings");
+                        }
+                    }
+                } else {
+                    for item in arr {
+                        if !item.is_number() && !item.is_string() {
+                            return Err("resource array items must be scalar");
+                        }
+                    }
+                }
+            }
+            Value::Object(nested) => {
+                for (nk, nv) in nested {
+                    if nk == "__mlr_row_id" { return Err("row identifier prohibited"); }
+                    match nv {
+                        Value::Null | Value::Bool(_) | Value::Number(_) => {}
+                        Value::String(s) => {
+                            if contains_raw_tabular_text(s) { return Err("resource text contains delimiters"); }
+                        }
+                        Value::Array(narr) => {
+                            for item in narr {
+                                if !item.is_number() && !item.is_string() {
+                                    return Err("nested resource array items must be scalar");
+                                }
+                            }
+                        }
+                        _ => return Err("nested resource metrics must be scalar"),
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_worker_executions(arr: &[Value]) -> std::result::Result<(), &'static str> {
+    if arr.len() > 16 { return Err("worker_executions exceeds limit"); }
+    for item in arr {
+        let exec = item.as_object().ok_or("worker_execution must be an object")?;
+        for (ek, ev) in exec {
+            match ek.as_str() {
+                "sampling_status" | "memory_enforcement" | "cpu_enforcement" | "wall_enforcement" => {
+                    if !ev.is_string() && !ev.is_null() { return Err("worker execution text must be string"); }
+                }
+                "sample_count" | "observed_rss_peak_bytes" | "configured_memory_budget_bytes"
+                | "cpu_limit_seconds" | "wall_limit_seconds" => {
+                    if !ev.is_number() && !ev.is_null() { return Err("worker execution limit must be numeric"); }
+                }
+                "cgroup_enforced" => {
+                    if !ev.is_boolean() && !ev.is_null() { return Err("cgroup_enforced must be bool"); }
+                }
+                "cgroup" => {
+                    if let Some(cg) = ev.as_object() {
+                        for (_cgk, cgv) in cg {
+                            if cgv.is_array() {
+                                for err_item in cgv.as_array().unwrap() {
+                                    if !err_item.is_string() {
+                                        return Err("cgroup error item must be string");
+                                    }
+                                }
+                            } else if !cgv.is_boolean() && !cgv.is_string() && !cgv.is_number() && !cgv.is_null() {
+                                return Err("cgroup field must be scalar");
+                            }
+                        }
+                    }
+                }
+                _ => return Err("worker_execution has unknown fields"),
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_receipt_parameters(val: &Value) -> std::result::Result<(), &'static str> {
+    let obj = val.as_object().ok_or("parameters must be an object")?;
+    for (k, v) in obj {
+        if k == "__mlr_row_id" { return Err("parameters contains row identifier"); }
+        match v {
+            Value::Null | Value::Bool(_) | Value::Number(_) => {}
+            Value::String(s) => {
+                if contains_raw_tabular_text(s) { return Err("parameter string contains tabular delimiters"); }
+            }
+            Value::Array(arr) => {
+                if arr.len() > 64 { return Err("parameter array exceeds maximum length"); }
+                for item in arr {
+                    match item {
+                        Value::String(s) => {
+                            if contains_raw_tabular_text(s) { return Err("parameter array item contains tabular delimiters"); }
+                        }
+                        Value::Number(_) => {}
+                        Value::Array(sub_arr) => {
+                            if sub_arr.len() > 8 { return Err("nested parameter array exceeds maximum length"); }
+                            for sub_item in sub_arr {
+                                if let Some(s) = sub_item.as_str() {
+                                    if contains_raw_tabular_text(s) { return Err("nested parameter string contains tabular delimiters"); }
+                                } else {
+                                    return Err("nested parameter array items must be strings");
+                                }
+                            }
+                        }
+                        _ => return Err("parameter arrays cannot contain arbitrary objects or records"),
+                    }
+                }
+            }
+            Value::Object(nested) => {
+                for (nk, nv) in nested {
+                    if nk == "__mlr_row_id" { return Err("nested parameter contains row identifier"); }
+                    match nv {
+                        Value::Null | Value::Bool(_) | Value::Number(_) => {}
+                        Value::String(s) => {
+                            if contains_raw_tabular_text(s) { return Err("nested parameter contains tabular text"); }
+                        }
+                        Value::Array(arr) => {
+                            if arr.len() > 64 { return Err("nested parameter array exceeds maximum length"); }
+                            for item in arr {
+                                match item {
+                                    Value::String(s) => {
+                                        if contains_raw_tabular_text(s) { return Err("nested parameter array string contains tabular text"); }
+                                    }
+                                    Value::Number(_) => {}
+                                    Value::Array(sub_arr) => {
+                                        if sub_arr.len() > 8 { return Err("inner parameter array exceeds maximum length"); }
+                                        for sub_item in sub_arr {
+                                            if let Some(s) = sub_item.as_str() {
+                                                if contains_raw_tabular_text(s) { return Err("inner parameter string contains tabular delimiters"); }
+                                            } else {
+                                                return Err("inner parameter array items must be strings");
+                                            }
+                                        }
+                                    }
+                                    _ => return Err("nested parameter arrays cannot contain arbitrary objects or records"),
+                                }
+                            }
+                        }
+                        Value::Object(inner) => {
+                            for (ik, iv) in inner {
+                                if ik == "__mlr_row_id" { return Err("inner parameter contains row identifier"); }
+                                match iv {
+                                    Value::Null | Value::Bool(_) | Value::Number(_) => {}
+                                    Value::String(s) => {
+                                        if contains_raw_tabular_text(s) { return Err("inner parameter contains tabular text"); }
+                                    }
+                                    Value::Array(arr) => {
+                                        for item in arr {
+                                            if !item.is_number() && !item.is_string() {
+                                                return Err("inner parameter array items must be scalar");
+                                            }
+                                        }
+                                    }
+                                    _ => return Err("inner parameters must be scalar"),
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_receipt_measurements(val: &Value) -> std::result::Result<(), &'static str> {
+    let obj = val.as_object().ok_or("measurements must be an object")?;
+    for (k, v) in obj {
+        if k == "__mlr_row_id" { return Err("measurements contains row identifier"); }
+        match v {
+            Value::Null | Value::Bool(_) | Value::Number(_) => {}
+            Value::String(s) => {
+                if contains_raw_tabular_text(s) { return Err("measurement string contains tabular text"); }
+            }
+            Value::Array(arr) => {
+                if k == "fold_receipts" {
+                    validate_fold_receipts(arr)?;
+                } else if k == "error_slices" {
+                    validate_error_slices(arr)?;
+                } else {
+                    if arr.len() > 128 { return Err("measurement array exceeds length bound"); }
+                    for item in arr {
+                        if !item.is_number() && !item.is_string() && !item.is_boolean() && !item.is_null() {
+                            return Err("measurement arrays must be scalar unless fold_receipts");
+                        }
+                        if let Some(s) = item.as_str() {
+                            if contains_raw_tabular_text(s) { return Err("measurement item contains tabular text"); }
+                        }
+                    }
+                }
+            }
+            Value::Object(nested) => {
+                if k == "python_result" {
+                    validate_python_result(nested)?;
+                } else if k == "summary" {
+                    validate_summary_dossier(nested)?;
+                } else if k == "before" || k == "after" {
+                    validate_receipt_measurements(v)?;
+                } else if k == "portfolio" {
+                    for (_fam, fam_res) in nested {
+                        validate_receipt_measurements(fam_res)?;
+                    }
+                } else {
+                    for (nk, nv) in nested {
+                        if nk == "__mlr_row_id" { return Err("nested measurement contains row identifier"); }
+                        match nv {
+                            Value::Null | Value::Bool(_) | Value::Number(_) => {}
+                            Value::String(s) => {
+                                if contains_raw_tabular_text(s) { return Err("nested measurement contains tabular text"); }
+                            }
+                            Value::Array(narr) => {
+                                if nk == "fold_receipts" {
+                                    validate_fold_receipts(narr)?;
+                                } else {
+                                    for item in narr {
+                                        if !item.is_number() && !item.is_string() {
+                                            return Err("nested measurement arrays must be scalar");
+                                        }
+                                    }
+                                }
+                            }
+                            Value::Object(inner) => {
+                                for (ik, iv) in inner {
+                                    if ik == "__mlr_row_id" { return Err("inner measurement contains row identifier"); }
+                                    if !iv.is_number() && !iv.is_string() && !iv.is_null() && !iv.is_boolean() {
+                                        return Err("inner measurement values must be scalar");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_python_result(obj: &serde_json::Map<String, Value>) -> std::result::Result<(), &'static str> {
+    for (k, v) in obj {
+        match k.as_str() {
+            "status" | "error" => {
+                let s = v.as_str().ok_or("python_result status/error must be string")?;
+                const ALLOWED_STATUSES: &[&str] = &[
+                    "success", "script_error", "timeout", "output_limit", "artifact_error",
+                    "sandbox_unavailable", "sandbox_error", "execution_error", "unknown"
+                ];
+                if !ALLOWED_STATUSES.contains(&s) {
+                    return Err("unrecognized python_result status");
+                }
+            }
+            "stdout" | "stderr" => {
+                let s = v.as_str().ok_or("python_result stdout/stderr must be string")?;
+                if contains_raw_tabular_text(s) {
+                    return Err("python output contains tabular delimiters");
+                }
+            }
+            "repair_locations" => {
+                let arr = v.as_array().ok_or("repair_locations must be an array")?;
+                if arr.len() > 16 { return Err("repair_locations exceeds limit"); }
+                for item in arr {
+                    let loc = item.as_object().ok_or("repair location must be object")?;
+                    for (lk, lv) in loc {
+                        match lk.as_str() {
+                            "script" => {
+                                let name = lv.as_str().ok_or("script must be string")?;
+                                if !name.ends_with(".py") || name.contains('/') || name.contains('\\') {
+                                    return Err("invalid script name in repair location");
+                                }
+                            }
+                            "line" => {
+                                if !lv.is_u64() { return Err("repair line must be positive integer"); }
+                            }
+                            _ => return Err("repair_location has unknown fields"),
+                        }
+                    }
+                }
+            }
+            _ => return Err("python_result has unexpected fields"),
+        }
+    }
+    Ok(())
+}
+
+fn validate_fold_receipts(arr: &[Value]) -> std::result::Result<(), &'static str> {
+    if arr.len() > 16 { return Err("fold_receipts exceeds limit"); }
+    for item in arr {
+        let obj = item.as_object().ok_or("fold receipt must be an object")?;
+        for (k, v) in obj {
+            match k.as_str() {
+                "fold" | "n_train" | "n_val" | "train_rows" | "validation_rows" | "train_count" | "val_count" => {
+                    if !v.is_u64() && !v.is_i64() && !v.is_null() {
+                        return Err("fold index/count must be integer");
+                    }
+                }
+                "train_score" | "validation_score" | "critic_train_score" | "critic_validation_score"
+                | "fit_time_seconds" | "predict_time_seconds" | "metric_value" => {
+                    if !v.is_f64() && !v.is_i64() && !v.is_null() {
+                        return Err("fold metric must be numeric");
+                    }
+                }
+                "split_hash" | "split_gain_dominant_feature" | "dominant_feature" | "metric_name" => {
+                    if !v.is_string() && !v.is_null() {
+                        return Err("fold feature name must be string");
+                    }
+                }
+                "features" | "features_used" => {
+                    let f_arr = v.as_array().ok_or("fold features must be array")?;
+                    if f_arr.len() > 500 { return Err("fold features exceeds limit"); }
+                    for f in f_arr {
+                        if !f.is_string() { return Err("fold feature name must be string"); }
+                    }
+                }
+                _ => return Err("fold_receipt has unknown or non-metric fields"),
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_error_slices(arr: &[Value]) -> std::result::Result<(), &'static str> {
+    if arr.len() > 32 { return Err("error_slices exceeds limit"); }
+    for item in arr {
+        let obj = item.as_object().ok_or("error_slice must be an object")?;
+        for (k, v) in obj {
+            match k.as_str() {
+                "column" | "slice" => {
+                    let s = v.as_str().ok_or("slice field must be string")?;
+                    if contains_raw_tabular_text(s) { return Err("slice field contains tabular text"); }
+                }
+                "support" | "mean_error" => {
+                    if !v.is_number() { return Err("slice metric must be numeric"); }
+                }
+                _ => return Err("error_slice has unknown field"),
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_summary_dossier(obj: &serde_json::Map<String, Value>) -> std::result::Result<(), &'static str> {
+    for (k, v) in obj {
+        if k == "__mlr_row_id" { return Err("dossier contains row identifier"); }
+        match v {
+            Value::Null | Value::Bool(_) | Value::Number(_) => {}
+            Value::String(s) => {
+                if contains_raw_tabular_text(s) { return Err("dossier string contains tabular delimiters"); }
+            }
+            Value::Array(arr) => {
+                for item in arr {
+                    if !item.is_string() && !item.is_number() {
+                        return Err("dossier arrays must be scalar");
+                    }
+                }
+            }
+            Value::Object(inner) => {
+                for (ik, iv) in inner {
+                    if ik == "__mlr_row_id" { return Err("dossier contains row identifier"); }
+                    if !iv.is_number() && !iv.is_string() && !iv.is_null() && !iv.is_boolean() {
+                        return Err("dossier metrics must be scalar");
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_receipt_critic_result(val: &Value) -> std::result::Result<(), &'static str> {
+    match val {
+        Value::Null => Ok(()),
+        Value::String(s) => {
+            if contains_raw_tabular_text(s) { Err("critic result contains tabular text") } else { Ok(()) }
+        }
+        Value::Object(obj) => {
+            for (k, v) in obj {
+                match k.as_str() {
+                    "verdict" | "reason" | "metric_name" | "status" | "critique_id"
+                    | "candidate_id" | "reviewer_notes" | "schema_version" | "evaluation_identity" => {
+                        if !v.is_string() && !v.is_null() { return Err("critic text must be string"); }
+                    }
+                    "critic_validation_score" | "critic_train_score" | "score" | "epoch" | "timestamp_ms" => {
+                        if !v.is_number() && !v.is_null() { return Err("critic metric must be numeric"); }
+                    }
+                    "blocking_flaws" | "soft_warnings" | "error_slice_hypotheses" => {
+                        let arr = v.as_array().ok_or("critic list must be array")?;
+                        if arr.len() > 64 { return Err("critic list exceeds length bound"); }
+                        for item in arr {
+                            let s = item.as_str().ok_or("critic item must be string")?;
+                            if contains_raw_tabular_text(s) { return Err("critic item contains tabular text"); }
+                        }
+                    }
+                    "audit_checks" => {
+                        let checks = v.as_object().ok_or("audit_checks must be an object")?;
+                        for (_ck, cv) in checks {
+                            if let Some(c_obj) = cv.as_object() {
+                                for (_field, fv) in c_obj {
+                                    match fv {
+                                        Value::Null | Value::Bool(_) | Value::Number(_) => {}
+                                        Value::String(s) => {
+                                            if contains_raw_tabular_text(s) { return Err("audit check string contains tabular text"); }
+                                        }
+                                        Value::Array(arr) => {
+                                            for it in arr {
+                                                if let Some(s) = it.as_str() {
+                                                    if contains_raw_tabular_text(s) { return Err("audit check array item contains tabular text"); }
+                                                } else if !it.is_number() && !it.is_boolean() {
+                                                    return Err("audit check array item must be scalar");
+                                                }
+                                            }
+                                        }
+                                        _ => return Err("audit check value must be scalar or scalar array"),
+                                    }
+                                }
+                            } else if !cv.is_boolean() && !cv.is_string() && !cv.is_number() && !cv.is_null() {
+                                return Err("audit check must be scalar or object");
+                            }
+                        }
+                    }
+                    _ => return Err("critic_result has unknown fields"),
+                }
+            }
+            Ok(())
+        }
+        _ => Err("critic_result must be string or object"),
+    }
+}
+
+pub fn validate_turn_history(val: &Value) -> std::result::Result<(), &'static str> {
+    let arr = val.as_array().ok_or("turn_history must be an array")?;
+    if arr.len() > 16 {
+        return Err("turn_history exceeds maximum allowed turn count");
+    }
+    let mut min_turn = 0;
+    for item in arr {
+        let turn = validate_turn_receipt(item, min_turn)?;
+        min_turn = turn;
+    }
+    Ok(())
+}
+
+fn validate_candidate_spec(val: &Value) -> std::result::Result<(), &'static str> {
+    let obj = val.as_object().ok_or("spec must be an object")?;
+    for (k, v) in obj {
+        match k.as_str() {
+            "families" => {
+                let arr = v.as_array().ok_or("families must be an array")?;
+                if arr.len() > 6 { return Err("families exceeds bound"); }
+                for f in arr {
+                    if !f.is_string() { return Err("family name must be string"); }
+                }
+            }
+            "weights" => {
+                let arr = v.as_array().ok_or("weights must be an array")?;
+                if arr.len() > 6 { return Err("weights exceeds bound"); }
+                for w in arr {
+                    if !w.is_number() { return Err("weight must be number"); }
+                }
+            }
+            "transforms" => {
+                let arr = v.as_array().ok_or("transforms must be an array")?;
+                if arr.len() > 16 { return Err("transforms exceeds bound"); }
+                for tr in arr {
+                    let tr_obj = tr.as_object().ok_or("transform must be an object")?;
+                    let act = tr_obj.get("action").and_then(|a| a.as_str()).ok_or("transform action required")?;
+                    const VALID_ACTIONS: &[&str] = &[
+                        "ADD_MNAR_INDICATOR", "DELETE_FEATURE", "APPLY_SKEW_TRANSFORM",
+                        "ENCODE_HIGH_CARD_CAT", "TEXT_TFIDF_SVD", "ADD_INTERACTION"
+                    ];
+                    if !VALID_ACTIONS.contains(&act) { return Err("unsupported transform action"); }
+                    if let Some(p) = tr_obj.get("parameters") {
+                        validate_receipt_parameters(p)?;
+                    }
+                }
+            }
+            "seed" => {
+                if !v.is_number() && !v.is_null() { return Err("seed must be number"); }
+            }
+            "target_transform" => {
+                if let Some(s) = v.as_str() {
+                    if !["none", "log", "log1p"].contains(&s) { return Err("unsupported target_transform"); }
+                } else if !v.is_null() {
+                    return Err("target_transform must be string or null");
+                }
+            }
+            "model_parameters" => {
+                let mp = v.as_object().ok_or("model_parameters must be an object")?;
+                for (_fam, fam_p) in mp {
+                    if let Some(p_obj) = fam_p.as_object() {
+                        for (_pk, pv) in p_obj {
+                            if !pv.is_number() && !pv.is_string() && !pv.is_boolean() && !pv.is_null() {
+                                return Err("hyperparameter value must be scalar");
+                            }
+                        }
+                    }
+                }
+            }
+            _ => return Err("spec has unknown field"),
+        }
+    }
+    Ok(())
+}
+
+fn json_tabular_reason(v: &Value) -> Option<&'static str> {
+    match v {
+        Value::Object(map) => {
+            if map.contains_key("__mlr_row_id") { return Some("object contains __mlr_row_id"); }
+            for (k, val) in map {
+                if k == "turn_history" {
+                    if let Err(e) = validate_turn_history(val) {
+                        return Some(e);
+                    }
+                } else if k == "active_spec" || k == "spec" || k == "accepted_candidate" {
+                    if !val.is_null() {
+                        if let Err(e) = validate_candidate_spec(val) {
+                            return Some(e);
+                        }
+                    }
+                } else if json_contains_tabular_records(val) {
+                    return Some("nested field in object contains tabular records");
+                }
+            }
+            None
+        }
+        Value::Array(a) => {
+            if a.iter().any(|x| x.is_object() || x.is_array()) {
+                return Some("array contains objects or nested arrays");
+            }
+            for x in a {
+                if let Some(r) = json_tabular_reason(x) { return Some(r); }
+            }
+            None
+        }
+        Value::String(s) => {
+            if contains_raw_tabular_text(s) { Some("string contains raw tabular text") } else { None }
+        }
+        _ => None,
+    }
+}
+
+fn json_contains_tabular_records(v: &Value) -> bool {
+    match v {
+        Value::Object(map) => {
+            if map.contains_key("__mlr_row_id") { return true; }
+            for (k, val) in map {
+                if k == "turn_history" {
+                    if validate_turn_history(val).is_err() {
+                        return true;
+                    }
+                } else if k == "active_spec" || k == "spec" || k == "accepted_candidate" {
+                    if !val.is_null() && validate_candidate_spec(val).is_err() {
+                        return true;
+                    }
+                } else if json_contains_tabular_records(val) {
+                    return true;
+                }
+            }
+            false
+        }
+        Value::Array(a) => {
+            if a.iter().any(|x| x.is_object() || x.is_array()) {
+                return true;
+            }
+            a.iter().any(json_contains_tabular_records)
+        }
+        Value::String(s) => contains_raw_tabular_text(s),
+        _ => false,
+    }
+}
+
+fn contains_raw_tabular_text(text: &str) -> bool {
     if text.contains("__mlr_row_id") { return true; }
-    if let Ok(v) = serde_json::from_str::<Value>(text) { return records(&v); }
-    text.lines().any(is_raw_tabular_row)
+    if text.lines().any(is_raw_tabular_row) { return true; }
+    let mut previous = None;
+    for line in text.lines() {
+        let line = line.trim();
+        let delimiter = [',', '\t', '|'].into_iter().find(|&d| {
+            line.matches(d).count() == 1
+                && !line.contains(", ")
+                && !line.starts_with(['{', '[', '#'])
+                && line.split(d).all(|field| !field.trim().is_empty())
+        });
+        if delimiter.is_some() && delimiter == previous { return true; }
+        previous = delimiter;
+    }
+    false
+}
+
+fn contains_tabular_records(text: &str) -> bool {
+    if text.contains("__mlr_row_id") { return true; }
+    if let Ok(v) = serde_json::from_str::<Value>(text) {
+        return json_contains_tabular_records(&v);
+    }
+    contains_raw_tabular_text(text)
 }
 
 #[cfg(test)]
 mod disclosure_regression_tests {
-    use super::contains_tabular_records;
+    use super::{contains_tabular_records, check_message_disclosure, check_request_disclosure, ChatCompletionRequest, ChatMessage, FunctionCall, ToolCall, ToolDefinition, ToolFunction};
 
     #[test]
     fn aggregate_dossier_and_multiline_prose_are_not_rows() {
@@ -167,11 +863,255 @@ mod disclosure_regression_tests {
     }
 
     #[test]
+    fn tool_call_arguments_are_checked_even_without_message_content() {
+        let mut message = ChatMessage::assistant(None, Some(vec![ToolCall {
+            id: "call".into(), call_type: "function".into(),
+            function: FunctionCall { name: "inspect".into(), arguments: r#"{"data":[{"name":"item","price":12}]}"#.into() },
+        }]));
+        assert!(check_message_disclosure(&message).is_err());
+        message.tool_calls.as_mut().unwrap()[0].function.arguments = r#"{"count":12}"#.into();
+        assert!(check_message_disclosure(&message).is_ok());
+        message.content = Some("name,price\nitem,12".into());
+        assert!(check_message_disclosure(&message).is_err());
+    }
+
+    #[test]
     fn short_and_nested_records_cannot_be_hidden_by_marker() {
-        for content in ["a,b,c\n1,2,3", "[REDACTED_ROW_DATA]\na,b,c\n1,2,3", r#"{"data":[{"price":3,"name":"x"}]}"#, r#"{"data":[[1,2],[3,4]]}"#, "__mlr_row_id"] {
+        for content in ["a,b,c\n1,2,3", "name,price\nitem,12", "name\tprice\nitem\t12", "name|price\nitem|12", "[REDACTED_ROW_DATA]\na,b,c\n1,2,3", r#"{"data":[{"price":3,"name":"x"}]}"#, r#"{"data":[[1,2],[3,4]]}"#, "__mlr_row_id"] {
             assert!(contains_tabular_records(content), "{content}");
         }
     }
+
+    #[test]
+    fn tool_schemas_and_provider_options_do_not_bypass_disclosure_check() {
+        let mut request = ChatCompletionRequest { model: "model".into(), messages: vec![ChatMessage::user("hello")],
+            tools: vec![ToolDefinition { tool_type: "function".into(), function: ToolFunction {
+                name: "inspect".into(), description: "inspect summaries".into(),
+                parameters: serde_json::json!({"type":"object", "properties":{"count":{"type":"integer"}}}),
+            }}], temperature: None, max_tokens: None, provider: None, reasoning: None };
+        assert!(check_request_disclosure(&request).is_ok());
+        request.tools[0].function.parameters = serde_json::json!({"examples":[{"name":"item","price":12}]});
+        assert!(check_request_disclosure(&request).is_err());
+        request.tools[0].function.parameters = serde_json::json!({"type":"object"});
+        request.provider = Some(serde_json::json!({"records":[["item",12]]}));
+        assert!(check_request_disclosure(&request).is_err());
+        request.provider = None;
+        request.reasoning = Some(serde_json::json!({"detail":"name,price\nitem,12"}));
+        assert!(check_request_disclosure(&request).is_err());
+    }
+
+    #[test]
+    fn legitimate_typed_experiment_receipts_are_permitted_in_turn_history() {
+        let legitimate_history = serde_json::json!({
+            "instruction": "Continue optimization",
+            "turn_history": [
+                {
+                    "turn": 0,
+                    "proposed_action": "ANALYZE",
+                    "parameters": {},
+                    "disposition": "applied",
+                    "measurements": {
+                        "summary": {
+                            "total_rows": 60,
+                            "num_cols": 3,
+                            "cat_cols": 1
+                        }
+                    },
+                    "critic_result": null,
+                    "error": null,
+                    "resource_observability": {
+                        "duration_ms": 15,
+                        "peak_memory_mb": 42
+                    }
+                },
+                {
+                    "turn": 1,
+                    "proposed_action": "EVALUATE_PORTFOLIO",
+                    "parameters": {
+                        "candidate_families": ["penalized_linear"]
+                    },
+                    "disposition": "applied",
+                    "measurements": {
+                        "cv_score": 0.95,
+                        "fold_receipts": [
+                            {"fold": 0, "validation_score": 0.94, "critic_validation_score": 0.94},
+                            {"fold": 1, "validation_score": 0.96, "critic_validation_score": 0.96}
+                        ]
+                    },
+                    "critic_result": {
+                        "verdict": "APPROVED",
+                        "critic_validation_score": 0.95
+                    },
+                    "error": null,
+                    "resource_observability": {
+                        "duration_ms": 120,
+                        "peak_memory_mb": 64
+                    }
+                },
+                {
+                    "turn": 2,
+                    "proposed_action": "RUN_PYTHON",
+                    "parameters": {
+                        "filename": "analysis.py"
+                    },
+                    "disposition": "applied",
+                    "measurements": {
+                        "python_result": {
+                            "status": "success",
+                            "error": "success",
+                            "stdout": "[local output withheld pending outbound approval]",
+                            "stderr": "",
+                            "repair_locations": [
+                                {"script": "analysis.py", "line": 10}
+                            ]
+                        }
+                    },
+                    "critic_result": null,
+                    "error": null,
+                    "resource_observability": null
+                }
+            ]
+        });
+        assert!(!contains_tabular_records(&legitimate_history.to_string()));
+    }
+
+    #[test]
+    fn adversarial_rows_in_history_or_receipts_are_rejected() {
+        // Disguised row objects in turn_history
+        let fake_receipts = serde_json::json!({
+            "turn_history": [
+                {"name": "item1", "price": 100},
+                {"name": "item2", "price": 200}
+            ]
+        });
+        assert!(contains_tabular_records(&fake_receipts.to_string()));
+
+        // Disguised action name carrying row data
+        let fake_action = serde_json::json!({
+            "turn_history": [
+                {"turn": 0, "proposed_action": "catalog_content_123", "disposition": "applied"}
+            ]
+        });
+        assert!(contains_tabular_records(&fake_action.to_string()));
+
+        // Smuggled row records in parameters
+        let smuggled_params = serde_json::json!({
+            "turn_history": [
+                {
+                    "turn": 0,
+                    "proposed_action": "EVALUATE_PORTFOLIO",
+                    "parameters": {
+                        "rows": [{"price": 10, "item": "x"}]
+                    },
+                    "disposition": "applied"
+                }
+            ]
+        });
+        assert!(contains_tabular_records(&smuggled_params.to_string()));
+
+        // Smuggled row records in measurements
+        let smuggled_measurements = serde_json::json!({
+            "turn_history": [
+                {
+                    "turn": 0,
+                    "proposed_action": "ANALYZE",
+                    "parameters": {},
+                    "disposition": "applied",
+                    "measurements": {
+                        "raw_data": [{"price": 10, "item": "x"}]
+                    }
+                }
+            ]
+        });
+        assert!(contains_tabular_records(&smuggled_measurements.to_string()));
+
+        // Array of arrays smuggled in measurements
+        let smuggled_arrays = serde_json::json!({
+            "turn_history": [
+                {
+                    "turn": 0,
+                    "proposed_action": "ANALYZE",
+                    "parameters": {},
+                    "disposition": "applied",
+                    "measurements": {
+                        "raw_data": [[1, 2], [3, 4]]
+                    }
+                }
+            ]
+        });
+        assert!(contains_tabular_records(&smuggled_arrays.to_string()));
+
+        // Out-of-order turn index
+        let out_of_order = serde_json::json!({
+            "turn_history": [
+                {"turn": 5, "proposed_action": "ANALYZE", "disposition": "applied"},
+                {"turn": 2, "proposed_action": "ANALYZE", "disposition": "applied"}
+            ]
+        });
+        assert!(contains_tabular_records(&out_of_order.to_string()));
+    }
+}
+
+fn check_message_disclosure(message: &ChatMessage) -> std::result::Result<(), String> {
+    if let Some(content) = &message.content {
+        if contains_tabular_records(content) {
+            let reason = if let Ok(v) = serde_json::from_str::<Value>(content) {
+                json_tabular_reason(&v).unwrap_or("json contains tabular records")
+            } else {
+                "raw text contains tabular records"
+            };
+            return Err(format!("message content ({}) rejected: {reason}", message.role));
+        }
+    }
+    if contains_tabular_records(&message.role) {
+        return Err("message role contains tabular records".into());
+    }
+    if let Some(name) = &message.name {
+        if contains_tabular_records(name) { return Err("message name contains tabular records".into()); }
+    }
+    if let Some(tool_call_id) = &message.tool_call_id {
+        if contains_tabular_records(tool_call_id) { return Err("message tool_call_id contains tabular records".into()); }
+    }
+    if let Some(calls) = &message.tool_calls {
+        for (i, call) in calls.iter().enumerate() {
+            if contains_tabular_records(&call.id) || contains_tabular_records(&call.call_type)
+                || contains_tabular_records(&call.function.name) || contains_tabular_records(&call.function.arguments) {
+                return Err(format!("tool call {i} ({}) contains tabular records", call.function.name));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn check_request_disclosure(request: &ChatCompletionRequest) -> std::result::Result<(), String> {
+    if contains_tabular_records(&request.model) {
+        return Err("model contains tabular records".into());
+    }
+    for (i, m) in request.messages.iter().enumerate() {
+        if let Err(e) = check_message_disclosure(m) {
+            return Err(format!("message {i} rejected: {e}"));
+        }
+    }
+    for (i, tool) in request.tools.iter().enumerate() {
+        if contains_tabular_records(&tool.tool_type)
+            || contains_tabular_records(&tool.function.name)
+            || contains_tabular_records(&tool.function.description)
+            || contains_tabular_records(&tool.function.parameters.to_string())
+        {
+            return Err(format!("tool {i} ({}) contains tabular records", tool.function.name));
+        }
+    }
+    if let Some(v) = &request.provider {
+        if contains_tabular_records(&v.to_string()) {
+            return Err("provider options contain tabular records".into());
+        }
+    }
+    if let Some(v) = &request.reasoning {
+        if contains_tabular_records(&v.to_string()) {
+            return Err("reasoning options contain tabular records".into());
+        }
+    }
+    Ok(())
 }
 
 fn is_raw_tabular_row(line: &str) -> bool {
@@ -1390,13 +2330,12 @@ pub fn dispatch_gateway_with_routing(
     }
 
     if provider_profile.permitted_data_disclosure == "redacted_only" {
+        if let Err(e) = check_request_disclosure(&routed_request) {
+            return Err(format!("request for role '{role_id}' contains possible tabular row data prohibited under disclosure policy 'redacted_only': {e}"));
+        }
         for msg in &mut routed_request.messages {
             if let Some(content) = &msg.content {
-                let sanitized = OutboundFilter::sanitize_content(content);
-                if contains_tabular_records(content) {
-                    return Err(format!("request for role '{role_id}' contains possible tabular row data prohibited under disclosure policy 'redacted_only'"));
-                }
-                msg.content = Some(sanitized);
+                msg.content = Some(OutboundFilter::sanitize_content(content));
             }
         }
     }
@@ -1811,6 +2750,18 @@ mod campaign_admission_tests {
         assert_eq!(result["routed_role"], "campaign_owner");
         assert_eq!(result["resolved_model_id"], "claude-or-opus-reasoner-mock");
         assert_eq!(result["resolved_provider_protocol"], "openai_compatible");
+
+        // Tool-call arguments travel even when assistant content is absent.
+        let mut row_tool_req = req.clone();
+        row_tool_req.messages = vec![ChatMessage::assistant(None, Some(vec![ToolCall {
+            id: "call-row".into(), call_type: "function".into(),
+            function: FunctionCall { name: "inspect".into(), arguments: r#"{"data":[{"name":"item","price":12}]}"#.into() },
+        }]))];
+        let row_err = dispatch_gateway_with_routing(
+            &root, "p1", "task_strategy", "campaign_owner", "req_row_tool",
+            &row_tool_req, &routing, &fixture, false,
+        ).unwrap_err();
+        assert!(row_err.contains("possible tabular row data"));
 
         // 5. Test context window rejection: worker_fast has context_window=2048, max_tokens=2500 -> rejected!
         let huge_req = ChatCompletionRequest {

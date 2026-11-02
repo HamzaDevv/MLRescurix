@@ -237,8 +237,77 @@ fn m2_dataset_registration_copies_and_hashes_only_into_owned_state(){
  assert_eq!(std::fs::read(root.join("datasets/p/data-1.csv")).unwrap(),std::fs::read(&source).unwrap());
  assert_eq!(execution::register_dataset(&root,"p","data-1",&source).unwrap()["reused"],true);
  assert_eq!(r.snapshot("p").unwrap()["project_id"],"p");
+ let stored=root.join("datasets/p/data-1.csv");
+ std::fs::set_permissions(&stored,std::os::unix::fs::PermissionsExt::from_mode(0o600)).unwrap();
+ std::fs::write(&stored,"x,target\n3,0\n4,1\n").unwrap();
+ assert!(execution::register_dataset(&root,"p","data-1",&source).unwrap_err().contains("integrity"));
  std::fs::write(&source,"x,target\n9,9\n").unwrap();assert!(execution::register_dataset(&root,"p","data-1",&source).is_err());
 }
+
+#[test]
+fn dataset_registration_rejects_special_files_and_existing_broken_symlink(){
+ use std::{ffi::CString, os::unix::{ffi::OsStrExt, fs::symlink}};
+ let d=tempfile::tempdir().unwrap();let root=d.path().join("state");let r=Runtime::init(&root,m1policy(100,8)).unwrap();create_m1(&r,"p");
+ let fifo=d.path().join("pipe.csv");let name=CString::new(fifo.as_os_str().as_bytes()).unwrap();
+ assert_eq!(unsafe{libc::mkfifo(name.as_ptr(),0o600)},0);
+ assert!(execution::register_dataset(&root,"p","pipe",&fifo).is_err());
+ let source=d.path().join("selected.csv");std::fs::write(&source,"x,target\n1,0\n").unwrap();
+ let folder=root.join("datasets/p");std::fs::create_dir_all(&folder).unwrap();
+ symlink(d.path().join("missing"),folder.join("taken.csv")).unwrap();
+ assert!(execution::register_dataset(&root,"p","taken",&source).is_err());
+ assert!(std::fs::symlink_metadata(folder.join("taken.csv")).unwrap().file_type().is_symlink());
+ assert!(!folder.join(".taken.staging").exists());
+}
+
+#[test]
+fn larger_dataset_registration_requires_explicit_storage_budget(){
+ let d=tempfile::tempdir().unwrap();let root=d.path().join("state");let r=Runtime::init(&root,m1policy(100,8)).unwrap();create_m1(&r,"p");
+ let source=d.path().join("large.csv");let f=std::fs::File::create(&source).unwrap();f.set_len(33*1024*1024).unwrap();
+ assert!(execution::register_dataset(&root,"p","large",&source).unwrap_err().contains("artifact storage budget"));
+ let mut config=execution::StorageBudgetConfig::default();config.max_artifact_budget_bytes=48*1024*1024;
+ std::fs::write(root.join("storage_budgets.json"),serde_json::to_vec(&config).unwrap()).unwrap();
+ let result=execution::register_dataset(&root,"p","large",&source).unwrap();
+ assert_eq!(result["bytes"],33*1024*1024);
+ assert_eq!(execution::register_dataset(&root,"p","large",&source).unwrap()["reused"],true);
+}
+
+#[test]
+fn dataset_size_migration_preserves_foreign_keys_and_existing_protocols(){
+ let d=tempfile::tempdir().unwrap();let root=d.path().join("state");let r=Runtime::init(&root,m1policy(100,8)).unwrap();create_m1(&r,"p");
+ let source=d.path().join("data.csv");std::fs::write(&source,"x,y\n1,2\n").unwrap();
+ execution::register_dataset(&root,"p","data",&source).unwrap();
+ let c=rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+ c.execute("INSERT INTO custom_protocols VALUES('p','data','hash','protocol','{}')",[]).unwrap();
+ c.execute_batch("PRAGMA foreign_keys=OFF; BEGIN IMMEDIATE;
+ CREATE TABLE scientific_datasets_old(project TEXT NOT NULL REFERENCES projects(id),id TEXT NOT NULL,path TEXT NOT NULL,bytes INTEGER NOT NULL CHECK(bytes BETWEEN 1 AND 33554432),sha256 TEXT NOT NULL,registered_ms INTEGER NOT NULL,PRIMARY KEY(project,id));
+ INSERT INTO scientific_datasets_old SELECT * FROM scientific_datasets;
+ DROP TABLE scientific_datasets; ALTER TABLE scientific_datasets_old RENAME TO scientific_datasets;
+ PRAGMA user_version=11; COMMIT;").unwrap();
+ drop(c);
+ let threads: Vec<_>=(0..2).map(|_| {let root=root.clone();std::thread::spawn(move || execution::migrate(&root))}).collect();
+ for t in threads {t.join().unwrap().unwrap();}
+ let c=rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+ assert_eq!(c.query_row("PRAGMA user_version",[],|r|r.get::<_,i64>(0)).unwrap(),12);
+ assert_eq!(c.query_row("SELECT count(*) FROM pragma_foreign_key_check",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+ assert_eq!(c.query_row("SELECT protocol_sha256 FROM custom_protocols WHERE dataset_id='data'",[],|r|r.get::<_,String>(0)).unwrap(),"protocol");
+ assert_eq!(execution::register_dataset(&root,"p","data",&source).unwrap()["reused"],true);
+ assert!(Runtime::open(&root).is_ok());
+}
+
+#[test]
+fn dataset_size_migration_rolls_back_when_foreign_keys_are_invalid(){
+ let d=tempfile::tempdir().unwrap();let root=d.path().join("state");let r=Runtime::init(&root,m1policy(100,8)).unwrap();create_m1(&r,"p");
+ execution::migrate(&root).unwrap();
+ let c=rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+ c.execute_batch("PRAGMA foreign_keys=OFF; INSERT INTO custom_protocols VALUES('p','missing','hash','protocol','{}'); PRAGMA user_version=11;").unwrap();
+ drop(c);
+ assert!(execution::migrate(&root).unwrap_err().contains("invalid foreign keys"));
+ let c=rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+ assert_eq!(c.query_row("PRAGMA user_version",[],|r|r.get::<_,i64>(0)).unwrap(),11);
+ assert_eq!(c.query_row("SELECT count(*) FROM custom_protocols WHERE dataset_id='missing'",[],|r|r.get::<_,i64>(0)).unwrap(),1);
+ assert_eq!(c.query_row("SELECT count(*) FROM sqlite_master WHERE name='scientific_datasets_v12'",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+}
+
 
 #[test]
 fn m2_scientific_jobs_are_typed_and_reference_registered_datasets(){
@@ -304,4 +373,45 @@ fn m6_restart_consumes_interrupted_assessment_without_result(){
  std::fs::write(workflow.join("test_access.json"),serde_json::json!({"test_access_id":"test-once","candidate_id":"linear","dataset_sha256":sha,"frozen_model_sha256":"model-hash","status":"consumed"}).to_string()).unwrap();
  let bin=Path::new(env!("CARGO_BIN_EXE_mlrescurix-harness"));let _supervisor=Supervisor::start_with_executable(&root,1,bin).unwrap();
  assert_eq!(db.query_row::<String,_,_>("SELECT status FROM final_test_gates WHERE project='p' AND access_id='test-once'",[],|r|r.get(0)).unwrap(),"consumed");
+}
+
+#[test]
+fn managed_snapshot_reserves_bounded_peak_and_requires_explicit_larger_budget() {
+ use mlrescurix_harness::{custom_protocol::{freeze, CustomProtocol}, custom_snapshot::{prepare_managed, SnapshotIdentity}, trusted_evaluation::Metric};
+ let temp=tempfile::tempdir().unwrap();let root=temp.path().join("state");let runtime=setup(&root,"p");
+ let source=temp.path().join("data.csv");std::fs::write(&source,b"x,target\n1,10\n2,25\n3,999\n").unwrap();
+ let registered=execution::register_dataset(&root,"p","ds",&source).unwrap();let data=registered["sha256"].as_str().unwrap().to_string();
+ let mut conn=rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+ let protocol=CustomProtocol::single_split(data.clone(),"target".into(),Metric::Mae,vec![0],vec![1],vec![2]);
+ let split=freeze(&mut conn,"p","ds",protocol).unwrap();drop(conn);
+ let identity=SnapshotIdentity{project_id:"p".into(),job_id:"managed".into(),candidate_id:"candidate".into(),dataset_id:"ds".into(),dataset_sha256:data,protocol_sha256:split,source_sha256:"a".repeat(64),environment_id:"env".into()};
+ assert!(prepare_managed(&root,"ds",&identity).unwrap_err().contains("total state admission ceiling"));
+ assert!(!root.join("custom-snapshots").exists());
+ std::fs::write(root.join("storage_budgets.json"),json!({"max_state_total_bytes":1024_u64*1024*1024,"disk_headroom_bytes":0}).to_string()).unwrap();
+ let dir=prepare_managed(&root,"ds",&identity).unwrap();
+ assert!(dir.join("receipt.json").is_file());
+ assert_eq!(std::fs::read_to_string(dir.join("labels.json")).unwrap(),"[[1,25.0]]");
+ assert!(Runtime::open(&root).is_ok());drop(runtime);
+}
+
+#[test]
+#[ignore = "requires the pinned local Docker image"]
+fn managed_isolated_fit_and_evaluation_admit_storage_before_dispatch() {
+ use mlrescurix_harness::{agents::sandbox::SandboxLimits, custom_protocol::{freeze, CustomProtocol}, custom_snapshot::{prepare_managed, SnapshotIdentity}, isolated_inference, trusted_evaluation::Metric};
+ let temp=tempfile::tempdir().unwrap();let root=temp.path().join("state");let _runtime=setup(&root,"p");
+ let data_path=temp.path().join("data.csv");std::fs::write(&data_path,b"x,target\n1,10\n2,25\n3,999\n").unwrap();
+ let registered=execution::register_dataset(&root,"p","ds",&data_path).unwrap();let data=registered["sha256"].as_str().unwrap().to_string();
+ let mut conn=rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
+ let split=freeze(&mut conn,"p","ds",CustomProtocol::single_split(data.clone(),"target".into(),Metric::Mae,vec![0],vec![1],vec![2])).unwrap();drop(conn);
+ let program=b"import argparse,csv,json\np=argparse.ArgumentParser();p.add_argument('--fit',action='store_true');p.add_argument('--input');p.add_argument('--weights');a=p.parse_args()\nwith open(a.input) as f: rows=list(csv.DictReader(f))\nif a.fit: print(json.dumps(b'10'.hex()))\nelse:\n with open(a.weights) as f: w=float(f.read())\n print(json.dumps([[int(r['__mlr_row_id']),float(r['x'])*w] for r in rows]))\n";
+ let source=temp.path().join("candidate.py");std::fs::write(&source,program).unwrap();
+ let identity=SnapshotIdentity{project_id:"p".into(),job_id:"managed-fit".into(),candidate_id:"candidate".into(),dataset_id:"ds".into(),dataset_sha256:data,protocol_sha256:split,source_sha256:format!("{:x}",sha2::Sha256::digest(program)),environment_id:"sha256:897f14c33bb58c525ccb6fcefc8e46e7de6138faf73b36c57eabdba71946559c".into()};
+ let config=json!({"max_state_total_bytes":1024_u64*1024*1024,"disk_headroom_bytes":0}).to_string();
+ std::fs::write(root.join("storage_budgets.json"),&config).unwrap();prepare_managed(&root,"ds",&identity).unwrap();
+ std::fs::remove_file(root.join("storage_budgets.json")).unwrap();
+ assert!(isolated_inference::managed_fit(&root,"ds",&identity,&source,&SandboxLimits::default()).unwrap_err().contains("total state admission ceiling"));
+ std::fs::write(root.join("storage_budgets.json"),&config).unwrap();
+ let (_,fit)=isolated_inference::managed_fit(&root,"ds",&identity,&source,&SandboxLimits::default()).unwrap();
+ let evaluated=isolated_inference::managed_evaluate_fitted(&root,"ds",&identity,&SandboxLimits::default()).unwrap();
+ assert_eq!(evaluated.score,5.0);assert_eq!(evaluated.identity.weights_sha256,fit.weights_sha256);
 }

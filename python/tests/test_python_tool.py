@@ -46,16 +46,26 @@ def workspace(tmp_path):
 
 
 def install_fake_docker(monkeypatch, factory):
+    import tarfile
     monkeypatch.setattr(python_tool.shutil, "which", lambda _: "/fake/docker")
-    monkeypatch.setattr(python_tool.subprocess, "Popen", factory)
 
-    def fake_run(args, **kwargs):
-        if args[1:2] == ["cp"]:
-            destination = Path(args[-1])
-            (destination / "metrics.json").write_text('{"score":0.8}', encoding="utf-8")
-        return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
+    def fake_popen(args, **kwargs):
+        if args[1:2] == ["exec"]:
+            payload = io.BytesIO()
+            content = b'{"score":0.8}'
+            with tarfile.open(fileobj=payload, mode="w") as archive:
+                entry = tarfile.TarInfo("./metrics.json")
+                entry.size = len(content)
+                archive.addfile(entry, io.BytesIO(content))
+            child = FakeChild(args)
+            child.stdout = io.BytesIO(payload.getvalue())
+            child.returncode = 0
+            return child
+        return factory(args, **kwargs)
 
-    monkeypatch.setattr(python_tool.subprocess, "run", fake_run)
+    monkeypatch.setattr(python_tool.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(python_tool.subprocess, "run", lambda args, **kwargs:
+                        subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b""))
 
 
 def test_success_returns_bounded_result_and_artifact_hash(tmp_path, monkeypatch):
@@ -119,6 +129,16 @@ def test_container_supervisor_source_compiles():
     compile(python_tool._CONTAINER_SUPERVISOR, "<python-tool-supervisor>", "exec")
 
 
+def test_nonfinite_execution_limits_are_rejected_before_launch():
+    import pytest
+    for limits in (python_tool.PythonToolLimits(timeout_seconds=float("nan")),
+                   python_tool.PythonToolLimits(timeout_seconds=float("inf")),
+                   python_tool.PythonToolLimits(cpus=float("nan")),
+                   python_tool.PythonToolLimits(cpus=float("inf"))):
+        with pytest.raises(ValueError, match="limits must be positive"):
+            python_tool._validate_limits(limits)
+
+
 def test_drain_observes_short_line_while_pipe_writer_remains_open():
     proc = subprocess.Popen(
         [sys.executable, "-c", "import sys,time;sys.stdout.write('status\\n');sys.stdout.flush();time.sleep(1)"],
@@ -160,6 +180,93 @@ def test_docker_integration_when_daemon_available(tmp_path):
     assert Path(result["artifact_dir"], "result.txt").read_text(encoding="utf-8") == "dev-only"
 
 
+def test_docker_candidate_predictions_are_scored_against_controller_labels(tmp_path):
+    """Exercise isolated generated code and independently score its output.
+
+    This is a synthetic component test, not an integrated promotion path.
+    """
+    import csv
+    import hashlib
+    import pytest
+
+    docker = shutil.which("docker")
+    if docker is None or subprocess.run([docker, "version"], stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL, timeout=5).returncode:
+        pytest.skip("Docker daemon is unavailable")
+    root, script = workspace(tmp_path)
+    data = tmp_path / "development-inputs"
+    data.mkdir()
+    (data / "train.csv").write_text("x,y\n0,1\n1,3\n2,5\n", encoding="utf-8")
+    (data / "validation.csv").write_text("id,x\n10,3\n11,4\n", encoding="utf-8")
+    # Validation labels remain in the controller process and are never mounted.
+    private_labels = {"10": 7.0, "11": 9.0}
+    script.write_text(
+        "import csv, os, pathlib\n"
+        "data=pathlib.Path(os.environ['MLRESCURIX_DATA'])\n"
+        "out=pathlib.Path(os.environ['MLRESCURIX_OUTPUTS'])\n"
+        "with (data/'train.csv').open() as f: train=list(csv.DictReader(f))\n"
+        "slope=(float(train[-1]['y'])-float(train[0]['y']))/(float(train[-1]['x'])-float(train[0]['x']))\n"
+        "intercept=float(train[0]['y'])-slope*float(train[0]['x'])\n"
+        "with (data/'validation.csv').open() as f: rows=list(csv.DictReader(f))\n"
+        "with (out/'predictions.csv').open('w', newline='') as f:\n"
+        " w=csv.DictWriter(f, fieldnames=['id','prediction']); w.writeheader()\n"
+        " for row in rows: w.writerow({'id':row['id'], 'prediction':slope*float(row['x'])+intercept})\n",
+        encoding="utf-8")
+    source_hash = hashlib.sha256(script.read_bytes()).hexdigest()
+    result = python_tool.run_python_script(script, root, data_root=data,
+                                           limits=python_tool.PythonToolLimits(timeout_seconds=20))
+    assert result["status"] == "success"
+    prediction_path = Path(result["artifact_dir"], "predictions.csv")
+    with prediction_path.open(newline="") as stream:
+        predictions = list(csv.DictReader(stream))
+    assert len(predictions) == len(private_labels)
+    assert {row["id"] for row in predictions} == set(private_labels)
+    mean_absolute_error = sum(abs(float(row["prediction"]) - private_labels[row["id"]])
+                              for row in predictions) / len(private_labels)
+    assert mean_absolute_error == 0
+    assert result["artifacts"][0]["sha256"] == hashlib.sha256(prediction_path.read_bytes()).hexdigest()
+    assert hashlib.sha256(script.read_bytes()).hexdigest() == source_hash
+
+
+def test_docker_worker_cannot_impersonate_supervisor_or_leave_detached_child(tmp_path):
+    import pytest
+    import time
+
+    docker = shutil.which("docker")
+    if docker is None or subprocess.run([docker, "version"], stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL, timeout=5).returncode:
+        pytest.skip("Docker daemon is unavailable")
+    root, script = workspace(tmp_path)
+    script.write_text(
+        "import os, pathlib, signal, time\n"
+        "out=pathlib.Path(os.environ['MLRESCURIX_OUTPUTS'])\n"
+        "caps=[line for line in pathlib.Path('/proc/self/status').read_text().splitlines() if line.startswith('CapEff:')][0]\n"
+        "(out/'capabilities').write_text(caps.split()[1])\n"
+        "try:\n"
+        " os.kill(1, signal.SIGKILL)\n"
+        "except PermissionError:\n"
+        " (out/'supervisor-protected').write_text('yes')\n"
+        "else:\n"
+        " (out/'supervisor-protected').write_text('no')\n"
+        "r,w=os.pipe()\n"
+        "if os.fork() == 0:\n"
+        " os.setsid()\n"
+        " os.write(w,b'1')\n"
+        " time.sleep(0.2)\n"
+        " (out/'late-write').write_text('escaped')\n"
+        " os._exit(0)\n"
+        "os.read(r,1)\n"
+        "print('finished')\n", encoding="utf-8")
+    result = python_tool.run_python_script(script, root,
+                                           limits=python_tool.PythonToolLimits(timeout_seconds=20))
+    assert result["status"] == "success", result
+    artifacts = Path(result["artifact_dir"])
+    assert (artifacts / "supervisor-protected").read_text() == "yes"
+    assert int((artifacts / "capabilities").read_text(), 16) == 0
+    time.sleep(0.4)
+    assert not (artifacts / "late-write").exists()
+
+
 def test_streamed_artifact_archive_rejects_escape_links_and_oversize(tmp_path):
     import tarfile
     import pytest
@@ -180,6 +287,30 @@ def test_streamed_artifact_archive_rejects_escape_links_and_oversize(tmp_path):
         root.mkdir()
         with pytest.raises(ValueError):
             python_tool._extract_bounded_artifacts(payload, root, max_bytes=4, max_files=2)
+    assert not (tmp_path / "escape.txt").exists()
+
+
+def test_collection_checks_archive_before_host_extraction(tmp_path, monkeypatch):
+    import tarfile
+    import pytest
+    payload = io.BytesIO()
+    with tarfile.open(fileobj=payload, mode="w") as archive:
+        entry = tarfile.TarInfo("../escape.txt")
+        entry.size = 1
+        archive.addfile(entry, io.BytesIO(b"x"))
+    commands = []
+    def fake_popen(args, **kwargs):
+        commands.append(args)
+        child = FakeChild(args)
+        child.stdout = io.BytesIO(payload.getvalue())
+        child.returncode = 0
+        return child
+    monkeypatch.setattr(python_tool.subprocess, "Popen", fake_popen)
+    out = tmp_path / "out"
+    out.mkdir()
+    with pytest.raises(ValueError, match="escapes"):
+        python_tool._copy_container_artifacts("docker", "container", out)
+    assert commands[0][1] == "exec"
     assert not (tmp_path / "escape.txt").exists()
 
 

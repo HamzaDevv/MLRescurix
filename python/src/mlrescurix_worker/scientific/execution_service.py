@@ -9,8 +9,10 @@ import json
 import os
 import shutil
 import signal
+import stat
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from .candidate_pipeline import identity
@@ -102,7 +104,7 @@ class ExecutionService:
                     worker_rss_peak = max(worker_rss_peak or 0, final_rss)
                 if final_metrics.get("cgroup", {}).get("scope") == "workers":
                     worker_cgroup = final_metrics["cgroup"]
-                if not hasattr(self, "_turn_worker_resource_receipts"):
+                if not hasattr(session, "_turn_worker_resource_receipts"):
                     session._turn_worker_resource_receipts = []
                 session._turn_worker_resource_receipts.append({
                     "sampling_status": worker_sample_status,
@@ -126,15 +128,34 @@ class ExecutionService:
         from .python_tool import run_python_script
         filename = session._script_name(params.get("filename"))
         registered = session.state["script_registry"].get(filename)
-        path = session.workspace_root / "scripts" / filename
-        if not registered or path.is_symlink() or streaming_file_sha256(path) != registered["sha256"]:
+        scripts = session.workspace_root / "scripts"
+        if scripts.is_symlink() or scripts.resolve().parent != session.workspace_root:
+            raise ValueError("Script directory must be confined to workspace")
+        path = scripts / filename
+        if not registered or path.is_symlink():
             raise ValueError("Script missing or changed since governed write")
-        # Dedicated mount contains only development CSV, never repo keys or full source data.
-        data = session.workspace_root / "script_data"; data.mkdir(exist_ok=True)
-        if data.is_symlink() or data.resolve().parent != session.workspace_root: raise ValueError("Development mount must be confined to workspace")
-        if streaming_file_sha256(session.dataset_path) != session.binding["data_sha256"]:
-            raise ValueError("Development data changed since checkpoint binding")
-        shutil.copyfile(session.dataset_path, data / "development.csv")
-        result = run_python_script(path, session.workspace_root / "scripts", data_root=data, sandbox_image=session.sandbox_image)
+        # Snapshot the checked bytes and mount only that snapshot. Checking a
+        # source file and subsequently mounting the original leaves a race.
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+        with os.fdopen(fd, "rb") as stream:
+            metadata = os.fstat(stream.fileno())
+            if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > 100000:
+                raise ValueError("Script must be a bounded regular file")
+            source = stream.read(100001)
+        if len(source) > 100000 or hashlib.sha256(source).hexdigest() != registered["sha256"]:
+            raise ValueError("Script missing or changed since governed write")
+        with tempfile.TemporaryDirectory(prefix=".run-", dir=scripts) as stage:
+            stage = Path(stage)
+            staged_script = stage / filename
+            staged_script.write_bytes(source)
+            staged_script.chmod(0o444)
+            data = stage / "data"
+            data.mkdir(mode=0o755)
+            staged_data = data / "development.csv"
+            shutil.copyfile(session.dataset_path, staged_data)
+            if streaming_file_sha256(staged_data) != session.binding["data_sha256"]:
+                raise ValueError("Development data changed since checkpoint binding")
+            staged_data.chmod(0o444)
+            result = run_python_script(staged_script, scripts, data_root=data, sandbox_image=session.sandbox_image)
         if hasattr(result, "to_dict"): result = result.to_dict()
         return {"python_result": result, "advisory_only": True}

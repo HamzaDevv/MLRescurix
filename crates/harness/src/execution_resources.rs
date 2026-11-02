@@ -392,7 +392,7 @@ mod tests {
         let (_temp,root,mut spec)=fixture();spec.job_id="refused".into();spec.resources.require_memory_certification=true;
         assert!(submit(&root,spec).unwrap_err().contains("unsupported for host"));
         let c=connect(&root).unwrap();assert_eq!(c.query_row("SELECT count(*) FROM jobs WHERE id='refused'",[],|r|r.get::<_,i64>(0)).unwrap(),0);
-        assert_eq!(c.query_row("PRAGMA user_version",[],|r|r.get::<_,i64>(0)).unwrap(),11);
+        assert_eq!(c.query_row("PRAGMA user_version",[],|r|r.get::<_,i64>(0)).unwrap(),12);
     }
     #[test]
     fn survivor_discovery_adopts_missing_identity_then_reaps_exact_id() {

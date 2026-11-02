@@ -774,7 +774,7 @@ async fn run()->Result<(),String>{
                 "worker_count":"enforced",
                 "thread_pool_environment_hints":"applied; library dependent",
                 "memory":"Docker per-job limits; cgroup v2 certification requires complete peak/event receipt",
-                "disk":"free-space admission, bounded outputs, and 128 MiB managed-state ceiling",
+                "disk":"free-space admission, bounded outputs, 128 MiB default managed-state ceiling, configurable up to 1 GiB",
                 "cpu":"best-effort process sample"
             },
             "providers":true

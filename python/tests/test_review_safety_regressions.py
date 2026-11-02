@@ -28,7 +28,11 @@ def test_remote_manifest_rejects_empty_and_escape(mock_run, tmp_path):
     outside = tmp_path / "outside"
     outside.write_text("secret")
     for files in ({}, {"../outside": hashlib.sha256(b"secret").hexdigest()}):
-        (destination / "manifest.json").write_text(json.dumps({"files": files}))
+        def download(args, **kwargs):
+            from pathlib import Path
+            (Path(args[-1]) / "manifest.json").write_text(json.dumps({"files": files}))
+            return subprocess.CompletedProcess(args, 0, "", "")
+        mock_run.side_effect = download
         with pytest.raises(ChecksumMismatchError):
             pool.download_kernel_output(account, "slug", destination)
 

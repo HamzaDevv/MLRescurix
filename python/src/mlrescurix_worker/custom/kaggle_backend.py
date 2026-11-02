@@ -294,8 +294,7 @@ class KaggleExecutionBackend(ExecutionBackendContract):
         if not account:
             raise ValueError(f"Account '{username}' not found in pool")
 
-        dest = Path(target_dir).resolve()
-        dest.mkdir(parents=True, exist_ok=True)
+        dest = Path(os.path.abspath(target_dir))
 
         # Download output and verify checksums against manifest.json
         output_path = self.pool.download_kernel_output(

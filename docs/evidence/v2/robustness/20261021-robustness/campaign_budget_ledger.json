@@ -3,7 +3,7 @@
   "campaign_ceiling_usd": "0.280494020",
   "contingency_usd": "0.05",
   "per_run_ceiling_usd": "0.20",
-  "remaining_campaign_usd": "0.196340000",
+  "remaining_campaign_usd": "0.183220000",
   "request_records": {
     "amazon-2025-20261030-continuation:5976bfb693d50b2c:turn:0": {
       "amount_usd": "0.00264",
@@ -18,13 +18,13 @@
     },
     "amazon-2025-20261030-continuation:5976bfb693d50b2c:turn:1": {
       "amount_usd": "0.00383",
+      "cost_kind": "calculated_estimate",
       "gateway_digest": "d63fffbb24970ead7da8e612e9e397038dd3988495461835841b6ab866268d43",
       "gateway_scope": "amazon-2025-autonomous\u0000default-task",
       "gateway_state_root": "/Users/hamza/Developer/Imp_Projects/MLRescurix/.mlrescurix-state/amazon-2025/rust_harness_state",
       "run_id": "amazon-2025-20261030-continuation",
-      "status": "settled",
       "settled_usd": "0.00076",
-      "cost_kind": "calculated_estimate",
+      "status": "settled",
       "unreconciled_usd": "0.00307"
     },
     "amazon-2025-20261030:71076ad4db2642c6:turn:0": {
@@ -60,6 +60,79 @@
       "status": "settled",
       "unreconciled_usd": "0.00416"
     },
+    "amazon-fresh-20261101-2318:a4f278a02ac69947:turn:0": {
+      "amount_usd": "0.00183",
+      "cost_kind": "unknown",
+      "run_id": "amazon-fresh-20261101-2318",
+      "status": "uncertain"
+    },
+    "amazon-fresh-20261101-2320:1844aff0d81c3280:turn:0": {
+      "amount_usd": "0.00183",
+      "cost_kind": "unknown",
+      "run_id": "amazon-fresh-20261101-2320",
+      "status": "uncertain"
+    },
+    "amazon-live-20261102-run1:b7cbfcd2883131d0:turn:0": {
+      "amount_usd": "0.00181",
+      "cost_kind": "calculated_estimate",
+      "gateway_digest": "5949c84642cc66fb0c3a81af30eeb479038390fa8d9e34831472cbeb9a8e2f43",
+      "gateway_scope": "amazon-live-20261102\u0000default-task",
+      "gateway_state_root": "/Users/hamza/Developer/Imp_Projects/MLRescurix/.mlrescurix-state/amazon-2025/live-20261102-run1/rust_harness_state",
+      "run_id": "amazon-live-20261102-run1",
+      "settled_usd": "0.00015",
+      "status": "settled",
+      "unreconciled_usd": "0.00166"
+    },
+    "amazon-live-20261102-run1:b7cbfcd2883131d0:turn:1": {
+      "amount_usd": "0.00217",
+      "cost_kind": "calculated_estimate",
+      "gateway_digest": "556d282914234517833f0eef70900d4c205791c3bed2b63714ceb407df9b0ad6",
+      "gateway_scope": "amazon-live-20261102\u0000default-task",
+      "gateway_state_root": "/Users/hamza/Developer/Imp_Projects/MLRescurix/.mlrescurix-state/amazon-2025/live-20261102-run1/rust_harness_state",
+      "run_id": "amazon-live-20261102-run1",
+      "settled_usd": "0.00038",
+      "status": "settled",
+      "unreconciled_usd": "0.00179"
+    },
+    "amazon-live-20261102-run1:b7cbfcd2883131d0:turn:2": {
+      "amount_usd": "0.00234",
+      "cost_kind": "unknown",
+      "run_id": "amazon-live-20261102-run1",
+      "status": "uncertain"
+    },
+    "amazon-live-20261102-run2:19e5db42865afd93:turn:0": {
+      "amount_usd": "0.00181",
+      "cost_kind": "calculated_estimate",
+      "gateway_digest": "56b18bb66910763d040e7503aaae1bac072443217c7590e578def62fdca79010",
+      "gateway_scope": "amazon-live-20261102\u0000default-task",
+      "gateway_state_root": "/Users/hamza/Developer/Imp_Projects/MLRescurix/.mlrescurix-state/amazon-2025/live-20261102-run2/rust_harness_state",
+      "run_id": "amazon-live-20261102-run2",
+      "settled_usd": "0.00018",
+      "status": "settled",
+      "unreconciled_usd": "0.00163"
+    },
+    "amazon-live-20261102-run2:19e5db42865afd93:turn:1": {
+      "amount_usd": "0.00217",
+      "cost_kind": "calculated_estimate",
+      "gateway_digest": "847acbe622f6f321313290cb6079ba52b8754c6707bf94532884e42bdca3df7b",
+      "gateway_scope": "amazon-live-20261102\u0000default-task",
+      "gateway_state_root": "/Users/hamza/Developer/Imp_Projects/MLRescurix/.mlrescurix-state/amazon-2025/live-20261102-run2/rust_harness_state",
+      "run_id": "amazon-live-20261102-run2",
+      "settled_usd": "0.00039",
+      "status": "settled",
+      "unreconciled_usd": "0.00178"
+    },
+    "amazon-live-20261102-run2:19e5db42865afd93:turn:2": {
+      "amount_usd": "0.00282",
+      "gateway_digest": "39901d62127e7705947453fefe020facc3883a7e9040cdc4ea3f303a900b00e2",
+      "gateway_scope": "amazon-live-20261102\u0000default-task",
+      "gateway_state_root": "/Users/hamza/Developer/Imp_Projects/MLRescurix/.mlrescurix-state/amazon-2025/live-20261102-run2/rust_harness_state",
+      "run_id": "amazon-live-20261102-run2",
+      "status": "settled",
+      "settled_usd": "0.00048",
+      "cost_kind": "calculated_estimate",
+      "unreconciled_usd": "0.00234"
+    },
     "live-iris-20261030:cc638f46b4d69f86:turn:0": {
       "amount_usd": "0.0026",
       "cost_kind": "calculated_estimate",
@@ -92,18 +165,6 @@
       "settled_usd": "0.00068",
       "status": "settled",
       "unreconciled_usd": "0.00417"
-    },
-    "amazon-fresh-20261101-2318:a4f278a02ac69947:turn:0": {
-      "run_id": "amazon-fresh-20261101-2318",
-      "amount_usd": "0.00183",
-      "status": "uncertain",
-      "cost_kind": "unknown"
-    },
-    "amazon-fresh-20261101-2320:1844aff0d81c3280:turn:0": {
-      "run_id": "amazon-fresh-20261101-2320",
-      "amount_usd": "0.00183",
-      "status": "uncertain",
-      "cost_kind": "unknown"
     }
   },
   "runs": {
@@ -118,6 +179,30 @@
       "requests": 2,
       "reserved_usd": "0.00000",
       "uncertain_usd": "0.00546"
+    },
+    "amazon-fresh-20261101-2318": {
+      "billed_usd": "0.00",
+      "requests": 0,
+      "reserved_usd": "0.00000",
+      "uncertain_usd": "0.00183"
+    },
+    "amazon-fresh-20261101-2320": {
+      "billed_usd": "0.00",
+      "requests": 0,
+      "reserved_usd": "0.00000",
+      "uncertain_usd": "0.00183"
+    },
+    "amazon-live-20261102-run1": {
+      "billed_usd": "0.00053",
+      "requests": 2,
+      "reserved_usd": "0.00000",
+      "uncertain_usd": "0.00579"
+    },
+    "amazon-live-20261102-run2": {
+      "billed_usd": "0.00105",
+      "requests": 3,
+      "reserved_usd": "0.00000",
+      "uncertain_usd": "0.00575"
     },
     "live-iris-20261030": {
       "billed_usd": "0.00165",
@@ -298,21 +383,9 @@
       "requests": 3,
       "reserved_usd": "0.00",
       "uncertain_usd": "0.00"
-    },
-    "amazon-fresh-20261101-2318": {
-      "billed_usd": "0.00",
-      "reserved_usd": "0.00000",
-      "uncertain_usd": "0.00183",
-      "requests": 0
-    },
-    "amazon-fresh-20261101-2320": {
-      "billed_usd": "0.00",
-      "reserved_usd": "0.00000",
-      "uncertain_usd": "0.00183",
-      "requests": 0
     }
   },
-  "total_billed_usd": "0.055254020",
+  "total_billed_usd": "0.056834020",
   "total_reserved_usd": "0.00000",
-  "total_uncertain_usd": "0.02890"
+  "total_uncertain_usd": "0.04044"
 }
