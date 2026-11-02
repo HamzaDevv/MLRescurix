@@ -24,7 +24,7 @@ def main(argv=None):
     parser.add_argument("--direction", choices=["maximize", "minimize"], default="maximize")
     parser.add_argument("--problem", default="Analyze this development dataset and build a validated candidate or hand off unresolved work.")
     parser.add_argument("--topology", type=Path, help="Authoritative topology, including cv_scheme/entity/temporal columns")
-    parser.add_argument("--max-turns", type=int, default=12)
+    parser.add_argument("--max-turns", type=int, default=None)
     parser.add_argument("--sandbox-image", help="Locally available pinned scientific Docker image")
     parser.add_argument("--policy", type=Path, help="Campaign policy with today's verified route pricing")
     parser.add_argument("--model", default="deepseek/deepseek-v4.1-flash-1017")
@@ -79,7 +79,7 @@ def main(argv=None):
             from .benchmark_contracts import package_accepted_candidate
             bundle_dir = loop.workspace_root / "bundle"
             candidate_dir = loop.workspace_root / "candidate"
-            package_accepted_candidate(
+            ok, verified, reason = package_accepted_candidate(
                 loop, state, loop.raw_df,
                 candidate_dir=candidate_dir,
                 bundle_dir=bundle_dir,
@@ -90,6 +90,7 @@ def main(argv=None):
                 target_column=loop.target_column,
                 primary_metric=loop.metric_name,
             )
+            print(f"[PACKAGING] status={ok} verified={verified} reason={reason}", file=sys.stderr)
             loop.export_handoff()
         except Exception as exc:
             print(f"[NOTICE] Candidate packaging notice: {exc}", file=sys.stderr)

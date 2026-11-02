@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MLRescurix Operational Budgets Configuration",
+  "description": "Defines the three configurable operational budgets governing autonomous agent resource consumption. Generous defaults are provided. To change any budget, edit the corresponding 'limit' field.",
+  "budgets": {
+    "total_model_tokens": {
+      "limit": 5000000,
+      "unit": "tokens",
+      "description": "Total model token usage counting prompt (input) and completion (output) tokens across all agents and model calls. Default: 5,000,000 tokens.",
+      "counted_call_types": [
+        "prompt_tokens",
+        "completion_tokens"
+      ]
+    },
+    "kaggle_compute": {
+      "limit_hours": 30.0,
+      "unit": "hours",
+      "description": "Total Kaggle GPU/TPU compute usage measured in hours as provided by the available Kaggle account environment (standard weekly free GPU allocation: 30.0 hours).",
+      "accelerator": "gpu"
+    },
+    "web_search_queries": {
+      "limit": 500,
+      "unit": "queries",
+      "description": "Total web search query requests permitted across all autonomous research actions. Default: 500 queries.",
+      "service": "deepseek_or_governed_web"
+    }
+  },
+  "spending_cap_preservation": {
+    "preserve_campaign_usd_ledger": true,
+    "campaign_ledger_path": "docs/evidence/v2/robustness/20261021-robustness/campaign_budget_ledger.json",
+    "description": "Preserves dollar-denominated model spending cap and ledger history ($0.28049 campaign ceiling, $0.16015 remaining balance) in accordance with campaign governance rules."
+  }
+}

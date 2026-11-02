@@ -382,6 +382,20 @@ KNOWN_MODEL_FAMILIES = (
 )
 
 
+def get_available_model_families() -> List[str]:
+    """Return all model families natively available in current Python environment."""
+    available = ["hist_gbdt", "penalized_linear"]
+    if HAS_LIGHTGBM:
+        available.append("lgbm")
+    if HAS_XGBOOST:
+        available.append("xgboost")
+    if HAS_CATBOOST:
+        available.append("catboost")
+    if HAS_TORCH:
+        available.append("neural_tabular")
+    return available
+
+
 def normalize_family_name(family: str) -> str:
     """Normalize family string into standard canonical key."""
     norm = family.strip().lower()

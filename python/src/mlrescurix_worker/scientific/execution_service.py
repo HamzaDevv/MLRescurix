@@ -36,8 +36,9 @@ class ExecutionService:
             raise ValueError('Worker source changed since session binding')
         if streaming_file_sha256(session.dataset_path) != session.binding["data_sha256"]:
             raise ValueError("Development data changed since checkpoint binding")
-        if operation == "evaluate" and session.state.get("evaluation_count", 0) >= 12:
-            raise ValueError("Candidate evaluation limit (12) reached; handoff required")
+        max_evals = getattr(session, "max_candidate_evaluations", None)
+        if max_evals is not None and operation == "evaluate" and session.state.get("evaluation_count", 0) >= max_evals:
+            raise ValueError(f"Candidate evaluation limit ({max_evals}) reached; handoff required")
         if operation == "evaluate":
             session.state["evaluation_count"] = session.state.get("evaluation_count", 0) + 1
             if "evaluated_families" not in session.state:

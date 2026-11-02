@@ -25,7 +25,9 @@ import numpy as np
 import pandas as pd
 from .candidate_pipeline import CandidatePipeline, evaluate_candidate, identity, validate_spec, score_metric
 from .critic_engine import CriticEngine
-from .model_zoo import PredefinedSplitter, normalize_family_name
+from .model_zoo import PredefinedSplitter, normalize_family_name, get_available_model_families
+from .governance import GovernanceService, BudgetExhaustionError
+from .operational_budgets import OperationalBudgets
 from .resource_monitor import ProcessTreeSampler
 
 _parents = Path(__file__).resolve().parents
@@ -88,7 +90,7 @@ class AutonomousAgentLoop:
         evaluator=None, pricing=None, outbound_script_output_approved=False,
         provider_is_fixture=False, allow_development_provider=False, worker_memory_bytes=2 * 1024**3):
         from .execution_service import ExecutionService
-        from .governance import GovernanceService
+        from .governance import GovernanceService, BudgetExhaustionError
         from .task_adapters import task_adapter
         self.execution = ExecutionService()
         self.governance = GovernanceService()
@@ -105,15 +107,18 @@ class AutonomousAgentLoop:
             raise ValueError("Unsupported model task; use analysis/handoff with a supported tabular target")
         if metric_direction not in ("maximize", "minimize"): raise ValueError("Invalid metric direction")
         self.model_name, self.endpoint = model_name, endpoint
-        if not 0 <= max_turns <= 20: raise ValueError("Require 0–20 turns per run")
-        self.max_turns = max_turns
+        if max_turns is not None and max_turns < 0: raise ValueError("max_turns must be nonnegative")
+        self.max_turns = 100 if max_turns is None else max_turns
         self.per_run_budget_usd = Decimal(str(per_run_budget_usd))
         self.provider_caller = provider_caller
         if callable(getattr(provider_caller, "bind_campaign", None)):
             provider_caller.bind_campaign(campaign_authority.ledger_path, session_id)
         self.provider_is_fixture = provider_is_fixture
         self.allow_development_provider = allow_development_provider
-        self.max_run_tokens = 500000
+        self.operational_budgets = OperationalBudgets.load(workspace_root=self.workspace_root)
+        self.max_run_tokens = self.operational_budgets.model_tokens_limit
+        self.evaluated_blends: Dict[str, Tuple[int, float]] = {}
+        self.evaluated_specs: Dict[str, Tuple[int, float]] = {}
         self.worker_memory_bytes = int(worker_memory_bytes)
         self.problem_statement = problem_statement
         self.sandbox_image = sandbox_image
@@ -225,17 +230,35 @@ class AutonomousAgentLoop:
             state.setdefault("selected_cv_score", None)
             state.setdefault("best_eligible_cv_score", state.get("best_cv_score"))
             state.setdefault("best_observed_cv_score", state.get("best_cv_score"))
+            for turn in state.get("turns", []):
+                pa = turn.get("proposed_action") or {}
+                if pa.get("action_type") == "BLEND_AND_AUDIT":
+                    fams = pa.get("parameters", {}).get("families", [])
+                    wgts = pa.get("parameters", {}).get("weights", [])
+                    tt = pa.get("parameters", {}).get("target_transform", "none")
+                    meas = turn.get("measurements") or {}
+                    cv = meas.get("cv_score")
+                    if cv is not None:
+                        total_w = sum(wgts) if wgts and all(isinstance(w, (int, float)) for w in wgts) and sum(wgts) > 0 else 1.0
+                        norm_wgts = tuple(round(w / total_w, 4) for w in wgts)
+                        k = f"{tuple(fams)}:{norm_wgts}:{tt}"
+                        self.evaluated_blends[k] = (turn.get("turn_index", 0), float(cv))
+                usage = (turn.get("provider_receipt") or {}).get("usage", {})
+                if usage and self.operational_budgets.model_tokens_used == 0:
+                    self.operational_budgets.record_tokens(usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0))
             return state
         active_spec = self.task_adapter.initial_spec(self.metric_name)
+        avail_families = get_available_model_families()
         state = {"schema_version": 3, "binding": self.binding, "project_id": self.project_id, "session_id": self.session_id,
             "target_column": self.target_column, "task_type": self.task_type, "metric_name": self.metric_name,
             "metric_direction": self.metric_direction, "turns_completed": 0, "turns": [], "stop_reason": None,
             "accepted_candidate_id": None, "best_cv_score": None, "accepted_candidate": None,
             "candidate_identity": None, "accepted_audit": None, "pending_turn": None,
+            "winning_model_family": None,
             "active_spec": active_spec,
             "current_active_features": [c for c in self.raw_df if c != self.target_column],
-            "current_active_families": ["hist_gbdt", "penalized_linear", "lgbm"],
-            "evaluated_families": ["hist_gbdt", "penalized_linear", "lgbm"], "bundle_verified": False,
+            "current_active_families": avail_families,
+            "evaluated_families": avail_families, "bundle_verified": False,
             "containment_status": "unverified", "holdout_accesses": 0, "script_registry": {},
             "iterations": [], "apex_trajectory": [], "latest_apex_iteration": None, "selected_apex_iteration": None,
             "pinned_iteration": None, "selected_cv_score": None, "best_eligible_cv_score": None, "best_observed_cv_score": None,
@@ -321,13 +344,13 @@ No conversational markdown outside the JSON block. Keep thought_rationale concis
 Actions:
 ANALYZE {} refreshes dataset dossier.
 HYPOTHESIS_TRANSFORM {action, parameters}: ADD_MNAR_INDICATOR {columns}, DELETE_FEATURE {columns}, APPLY_SKEW_TRANSFORM {columns, method:log1p|sqrt|signed_log1p}, ENCODE_HIGH_CARD_CAT {columns,strategy:frequency}, TEXT_TFIDF_SVD {columns} (fold-fitted word n-gram TF-IDF and SVD), ADD_INTERACTION {feature_pairs,operations:[multiply|add|subtract|divide]}. Measures paired CV and persists improved transforms.
-EVALUATE_PORTFOLIO {families:[hist_gbdt,penalized_linear,lgbm,xgboost,catboost,neural_tabular]} measures families on active pipeline. Optional model_parameters keyed by family. Regression target_transform may be none, log, log1p and is fitted/inverted inside the exact candidate.
-BLEND_AND_AUDIT {families:[...], weights:[positive,...]} evaluates exact weighted ensemble; requires 3 genuinely different available families and critic approval.
+EVALUATE_PORTFOLIO {families:[hist_gbdt,penalized_linear,lgbm,xgboost,catboost,neural_tabular], target_transform:none|log|log1p, model_parameters:{<family>:{<param>:<val>}}} measures individual families on active pipeline. Allowed params: hist_gbdt (max_iter, learning_rate, max_depth, min_samples_leaf, l2_regularization); lgbm (n_estimators, learning_rate, max_depth, min_child_samples, reg_alpha, reg_lambda, subsample, colsample_bytree); xgboost (n_estimators, learning_rate, max_depth, subsample, colsample_bytree, reg_alpha, reg_lambda); catboost (iterations, learning_rate, depth, l2_leaf_reg); neural_tabular (hidden_dim, num_blocks, dropout, lr, epochs, batch_size, weight_decay); penalized_linear (alpha, C, penalty, l1_ratio, max_iter). NOTE: target_transform must be specified at the top level of parameters.
+BLEND_AND_AUDIT {families:[...], weights:[positive,...], target_transform:none|log|log1p} evaluates exact weighted ensemble; requires distinct available families and critic approval. CRITICAL: Do NOT repeat identical blend weights from earlier turns. If a previous blend did not beat the apex, explore diverse weights (e.g. 0.4, 0.3, 0.15, 0.15 prioritizing the strongest model), try top-2 or top-3 family combinations, or explore feature transforms and hyperparameters.
 WRITE_PYTHON {filename:name.py, code:python_source} writes dynamic analysis script.
-RUN_PYTHON {filename:name.py} runs registered script in configured isolated container with no network. Development CSV is /data/development.csv; write outputs under /outputs. Script output and error details may be withheld from outbound context; use the available status and receipts. Scripts cannot promote a model or change pinned folds. Fix script errors with WRITE_PYTHON then rerun.
+RUN_PYTHON {filename:name.py} runs registered script in configured isolated container with no network. Development CSV is /data/development.csv; write outputs under /outputs.
 HANDOFF {reason, next_steps:[...]} exports checkpoint/evidence for another session and stops.
 FINALIZE_AND_STOP {} only succeeds with accepted audited candidate. STOP_EARLY {reason} stops without acceptance.
-Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refuted transform. Respect budget/turn/resource limits."""
+Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refuted transform or duplicate candidate. If a prior turn was rejected or encountered an error, inspect the error message carefully and choose a valid, productive next step rather than repeating the rejected action. Respect operational budgets."""
         if not self.outbound_script_output_approved:
             # Free-form script output may contain raw rows. Keep it local until an
             # authorized outbound-view adapter approves it; only status/error class travels.
@@ -360,6 +383,8 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
                     projected["repair_locations"] = [{"script": name, "line": int(line)} for name, line in locations[-8:]
                                                    if name in self.state["script_registry"]]
                     receipt["measurements"]["python_result"] = projected
+        avail_fams = get_available_model_families()
+        budget_status = self.operational_budgets.get_status()
         user = {
             "human_guidance": self.state.get("human_guidance", []),
             "instruction": "Review task context, diagnostic dossier, and turn history. Choose your next action and return strictly a single valid JSON object with keys: thought_rationale, action_type, parameters.",
@@ -368,7 +393,13 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
                 "max_turns": self.max_turns,
                 "best_cv_score_to_beat": self.state.get("best_cv_score"),
                 "selected_apex_iteration": self.state.get("selected_apex_iteration"),
-                "available_model_families": ["hist_gbdt", "penalized_linear", "lgbm", "xgboost", "catboost"]}, "diagnostic_dossier": dossier, "turn_history": history,
+                "winning_model_family": self.state.get("winning_model_family"),
+                "available_model_families": avail_fams,
+                "operational_budgets": {
+                    "model_tokens_remaining": budget_status["total_model_tokens"]["remaining"],
+                    "kaggle_hours_remaining": budget_status["kaggle_compute"]["remaining_hours"],
+                    "web_search_remaining": budget_status["web_search_queries"]["remaining"],
+                }}, "diagnostic_dossier": dossier, "turn_history": history,
             "active_spec": self.state["active_spec"], "accepted_candidate_id": self.state["accepted_candidate_id"],
             "remaining_campaign": self.campaign_authority.get_status().get("remaining_campaign_usd"),
             "script_registry": self.state["script_registry"], "script_output_outbound_approved": self.outbound_script_output_approved
@@ -393,12 +424,33 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
         if not isinstance(weights, list) or len(weights) != len(mapped):
             raise ValueError("Weights must match the selected family order exactly")
         spec["weights"] = weights
+        target_trans = params.get("target_transform")
         if "model_parameters" in params:
-            options = params["model_parameters"]
-            if not isinstance(options, dict) or set(options) - set(mapped):
+            options = copy.deepcopy(params["model_parameters"])
+            if not isinstance(options, dict):
                 raise ValueError("model_parameters may only name selected model families")
-            spec["model_parameters"] = copy.deepcopy(options)
-        if "target_transform" in params: spec["target_transform"] = params["target_transform"]
+            if "target_transform" in options:
+                if not target_trans or target_trans == "none":
+                    target_trans = options.pop("target_transform")
+                else:
+                    options.pop("target_transform")
+            cleaned_options = {}
+            for fam_k, fam_v in options.items():
+                norm_k = normalize_family_name(fam_k)
+                if isinstance(fam_v, dict) and "target_transform" in fam_v:
+                    if not target_trans or target_trans == "none":
+                        target_trans = fam_v.pop("target_transform")
+                    else:
+                        fam_v.pop("target_transform")
+                cleaned_options[norm_k] = fam_v
+            if set(cleaned_options) - set(mapped):
+                raise ValueError("model_parameters may only name selected model families")
+            spec["model_parameters"] = cleaned_options
+        elif "model_parameters" in spec and isinstance(spec["model_parameters"], dict):
+            # Prune model_parameters inherited from active_spec to only selected families
+            spec["model_parameters"] = {k: v for k, v in spec["model_parameters"].items() if k in mapped}
+        if target_trans:
+            spec["target_transform"] = str(target_trans).lower()
         if "blend_strategy" in params and params["blend_strategy"] not in ("weighted_soft_vote", "soft_vote", "mean"):
             raise ValueError("Unsupported blend strategy")
         validate_spec(spec)
@@ -555,6 +607,9 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
             self.state["accepted_evaluation"] = selected["evaluation_receipt"]
         if selected.get("audit"):
             self.state["accepted_audit"] = selected["audit"]
+        if spec.get("families"):
+            fams = spec["families"]
+            self.state["winning_model_family"] = fams[0] if len(fams) == 1 else f"ensemble_blend({'+'.join(fams)})"
 
         self._save_state(self.state)
         self._event("apex_iteration_selected", selected_iteration=iteration_number,
@@ -667,6 +722,7 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
                 if audit["status"] == "APPROVED" and improves:
                     self.state["best_cv_score"] = float(win_res["cv_score"])
                     self.state["best_eligible_cv_score"] = float(win_res["cv_score"])
+                    self.state["winning_model_family"] = best_family
                     if self.state.get("pinned_iteration") is None:
                         self.state.update(
                             accepted_candidate_id=candidate_id, accepted_candidate=win_spec,
@@ -711,6 +767,8 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
             if audit["status"] == "APPROVED" and improves:
                 self.state["best_cv_score"] = float(result["cv_score"])
                 self.state["best_eligible_cv_score"] = float(result["cv_score"])
+                blend_name = f"ensemble_blend({'+'.join(spec['families'])})"
+                self.state["winning_model_family"] = blend_name
                 if self.state.get("pinned_iteration") is None:
                     self.state.update(
                         accepted_candidate_id=candidate_id, accepted_candidate=spec,
@@ -771,9 +829,17 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
         self._save_state(self.state)
         start = time.monotonic()
         self._turn_worker_resource_receipts = []
-        self.sampler.start()
         try:
-            response = self._call_provider(messages)
+            try:
+                response = self._call_provider(messages)
+            except BudgetExhaustionError:
+                self.state["pending_turn"] = None
+                self._save_state(self.state)
+                raise
+            usage = response.get("usage", {}) if isinstance(response, dict) else {}
+            prompt_toks = usage.get("prompt_tokens", 0)
+            comp_toks = usage.get("completion_tokens", 0)
+            self.operational_budgets.record_tokens(prompt_toks, comp_toks)
             action = {"action_type": "PARSE_ERROR", "thought_rationale": "", "parameters": {}}
             disposition, error, measurements, audit = "applied", None, {}, {}
             try:
@@ -865,9 +931,32 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
                 action = parsed
                 if parsed["action_type"] not in ACTIONS:
                     raise ValueError(f"Unknown action type '{parsed['action_type']}'")
+
+                # Duplicate candidate detection
+                blend_key = None
+                if parsed["action_type"] == "BLEND_AND_AUDIT":
+                    fams = parsed.get("parameters", {}).get("families", [])
+                    wgts = parsed.get("parameters", {}).get("weights", [])
+                    tt = parsed.get("parameters", {}).get("target_transform", "none")
+                    total_w = sum(wgts) if wgts and all(isinstance(w, (int, float)) for w in wgts) and sum(wgts) > 0 else 1.0
+                    norm_wgts = tuple(round(w / total_w, 4) for w in wgts)
+                    blend_key = f"{tuple(fams)}:{norm_wgts}:{tt}"
+                    if blend_key in self.evaluated_blends:
+                        prior_turn, prior_score = self.evaluated_blends[blend_key]
+                        error = (
+                            f"Duplicate blend configuration detected: identical families {fams} with weights {wgts} "
+                            f"and transform {tt!r} were already evaluated on turn {prior_turn} with CV score {prior_score:.4f}. "
+                            f"Repeating identical blend weights wastes computational budget. Please choose distinct weights "
+                            f"(e.g., favoring the top-performing family or inversely proportional to validation error), "
+                            f"try a subset blend of top models, or explore hyperparameter tuning."
+                        )
+                        raise ValueError(error)
+
                 self.state["pending_turn"].update(phase="tool_dispatching", proposed_action=action)
                 self._save_state(self.state)
                 measurements, audit = self._execute(action, turn_index)
+                if blend_key and measurements.get("cv_score") is not None:
+                    self.evaluated_blends[blend_key] = (turn_index, float(measurements["cv_score"]))
             except Exception as exc:
                 error = f"{type(exc).__name__}: {exc}"
                 disposition = "unsupported" if "Unavailable model family" in str(exc) else "rejected"
@@ -880,11 +969,12 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
                     "duration_seconds": time.monotonic() - start}, "provider_cost_usd": response["cost_usd"],
                 "provider_cost_is_estimate": response.get("cost_is_estimate", False),
                 "requested_token_upper_bound": self.state["pending_turn"].get("requested_token_upper_bound", 0),
+                "operational_budgets": self.operational_budgets.get_status(),
                 "provider_receipt": response}
             self.state["turns"].append(turn); self.state["turns_completed"] = turn_index + 1
             self.state["pending_turn"] = None
             self._save_state(self.state)
-            self._event("turn_completed", turn_index=turn_index, action=action["action_type"], disposition=disposition, measurements=measurements, resources=turn["resource_observability"], critic_status=audit.get("status"))
+            self._event("turn_completed", turn_index=turn_index, action=action["action_type"], disposition=disposition, measurements=measurements, resources=turn["resource_observability"], critic_status=audit.get("status"), budgets=self.operational_budgets.get_status())
             return turn
         finally: self.sampler.stop()
 
@@ -918,9 +1008,19 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
         finally: self.sampler.stop()
 
     def export_handoff(self):
+        accepted_cand = self.state.get("accepted_candidate")
+        accepted_fams = accepted_cand.get("families", []) if isinstance(accepted_cand, dict) else []
+        if len(accepted_fams) == 1:
+            winning_family = accepted_fams[0]
+        elif len(accepted_fams) > 1:
+            winning_family = f"ensemble_blend({'+'.join(accepted_fams)})"
+        else:
+            winning_family = self.state.get("winning_model_family")
+        self.state["winning_model_family"] = winning_family
         payload = {"schema_version": 1, "binding": self.binding, "state_file": str(self.state_file),
             "stop_reason": self.state["stop_reason"], "pending_turn": self.state.get("pending_turn"),
             "accepted_candidate_id": self.state["accepted_candidate_id"], "candidate_identity": self.state["candidate_identity"],
+            "winning_model_family": winning_family,
             "accepted_audit": self.state["accepted_audit"], "last_turns": self.state["turns"][-3:],
             "pinned_iteration": self.state.get("pinned_iteration"),
             "selected_apex_iteration": self.state.get("selected_apex_iteration"),
@@ -933,13 +1033,27 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
             "human_control": self.interface.status(),
             "bundle_verified": bool(self.state.get("bundle_verified", False)),
             "controller_verified": bool(self.state.get("latest_controller_verified_score") is not None),
-            "budget": self.campaign_authority.get_status(), "production_certified": False}
+            "latest_controller_verified_score": self.state.get("latest_controller_verified_score"),
+            "budget": self.campaign_authority.get_status(),
+            "operational_budgets": self.operational_budgets.get_status(),
+            "production_certified": False}
         atomic_json(self.workspace_root / "handoff.json", payload)
+        b_stat = self.operational_budgets.get_status()
+        tok = b_stat["total_model_tokens"]
+        kag = b_stat["kaggle_compute"]
+        sea = b_stat["web_search_queries"]
         lines = ["# MLRescurix session handoff", "", f"Session: {self.session_id}", f"Stop: {self.state['stop_reason']}",
             f"Checkpoint: {self.state_file}", f"Accepted candidate: {self.state['accepted_candidate_id']}",
+            f"Winning Model Family: {winning_family}",
+            f"Controller Recomputed Score: {self.state.get('latest_controller_verified_score')}",
             f"Selected Apex Iteration: {self.state.get('selected_apex_iteration')} (Latest Apex: {self.state.get('latest_apex_iteration')})",
             f"Pinned Iteration: {self.state.get('pinned_iteration')}",
             f"Bundle verified: {bool(self.state.get('bundle_verified', False))}",
+            "",
+            "## Operational Budgets Status",
+            f"- **Total Model Tokens:** {tok['used']:,} used / {tok['limit']:,} limit ({tok['remaining']:,} remaining) [{tok['unit']}]",
+            f"- **Total Kaggle Compute:** {kag['used_hours']:.2f}h used / {kag['limit_hours']:.2f}h limit ({kag['remaining_hours']:.2f}h remaining) [{kag['unit']}]",
+            f"- **Total Web Search Queries:** {sea['used']} used / {sea['limit']} limit ({sea['remaining']} remaining) [{sea['unit']}]",
             "", "Production certification: false. Preserve data/fold hashes and shared campaign budget."]
 
         if self.state.get("iterations"):
@@ -996,14 +1110,22 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
                 amount = self._reservation(messages, 3500)
                 spent = sum(Decimal(str(t["provider_cost_usd"])) for t in self.state["turns"])
                 remaining = Decimal(str(self.campaign_authority.get_status().get("remaining_campaign_usd", 0)))
-                token_bound = (len(json.dumps(messages).encode()) // 3) + 4096 + 3500
-                token_used = sum(t.get("requested_token_upper_bound", 0) for t in self.state["turns"])
-                max_run_tokens = getattr(self, "max_run_tokens", 500000)
-                if token_used + token_bound > max_run_tokens:
+                if not self.operational_budgets.has_tokens_available(estimated_tokens=5000):
                     self.state["stop_reason"] = "token_budget_exhaustion"; break
                 if remaining < amount or spent + amount > self.per_run_budget_usd:
                     self.state["stop_reason"] = "budget_exhaustion"; break
-                self.execute_turn(i, dossier)
+                try:
+                    self.execute_turn(i, dossier)
+                except BudgetExhaustionError:
+                    self.state["pending_turn"] = None
+                    self.state["stop_reason"] = "budget_exhaustion"
+                    break
+                b_stat = self.operational_budgets.get_status()
+                tok = b_stat["total_model_tokens"]
+                kag = b_stat["kaggle_compute"]
+                sea = b_stat["web_search_queries"]
+                print(f"[OPERATIONAL BUDGET] Turn {i} complete: Tokens used: {tok['used']:,} / {tok['limit']:,} ({tok['remaining']:,} remaining) | Kaggle: {kag['used_hours']:.2f}h / {kag['limit_hours']:.2f}h | Search: {sea['used']} / {sea['limit']}", flush=True)
+                self._event("operational_budgets_status", turn_index=i, budgets=b_stat)
             if self.state["stop_reason"] is None: self.state["stop_reason"] = "max_turns_reached"
         except BaseException:
             self._save_state(self.state); self.export_handoff(); raise

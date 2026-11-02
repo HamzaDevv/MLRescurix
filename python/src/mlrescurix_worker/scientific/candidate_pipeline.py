@@ -206,7 +206,52 @@ class CandidatePipeline:
         return prediction
 
 
+PARAM_ALIASES = {
+    "hist_gbdt": {"n_estimators": "max_iter", "iterations": "max_iter", "depth": "max_depth", "lr": "learning_rate"},
+    "catboost": {"n_estimators": "iterations", "max_iter": "iterations", "max_depth": "depth", "lr": "learning_rate"},
+    "lgbm": {"max_iter": "n_estimators", "iterations": "n_estimators", "depth": "max_depth", "lr": "learning_rate"},
+    "xgboost": {"max_iter": "n_estimators", "iterations": "n_estimators", "depth": "max_depth", "lr": "learning_rate"},
+    "neural_tabular": {"learning_rate": "lr", "hidden_size": "hidden_dim", "num_layers": "num_blocks", "n_epochs": "epochs"},
+    "penalized_linear": {"iterations": "max_iter", "n_iter": "max_iter"},
+}
+
+
+def normalize_spec(spec: dict) -> dict:
+    """Normalize hyperparameter aliases, extract nested target transforms, prune non-selected families, and clean up spec."""
+    options = spec.get("model_parameters", {})
+    if isinstance(options, dict):
+        # Extract misplaced target_transform if present at model_parameters root
+        if "target_transform" in options:
+            if not spec.get("target_transform") or spec.get("target_transform") == "none":
+                spec["target_transform"] = options.pop("target_transform")
+            else:
+                options.pop("target_transform")
+        families = spec.get("families")
+        norm_fams = {normalize_family_name(f) for f in families} if isinstance(families, list) else None
+        for fam in list(options.keys()):
+            norm_fam = normalize_family_name(fam)
+            val = options.pop(fam)
+            if norm_fams is not None and norm_fam not in norm_fams:
+                continue
+            if isinstance(val, dict):
+                # Extract misplaced target_transform inside family parameters
+                if "target_transform" in val:
+                    if not spec.get("target_transform") or spec.get("target_transform") == "none":
+                        spec["target_transform"] = val.pop("target_transform")
+                    else:
+                        val.pop("target_transform")
+                if norm_fam in PARAM_ALIASES:
+                    fam_params = {}
+                    for k, v in val.items():
+                        canon_k = PARAM_ALIASES[norm_fam].get(k, k)
+                        fam_params[canon_k] = v
+                    val = fam_params
+            options[norm_fam] = val
+    return spec
+
+
 def validate_spec(spec):
+    normalize_spec(spec)
     if set(spec) - {"families", "weights", "transforms", "seed", "model_parameters", "target_transform"}:
         raise ValueError("Unknown candidate specification fields")
     if spec.get("target_transform", "none") not in ("none", "log", "log1p"):
@@ -221,14 +266,18 @@ def validate_spec(spec):
     allowed_params = {
         "penalized_linear": {"alpha", "C", "penalty", "l1_ratio", "max_iter"},
         "hist_gbdt": {"max_iter", "learning_rate", "max_depth", "min_samples_leaf", "l2_regularization"},
-        "lgbm": {"n_estimators", "learning_rate", "max_depth", "min_child_samples", "reg_alpha", "reg_lambda"},
+        "lgbm": {"n_estimators", "learning_rate", "max_depth", "min_child_samples", "reg_alpha", "reg_lambda", "subsample", "colsample_bytree"},
         "xgboost": {"n_estimators", "learning_rate", "max_depth", "subsample", "colsample_bytree", "reg_alpha", "reg_lambda"},
         "catboost": {"iterations", "learning_rate", "depth", "l2_leaf_reg"},
-        "neural_tabular": {"hidden_dim", "num_blocks", "dropout", "lr", "epochs", "batch_size"}}
+        "neural_tabular": {"hidden_dim", "num_blocks", "dropout", "lr", "epochs", "batch_size", "weight_decay"}}
     options = spec.get("model_parameters", {})
     if not isinstance(options, dict) or set(options) - set(families): raise ValueError("model_parameters must match selected families")
     for family, params in options.items():
-        if not isinstance(params, dict) or set(params) - allowed_params[family]: raise ValueError(f"Unsupported hyperparameter for {family}")
+        if not isinstance(params, dict):
+            raise ValueError(f"Parameters for {family} must be a dictionary")
+        unsupported = set(params) - allowed_params[family]
+        if unsupported:
+            raise ValueError(f"Unsupported hyperparameter(s) {sorted(unsupported)} for {family}. Allowed parameters for {family} are: {sorted(allowed_params[family])}")
         for name, value in params.items():
             if name != "penalty" and (isinstance(value, bool) or not isinstance(value, (int, float)) or not np.isfinite(value)):
                 raise ValueError("Hyperparameters must be finite numeric scalars")

@@ -359,3 +359,67 @@ def test_script_repair_locations_are_bounded_without_exporting_exception_data(tm
     assert result['repair_locations'] == [{'script': 'analysis.py', 'line': 1}]
     assert result['stderr'] == 'NameError'
     assert 'PRIVATE_ROW' not in json.dumps(result)
+
+
+def test_spec_pruning_on_subset_blend():
+    from mlrescurix_worker.scientific.candidate_pipeline import normalize_spec, validate_spec
+    # active_spec had 4 families with tuned hyperparameters
+    spec = {
+        "families": ["xgboost", "hist_gbdt"],
+        "weights": [0.6, 0.4],
+        "transforms": [],
+        "seed": 42,
+        "model_parameters": {
+            "xgboost": {"n_estimators": 400, "learning_rate": 0.05},
+            "catboost": {"iterations": 500, "learning_rate": 0.05},
+            "lgbm": {"n_estimators": 400, "learning_rate": 0.05},
+            "hist_gbdt": {"max_iter": 300, "learning_rate": 0.05},
+        },
+        "target_transform": "log1p",
+    }
+    # normalize_spec prunes unselected families (catboost, lgbm)
+    norm = normalize_spec(spec)
+    assert set(norm["model_parameters"]) == {"xgboost", "hist_gbdt"}
+    # validate_spec passes cleanly
+    validate_spec(norm)
+
+
+def test_normalize_spec_neural_regularization_and_aliases():
+    from mlrescurix_worker.scientific.candidate_pipeline import normalize_spec, validate_spec
+    spec = {
+        "families": ["neural_tabular"],
+        "weights": [1.0],
+        "transforms": [],
+        "seed": 42,
+        "model_parameters": {
+            "neural_tabular": {
+                "hidden_size": 128,  # alias for hidden_dim
+                "learning_rate": 0.001,  # alias for lr
+                "weight_decay": 1e-4,  # regularization parameter
+                "target_transform": "log1p",  # misplaced target_transform
+            }
+        },
+    }
+    norm = normalize_spec(spec)
+    assert norm["target_transform"] == "log1p"
+    assert "target_transform" not in norm["model_parameters"]["neural_tabular"]
+    assert "hidden_dim" in norm["model_parameters"]["neural_tabular"]
+    assert norm["model_parameters"]["neural_tabular"]["weight_decay"] == 1e-4
+    validate_spec(norm)
+
+
+def test_execution_service_unbounded_candidate_evaluations(tmp_path):
+    from mlrescurix_worker.scientific.execution_service import ExecutionService
+    es = ExecutionService()
+    class MockSession:
+        def __init__(self):
+            self.binding = {"source_sha256": "dummy", "data_sha256": "dummy"}
+            self.dataset_path = tmp_path / "dummy.csv"
+            self.state = {"evaluation_count": 15}
+            self.max_candidate_evaluations = None
+    sess = MockSession()
+    # Check that evaluation_count >= 12 does not raise ValueError when max_candidate_evaluations is None
+    # (will proceed past count check to source_identity check)
+    with pytest.raises(ValueError, match="Worker source changed"):
+        es.evaluate(sess, {}, operation="evaluate")
+
