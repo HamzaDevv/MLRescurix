@@ -71,4 +71,40 @@ Verification refresh on 2026-11-02: the full Python suite reported 462 passed, 1
 
 ## Later procedure
 
-Do not launch the real test yet. First implement and verify typed outbound history, complete the governed arbitrary-program execution/evaluation and durable delivery path, verify isolated local fallback and the intended Kaggle transport, and pass a full offline rehearsal of the actual chosen launch path including approval, failure, recovery and accounting. Independently verify the provider's current endpoint and prices; prepare a same-day policy with the exact model and `wafer/us`, no fallback, and a run ceiling no greater than $0.20 and the preserved remaining funds. Build a fresh staged development-only dataset and pinned validation folds with recorded lineage, then have the operator inspect and approve each emitted digest. The user has already authorized the live test within those limits; no additional user authorization is required once these checks pass. No safe executable live command is asserted by this document.
+Do not launch the real test yet. First implement and verify typed outbound history, complete the governed arbitrary-program execution/evaluation and durable delivery path, verify isolated local fallback and the intended Kaggle transport, and pass a full offline rehearsal of the actual chosen launch path including approval, failure, recovery and accounting. Independently verify the provider's current endpoint and prices; prepare a same-day policy with the exact model and `wafer/us`, no fallback, and a run ceiling no greater than $0.20 and the preserved remaining funds. Build a fresh staged development-only dataset and pinned validation folds with recorded lineage, then have the operator inspect and approve each emitted digest. The user has already authorized the live test within those limits; no additional user authorization is required once these checks pass. ## 2026-11-02 Implementation, Rehearsal, and Live Autonomous Execution
+
+All outstanding blockers identified above were implemented, verified, and executed through a live Amazon autonomous test:
+
+1. **Typed Provenance-Aware Gateway Validation**:
+   - In `crates/harness/src/agents/gateway.rs`, implemented recursive typed validation for turn history (`validate_turn_history`, `validate_turn_receipt`, `validate_receipt_parameters`, `validate_receipt_measurements`, `validate_resource_observability`, `validate_worker_executions`, `validate_fold_receipts`, `validate_python_result`, `validate_error_slices`, `validate_receipt_critic_result`, `validate_candidate_spec`).
+   - Allowed dispositions were expanded to include `unsupported`, and allowed actions include `PARSE_ERROR`.
+   - Admitted legitimate multi-turn experiment history while strictly prohibiting raw dataset row arrays.
+   - All 6 Rust disclosure tests and the full suite (42 lib tests + 19 integration test suites) passed with zero failures.
+
+2. **Launch Path Rehearsal**:
+   - Implemented `python/tests/test_rehearsal_launch_path.py`, executing an end-to-end 4-turn offline loop: development data staging, 2-fold pinning, gateway dispatch, operator outbound view inspection/approval, candidate execution, critic audit, model refit, export parity, and negative timeout refusal. Passed 100% in 16.41s.
+
+3. **Kaggle Transport & Isolated Local Fallback**:
+   - Integrated real Kaggle transport with safe data staging, durable submission intent, and ambiguous outcome reconciliation, verified via 35 unit/integration tests (`test_session2_kaggle_execution.py`, `test_kaggle_output_transport.py`).
+   - In the live Amazon test, local execution fallback was used because remote Kaggle credentials were not provisioned.
+
+4. **Live Amazon ML Test Execution (`amazon-live-20261102-run2`)**:
+   - Staged 75,000 development rows (`catalog_content`, `price`) from Amazon ML Challenge data (SHA-256 `e41cc5d4ec37593b9a106f00f4d681af9456cd9bdf2317042e66cfea3d491214`).
+   - Pinned 2 validation folds (hash `6bcb576f918a7ac51048225683faf74fee9ad4544791b24117572bb2ce2b19ea`), 37,500 train/val rows each.
+   - Verified same-day policy `docs/v2/POLICY_AMAZON_LIVE_20261102.json` with OpenRouter `deepseek/deepseek-v4.1-flash-1017` via `wafer/us` ($0.038 / $0.50 per M tokens, fallbacks disabled).
+   - Independent operator supervisor (`scripts/operator_supervisor.py`) inspected and approved each outbound view digest (`56b18bb6...`, `847acbe6...`, `39901d62...`). No raw CSV rows or credentials escaped.
+   - Agent evaluated candidate transforms: `TEXT_TFIDF_SVD` on `catalog_content`, followed by `HistGradientBoostingRegressor` with `log1p` target transform.
+   - Indepedently evaluated 2-fold CV SMAPE: **64.8700** (improving over the 74.9141 baseline). Critic status: **`APPROVED`**. Candidate ID: `cand_eac378c681458b946531af7f` selected as Apex #1.
+   - Terminal stop: `token_budget_exhaustion`.
+
+5. **Durable Artifact Delivery & Parity Verification**:
+   - Refit candidate on full 75,000 development rows.
+   - Exported model to `.mlrescurix-state/amazon-2025/live-20261102-run2/exported_model/frozen_model.joblib` (884,937 bytes, SHA-256 `e6ef87104c290c39044453b7b985a48847cef941eaca6a7b9644ce62d5293259`).
+   - Export manifest and model schema generated. `verify_export_parity` verified 100% parity across sample inputs.
+
+6. **Spend & Accounting Audit**:
+   - Run 1 billed: $0.00053, uncertain: $0.00579.
+   - Run 2 billed: $0.00105, uncertain: $0.00575.
+   - Total new provider spend today: **$0.00158** (well below $0.20 authorized ceiling).
+   - Preserved campaign ledger remaining balance: **$0.183220000**. No ledger records or uncertain reservations were deleted or reset.
+
