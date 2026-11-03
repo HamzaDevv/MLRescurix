@@ -1,0 +1,43 @@
+{
+  "gate": "A",
+  "status": "PASS",
+  "title": "Multi-file Unlisted Method Authoring, Execution, Trusted Scoring, and Standalone Replay",
+  "test_target": "crates/harness/tests/s3_gates.rs::test_gate_a_multi_file_unlisted_method_and_generic_replay",
+  "architecture": "CauchySplineRegressor",
+  "unlisted_method": {
+    "files": [
+      {
+        "filename": "helper.py",
+        "description": "Unlisted radial basis Cauchy transformation kernel"
+      },
+      {
+        "filename": "solution.py",
+        "description": "Model fitting and prediction consuming helper.cauchy_basis"
+      },
+      {
+        "filename": "program.json",
+        "description": "Generic program execution manifest defining fit and infer argv, input mounts, and output artifacts"
+      }
+    ],
+    "authoring_flow": "Turn 1: helper.py authored -> Turn 2: solution.py authored -> Turn 3: program.json authored -> Turn 4: specialist finalize",
+    "execution_flow": "Admitted training subprocess -> separate label-free inference subprocess -> Rust trusted evaluation scoring (MAE) -> frozen selection -> delivery bundle"
+  },
+  "bundle_contents": [
+    "helper.py",
+    "solution.py",
+    "program.json",
+    "model_weights.json",
+    "manifest.json",
+    "scorecard.json",
+    "inference.py",
+    "serve.py"
+  ],
+  "verification": {
+    "manifest_verified": true,
+    "contracts_verified": true,
+    "generic_replay_verified": true,
+    "fast_path_replay_verified": true,
+    "manifest_removal_repack_verified": true,
+    "source_hash_filtered_wrappers": true
+  }
+}

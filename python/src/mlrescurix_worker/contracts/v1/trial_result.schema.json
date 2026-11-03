@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:trial-result:1",
+  "type": "object",
+  "required": [
+    "experiment_id",
+    "status",
+    "primary_metric",
+    "metrics",
+    "constraints",
+    "is_feasible",
+    "train_ms",
+    "model_sha256",
+    "predictions_sha256",
+    "artifact_path"
+  ],
+  "properties": {
+    "experiment_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "status": { "type": "string", "enum": ["evaluated", "infeasible", "failed", "pruned"] },
+    "primary_metric": { "type": "number" },
+    "metrics": { "type": "object" },
+    "constraints": { "type": "object" },
+    "is_feasible": { "type": "boolean" },
+    "train_ms": { "type": "number", "minimum": 0.0 },
+    "model_sha256": { "type": "string", "minLength": 64, "maxLength": 64 },
+    "predictions_sha256": { "type": "string", "minLength": 64, "maxLength": 64 },
+    "artifact_path": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": false
+}

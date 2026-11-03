@@ -251,8 +251,6 @@ def test_complete_launch_path_rehearsal(tmp_path: Path):
         op_thread.join(timeout=2)
 
     # 7. Verify Turn Execution & Stop Reason
-    for t in loop_state["turns"]:
-        print("TURN:", t["turn_index"], "action:", t["proposed_action"].get("action_type"), "disp:", t.get("disposition"), "error:", t.get("error_message") or t.get("error"), "stop:", loop_state.get("stop_reason"))
     assert loop_state["turns_completed"] == 4
     assert loop_state["stop_reason"] == "FINALIZE_AND_STOP"
     assert len(approved_shas) == 4, f"Expected 4 approved outbound views, got {len(approved_shas)}"

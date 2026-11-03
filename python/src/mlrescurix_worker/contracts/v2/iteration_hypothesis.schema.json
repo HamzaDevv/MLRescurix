@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:iteration-hypothesis:2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "hypothesis_id",
+    "candidate_id",
+    "mutation_type",
+    "hypothesis_statement",
+    "expected_metric_delta",
+    "multi_fidelity_budget"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "v2"
+    },
+    "hypothesis_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "candidate_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "parent_candidate_id": {
+      "type": ["string", "null"],
+      "maxLength": 128
+    },
+    "mutation_type": {
+      "type": "string",
+      "enum": [
+        "feature_engineering",
+        "hyperparameter_tuning",
+        "architecture_change",
+        "ensembling"
+      ]
+    },
+    "hypothesis_statement": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "rationale": {
+      "type": ["string", "null"],
+      "maxLength": 4096
+    },
+    "expected_metric_delta": {
+      "type": "object",
+      "required": [
+        "metric",
+        "direction"
+      ],
+      "properties": {
+        "metric": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "direction": {
+          "type": "string",
+          "enum": ["maximize", "minimize"]
+        },
+        "target_threshold": {
+          "type": ["number", "null"]
+        },
+        "minimum_improvement": {
+          "type": "number",
+          "minimum": 0.0
+        }
+      },
+      "additionalProperties": false
+    },
+    "multi_fidelity_budget": {
+      "type": "object",
+      "required": [
+        "proxy_tier",
+        "full_tier"
+      ],
+      "properties": {
+        "proxy_tier": {
+          "type": "object",
+          "required": [
+            "max_samples"
+          ],
+          "properties": {
+            "max_samples": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 50000
+            },
+            "fidelity_level": {
+              "type": "number",
+              "exclusiveMinimum": 0.0,
+              "maximum": 1.0
+            },
+            "screening_threshold": {
+              "type": ["number", "null"]
+            },
+            "timeout_ms": {
+              "type": "integer",
+              "minimum": 100
+            }
+          },
+          "additionalProperties": false
+        },
+        "full_tier": {
+          "type": "object",
+          "required": [
+            "folds"
+          ],
+          "properties": {
+            "folds": {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 10
+            },
+            "seed": {
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "type": "integer",
+              "minimum": 500
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "outcome": {
+      "type": "object",
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "admitted",
+            "rejected",
+            "confirmed",
+            "refuted",
+            "inconclusive"
+          ]
+        },
+        "baseline_metric": {
+          "type": ["number", "null"]
+        },
+        "proxy_metric_observed": {
+          "type": ["number", "null"]
+        },
+        "full_metric_observed": {
+          "type": ["number", "null"]
+        },
+        "metric_delta": {
+          "type": ["number", "null"]
+        },
+        "reason": {
+          "type": ["string", "null"],
+          "maxLength": 2048
+        },
+        "settled_at_ms": {
+          "type": ["integer", "null"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "created_ms": {
+      "type": "integer"
+    }
+  },
+  "additionalProperties": false
+}

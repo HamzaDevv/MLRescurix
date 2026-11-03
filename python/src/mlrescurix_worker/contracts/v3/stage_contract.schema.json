@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:stage-contract:3",
+  "title": "StageContract",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "campaign_id",
+    "task_id",
+    "role",
+    "protocol_sha256",
+    "campaign_epoch",
+    "branch_id",
+    "attempt_generation",
+    "problem_spec_ref",
+    "capability_profile",
+    "resource_profile_ref",
+    "reservation_id"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "mlrescurix.stage.v1"
+    },
+    "campaign_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_.:-]+$"
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_.:-]+$"
+    },
+    "role": {
+      "type": "string",
+      "minLength": 1
+    },
+    "protocol_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "campaign_epoch": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "branch_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_.:-]+$"
+    },
+    "attempt_generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "problem_spec_ref": {
+      "type": "string"
+    },
+    "input_artifact_refs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "hypothesis_ref": {
+      "type": ["string", "null"]
+    },
+    "prior_result_refs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "capability_profile": {
+      "type": "string"
+    },
+    "resource_profile_ref": {
+      "type": "string"
+    },
+    "reservation_id": {
+      "type": "string"
+    },
+    "expected_artifacts": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "acceptance_policy_ref": {
+      "type": ["string", "null"]
+    }
+  },
+  "additionalProperties": false
+}

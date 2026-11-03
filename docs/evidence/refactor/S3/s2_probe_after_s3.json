@@ -1,0 +1,19 @@
+{
+  "search": {
+    "terminal_success_after_contradictory_settlement": "success",
+    "without_admission_authority_status": "refused_without_admission_authority",
+    "without_admission_authority_provider_calls": 0
+  },
+  "source_rebinding": {
+    "repack_exit": 1,
+    "stderr": "offline trusted fixture: host subprocesses; no live provider, containment, independent-agent, or release certification\nlockbox assessment already consumed for candidate 'cand_source_probe_4f40e138', but candidate source SHA-256 '9f60fb73bfb1a56d4f5b1a8c15428aa24869979d5eff871eb874c88b9410090b' does not match evaluated source SHA-256 'd5e87244df5491c0aa23dd3d55db2e969827816bbc8bf71aaca260579339b668'; cannot repackage modified source with old scores"
+  },
+  "built_wheel": {
+    "build_exit": 0,
+    "action_schema_files": [
+      "mlrescurix_worker/contracts/v3/actions.json"
+    ],
+    "isolated_wheel_import_exit": 0,
+    "error_tail": []
+  }
+}

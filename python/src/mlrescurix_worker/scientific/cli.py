@@ -481,11 +481,13 @@ def main() -> int:
                 bundle_output_dir=spec_data.get("bundle_output_dir"),
                 project_id=spec_data.get("project_id", "default"),
                 session_id=spec_data.get("session_id", "session_001"),
+                metric_name=spec_data.get("metric_name"),
+                metric_direction=spec_data.get("metric_direction"),
             )
+            result = {k: v for k, v in result.items() if k != "pipeline"}
             if args.output:
                 args.output.parent.mkdir(parents=True, exist_ok=True)
-                clean_result = {k: v for k, v in result.items() if k != "pipeline"}
-                args.output.write_text(json.dumps(clean_result, indent=2, sort_keys=True, default=str), encoding="utf-8")
+                args.output.write_text(json.dumps(result, indent=2, sort_keys=True, default=str), encoding="utf-8")
         elif args.command == "fit-trial":
             result = fit_trial_worker(args.spec, args.output)
         else:

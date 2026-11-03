@@ -1,0 +1,39 @@
+{
+  "gate": "B",
+  "status": "PASS",
+  "title": "Context Isolation & Evidence-Dependent Trajectories",
+  "test_targets": [
+    "crates/harness/tests/s3_gates.rs::test_gate_b_evidence_dependent_trajectories_and_context_isolation",
+    "crates/harness/tests/s3_gates.rs::test_gate_b_trajectory_3_challenger_challenge_halts_without_assessment"
+  ],
+  "trajectories": {
+    "trajectory_2_repair": {
+      "flow": "Turn 1: Broken syntax drafted in solution.py -> Turn 2: Bounded repair with working code and program.json -> Turn 3: Specialist finalize -> Turn 4: Boss ReAct observes evidence and delegates to challenger -> Turn 5: Challenger audits and approves -> Turn 6: Boss finalizes",
+      "outcome": "Successful campaign with bounded repair within token budget",
+      "test_target": "crates/harness/tests/s3_gates.rs::test_gate_b_evidence_dependent_trajectories_and_context_isolation"
+    },
+    "trajectory_3_challenge_halt": {
+      "flow": "Boss observes challenger challenge -> halts campaign with verdict='failed' -> 0 lockbox consumptions",
+      "outcome": "Unapproved candidate never consumes assessment lockbox",
+      "test_target": "crates/harness/tests/s3_gates.rs::test_gate_b_trajectory_3_challenger_challenge_halts_without_assessment"
+    }
+  },
+  "context_isolation": {
+    "verified_in_sqlite": true,
+    "table": "task_assignments",
+    "role_id": "challenger",
+    "received_fields": [
+      "candidate_id",
+      "protocol_sha256",
+      "metric",
+      "validation_score",
+      "validation_rows",
+      "feature_columns"
+    ],
+    "excluded_fields": [
+      "foreign_transcripts",
+      "proposer_advocacy",
+      "private_labels"
+    ]
+  }
+}

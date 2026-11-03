@@ -48,6 +48,14 @@ def get_critique_receipt_schema() -> Dict[str, Any]:
     """Load and cache contracts/v2/critique_receipt.schema.json."""
     global _CACHED_SCHEMA
     if _CACHED_SCHEMA is None:
+        try:
+            import importlib.resources as pkg_resources
+            res = pkg_resources.files("mlrescurix_worker").joinpath("contracts/v2/critique_receipt.schema.json")
+            if res.is_file():
+                _CACHED_SCHEMA = json.loads(res.read_text(encoding="utf-8"))
+                return _CACHED_SCHEMA
+        except Exception:
+            pass
         candidates = [
             SCHEMA_PATH,
             Path.cwd() / SCHEMA_PATH,

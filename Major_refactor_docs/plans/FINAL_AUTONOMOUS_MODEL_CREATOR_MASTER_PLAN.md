@@ -2,9 +2,9 @@
 
 **Platform:** MLRescurix
 
-**Revision:** 3.3 — November 3, 2026 — S2 independent review and major S3 assignment
+**Revision:** 3.4 — November 3, 2026 — S3 independent review and major S4 assignment
 
-**Status:** S1/S2 foundations are partially implemented; independent reviews did not uphold their all-PASS claims. S2 adds owner branching, transactional lease acquisition and durable Python search admission. Unified Rust resource authority, atomic fenced mutations, immutable source-to-score release binding and production isolation remain open. See section 10.5 and the S2 red-team review; S3 closes these prerequisites while delivering the open execution slice.
+**Status:** S1–S3 foundations are partially implemented and independently reviewed. S3 improves an offline multi-file fixture and some accounting and fencing helpers, but unified Rust resource authority, real campaign recovery, complete release provenance and production isolation remain open. S4 is assigned to close those prerequisites while adding autonomous research and scientific breadth.
 
 **Code baseline:** `95a35e9` plus the existing working-tree changes inspected on November 2. Earlier detailed inventories are historical, not certification of current behavior.
 
@@ -1115,8 +1115,8 @@ Update the session row below with the packet link and evidence-based verdict, an
 |---|---|---|
 | S1 | PARTIAL; independent acceptance not established. Numerical/specialist scaffolding exists; boss decisions, recovery/evidence binding, durable accounting and contract gates remain. Bounded isolation/challenger/CSV repairs verified. | [Independent review](../../docs/refactor_sessions/S1_RED_TEAM_REVIEW.md); [original author packet](../../docs/refactor_sessions/S1_REVIEW.md); [evidence](../../docs/evidence/refactor/S1/red_team/) |
 | S2 | PARTIAL; all-PASS not upheld. Provider-backed owner branches, changed-spec/weights rejection and durable search admission exist. Review repaired missing owner authorization, malformed challenger bindings, actual loop search restart identity and uncertain sibling handling. One Rust authority, atomic mutation fences, containment and source-bound release remain unaccepted. | [Independent review](../../docs/refactor_sessions/S2_RED_TEAM_REVIEW.md); [historical author packet](../../docs/refactor_sessions/S2_REVIEW.md); [independent evidence](../../docs/evidence/refactor/S2/red_team/) |
-| S3 | Assigned: close verified S2 authority/provenance gaps as prerequisites, then implement the open contained train→infer→score→standalone delivery path; no further routine design approval required | [Major S3 assignment](./ANTIGRAVITY_SESSION_3_PROMPT.md) |
-| S4 | Not yet executed under this session plan | Pending S3 review |
+| S3 | PARTIAL; offline multi-file fixture, search refusal, settlement checks and fenced-write helper improved. Unified authority, real killed-campaign recovery, complete provenance, scored-candidate replay and containment remain unaccepted. | [Independent review](../../docs/refactor_sessions/S3_RED_TEAM_REVIEW.md); [author packet](../../docs/refactor_sessions/S3_REVIEW.md) |
+| S4 | Assigned: close S3 authority, provenance and recovery gaps while delivering autonomous research and scientific breadth | [Major S4 assignment](./ANTIGRAVITY_SESSION_4_PROMPT.md) |
 | S5 | Not yet executed under this session plan | Pending S4 review |
 | S6 | Not yet executed under this session plan | Pending applicable gates |
 
@@ -1290,9 +1290,11 @@ The plan is ready for implementation because design choices, authority boundarie
 - Full v3 writer/validators and legacy compatibility pass; release sealing is atomic and controller anchored.
 - Real benchmark outcomes, quality limitations and unverified capabilities are reported honestly. No numerical rubric score substitutes for these gates.
 
-**Next implementation action:** Execute [the major S3 assignment](./ANTIGRAVITY_SESSION_3_PROMPT.md), closing the specific authority, recovery and source-to-score defects in [the independent S2 review](../../docs/refactor_sessions/S2_RED_TEAM_REVIEW.md) as prerequisites of W4's open execution/delivery slice. Keep the six-session structure and continue S4–S6 through their acceptance gates, with review and bounded fixes in this chat between major sessions. Maintain acceptance receipts and the session status view here rather than creating another competing master plan. No further design approval is needed for routine implementation already within the user's authorized scope. Credentials, task-specific permissions, real-data licenses and hardware availability are runtime inputs; their absence does not justify inventing capabilities or blocking independent local work.
+**Next implementation action:** Execute [the major S4 assignment](./ANTIGRAVITY_SESSION_4_PROMPT.md), including the unfinished S3 prerequisites documented in the [independent S3 review](../../docs/refactor_sessions/S3_RED_TEAM_REVIEW.md). Preserve historical evidence and liabilities, and keep production and external capabilities gated until verified.
 
 ### Source verification record
+
+Revision 3.4 records the independent S3 review: claims of one Rust resource authority, real campaign SIGKILL recovery, complete source-to-score binding and frozen candidate replay are not established by the submitted tests. A bounded correction includes nested wrapper-named Python files in source hashes and rejects candidate root wrapper name collisions; full provenance remains open.
 
 Revision 3.3 records the independent S2 review and major S3 assignment. The all-PASS claim is corrected to partial acceptance. Bounded runtime repairs reject invalid owner authorization and contradictory challenger identity, preserve pre-turn search accounting through actual loop reconstruction, propagate explicit uncertain-execution recovery and accurately label host fixture environments. A disposable offline probe still exported changed inference source with unchanged weights and old assessment scores; full immutable execution/release binding and unified resource/worker authority remain S3 prerequisites. No new live Amazon campaign or production containment is certified.
 

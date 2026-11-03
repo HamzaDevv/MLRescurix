@@ -125,6 +125,21 @@ class OperationalBudgets:
         try:
             now_ms = int(time.time() * 1000)
             with sqlite3.connect(self.db_path, timeout=10.0) as conn:
+                cur = conn.execute(
+                    "SELECT status FROM operational_search_attempts WHERE project = ? AND attempt_id = ?",
+                    (self.project_id, attempt_id)
+                ).fetchone()
+                if cur:
+                    current_status = cur[0]
+                    terminal_states = {"success", "failed", "timeout"}
+                    if current_status in terminal_states:
+                        if current_status == status:
+                            return
+                        logger.warning(
+                            f"Rejected conflicting settlement for attempt {attempt_id}: "
+                            f"already terminal ({current_status}), requested ({status})"
+                        )
+                        return
                 conn.execute(
                     """UPDATE operational_search_attempts
                        SET status = ?, settled_ms = ?, error_message = ?

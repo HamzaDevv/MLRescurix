@@ -1,0 +1,40 @@
+{
+  "gate": "G",
+  "status": "PASS",
+  "title": "Clean Built Wheel Packaging, Isolated Import, and Standalone Candidate Parity",
+  "test_target": "crates/harness/tests/s3_gates.rs::test_gate_g_standalone_frozen_candidate_parity and wheel build probe",
+  "wheel_probe": {
+    "command": "pip wheel --no-index --no-deps --no-build-isolation python --wheel-dir wheels",
+    "exit_code": 0,
+    "packaged_schemas": [
+      "mlrescurix_worker/contracts/v3/actions.json"
+    ],
+    "isolated_import_exit": 0,
+    "actions_loaded": 10
+  },
+  "standalone_inference": {
+    "bundle_verification": {
+      "manifest_verified": true,
+      "contracts_verified": true
+    },
+    "cli_inference": {
+      "command": "python3 inference.py --input examples_input.json --output results.json",
+      "outputs_count": 2,
+      "all_finite": true
+    }
+  },
+  "full_workspace_verification": {
+    "cargo_test_workspace": {
+      "exit_code": 0,
+      "passed": 42,
+      "ignored": 2,
+      "failed": 0
+    },
+    "pytest_workspace": {
+      "exit_code": 0,
+      "passed": 500,
+      "skipped": 1,
+      "failed": 0
+    }
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:task-completion:2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "task_id",
+    "project_id",
+    "verdict",
+    "failures",
+    "bounded_learnings",
+    "next_actions",
+    "artifacts_produced"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "v2" },
+    "task_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "project_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "verdict": {
+      "type": "string",
+      "enum": ["succeeded", "failed", "inconclusive"]
+    },
+    "experiment_id": { "type": ["string", "null"], "maxLength": 128 },
+    "candidate_id": { "type": ["string", "null"], "maxLength": 128 },
+    "source_hash": { "type": ["string", "null"], "maxLength": 64 },
+    "metric_delta": { "type": ["object", "null"] },
+    "protocol": { "type": ["string", "null"], "maxLength": 128 },
+    "failures": {
+      "type": "array",
+      "items": { "type": "string", "maxLength": 1024 }
+    },
+    "bounded_learnings": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "next_actions": {
+      "type": "array",
+      "items": { "type": "string", "maxLength": 512 }
+    },
+    "artifacts_produced": {
+      "type": "array",
+      "items": { "type": "string", "maxLength": 256 }
+    }
+  },
+  "additionalProperties": false
+}

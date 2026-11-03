@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:capability:3",
+  "title": "CapabilityContract",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "capability_id",
+    "kind",
+    "purpose",
+    "entrypoint"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "mlrescurix.capability.v1"
+    },
+    "capability_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_.:-]+$"
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["splitter", "metric_evaluator", "tool", "method", "task_adapter"]
+    },
+    "purpose": {
+      "type": "string"
+    },
+    "entrypoint": {
+      "type": "string"
+    },
+    "dependencies": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "fit_scope_kind": {
+      "type": ["string", "null"]
+    },
+    "spec_ref": {
+      "type": ["string", "null"]
+    },
+    "reference_implementation_ref": {
+      "type": ["string", "null"]
+    },
+    "fixture_refs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "assurance_requested": {
+      "type": "string",
+      "enum": ["authoritative_reference", "provisional_spec_checked", "property_checked_only"],
+      "default": "provisional_spec_checked"
+    }
+  },
+  "additionalProperties": false
+}

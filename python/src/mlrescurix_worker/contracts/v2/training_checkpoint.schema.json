@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:training-checkpoint:2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "checkpoint_id",
+    "job_id",
+    "step",
+    "epoch",
+    "batch_offset",
+    "sampler_position",
+    "files",
+    "timestamp_unix"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "v2" },
+    "checkpoint_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "job_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "project_id": { "type": ["string", "null"], "maxLength": 128 },
+    "candidate_id": { "type": ["string", "null"], "maxLength": 128 },
+    "weights_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "dataset_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "split_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "source_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "environment_id": { "type": ["string", "null"], "maxLength": 128 },
+    "training_config": { "type": ["object", "null"] },
+    "replay_guarantee": { "type": ["string", "null"], "maxLength": 128 },
+    "step": { "type": "integer", "minimum": 0 },
+    "epoch": { "type": "integer", "minimum": 0 },
+    "batch_offset": { "type": "integer", "minimum": 0 },
+    "sampler_position": { "type": "integer", "minimum": 0 },
+    "loss": { "type": ["number", "null"] },
+    "files": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      }
+    },
+    "training_state": {
+      "type": "object"
+    },
+    "timestamp_unix": { "type": "number", "minimum": 0.0 }
+  },
+  "additionalProperties": false
+}

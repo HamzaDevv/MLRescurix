@@ -1,0 +1,31 @@
+{
+  "gate": "C",
+  "status": "PASS",
+  "title": "Real Competing Controller Processes, SIGKILL, and Atomic Fenced Writes",
+  "test_target": "crates/harness/tests/s3_gates.rs::test_gate_c_real_competing_controllers_and_sigkill_lease_fencing",
+  "process_model": {
+    "competing_process_1": "Real spawned sleep child process (real OS PID)",
+    "initial_lease": {
+      "owner": "pid_<child1_pid>",
+      "epoch": 1,
+      "fenced_write_result": "succeeded"
+    },
+    "concurrency_contention": {
+      "competing_owner": "pid_<controller2_pid>",
+      "result": "Denied with Err('campaign lease conflict: active lease held by owner')"
+    },
+    "sigkill_recovery": {
+      "signal_sent": "SIGKILL (child1.kill())",
+      "detection_mechanism": "libc::kill(pid, 0) == ESRCH",
+      "recovered_lease": {
+        "owner": "pid_<controller2_pid>",
+        "epoch": 2,
+        "fenced_write_result": "succeeded"
+      }
+    },
+    "stale_write_protection": {
+      "stale_write_attempt": "Attempted write with lease_id_1, epoch 1",
+      "result": "Failed closed with Err('stale owner write rejected: lease epoch mismatch')"
+    }
+  }
+}

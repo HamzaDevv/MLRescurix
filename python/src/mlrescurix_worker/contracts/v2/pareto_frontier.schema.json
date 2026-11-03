@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:pareto-frontier:2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "frontier_id",
+    "project_id",
+    "primary_metric_name",
+    "optimization_direction",
+    "records",
+    "frontier_candidate_ids",
+    "non_dominated_count",
+    "dominated_count",
+    "evaluated_at_ms"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "v2"
+    },
+    "frontier_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "primary_metric_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "optimization_direction": {
+      "type": "string",
+      "enum": ["maximize", "minimize"]
+    },
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "candidate_id",
+          "validation_score",
+          "latency_ms",
+          "peak_memory_bytes",
+          "domination_status",
+          "dominated_by"
+        ],
+        "properties": {
+          "candidate_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "parent_candidate_id": {
+            "type": ["string", "null"],
+            "maxLength": 128
+          },
+          "validation_score": {
+            "type": "number"
+          },
+          "latency_ms": {
+            "type": "number",
+            "minimum": 0.0
+          },
+          "peak_memory_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "domination_status": {
+            "type": "string",
+            "enum": ["non_dominated", "dominated"]
+          },
+          "dominated_by": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "metadata": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "frontier_candidate_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "non_dominated_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "dominated_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "evaluated_at_ms": {
+      "type": "integer"
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,245 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:benchmark-report:2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "suite_id",
+    "dataset_name",
+    "task",
+    "metric",
+    "direction",
+    "seeds",
+    "budget_per_strategy",
+    "results",
+    "comparative_summary",
+    "generated_at_ms"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "v2"
+    },
+    "suite_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "dataset_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "task": {
+      "type": "string",
+      "enum": [
+        "binary_classification",
+        "multiclass_classification",
+        "regression"
+      ]
+    },
+    "metric": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "direction": {
+      "type": "string",
+      "enum": [
+        "maximize",
+        "minimize"
+      ]
+    },
+    "seeds": {
+      "type": "array",
+      "items": {
+        "type": "integer"
+      },
+      "minItems": 1
+    },
+    "budget_per_strategy": {
+      "type": "object",
+      "required": [
+        "max_trials",
+        "wall_budget_ms",
+        "max_memory_mb",
+        "max_threads"
+      ],
+      "properties": {
+        "max_trials": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "wall_budget_ms": {
+          "type": "number",
+          "minimum": 0.0
+        },
+        "max_memory_mb": {
+          "type": "number",
+          "minimum": 0.0
+        },
+        "max_threads": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "results": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "strategy",
+          "trials_attempted",
+          "trials_succeeded",
+          "trials_failed",
+          "total_wall_ms",
+          "trials"
+        ],
+        "properties": {
+          "strategy": {
+            "type": "string"
+          },
+          "trials_attempted": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "trials_succeeded": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "trials_failed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "best_candidate_id": {
+            "type": ["string", "null"]
+          },
+          "best_metric_score": {
+            "type": ["number", "null"]
+          },
+          "mean_metric_score": {
+            "type": ["number", "null"]
+          },
+          "std_metric_score": {
+            "type": ["number", "null"]
+          },
+          "total_wall_ms": {
+            "type": "number",
+            "minimum": 0.0
+          },
+          "peak_memory_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "trials": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "trial_id",
+                "strategy",
+                "seed",
+                "recipe",
+                "params",
+                "status",
+                "wall_ms"
+              ],
+              "properties": {
+                "trial_id": {
+                  "type": "string"
+                },
+                "strategy": {
+                  "type": "string"
+                },
+                "seed": {
+                  "type": "integer"
+                },
+                "recipe": {
+                  "type": "string"
+                },
+                "params": {
+                  "type": "object"
+                },
+                "metric_score": {
+                  "type": ["number", "null"]
+                },
+                "train_score": {
+                  "type": ["number", "null"]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "success",
+                    "suboptimal",
+                    "failed_constraint",
+                    "timeout",
+                    "rejected_overfit"
+                  ]
+                },
+                "wall_ms": {
+                  "type": "number",
+                  "minimum": 0.0
+                },
+                "peak_memory_bytes": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "error_message": {
+                  "type": ["string", "null"]
+                },
+                "generalization_gap": {
+                  "type": ["number", "null"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "comparative_summary": {
+      "type": "object",
+      "required": [
+        "best_strategy",
+        "statistical_claim",
+        "suboptimal_and_failing_trials_recorded",
+        "matched_budgets_verified",
+        "zero_test_leakage_verified"
+      ],
+      "properties": {
+        "best_strategy": {
+          "type": "string"
+        },
+        "best_metric_score": {
+          "type": ["number", "null"]
+        },
+        "statistical_claim": {
+          "type": "string"
+        },
+        "suboptimal_and_failing_trials_recorded": {
+          "type": "boolean"
+        },
+        "matched_budgets_verified": {
+          "type": "boolean"
+        },
+        "zero_test_leakage_verified": {
+          "type": "boolean"
+        },
+        "sealed_holdout_evaluated": {
+          "type": "boolean"
+        },
+        "overfit_candidates_rejected": {
+          "type": "boolean"
+        }
+      }
+    },
+    "sealed_test_results": {
+      "type": "object"
+    },
+    "generated_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

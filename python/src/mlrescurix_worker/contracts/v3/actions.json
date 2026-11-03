@@ -1,0 +1,151 @@
+{
+  "schema_version": "mlrescurix.actions.v1",
+  "actions": [
+    {
+      "name": "HYPOTHESIS_TRANSFORM",
+      "description": "Propose and test a single feature engineering or data transformation hypothesis against the baseline.",
+      "parameters_schema": {
+        "type": "object",
+        "required": ["action", "parameters"],
+        "properties": {
+          "action": { "type": "string" },
+          "parameters": { "type": "object" },
+          "rationale": { "type": "string" }
+        }
+      },
+      "implemented": true,
+      "requires_credentials": false
+    },
+    {
+      "name": "EVALUATE_PORTFOLIO",
+      "description": "Evaluate one or more candidate model families independently on the active pipeline.",
+      "parameters_schema": {
+        "type": "object",
+        "required": ["families"],
+        "properties": {
+          "families": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "target_transform": { "type": "string", "enum": ["none", "log", "log1p"] },
+          "model_parameters": { "type": "object" },
+          "weights": { "type": "array", "items": { "type": "number" } },
+          "seed": { "type": "integer" }
+        }
+      },
+      "implemented": true,
+      "requires_credentials": false
+    },
+    {
+      "name": "BLEND_AND_AUDIT",
+      "description": "Create a multi-model ensemble blend from approved candidates and submit for critic audit.",
+      "parameters_schema": {
+        "type": "object",
+        "required": ["families"],
+        "properties": {
+          "families": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "weights": { "type": "array", "items": { "type": "number" } },
+          "target_transform": { "type": "string", "enum": ["none", "log", "log1p"] },
+          "model_parameters": { "type": "object" },
+          "seed": { "type": "integer" }
+        }
+      },
+      "implemented": true,
+      "requires_credentials": false
+    },
+    {
+      "name": "RESEARCH_TOPIC",
+      "description": "Query credible ML literature and techniques using abstract topic queries. Private data is strictly blocked.",
+      "parameters_schema": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": { "type": "string", "maxLength": 256 },
+          "rationale": { "type": "string" }
+        }
+      },
+      "implemented": true,
+      "requires_credentials": true
+    },
+    {
+      "name": "WRITE_PYTHON",
+      "description": "Write or update an executable Python module or candidate definition in the workspace.",
+      "parameters_schema": {
+        "type": "object",
+        "required": ["code"],
+        "properties": {
+          "path": { "type": "string" },
+          "filename": { "type": "string" },
+          "code": { "type": "string" },
+          "purpose": { "type": "string" }
+        }
+      },
+      "implemented": true,
+      "requires_credentials": false
+    },
+    {
+      "name": "RUN_PYTHON",
+      "description": "Execute a Python script in the contained worker environment.",
+      "parameters_schema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" },
+          "filename": { "type": "string" },
+          "args": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "implemented": true,
+      "requires_credentials": false
+    },
+    {
+      "name": "ANALYZE",
+      "description": "Perform read-only analysis of dataset schema, feature distributions, or diagnostic dossiers.",
+      "parameters_schema": {
+        "type": "object",
+        "properties": {
+          "focus": { "type": "string" }
+        }
+      },
+      "implemented": true,
+      "requires_credentials": false
+    },
+    {
+      "name": "HANDOFF",
+      "description": "Record an intermediate checkpoint or handoff report without terminating the campaign.",
+      "parameters_schema": {
+        "type": "object",
+        "properties": {
+          "summary": { "type": "string" },
+          "reason": { "type": "string" },
+          "key_findings": { "type": "array", "items": { "type": "string" } },
+          "next_steps": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "implemented": true,
+      "requires_credentials": false
+    },
+    {
+      "name": "STOP_EARLY",
+      "description": "Stop exploration early if the solution has converged or budget limits dictate halting.",
+      "parameters_schema": {
+        "type": "object",
+        "required": ["reason"],
+        "properties": {
+          "reason": { "type": "string" }
+        }
+      },
+      "implemented": true,
+      "requires_credentials": false
+    },
+    {
+      "name": "FINALIZE_AND_STOP",
+      "description": "Select the apex model candidate, freeze weights, and produce the verified delivery bundle.",
+      "parameters_schema": {
+        "type": "object",
+        "properties": {
+          "candidate_id": { "type": "string" },
+          "rationale": { "type": "string" }
+        }
+      },
+      "implemented": true,
+      "requires_credentials": false
+    }
+  ]
+}

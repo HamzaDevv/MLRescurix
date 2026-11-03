@@ -1,0 +1,27 @@
+{
+  "session_id": "search-1",
+  "selected_candidate_id": "candidate-linear-1",
+  "apex_experiment_id": "exp-linear-full-1",
+  "recipe": "linear",
+  "parameters": {
+    "C": 0.5
+  },
+  "status": "apex_selected",
+  "rationale": "highest mean balanced_accuracy (0.835) across 3 seeds",
+  "contenders": [
+    {
+      "candidate_id": "candidate-linear-1",
+      "experiment_id": "exp-linear-full-1",
+      "recipe": "linear",
+      "parameters": { "C": 0.5 },
+      "mean_metric": 0.835,
+      "metric_std": 0.0,
+      "seeds": [2026, 2027, 2028],
+      "scores": [0.835, 0.835, 0.835],
+      "is_feasible": true,
+      "warm_p95_ms": 1.1,
+      "bundle_bytes": 24000
+    }
+  ],
+  "locked_at_ms": 1728734000000
+}

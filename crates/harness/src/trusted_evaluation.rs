@@ -84,6 +84,22 @@ impl PredictionBatch {
             vector_rows,
         }
     }
+
+    pub fn predictions_sha256(&self) -> String {
+        if !self.vector_rows.is_empty() {
+            let mut map = std::collections::BTreeMap::new();
+            for (id, v) in &self.vector_rows {
+                map.insert(*id, v.clone());
+            }
+            digest_vector_rows(&map)
+        } else {
+            let mut map = std::collections::BTreeMap::new();
+            for (id, val) in &self.rows {
+                map.insert(*id, *val);
+            }
+            digest_rows(&map)
+        }
+    }
 }
 
 fn default_metric_version() -> String {

@@ -114,6 +114,7 @@ def candidate_spec_identity(spec: Dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+
 def bundle_matches_candidate(bundle_dir: Path, candidate_id: str, candidate_identity: str) -> bool:
     """Check the bundled model and manifest both identify the audited candidate."""
     import sys

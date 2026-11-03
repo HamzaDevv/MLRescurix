@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:hardware-profile:2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "effective_cpus",
+    "effective_memory_bytes",
+    "effective_disk_bytes",
+    "host",
+    "container_vm",
+    "headroom",
+    "available",
+    "memory_certification_supported"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "v2" },
+    "effective_cpus": { "type": "integer", "minimum": 1 },
+    "effective_memory_bytes": { "type": "integer", "minimum": 67108864 },
+    "effective_disk_bytes": { "type": "integer", "minimum": 0 },
+    "host": {
+      "type": "object",
+      "required": ["logical_cpus", "total_memory_bytes", "disk_total_bytes", "disk_available_bytes", "accelerators"],
+      "properties": {
+        "logical_cpus": { "type": "integer", "minimum": 1 },
+        "total_memory_bytes": { "type": "integer", "minimum": 67108864 },
+        "disk_total_bytes": { "type": "integer", "minimum": 0 },
+        "disk_available_bytes": { "type": "integer", "minimum": 0 },
+        "accelerators": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["kind", "name", "device_count"],
+            "properties": {
+              "kind": { "type": "string", "enum": ["apple_metal", "nvidia_cuda"] },
+              "name": { "type": "string", "minLength": 1 },
+              "device_count": { "type": "integer", "minimum": 1 },
+              "memory_bytes": { "type": ["integer", "null"] }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "container_vm": {
+      "type": "object",
+      "required": ["docker_available", "accelerators"],
+      "properties": {
+        "docker_available": { "type": "boolean" },
+        "vm_cpus": { "type": ["integer", "null"] },
+        "vm_memory_bytes": { "type": ["integer", "null"] },
+        "cgroup_version": { "type": ["string", "null"] },
+        "features": { "type": "object" },
+        "accelerators": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["kind", "name", "device_count"],
+            "properties": {
+              "kind": { "type": "string", "enum": ["apple_metal", "nvidia_cuda"] },
+              "name": { "type": "string", "minLength": 1 },
+              "device_count": { "type": "integer", "minimum": 1 },
+              "memory_bytes": { "type": ["integer", "null"] }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "headroom": {
+      "type": "object",
+      "required": ["cpu_millicores", "memory_bytes", "disk_bytes"],
+      "properties": {
+        "cpu_millicores": { "type": "integer", "minimum": 0 },
+        "memory_bytes": { "type": "integer", "minimum": 0 },
+        "disk_bytes": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "available": {
+      "type": "object",
+      "required": ["available_cpus", "available_memory_bytes", "available_disk_bytes", "memory_certification_supported", "accelerators"],
+      "properties": {
+        "available_cpus": { "type": "integer", "minimum": 1 },
+        "available_memory_bytes": { "type": "integer", "minimum": 0 },
+        "available_disk_bytes": { "type": "integer", "minimum": 0 },
+        "memory_certification_supported": { "type": "boolean" },
+        "accelerators": { "type": "array" }
+      },
+      "additionalProperties": false
+    },
+    "memory_certification_supported": { "type": "boolean" }
+  },
+  "additionalProperties": false
+}

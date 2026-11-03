@@ -88,5 +88,6 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as tmp:
         scratch = Path(tmp)
         observations = {"search": search_probes(scratch), "source_rebinding": source_rebinding_probe(scratch), "built_wheel": wheel_probe(scratch)}
-    (HERE / "remaining_gap_observations.json").write_text(json.dumps(observations, indent=2) + "\n")
+    # Print current observations; preserve the historical S2 receipt. Callers can
+    # redirect stdout to a new, dated evidence file when repeating the probe.
     print(json.dumps(observations, indent=2))

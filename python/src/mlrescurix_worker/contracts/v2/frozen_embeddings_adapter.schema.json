@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:frozen-embeddings-adapter:2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "adapter_id",
+    "dataset_id",
+    "modality",
+    "model_architecture",
+    "dimension_fingerprint",
+    "cache_protocol",
+    "preprocessing_limits",
+    "privacy_licensing",
+    "delivery_inference"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "v2" },
+    "adapter_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "dataset_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "modality": {
+      "type": "string",
+      "enum": ["text", "vision", "multimodal"]
+    },
+    "model_architecture": {
+      "type": "object",
+      "required": ["family", "encoder_type", "weights_status"],
+      "properties": {
+        "family": {
+          "type": "string",
+          "enum": ["transformer", "bag_of_embeddings", "patch_projector", "convnet", "multimodal_projection"]
+        },
+        "encoder_type": { "type": "string", "minLength": 1 },
+        "weights_status": {
+          "type": "string",
+          "enum": ["frozen_embedded", "frozen_local_checkpoint", "deterministic_synthetic"]
+        },
+        "backbone_name": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "dimension_fingerprint": {
+      "type": "object",
+      "required": ["input_dim", "embedding_dim", "pooling_strategy"],
+      "properties": {
+        "input_dim": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 1 },
+          "minItems": 1
+        },
+        "embedding_dim": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "pooling_strategy": {
+          "type": "string",
+          "enum": ["mean", "cls", "max", "flatten_project"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "cache_protocol": {
+      "type": "object",
+      "required": ["cache_enabled", "content_addressed", "hasher", "storage_budget_bytes"],
+      "properties": {
+        "cache_enabled": { "type": "boolean" },
+        "content_addressed": { "type": "boolean" },
+        "hasher": {
+          "type": "string",
+          "enum": ["sha256", "sha512"]
+        },
+        "storage_budget_bytes": {
+          "type": "integer",
+          "minimum": 1048576,
+          "maximum": 1073741824
+        },
+        "max_entries": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "eviction_policy": {
+          "type": "string",
+          "enum": ["lru", "fifo", "refuse"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "preprocessing_limits": {
+      "type": "object",
+      "required": ["max_batch_size"],
+      "properties": {
+        "max_batch_size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "max_sequence_length": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "truncation_strategy": {
+          "type": ["string", "null"],
+          "enum": ["truncate_tail", "truncate_head", null]
+        },
+        "max_image_dimension": {
+          "type": ["array", "null"],
+          "items": { "type": "integer", "minimum": 1, "maximum": 2048 },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "image_channels": {
+          "type": ["integer", "null"],
+          "enum": [1, 3, 4, null]
+        },
+        "normalization_preset": {
+          "type": ["string", "null"],
+          "enum": ["imagenet", "unit_interval", "standard_score", null]
+        }
+      },
+      "additionalProperties": false
+    },
+    "privacy_licensing": {
+      "type": "object",
+      "required": [
+        "license_type",
+        "remote_download_allowed",
+        "uncertified_remote_download_refused",
+        "offline_inference_certified"
+      ],
+      "properties": {
+        "license_type": {
+          "type": "string",
+          "enum": ["MIT", "Apache-2.0", "BSD-3-Clause", "permissive", "proprietary_restricted"]
+        },
+        "remote_download_allowed": {
+          "type": "boolean",
+          "const": false
+        },
+        "uncertified_remote_download_refused": {
+          "type": "boolean",
+          "const": true
+        },
+        "offline_inference_certified": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "delivery_inference": {
+      "type": "object",
+      "required": [
+        "downstream_feature_dim",
+        "output_representation",
+        "calibrated_tabular_prefix"
+      ],
+      "properties": {
+        "downstream_feature_dim": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "output_representation": {
+          "type": "string",
+          "enum": ["dense_float32", "dense_float64"]
+        },
+        "calibrated_tabular_prefix": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

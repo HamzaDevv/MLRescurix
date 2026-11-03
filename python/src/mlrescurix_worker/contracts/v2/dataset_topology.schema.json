@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:dataset-topology:2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "dataset_id",
+    "target_column",
+    "task_type",
+    "id_columns",
+    "column_classifications",
+    "cv_scheme",
+    "locked_at_ms"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "v2"
+    },
+    "dataset_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "target_column": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "task_type": {
+      "type": "string",
+      "enum": [
+        "binary_classification",
+        "multiclass_classification",
+        "regression",
+        "survival",
+        "time_series"
+      ]
+    },
+    "id_columns": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "entity_group_col": {
+      "type": ["string", "null"]
+    },
+    "temporal_col": {
+      "type": ["string", "null"]
+    },
+    "cv_scheme": {
+      "type": "string",
+      "enum": [
+        "stratified_kfold",
+        "stratified_group_kfold",
+        "group_kfold",
+        "purged_time_series_split",
+        "kfold"
+      ]
+    },
+    "cv_splits": {
+      "type": "integer",
+      "minimum": 2,
+      "default": 5
+    },
+    "column_classifications": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "enum": [
+          "DROP_SURROGATE_ID",
+          "QUASI_ID_DECOMPOSE",
+          "SHORT_TEXT_EMBED",
+          "SAFE_CATEGORICAL",
+          "TEMPORAL_AXIS",
+          "NUMERIC_CONTINUOUS",
+          "NUMERIC_DISCRETE",
+          "TARGET"
+        ]
+      }
+    },
+    "column_metadata": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "uniqueness_ratio": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+          "missing_count": { "type": "integer", "minimum": 0 },
+          "missing_rate": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+          "cardinality": { "type": "integer", "minimum": 0 },
+          "coercion": { "type": ["string", "null"] },
+          "detected_type": { "type": "string" }
+        }
+      }
+    },
+    "coercions": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "clean_feature_columns": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "row_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "column_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "class_balance": {
+      "type": ["object", "null"]
+    },
+    "summary_digest": {
+      "type": "string",
+      "maxLength": 8192
+    },
+    "locked_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

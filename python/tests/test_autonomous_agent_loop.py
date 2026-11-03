@@ -260,7 +260,7 @@ def test_critic_veto_blocks_acceptance(tmp_path: Path):
             "content": json.dumps({
                 "thought_rationale": "Blend single family candidate.",
                 "action_type": "BLEND_AND_AUDIT",
-                "parameters": {},
+                "parameters": {"families": ["penalized_linear"]},
             }),
             "cost_usd": 0.0005,
         }
@@ -276,9 +276,10 @@ def test_critic_veto_blocks_acceptance(tmp_path: Path):
         provider_caller=mock_provider,
         provider_is_fixture=True,
     )
-    # Force min_distinct_families to 5 so it triggers VETO
-    loop.critic_engine = CriticEngine(min_distinct_families=5)
+    # Force min_distinct_families to exceed available families so it triggers VETO
+    loop.critic_engine = CriticEngine(min_distinct_families=len(loop.state["evaluated_families"]) + 1)
     res = loop.run()
+
 
     turn = res["turns"][0]
     assert turn["critic_result"]["status"] == "VETO"

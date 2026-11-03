@@ -49,6 +49,16 @@ def bounded_evidence(value, depth=0):
 
 
 def _load_canonical_actions() -> tuple[set, dict]:
+    try:
+        import importlib.resources as pkg_resources
+        res = pkg_resources.files("mlrescurix_worker").joinpath("contracts/v3/actions.json")
+        if res.is_file():
+            data = json.loads(res.read_text(encoding="utf-8"))
+            names = {a["name"] for a in data.get("actions", [])}
+            schemas = {a["name"]: a.get("parameters_schema", {}) for a in data.get("actions", [])}
+            return names, schemas
+    except Exception:
+        pass
     for parent in Path(__file__).resolve().parents:
         contract_path = parent / "contracts" / "v3" / "actions.json"
         if contract_path.is_file():
@@ -60,7 +70,7 @@ def _load_canonical_actions() -> tuple[set, dict]:
                     return names, schemas
             except Exception as exc:
                 raise ValueError(f"Corrupt canonical actions schema at {contract_path}: {exc}") from exc
-    raise FileNotFoundError("Missing canonical actions schema: contracts/v3/actions.json not found in ancestor paths")
+    raise FileNotFoundError("Missing canonical actions schema: contracts/v3/actions.json not found in package resources or ancestor paths")
 
 
 ACTIONS, ACTION_SCHEMAS = _load_canonical_actions()
@@ -285,6 +295,7 @@ class AutonomousAgentLoop:
             "current_active_features": [c for c in self.raw_df if c != self.target_column],
             "current_active_families": avail_families,
             "evaluated_families": avail_families, "bundle_verified": False,
+
             "containment_status": "unverified", "holdout_accesses": 0, "script_registry": {},
             "iterations": [], "apex_trajectory": [], "latest_apex_iteration": None, "selected_apex_iteration": None,
             "pinned_iteration": None, "selected_cv_score": None, "best_eligible_cv_score": None, "best_observed_cv_score": None,

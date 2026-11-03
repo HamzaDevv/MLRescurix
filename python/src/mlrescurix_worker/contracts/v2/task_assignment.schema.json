@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:task-assignment:2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "task_id",
+    "project_id",
+    "role_id",
+    "goal",
+    "immutable_inputs",
+    "allowed_tools",
+    "branch_ownership",
+    "limits",
+    "expected_artifacts",
+    "acceptance_criteria",
+    "dependency_ids"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "v2" },
+    "task_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "project_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "role_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "goal": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "hypothesis": { "type": ["string", "null"] },
+    "immutable_inputs": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+    },
+    "allowed_tools": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+    },
+    "branch_ownership": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "limits": {
+      "type": "object",
+      "required": ["max_turns", "max_tokens", "wall_ms"],
+      "properties": {
+        "max_turns": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "max_tokens": { "type": "integer", "minimum": 1, "maximum": 10000000 },
+        "wall_ms": { "type": "integer", "minimum": 1, "maximum": 86400000 }
+      },
+      "additionalProperties": false
+    },
+    "expected_artifacts": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 1024 }
+    },
+    "dependency_ids": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+    }
+  },
+  "additionalProperties": false
+}

@@ -671,6 +671,7 @@ fn test_reflexive_orchestrate_end_to_end_and_sqlite_v11_sync() {
     let args = json!({
         "dataset_path": titanic_path.to_string_lossy(),
         "target_column": "Survived",
+        "metric_name": "accuracy",
         "max_epochs": 2,
         "inject_naive_first_epoch": true,
         "session_id": "sess_acceptance_harness"

@@ -1,0 +1,26 @@
+{
+  "gate": "D",
+  "status": "PASS",
+  "title": "Concurrent Resource Admission Race & Conflicting Settlement Fencing",
+  "test_target": "crates/harness/tests/s3_gates.rs::test_gate_d_concurrent_resource_admission_and_conflicting_settlement",
+  "concurrency_race": {
+    "threads": 8,
+    "barrier_synchronized": true,
+    "winners": 1,
+    "losers": 7,
+    "result": "Strict atomic exclusion under high contention"
+  },
+  "search_authority": {
+    "unauthorized_dispatch_probe": {
+      "call": "GovernedResearchClient.research_topic(budgets=None)",
+      "status": "refused_without_admission_authority",
+      "provider_calls": 0
+    },
+    "conflicting_settlement_probe": {
+      "first_settlement": "success",
+      "late_replay_settlement": "timeout",
+      "resulting_status": "success",
+      "overwritten": false
+    }
+  }
+}

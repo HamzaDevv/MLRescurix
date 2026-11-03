@@ -1,0 +1,18 @@
+{
+  "gate": "E",
+  "status": "NOT_VERIFIED for container backend; PASS for honest refusal and boundary contracts",
+  "title": "Hostile Worker Denial & Honest Refusal",
+  "test_target": "crates/harness/tests/s3_gates.rs::test_gate_e_hostile_worker_denial_and_honest_refusal",
+  "capability_reporting": {
+    "campaign_isolation_available": false,
+    "platform": "Darwin 25.3.0 arm64 (host macOS fixture)",
+    "honest_reporting_verified": true
+  },
+  "production_entrypoint_guard": {
+    "call": "run_autonomous_campaign(state, spec, None)",
+    "error": "isolated worker execution is not yet implemented",
+    "state_created": false,
+    "fail_closed_verified": true
+  },
+  "remaining_limitations": "True cgroup v2 / drop-capability container sandboxing requires a Linux container/VM daemon. The system honestly refuses production isolated campaigns on this platform rather than fabricating containment."
+}

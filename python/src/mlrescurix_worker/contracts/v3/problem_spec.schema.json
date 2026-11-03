@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:problem-spec:3",
+  "title": "ProblemSpec",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "campaign_id",
+    "task_type",
+    "target_column",
+    "id_column",
+    "metric_spec",
+    "validation_spec",
+    "budget",
+    "assessment_policy"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "mlrescurix.problem.v1"
+    },
+    "campaign_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-zA-Z0-9_.:-]+$"
+    },
+    "task_type": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "modalities": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": ["tabular"]
+    },
+    "target_column": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "id_column": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "default": "row_id"
+    },
+    "group_column": {
+      "type": ["string", "null"]
+    },
+    "time_column": {
+      "type": ["string", "null"]
+    },
+    "metric_spec": {
+      "type": "object",
+      "required": ["name", "direction"],
+      "properties": {
+        "name": { "type": "string" },
+        "direction": { "type": "string", "enum": ["minimize", "maximize"] },
+        "class_order": { "type": ["array", "null"], "items": { "type": "string" } },
+        "epsilon": { "type": ["number", "null"] },
+        "decision_threshold": { "type": ["number", "null"] },
+        "variant": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "validation_spec": {
+      "type": "object",
+      "required": ["strategy"],
+      "properties": {
+        "strategy": { "type": "string" },
+        "folds": { "type": "integer", "minimum": 2, "maximum": 50, "default": 5 },
+        "seed": { "type": "integer", "default": 42 },
+        "embargo_horizon": { "type": ["integer", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "requested_artifacts": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": ["native_weights", "inference_closure", "scorecard", "report"]
+    },
+    "budget": {
+      "type": "object",
+      "required": ["max_wall_clock_seconds", "max_cost_millicents", "max_total_tokens"],
+      "properties": {
+        "max_wall_clock_seconds": { "type": "integer", "minimum": 1 },
+        "max_cost_millicents": { "type": "integer", "minimum": 0 },
+        "max_total_tokens": { "type": "integer", "minimum": 0 },
+        "max_gpu_quota_seconds": { "type": "integer", "minimum": 0, "default": 0 },
+        "max_worker_turns": { "type": "integer", "minimum": 1, "default": 50 }
+      },
+      "additionalProperties": false
+    },
+    "assessment_policy": {
+      "type": "object",
+      "required": ["mode"],
+      "properties": {
+        "mode": { "type": "string", "enum": ["auto_if_feasible", "external", "disabled"] },
+        "lockbox_fraction": { "type": "number", "minimum": 0.0, "maximum": 0.5, "default": 0.1 },
+        "post_assessment_refit_allowed": { "type": "boolean", "default": false }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

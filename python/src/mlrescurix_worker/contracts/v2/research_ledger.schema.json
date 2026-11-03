@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:research-ledger:2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "session_id",
+    "project_id",
+    "current_epoch",
+    "status",
+    "metric_name",
+    "epochs"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "v2"
+    },
+    "session_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "current_epoch": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "apex_candidate_id": {
+      "type": ["string", "null"]
+    },
+    "best_cv_score": {
+      "type": ["number", "null"]
+    },
+    "metric_name": {
+      "type": "string"
+    },
+    "metric_direction": {
+      "type": "string",
+      "enum": ["maximize", "minimize"],
+      "default": "maximize"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "converged", "vetoed", "aborted", "finalized"]
+    },
+    "epochs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["epoch", "timestamp_ms"],
+        "properties": {
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "hypotheses": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "accepted_features": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "rejected_features": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "ablation_results": {
+            "type": "array",
+            "items": { "type": "object" }
+          },
+          "model_results": {
+            "type": "array",
+            "items": { "type": "object" }
+          },
+          "ensemble_result": {
+            "type": ["object", "null"]
+          },
+          "critique": {
+            "type": ["object", "null"]
+          },
+          "m1_reflection": {
+            "type": ["string", "null"]
+          },
+          "timestamp_ms": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "updated_ms": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

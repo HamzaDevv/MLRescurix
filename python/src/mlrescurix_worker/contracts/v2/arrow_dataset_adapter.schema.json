@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:arrow-dataset-adapter:2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "dataset_id",
+    "format",
+    "path",
+    "schema_fingerprint",
+    "row_count",
+    "column_count",
+    "file_bytes",
+    "columns",
+    "split_view",
+    "batch_config",
+    "memory_accounting"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "v2" },
+    "dataset_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "format": { "type": "string", "enum": ["ipc_stream", "ipc_file", "feather", "parquet"] },
+    "path": { "type": "string", "minLength": 1 },
+    "schema_fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "row_count": { "type": "integer", "minimum": 0 },
+    "column_count": { "type": "integer", "minimum": 1 },
+    "file_bytes": { "type": "integer", "minimum": 0 },
+    "columns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "arrow_type", "physical_type", "nullable", "role"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "arrow_type": { "type": "string", "minLength": 1 },
+          "physical_type": { "type": "string", "minLength": 1 },
+          "nullable": { "type": "boolean" },
+          "role": { "type": "string", "enum": ["feature", "target", "id", "group", "weight"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "split_view": {
+      "type": "object",
+      "required": ["split_name", "row_count", "byte_limit", "feature_only"],
+      "properties": {
+        "split_name": { "type": "string", "minLength": 1 },
+        "row_count": { "type": "integer", "minimum": 0 },
+        "byte_limit": { "type": "integer", "minimum": 1 },
+        "feature_only": { "type": "boolean" },
+        "selected_features": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "target_column": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "batch_config": {
+      "type": "object",
+      "required": ["batch_size_rows", "max_batch_bytes", "memory_cap_bytes"],
+      "properties": {
+        "batch_size_rows": { "type": "integer", "minimum": 1 },
+        "max_batch_bytes": { "type": "integer", "minimum": 1024 },
+        "memory_cap_bytes": { "type": "integer", "minimum": 1024 }
+      },
+      "additionalProperties": false
+    },
+    "memory_accounting": {
+      "type": "object",
+      "required": [
+        "peak_memory_bytes",
+        "bytes_read",
+        "batches_processed",
+        "actual_copies_count",
+        "zero_copy_fraction",
+        "unfounded_zero_copy_refused"
+      ],
+      "properties": {
+        "peak_memory_bytes": { "type": "integer", "minimum": 0 },
+        "bytes_read": { "type": "integer", "minimum": 0 },
+        "batches_processed": { "type": "integer", "minimum": 0 },
+        "actual_copies_count": { "type": "integer", "minimum": 0 },
+        "zero_copy_fraction": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "unfounded_zero_copy_refused": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

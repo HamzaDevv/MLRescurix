@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mlrescurix:fit-scope:3",
+  "title": "FitScopeBinding",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "binding_id",
+    "split_id",
+    "protocol_sha256",
+    "fit_scope_kind",
+    "permitted_feature_row_ids_hash",
+    "permitted_label_row_ids_hash"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "mlrescurix.fit_scope.v1"
+    },
+    "binding_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_.:-]+$"
+    },
+    "split_id": {
+      "type": "string"
+    },
+    "protocol_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "fit_scope_kind": {
+      "type": "string",
+      "enum": [
+        "stateless",
+        "fixed_pretrained",
+        "outer_fold_train",
+        "inner_fold_train",
+        "meta_fold_train",
+        "full_development_train",
+        "consumes_matching_scope"
+      ]
+    },
+    "permitted_feature_row_ids_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "permitted_label_row_ids_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "exclusion_row_ids_hash": {
+      "type": ["string", "null"],
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "transitive_fit_dependencies": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    }
+  },
+  "additionalProperties": false
+}

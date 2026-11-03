@@ -1,0 +1,64 @@
+{
+  "session": "Session 3",
+  "date": "2026-11-03",
+  "toolchain": {
+    "os": "macOS Darwin 25.3.0 arm64",
+    "python": "Python 3.13.3",
+    "rust": "rustc 1.94.0",
+    "cargo": "cargo 1.94.0",
+    "pytest": "pytest 8.3.4"
+  },
+  "gates": {
+    "Gate A": {
+      "status": "PASS",
+      "tests": [
+        "crates/harness/tests/s3_gates.rs::test_gate_a_multi_file_unlisted_method_and_generic_replay"
+      ],
+      "basis": "Multi-file unlisted CauchySplineRegressor authored, executed, scored, fast-path replayed, and manifest-removed repacked generically without hardcoded method branches"
+    },
+    "Gate B": {
+      "status": "PASS",
+      "tests": [
+        "crates/harness/tests/s3_gates.rs::test_gate_b_evidence_dependent_trajectories_and_context_isolation",
+        "crates/harness/tests/s3_gates.rs::test_gate_b_trajectory_3_challenger_challenge_halts_without_assessment"
+      ],
+      "basis": "Serialized context isolation verified in SQLite task_assignments; Trajectory 2 bounded repair and Trajectory 3 challenger challenge/halt verified"
+    },
+    "Gate C": {
+      "status": "PASS",
+      "tests": [
+        "crates/harness/tests/s3_gates.rs::test_gate_c_real_competing_controllers_and_sigkill_lease_fencing"
+      ],
+      "basis": "Real child process killed via SIGKILL; lease recovered with epoch increment; stale writes rejected at atomic transaction"
+    },
+    "Gate D": {
+      "status": "PASS",
+      "tests": [
+        "crates/harness/tests/s3_gates.rs::test_gate_d_concurrent_resource_admission_and_conflicting_settlement"
+      ],
+      "basis": "8-thread concurrent lease race; conflicting search settlement rejected; unauthorized search refused with 0 provider requests"
+    },
+    "Gate E": {
+      "status": "NOT_VERIFIED for container backend; PASS for honest refusal and boundary contracts",
+      "tests": [
+        "crates/harness/tests/s3_gates.rs::test_gate_e_hostile_worker_denial_and_honest_refusal"
+      ],
+      "basis": "campaign_isolation_available() honestly reports false on macOS host fixture; production entrypoint fails closed before creating state directory"
+    },
+    "Gate F": {
+      "status": "PASS",
+      "tests": [
+        "crates/harness/tests/s3_gates.rs::test_gate_f_changed_source_rejected_and_once_only_holdout"
+      ],
+      "basis": "Changed source with deleted manifest rejected before repack; assessment lockbox consumed strictly once-only"
+    },
+    "Gate G": {
+      "status": "PASS",
+      "tests": [
+        "crates/harness/tests/s3_gates.rs::test_gate_g_wheel_and_candidate_parity"
+      ],
+      "basis": "Wheel packages contracts/v3/actions.json; isolated import passes; standalone candidate parity verified; workspace cargo/pytest suites pass"
+    }
+  },
+  "overall_verdict": "PARTIAL / GATED (Gates A, B, C, D, F, G PASS; Gate E honest refusal PASS, container execution NOT_VERIFIED as required by host platform constraints)"
+}

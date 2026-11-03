@@ -1,0 +1,18 @@
+{
+  "gate": "F",
+  "status": "PASS",
+  "title": "Changed Source Rejection & Once-Only Assessment Holdout",
+  "test_target": "crates/harness/tests/s3_gates.rs::test_gate_f_changed_source_rejected_and_once_only_holdout",
+  "attack_vector": {
+    "action": "Mutated solution.py in branch workspace to emit 1000000.0, deleted bundle manifest.json, retained identical model_weights.json",
+    "repack_exit_code": 1,
+    "error": "cannot repackage modified source with old scores: candidate source SHA-256 does not match evaluated source SHA-256",
+    "lockbox_consumptions_before_tamper": 1,
+    "lockbox_consumptions_after_repack_failure": 1,
+    "holdout_double_consumption_prevented": true
+  },
+  "clean_replay": {
+    "action": "Restored original source and replayed",
+    "result": "Clean replay exit 0; candidate_id and lockbox_score identical"
+  }
+}

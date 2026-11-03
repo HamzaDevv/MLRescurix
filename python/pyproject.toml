@@ -40,4 +40,5 @@ mlrescurix-dashboard = "mlrescurix_worker.scientific.dashboard:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
+"mlrescurix_worker" = ["contracts/**/*.json"]
 "mlrescurix_worker.protocol" = ["*.json"]

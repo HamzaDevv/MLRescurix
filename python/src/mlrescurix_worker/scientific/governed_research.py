@@ -330,30 +330,39 @@ class GovernedResearchClient:
             }
 
         # 3. Budget enforcement & Durable Pre-Dispatch Admission
+        if budgets is None:
+            return {
+                "status": "refused_without_admission_authority",
+                "query": sanitized_query,
+                "error": "Dispatch refused: Network search requires predispatch admission authority.",
+                "sources": [],
+                "summary": "Governed web research refused: no admission authority provided.",
+                "rationale": rationale,
+            }
+
         attempt_id = None
-        if budgets is not None:
-            if hasattr(budgets, "admit_search"):
-                provider_name = getattr(self.provider, "name", "unknown") if self.provider else "unknown"
-                admitted, attempt_id = budgets.admit_search(query=query, sanitized_query=sanitized_query, provider=provider_name)
-                if not admitted:
-                    return {
-                        "status": "budget_exhausted",
-                        "query": sanitized_query,
-                        "error": "Configured operational budget for web search queries has been reached.",
-                        "sources": [],
-                        "summary": "Web search query limit exhausted; research query refused.",
-                    }
-            else:
-                if not budgets.has_search_available(count=1):
-                    return {
-                        "status": "budget_exhausted",
-                        "query": sanitized_query,
-                        "error": "Configured operational budget for web search queries has been reached.",
-                        "sources": [],
-                        "summary": "Web search query limit exhausted; research query refused.",
-                    }
-                # Record admission before dispatch so failed/timeout external requests are accounted
-                budgets.record_search_query(1)
+        if hasattr(budgets, "admit_search"):
+            provider_name = getattr(self.provider, "name", "unknown") if self.provider else "unknown"
+            admitted, attempt_id = budgets.admit_search(query=query, sanitized_query=sanitized_query, provider=provider_name)
+            if not admitted:
+                return {
+                    "status": "budget_exhausted",
+                    "query": sanitized_query,
+                    "error": "Configured operational budget for web search queries has been reached.",
+                    "sources": [],
+                    "summary": "Web search query limit exhausted; research query refused.",
+                }
+        elif hasattr(budgets, "record_search_query"):
+            if not budgets.has_search_available(count=1):
+                return {
+                    "status": "budget_exhausted",
+                    "query": sanitized_query,
+                    "error": "Configured operational budget for web search queries has been reached.",
+                    "sources": [],
+                    "summary": "Web search query limit exhausted; research query refused.",
+                }
+            budgets.record_search_query(1)
+
 
         # 4. Execute search
         dispatch_error = None
