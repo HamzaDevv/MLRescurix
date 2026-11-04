@@ -17,6 +17,7 @@ Enforces:
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 from dataclasses import dataclass, field
@@ -391,7 +392,12 @@ class GovernedResearchClient:
             }
 
         if budgets is not None and hasattr(budgets, "settle_search") and attempt_id:
-            budgets.settle_search(attempt_id, status="success")
+            evidence_payload = json.dumps({
+                "provider": getattr(self.provider, "name", "unknown"),
+                "query": sanitized_query,
+                "sources": [s.to_dict() for s in sources],
+            })
+            budgets.settle_search(attempt_id, status="success", evidence=evidence_payload)
 
         # 6. Context Firewall: Compress to high-signal markdown (<2 KB)
         lines = [f"### Governed Research Findings: '{sanitized_query}'", ""]

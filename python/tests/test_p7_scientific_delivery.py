@@ -148,12 +148,13 @@ def predict(records):
             "candidate_id": "cand-serv-test",
         }))
 
-        server = create_serving_server(bundle, host="127.0.0.1", port=8943)
+        server = create_serving_server(bundle, host="127.0.0.1", port=0)
+        port = server.server_address[1]
         th = threading.Thread(target=server.serve_forever, daemon=True)
         th.start()
         try:
             # 1. Health check
-            with urllib.request.urlopen("http://127.0.0.1:8943/health", timeout=5) as resp:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=5) as resp:
                 self.assertEqual(resp.status, 200)
                 data = json.loads(resp.read().decode())
                 self.assertEqual(data["status"], "healthy")
@@ -161,7 +162,7 @@ def predict(records):
 
             # 2. Predict valid
             req_data = json.dumps([{"a": 2.0, "b": 4.0}, {"a": 1.0, "b": 1.0}]).encode()
-            req = urllib.request.Request("http://127.0.0.1:8943/predict", data=req_data, headers={"Content-Type": "application/json"})
+            req = urllib.request.Request(f"http://127.0.0.1:{port}/predict", data=req_data, headers={"Content-Type": "application/json"})
             with urllib.request.urlopen(req, timeout=5) as resp:
                 self.assertEqual(resp.status, 200)
                 pred_res = json.loads(resp.read().decode())
@@ -170,7 +171,7 @@ def predict(records):
 
             # 3. Predict invalid (missing feature)
             bad_data = json.dumps([{"a": 2.0}]).encode()
-            bad_req = urllib.request.Request("http://127.0.0.1:8943/predict", data=bad_data, headers={"Content-Type": "application/json"})
+            bad_req = urllib.request.Request(f"http://127.0.0.1:{port}/predict", data=bad_data, headers={"Content-Type": "application/json"})
             with self.assertRaises(urllib.error.HTTPError) as ctx:
                 urllib.request.urlopen(bad_req, timeout=5)
             self.assertEqual(ctx.exception.code, 400)

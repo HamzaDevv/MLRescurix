@@ -58,7 +58,7 @@ class RustGatewayAdapter:
         task_id: str = "default-task",
         role_id: str = "scientific-agent",
         model_name: str = "deepseek/deepseek-v4.1-flash-1017",
-        endpoint: str = "inference-net/fp8",
+        endpoint: str = "relace/fp4",
         harness_binary: Optional[Path | str] = None,
         require_policy_approval: bool = True,
         mock_path: Optional[Path | str] = None,

@@ -9,7 +9,7 @@ POLICY="${POLICY:-docs/v2/POLICY_AMAZON_LIVE_20261102.json}"
 DEV_CSV="${DEV_CSV:-.mlrescurix-state/amazon-2025/staged/development.csv}"
 FOLDS="${FOLDS:-.mlrescurix-state/amazon-2025/development_folds.json}"
 MODEL="${MODEL:-deepseek/deepseek-v4.1-flash-1017}"
-ROUTE="${ROUTE:-wafer/us}"
+ROUTE="${ROUTE:-relace/fp4}"
 MAX_TURNS="${MAX_TURNS:-}"
 
 # Parse CLI options if provided

@@ -105,14 +105,17 @@ pub fn connect(root:&Path)->Result<Connection>{
     sql(c.execute_batch(include_str!("schema_p10_iteration.sql")))?;
     sql(c.execute_batch(include_str!("schema_p10_rescue.sql")))?;
     sql(c.execute_batch(include_str!("schema_p11_reflexive.sql")))?;
-    let has_old_recipe_check: bool = sql(c.query_row(
-        "SELECT (sql LIKE '%CHECK(recipe IN (''dummy'',''linear'',''tree'')%' OR sql LIKE '%CHECK(recipe IN (''dummy'',''linear'',''tree'',''hist_boosting'')%') AND sql NOT LIKE '%length(recipe)%' FROM sqlite_master WHERE type='table' AND name='experiment_dag'",
-        [],
-        |r| r.get(0),
-    )).unwrap_or(false);
-    if has_old_recipe_check {
-        sql(c.execute_batch("
-            PRAGMA foreign_keys=OFF;
+    // Serialize the legacy rebuild and recheck its schema after taking the write lock.
+    // DDL and row copying must commit together or roll back together.
+    sql(c.execute_batch("PRAGMA foreign_keys=OFF;"))?;
+    {
+        let tx = sql(c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate))?;
+        let has_old_recipe_check: bool = sql(tx.query_row(
+            "SELECT (sql LIKE '%CHECK(recipe IN (''dummy'',''linear'',''tree'')%' OR sql LIKE '%CHECK(recipe IN (''dummy'',''linear'',''tree'',''hist_boosting'')%') AND sql NOT LIKE '%length(recipe)%' FROM sqlite_master WHERE type='table' AND name='experiment_dag'",
+            [], |r| r.get(0),
+        ))?;
+        if has_old_recipe_check {
+            sql(tx.execute_batch("
             CREATE TABLE experiment_dag_p4(
               project TEXT NOT NULL REFERENCES projects(id),
               session_id TEXT NOT NULL,
@@ -130,9 +133,13 @@ pub fn connect(root:&Path)->Result<Connection>{
             INSERT INTO experiment_dag_p4 SELECT * FROM experiment_dag;
             DROP TABLE experiment_dag;
             ALTER TABLE experiment_dag_p4 RENAME TO experiment_dag;
-            PRAGMA foreign_keys=ON;
-        "))?;
+            "))?;
+            let violation: bool = sql(tx.query_row("SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)", [], |r| r.get(0)))?;
+            if violation { return Err("experiment DAG migration would leave invalid foreign keys".into()); }
+        }
+        sql(tx.commit())?;
     }
+    sql(c.execute_batch("PRAGMA foreign_keys=ON;"))?;
     sql(c.execute_batch("CREATE TABLE IF NOT EXISTS tombstones(
         project TEXT NOT NULL REFERENCES projects(id),
         entity_kind TEXT NOT NULL CHECK(entity_kind IN('job','artifact','action')),

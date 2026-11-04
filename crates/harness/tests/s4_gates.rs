@@ -30,8 +30,9 @@ use mlrescurix_harness::{
     campaign::CampaignProblemSpec,
     kaggle::{KaggleAccount, KagglePoolManager},
     resource_authority::{
-        admit_search_attempt, get_unified_resource_status, query_search_attempt_count,
-        settle_search_attempt,
+        admit_kaggle_job, admit_search_attempt, admit_token_reservation,
+        get_unified_resource_status, query_search_attempt_count, settle_kaggle_job,
+        settle_search_attempt, settle_token_reservation,
     },
     trusted_evaluation::Metric,
 };
@@ -491,6 +492,107 @@ fn test_s4_gate_rust_resource_authority_concurrent_search() {
     assert_eq!(status["search_attempts"], search_limit);
 }
 
+#[test]
+fn test_s4_gate_token_and_kaggle_resource_authority_lifecycle() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let db_path = root.join("state.sqlite");
+    let project = "proj_token_kaggle_lifecycle";
+
+    // 1. Kaggle job admission and settlement lifecycle
+    let k_limit = 5.0; // 5.0 hours limit
+    let job1 = admit_kaggle_job(&db_path, project, "kjob_1", "user1", "notebook_1", "gpu", 3.0, k_limit).unwrap();
+    assert_eq!(job1, Some("kjob_1".into()));
+
+    // Settling job1 as failed with 2.5 actual hours
+    settle_kaggle_job(&db_path, project, "kjob_1", "failed", 2.5, Some("out of memory")).unwrap();
+
+    // Idempotent settlement succeeds
+    settle_kaggle_job(&db_path, project, "kjob_1", "failed", 2.5, Some("out of memory")).unwrap();
+
+    // Conflicting settlement with different actual hours is rejected
+    assert!(settle_kaggle_job(&db_path, project, "kjob_1", "failed", 3.0, Some("out of memory")).is_err());
+
+    // Conflicting settlement with different status is rejected
+    assert!(settle_kaggle_job(&db_path, project, "kjob_1", "success", 2.5, None).is_err());
+
+    // Job 2 requests 3.0 hours: 2.5 used + 3.0 requested = 5.5 > 5.0 limit -> MUST BE REJECTED!
+    let job2 = admit_kaggle_job(&db_path, project, "kjob_2", "user1", "notebook_2", "gpu", 3.0, k_limit).unwrap();
+    assert_eq!(job2, None, "job requesting hours exceeding quota taking failed hours into account must be rejected");
+
+    // Job 3 requests 2.0 hours: 2.5 used + 2.0 requested = 4.5 <= 5.0 limit -> MUST BE ADMITTED!
+    let job3 = admit_kaggle_job(&db_path, project, "kjob_3", "user1", "notebook_3", "gpu", 2.0, k_limit).unwrap();
+    assert_eq!(job3, Some("kjob_3".into()));
+
+    // Settle job 3 as success with 1.5 actual hours
+    settle_kaggle_job(&db_path, project, "kjob_3", "success", 1.5, None).unwrap();
+
+    // 2. Token reservation lifecycle and conflicting settlement rejection
+    let tok_limit = 12_000;
+    let spend_limit = 100_000; // millicents
+    let res1 = admit_token_reservation(&db_path, project, "res_1", "worker", "deepseek-v4.1", 1000, 500, 29, tok_limit, spend_limit).unwrap();
+    assert_eq!(res1, Some("res_1".into()));
+
+    // Settle res1
+    settle_token_reservation(&db_path, project, "res_1", "ok", 950, 480, 28, None).unwrap();
+
+    // Idempotent settlement with exact same parameters succeeds
+    settle_token_reservation(&db_path, project, "res_1", "ok", 950, 480, 28, None).unwrap();
+
+    // Conflicting settlement with altered prompt tokens is rejected
+    assert!(settle_token_reservation(&db_path, project, "res_1", "ok", 1200, 480, 28, None).is_err());
+
+    // Conflicting settlement with altered cost is rejected
+    assert!(settle_token_reservation(&db_path, project, "res_1", "ok", 950, 480, 50, None).is_err());
+
+    // Conflicting settlement with altered status is rejected
+    assert!(settle_token_reservation(&db_path, project, "res_1", "failed", 950, 480, 28, Some("err")).is_err());
+
+    // Outcome unknown reservation must count towards budget ceiling
+    // res2 requests 8000 + 1000 = 9000 tokens (1430 used + 9000 requested = 10430 <= 12000 -> admitted)
+    let res2 = admit_token_reservation(&db_path, project, "res_2", "worker", "deepseek-v4.1", 8000, 1000, 200, tok_limit, spend_limit).unwrap();
+    assert_eq!(res2, Some("res_2".into()));
+
+    // Mark res2 as outcome_unknown via settlement
+    settle_token_reservation(&db_path, project, "res_2", "outcome_unknown", 8000, 1000, 200, None).unwrap();
+
+    // Idempotent re-settlement of outcome_unknown succeeds
+    settle_token_reservation(&db_path, project, "res_2", "outcome_unknown", 8000, 1000, 200, None).unwrap();
+
+    // Conflicting settlement of outcome_unknown reservation must be strictly rejected
+    assert!(
+        settle_token_reservation(&db_path, project, "res_2", "ok", 8000, 1000, 200, None).is_err(),
+        "conflicting status transition on outcome_unknown reservation must be rejected"
+    );
+    assert!(
+        settle_token_reservation(&db_path, project, "res_2", "outcome_unknown", 8000, 1000, 300, None).is_err(),
+        "conflicting charge on outcome_unknown reservation must be rejected"
+    );
+
+    // Now tokens used: 1430 (ok) + 9000 (outcome_unknown) = 10430.
+    // res3 requests 2000 tokens: 10430 + 2000 = 12430 > 12000 limit -> res3 MUST BE REJECTED!
+    let res3 = admit_token_reservation(&db_path, project, "res_3", "worker", "deepseek-v4.1", 1000, 1000, 50, tok_limit, spend_limit).unwrap();
+    assert_eq!(res3, None, "outcome_unknown tokens must be conservatively counted towards limit");
+
+    // 3. Search query defensive sanitization inside Rust authority
+    assert!(
+        admit_search_attempt(&db_path, project, "sk-secret1234567890", "sanitized", "mock", 10).is_err(),
+        "search query with secret token must be rejected by Rust authority"
+    );
+    assert!(
+        admit_search_attempt(&db_path, project, "col1,col2,col3,col4", "sanitized", "mock", 10).is_err(),
+        "search query with raw row delimiters must be rejected by Rust authority"
+    );
+
+    // 4. Unified resource status reflects actual Kaggle hours and tokens accurately
+    let status = get_unified_resource_status(root, project).unwrap();
+    assert_eq!(status["kaggle_jobs_count"], 2);
+    // 2.5 (from failed job1) + 1.5 (from successful job3) = 4.0 hours
+    assert_eq!(status["kaggle_hours_used"], 4.0);
+    assert_eq!(status["total_tokens"], 10430);
+    assert_eq!(status["total_spend_millicents"], 228);
+}
+
 // ============================================================================
 // GATE 4: Kaggle Pool Registration and Listing Authority
 // ============================================================================
@@ -750,4 +852,24 @@ fn test_s4_gate_resource_status_missing_db_and_unverified_kaggle() {
     assert!(status_with_pool["kaggle_hours_used"].is_null(), "must NOT fabricate usage from 30h allowance");
     assert_eq!(status_with_pool["kaggle_remote_usage_verified"], false);
     assert_eq!(status_with_pool["kaggle_status"], "registered_accounts_present_remote_unverified");
+}
+
+#[test]
+fn uncertain_resources_and_search_evidence_remain_accountable() {
+    use mlrescurix_harness::resource_authority::settle_search_attempt_with_evidence;
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("authority.sqlite");
+    let project = "liability";
+    assert!(admit_kaggle_job(&db, project, "job1", "account", "slug", "gpu", 8.0, 10.0).unwrap().is_some());
+    assert!(settle_kaggle_job(&db, project, "job1", "success", -1.0, None).is_err());
+    settle_kaggle_job(&db, project, "job1", "outcome_unknown", 0.0, None).unwrap();
+    assert!(admit_kaggle_job(&db, project, "job2", "account", "slug", "gpu", 3.0, 10.0).unwrap().is_none());
+    assert!(admit_token_reservation(&db, project, "bad", "worker", "model", 1, 1, -1, 100, 100).is_err());
+    assert!(admit_token_reservation(&db, project, "r1", "worker", "model", 40, 20, 10, 100, 100).unwrap().is_some());
+    assert!(settle_token_reservation(&db, project, "r1", "outcome_unknown", 0, 0, 0, None).is_err());
+    settle_token_reservation(&db, project, "r1", "outcome_unknown", 40, 20, 10, None).unwrap();
+    assert!(admit_token_reservation(&db, project, "r2", "worker", "model", 30, 20, 1, 100, 100).unwrap().is_none());
+    let attempt = admit_search_attempt(&db, project, "topic", "topic", "provider", 10).unwrap().unwrap();
+    settle_search_attempt_with_evidence(&db, project, &attempt, "success", None, 0, Some("first")).unwrap();
+    assert!(settle_search_attempt_with_evidence(&db, project, &attempt, "success", None, 0, Some("changed")).is_err());
 }

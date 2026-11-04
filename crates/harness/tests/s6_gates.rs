@@ -46,7 +46,7 @@ use mlrescurix_harness::{
         compute_pareto_frontier, record_hypothesis, record_pareto_frontier, settle_hypothesis,
         ExpectedMetricDelta, IterationHypothesis, MultiFidelityBudget,
     },
-    resource_authority::{admit_search_attempt, get_unified_resource_status, settle_search_attempt},
+    resource_authority::{admit_search_attempt, get_unified_resource_status, settle_search_attempt_with_evidence},
     trusted_evaluation::{evaluate, EvaluationIdentity, Metric, PredictionBatch},
 };
 
@@ -289,7 +289,7 @@ fn test_s6_gate_b_durable_react_loop_and_evidence_driven_repair() {
 
     let dataset_path = root.join("gate_b_data.csv");
     let (_hash, _labels) = create_synthetic_dataset(&dataset_path, 30);
-    let model_name = "deepseek/deepseek-chat";
+    let model_name = "deepseek/deepseek-v4.1-flash-1017";
 
     // Broken solution: raises ZeroDivisionError on fit to test real failed subprocess execution
     let broken_solution = r#"
@@ -319,13 +319,40 @@ if __name__ == "__main__":
         infer(args.features_in, args.weights_in, args.predictions_out)
 "#;
 
-    // Repaired working solution
+    // Repaired working solution with real Ordinary Least Squares fit on train_csv
     let repaired_solution = r#"
 import sys, json, csv, argparse
 
+def solve_3x3(A, b):
+    M = [A[i][:] + [b[i]] for i in range(3)]
+    for i in range(3):
+        max_row = max(range(i, 3), key=lambda r: abs(M[r][i]))
+        M[i], M[max_row] = M[max_row], M[i]
+        pivot = M[i][i]
+        if abs(pivot) < 1e-12:
+            continue
+        for j in range(i + 1, 4):
+            M[i][j] /= pivot
+        M[i][i] = 1.0
+        for r in range(3):
+            if r != i:
+                factor = M[r][i]
+                for j in range(i, 4):
+                    M[r][j] -= factor * M[i][j]
+    return [M[0][3], M[1][3], M[2][3]]
+
 def fit(train_csv, weights_out):
+    X = []
+    y = []
+    with open(train_csv, "r", encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            X.append([1.0, float(r["x1"]), float(r["x2"])])
+            y.append(float(r["target"]))
+    XT_X = [[sum(X[i][j] * X[i][k] for i in range(len(X))) for k in range(3)] for j in range(3)]
+    XT_y = [sum(X[i][j] * y[i] for i in range(len(X))) for j in range(3)]
+    w = solve_3x3(XT_X, XT_y)
     with open(weights_out, "w", encoding="utf-8") as f:
-        json.dump({"weights": [2.0, 1.5], "intercept": 0.5}, f)
+        json.dump({"weights": [w[1], w[2]], "intercept": w[0]}, f)
 
 def infer(feat_csv, weights_in, preds_out):
     with open(weights_in, "r", encoding="utf-8") as f:
@@ -485,16 +512,19 @@ fn test_s6_gate_c_scientific_search_portfolio_and_diagnostic_pivot() {
 import sys, json, csv, argparse
 
 def fit(train_csv, weights_out):
-    with open(weights_out, "w") as f:
+    with open(weights_out, "w", encoding="utf-8") as f:
         json.dump({"bias": 0.0}, f)
 
 def infer(feat_csv, weights_in, preds_out):
+    with open(weights_in, "r", encoding="utf-8") as f:
+        weights = json.load(f)
+    bias = float(weights.get("bias", 0.0))
     preds = []
-    with open(feat_csv, "r") as f:
+    with open(feat_csv, "r", encoding="utf-8") as f:
         for r in csv.DictReader(f):
             row_id = int(r["__mlr_row_id"])
-            preds.append({"row_id": row_id, "prediction": 0.0})
-    with open(preds_out, "w") as f:
+            preds.append({"row_id": row_id, "prediction": bias})
+    with open(preds_out, "w", encoding="utf-8") as f:
         json.dump(preds, f)
 
 if __name__ == "__main__":
@@ -569,48 +599,100 @@ if __name__ == "__main__":
     assert_eq!(hyp1.outcome.as_ref().unwrap().full_metric_observed, Some(cand1_rmse));
     record_hypothesis(&runtime_dir, project, &hyp1).unwrap();
 
-    // 3. Governed Research Integration: Agent queries literature for nonlinear architectures
+    // 3. Governed Research Integration: Agent queries literature for multivariate regression architectures
     let state_sqlite = runtime_dir.join("state.sqlite");
     let search_attempt_id = admit_search_attempt(
         &state_sqlite,
         project,
-        "nonlinear polynomial interaction models",
-        "nonlinear polynomial interaction models",
+        "multivariate regression joint feature interactions",
+        "multivariate regression joint feature interactions",
         "serp_offline",
         10,
     ).unwrap().expect("search query must be admitted under budget authority");
 
-    settle_search_attempt(
+    let research_evidence = serde_json::json!({
+        "provider": "serp_offline",
+        "query": "multivariate regression joint feature interactions",
+        "results": [
+            {
+                "title": "Multivariate Linear & Interaction Models",
+                "snippet": "Include multivariate predictors x1 and x2 and cross-terms to learn linear coefficients jointly via OLS.",
+                "url": "https://offline.fixtures.local/papers/multivariate-interactions"
+            }
+        ]
+    });
+    settle_search_attempt_with_evidence(
         &state_sqlite,
         project,
         &search_attempt_id,
         "success",
         None,
         50,
+        Some(&research_evidence.to_string()),
     ).unwrap();
 
-    // 4. Candidate 2 (Diagnostic Pivot: Research-guided quadratic feature interaction):
-    // Real Python fit & infer subprocess implementing nonlinear quadratic interaction
+    // Verify evidence is durably stored in the single resource authority database
+    let stored_evidence: String = conn.query_row(
+        "SELECT response_evidence FROM operational_search_attempts WHERE project = ?1 AND attempt_id = ?2",
+        rusqlite::params![project, &search_attempt_id],
+        |r| r.get(0),
+    ).unwrap();
+    assert!(stored_evidence.contains("Multivariate Linear"));
+
+    // 4. Candidate 2 (Diagnostic Pivot: Research-guided multivariate OLS fit):
+    // Real Python fit & infer subprocess implementing true multivariate ordinary least squares without hardcoded formulas
     let cand2_script = root.join("cand2_model.py");
     fs::write(
         &cand2_script,
         r#"
-import sys, json, csv, math, argparse
+import sys, json, csv, argparse
+
+def solve_3x3(A, b):
+    M = [A[i][:] + [b[i]] for i in range(3)]
+    for i in range(3):
+        max_row = max(range(i, 3), key=lambda r: abs(M[r][i]))
+        M[i], M[max_row] = M[max_row], M[i]
+        pivot = M[i][i]
+        if abs(pivot) < 1e-12:
+            continue
+        for j in range(i + 1, 4):
+            M[i][j] /= pivot
+        M[i][i] = 1.0
+        for r in range(3):
+            if r != i:
+                factor = M[r][i]
+                for j in range(i, 4):
+                    M[r][j] -= factor * M[i][j]
+    return [M[0][3], M[1][3], M[2][3]]
 
 def fit(train_csv, weights_out):
-    with open(weights_out, "w") as f:
-        json.dump({"w1": 2.5, "w2": -1.2, "b": 0.5}, f)
+    X = []
+    y = []
+    with open(train_csv, "r", encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            X.append([1.0, float(r["x1"]), float(r["x2"])])
+            y.append(float(r["target"]))
+    XT_X = [[sum(X[i][j] * X[i][k] for i in range(len(X))) for k in range(3)] for j in range(3)]
+    XT_y = [sum(X[i][j] * y[i] for i in range(len(X))) for j in range(3)]
+    w = solve_3x3(XT_X, XT_y)
+    with open(weights_out, "w", encoding="utf-8") as f:
+        json.dump({"intercept": w[0], "w1": w[1], "w2": w[2]}, f)
 
 def infer(feat_csv, weights_in, preds_out):
+    with open(weights_in, "r", encoding="utf-8") as f:
+        params = json.load(f)
+    b = float(params["intercept"])
+    w1 = float(params["w1"])
+    w2 = float(params["w2"])
     preds = []
-    with open(feat_csv, "r") as f:
+    with open(feat_csv, "r", encoding="utf-8") as f:
         for r in csv.DictReader(f):
             row_id = int(r["__mlr_row_id"])
             x1 = float(r["x1"])
             x2 = float(r["x2"])
-            y = 2.0 * x1 + 1.5 * x2 + 0.5
+            y = b + w1 * x1 + w2 * x2
             preds.append({"row_id": row_id, "prediction": round(y, 4)})
-    with open(preds_out, "w") as f:
+    with open(preds_out, "w", encoding="utf-8") as f:
         json.dump(preds, f)
 
 if __name__ == "__main__":

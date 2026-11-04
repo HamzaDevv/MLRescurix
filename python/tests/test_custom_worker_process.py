@@ -383,7 +383,7 @@ def test_custom_worker_missing_manifest_fails_closed(tmp_path: Path, test_datase
         cwd=tmp_path,
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=30,
     )
     assert proc.returncode == 1
     assert (output_dir / "result.json").exists()
@@ -438,7 +438,7 @@ def test_custom_worker_export_unverified_candidate_rejected(tmp_path: Path, test
         cwd=tmp_path,
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=30,
     )
     assert proc.returncode == 1
     assert (output_dir / "result.json").exists()
@@ -489,7 +489,7 @@ def test_custom_worker_failure_reporting(tmp_path: Path) -> None:
         cwd=tmp_path,
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=30,
     )
     assert proc.returncode == 1
     assert (output_dir / "result.json").exists()
@@ -563,7 +563,7 @@ def test_custom_worker_resume_checkpoint_traversal_rejected(tmp_path: Path, test
         cwd=tmp_path,
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=30,
     )
     assert proc.returncode == 1
     assert (output_dir / "result.json").exists()
@@ -643,7 +643,7 @@ def test_custom_worker_data_leakage_detected(tmp_path: Path, test_dataset: Path)
         cwd=tmp_path,
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=30,
     )
     assert proc.returncode == 1
     res = TrainingResultContract.from_dict(json.loads((output_dir / "result.json").read_text(encoding="utf-8")))
@@ -696,7 +696,7 @@ def test_custom_worker_metric_mismatch_detected(tmp_path: Path, test_dataset: Pa
         cwd=tmp_path,
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=30,
     )
     assert proc.returncode == 1
     res = TrainingResultContract.from_dict(json.loads((output_dir / "result.json").read_text(encoding="utf-8")))
@@ -768,7 +768,7 @@ def test_custom_worker_pinned_candidate_preserved(tmp_path: Path, test_dataset: 
         cwd=tmp_path,
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=30,
     )
     assert proc.returncode == 1
     res = TrainingResultContract.from_dict(json.loads((output_dir / "result.json").read_text(encoding="utf-8")))

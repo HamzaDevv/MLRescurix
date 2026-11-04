@@ -92,7 +92,7 @@ fn default_budget_millicents() -> i64 {
 }
 
 fn default_model_name() -> String {
-    "deepseek/deepseek-chat".into()
+    "deepseek/deepseek-v4.1-flash-1017".into()
 }
 
 impl CampaignProblemSpec {
@@ -1721,14 +1721,20 @@ fn run_campaign_inner(
         .endpoint
         .clone()
         .unwrap_or_else(|| "https://openrouter.ai/api/v1".into());
-    register_namespaced_model_pricing(&controller_root, &endpoint, &spec.model_name, 2, 8)?;
+    let (p_mc, c_mc) = if spec.model_name.contains("deepseek-v4.1-flash-1017") || spec.model_name.contains("relace") {
+        (4, 50)
+    } else {
+        (2, 8)
+    };
+    register_namespaced_model_pricing(&controller_root, &endpoint, &spec.model_name, p_mc, c_mc)?;
 
     let est_tokens = TokenUsage {
         prompt_tokens: 1000,
         completion_tokens: 500,
         total_tokens: 1500,
     };
-    let est_cost = (est_tokens.prompt_tokens as i64 * 2) + (est_tokens.completion_tokens as i64 * 8);
+    let est_cost = ((est_tokens.prompt_tokens as i64 * p_mc + 999) / 1000)
+        + ((est_tokens.completion_tokens as i64 * c_mc + 999) / 1000);
     let request_id = format!("req_{}_{}", spec.project_id, &dataset_sha256[..6]);
     let task_id = format!("task_authoring_{}", spec.project_id);
 
@@ -1991,7 +1997,7 @@ fn run_campaign_inner(
 
                 // Record real failure diagnostic in task_completions
                 let diag_err = format!("fit subprocess failed (code {err_code}):\n{stderr_str}\n{stdout_str}");
-                let _ = conn.execute(
+                conn.execute(
                     "INSERT INTO task_completions(project, task_id, verdict, experiment_id, candidate_id, source_hash, metric_delta, protocol, failures, bounded_learnings, next_actions, artifacts_produced, completed_ms)
                      VALUES(?1, ?2, 'failed', ?3, ?4, ?5, 0.0, ?6, ?7, '[]', '[\"repair_requested\"]', '[]', ?8)
                      ON CONFLICT(project, task_id) DO UPDATE SET verdict=excluded.verdict, failures=excluded.failures, completed_ms=excluded.completed_ms",
@@ -2005,16 +2011,37 @@ fn run_campaign_inner(
                         serde_json::json!([diag_err]).to_string(),
                         now_ms(),
                     ],
-                );
+                ).map_err(|e| format!("cannot record task failure: {e}"))?;
 
                 let repair_task_id = format!("{}_repair_{}", task_id, repair_attempt);
-                let _ = runtime.command(Request {
+                let repair_branch_id = format!("{}_branch", repair_task_id);
+                BranchWorkspaceManager::init_branch(&controller_root, &spec.project_id, &repair_branch_id, &branch_id)
+                    .map_err(|e| format!("cannot init repair branch workspace: {e}"))?;
+                let repair_branch_dir = BranchWorkspaceManager::get_branch_dir(&controller_root, &spec.project_id, &repair_branch_id);
+                let repair_base_hash = format!("base-{}-epoch-{}", spec.project_id, epoch);
+                let repair_code_hash = source_sha256.clone();
+
+                let branch_receipt = runtime.command(Request {
+                    command_id: format!("create_branch_{}", repair_branch_id),
+                    project_id: spec.project_id.clone(),
+                    expected_revision: None,
+                    operation: Operation::CreateBranch {
+                        branch_id: repair_branch_id.clone(),
+                        base_hash: repair_base_hash.clone(),
+                        code_hash: repair_code_hash.clone(),
+                    },
+                }).map_err(|e| format!("cannot create repair branch: {e}"))?;
+                if branch_receipt.status == "rejected" {
+                    return Err(format!("repair branch '{}' creation rejected: status={} result={:?}", repair_branch_id, branch_receipt.status, branch_receipt.result));
+                }
+
+                let receipt = runtime.command(Request {
                     command_id: format!("create_task_{}", repair_task_id),
                     project_id: spec.project_id.clone(),
                     expected_revision: None,
                     operation: Operation::CreateTask {
                         task_id: repair_task_id.clone(),
-                        branch_id: branch_id.clone(),
+                        branch_id: repair_branch_id.clone(),
                         context: crate::contracts::Context {
                             role_id: "model_specialist".into(),
                             role_version: "1".into(),
@@ -2022,8 +2049,8 @@ fn run_campaign_inner(
                             model: Some(spec.model_name.clone()),
                             phase: "repair".into(),
                             hypothesis: Some(format!("Repair failed fit subprocess for {}", spec.task_type)),
-                            base_hash: "base-main".into(),
-                            code_hash: "code-initial".into(),
+                            base_hash: repair_base_hash,
+                            code_hash: repair_code_hash,
                             evidence: vec![],
                             artifacts: vec![],
                             pending_questions: vec![],
@@ -2033,13 +2060,16 @@ fn run_campaign_inner(
                             stop_conditions: vec!["budget".into()],
                         },
                     },
-                });
+                }).map_err(|e| format!("cannot create repair task: {e}"))?;
+                if receipt.status == "rejected" {
+                    return Err(format!("repair task '{}' creation rejected: status={} result={:?}", repair_task_id, receipt.status, receipt.result));
+                }
 
                 let orch_config = crate::agents::orchestrator::OrchestratorConfig {
                     project_id: spec.project_id.clone(),
                     task_id: repair_task_id,
                     role_id: "model_specialist".into(),
-                    branch_id: branch_id.clone(),
+                    branch_id: repair_branch_id.clone(),
                     model: spec.model_name.clone(),
                     max_turns: 3,
                 };
@@ -2065,20 +2095,24 @@ fn run_campaign_inner(
                         }
                     }
 
-                    // Copy repaired files from branch_dir to worker_workspace
-                    if branch_dir.join("solution.py").is_file() {
-                        let repaired_code = fs::read_to_string(branch_dir.join("solution.py")).unwrap_or_default();
-                        let _ = fs::write(worker_workspace.join("solution.py"), &repaired_code);
+                    // Copy repaired files from repair_branch_dir to worker_workspace
+                    if repair_branch_dir.join("solution.py").is_file() {
+                        let repaired_code = fs::read_to_string(repair_branch_dir.join("solution.py"))
+                            .map_err(|e| format!("cannot read repaired solution.py: {e}"))?;
+                        fs::write(worker_workspace.join("solution.py"), &repaired_code)
+                            .map_err(|e| format!("cannot write repaired solution.py: {e}"))?;
                     }
-                    if branch_dir.join("program.json").is_file() {
-                        let repaired_manifest = fs::read_to_string(branch_dir.join("program.json")).unwrap_or_default();
-                        let _ = fs::write(worker_workspace.join("program.json"), &repaired_manifest);
+                    if repair_branch_dir.join("program.json").is_file() {
+                        let repaired_manifest = fs::read_to_string(repair_branch_dir.join("program.json"))
+                            .map_err(|e| format!("cannot read repaired program.json: {e}"))?;
+                        fs::write(worker_workspace.join("program.json"), &repaired_manifest)
+                            .map_err(|e| format!("cannot write repaired program.json: {e}"))?;
                         if let Ok(manifest_val) = serde_json::from_str::<Value>(&repaired_manifest) {
                             program_manifest = manifest_val;
                         }
                     }
-                    let _ = copy_tree_filtered(&branch_dir, &worker_workspace);
-                    source_sha256 = compute_workspace_source_sha256(&branch_dir)?;
+                    copy_tree_filtered(&repair_branch_dir, &worker_workspace)?;
+                    source_sha256 = compute_workspace_source_sha256(&repair_branch_dir)?;
 
                     let (new_fit_bin, new_fit_args) = resolve_fit_args(
                         program_manifest.get("operations").and_then(|op| op.get("fit")).and_then(|f| f.get("argv")).and_then(|a| a.as_array()),
@@ -3193,10 +3227,15 @@ def predict_single(row, weights_data, bundle_dir=None):
         phi = [1.0] + vec + [v * v for v in vec] + [math.sin(v) for v in vec]
 
     w = weights_data.get("weights", [])
-    if len(phi) != len(w):
+    intercept = float(weights_data.get("intercept", 0.0))
+    if len(phi) == len(w):
+        val = sum(w[j] * phi[j] for j in range(len(w)))
+    elif len(phi) == len(w) + 1 and phi[0] == 1.0:
+        val = intercept + sum(w[j] * phi[j + 1] for j in range(len(w)))
+    elif len(w) == len(vec):
+        val = intercept + sum(w[j] * vec[j] for j in range(len(w)))
+    else:
         raise ValueError(f"Basis dimension mismatch: phi has {{len(phi)}}, weights has {{len(w)}}")
-
-    val = sum(w[j] * phi[j] for j in range(len(w)))
     if not IS_REGRESSION:
         p = 1.0 / (1.0 + math.exp(-max(min(val, 20.0), -20.0)))
         pred_val = 1.0 if p >= 0.5 else 0.0

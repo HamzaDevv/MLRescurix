@@ -98,19 +98,25 @@
     "transport": "openrouter",
     "provider_routing": {
       "only": [
-        "wafer/us"
+        "relace/fp4"
       ],
       "order": [
-        "wafer/us"
+        "relace/fp4"
       ],
       "allow_fallbacks": false
     },
     "pricing_snapshot": {
-      "checked_local_date": "2026-11-02",
-      "source": "https://openrouter.ai/api/v1/models/deepseek/deepseek-v4.1-flash-1017/endpoints",
-      "input_usd_per_million": "0.038",
+      "checked_local_date": "2026-11-04",
+      "source": "https://openrouter.ai/provider/relace",
+      "provider": "relace",
+      "route": "relace/fp4",
+      "input_usd_per_million": "0.035",
       "output_usd_per_million": "0.50",
-      "cache_read_usd_per_million": "0.0038",
+      "cache_read_usd_per_million": "0.005",
+      "context_tokens": 1050000,
+      "latency_s": 0.55,
+      "throughput_tok_s": 112,
+      "uptime": 0.9996,
       "must_revalidate_before_live": false,
       "verified_for_live": true
     },

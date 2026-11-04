@@ -143,7 +143,14 @@ class OperationalBudgets:
             logger.error(f"Rust harness search-admit failed closed: {exc}")
             return False, None
 
-    def settle_search(self, attempt_id: str, status: str = "success", error: Optional[str] = None) -> None:
+    def settle_search(
+        self,
+        attempt_id: str,
+        status: str = "success",
+        error: Optional[str] = None,
+        evidence: Optional[str] = None,
+        cost_millicents: int = 0,
+    ) -> None:
         """Idempotently settle an admitted search attempt via the single Rust resource authority."""
         if not self.db_path:
             return
@@ -159,12 +166,196 @@ class OperationalBudgets:
                 "--project", str(self.project_id),
                 "--attempt-id", str(attempt_id),
                 "--status", str(status),
+                "--cost-millicents", str(cost_millicents),
+            ]
+            if error:
+                cmd.extend(["--error", str(error)])
+            if evidence:
+                cmd.extend(["--evidence", str(evidence)])
+            subprocess.run(cmd, capture_output=True, text=True, check=True)
+            self.sync_authoritative_status()
+        except Exception as exc:
+            logger.warning(f"Rust harness search-settle failed: {exc}")
+
+    def admit_kaggle_job(
+        self,
+        job_id: str,
+        account_username: str,
+        notebook_title: str,
+        gpu_type: str = "gpu",
+        requested_hours: float = 12.0,
+    ) -> tuple[bool, Optional[str]]:
+        """Atomically admit a Kaggle compute job via Rust resource authority."""
+        if not self.db_path:
+            return False, None
+        harness_bin = _find_harness_binary()
+        if not harness_bin:
+            logger.error("Single Rust resource authority binary not found; kaggle admission failed closed")
+            return False, None
+        try:
+            cmd = [
+                str(harness_bin),
+                "kaggle-admit",
+                "--state", str(self.db_path),
+                "--project", str(self.project_id),
+                "--job-id", str(job_id),
+                "--account-username", str(account_username),
+                "--notebook-title", str(notebook_title),
+                "--gpu-type", str(gpu_type),
+                "--max-hours", str(requested_hours),
+                "--quota-hours-limit", str(self.kaggle_hours_limit),
+            ]
+            proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            res = json.loads(proc.stdout)
+            admitted = bool(res.get("admitted", False))
+            return admitted, job_id if admitted else None
+        except Exception as exc:
+            logger.error(f"Rust harness kaggle-admit failed closed: {exc}")
+            return False, None
+
+    def settle_kaggle_job(
+        self,
+        job_id: str,
+        status: str = "success",
+        actual_hours: float = 0.0,
+        error: Optional[str] = None,
+    ) -> None:
+        """Idempotently settle a Kaggle job via Rust resource authority."""
+        if not self.db_path:
+            return
+        harness_bin = _find_harness_binary()
+        if not harness_bin:
+            logger.error(f"Cannot settle kaggle job {job_id}: Rust harness authority binary missing")
+            return
+        try:
+            cmd = [
+                str(harness_bin),
+                "kaggle-settle",
+                "--state", str(self.db_path),
+                "--project", str(self.project_id),
+                "--job-id", str(job_id),
+                "--status", str(status),
+                "--actual-hours", str(actual_hours),
             ]
             if error:
                 cmd.extend(["--error", str(error)])
             subprocess.run(cmd, capture_output=True, text=True, check=True)
+            self.sync_authoritative_status()
         except Exception as exc:
-            logger.warning(f"Rust harness search-settle failed: {exc}")
+            logger.warning(f"Rust harness kaggle-settle failed: {exc}")
+
+    def admit_token_reservation(
+        self,
+        reservation_id: str,
+        model: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        cost_millicents: int = 0,
+        role_id: str = "worker",
+        spend_limit_millicents: int = 10_000_000,
+    ) -> tuple[bool, Optional[str]]:
+        """Atomically admit a model token reservation via Rust resource authority."""
+        if not self.db_path:
+            return False, None
+        harness_bin = _find_harness_binary()
+        if not harness_bin:
+            logger.error("Single Rust resource authority binary not found; token reservation failed closed")
+            return False, None
+        try:
+            cmd = [
+                str(harness_bin),
+                "token-admit",
+                "--state", str(self.db_path),
+                "--project", str(self.project_id),
+                "--reservation-id", str(reservation_id),
+                "--role-id", str(role_id),
+                "--model", str(model),
+                "--estimated-prompt-tokens", str(prompt_tokens),
+                "--estimated-completion-tokens", str(completion_tokens),
+                "--cost-millicents", str(cost_millicents),
+                "--token-limit", str(self.model_tokens_limit),
+                "--spend-limit-millicents", str(spend_limit_millicents),
+            ]
+            proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            res = json.loads(proc.stdout)
+            admitted = bool(res.get("admitted", False))
+            return admitted, reservation_id if admitted else None
+        except Exception as exc:
+            logger.error(f"Rust harness token-admit failed closed: {exc}")
+            return False, None
+
+    def settle_token_reservation(
+        self,
+        reservation_id: str,
+        status: str = "ok",
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        cost_millicents: int = 0,
+        error: Optional[str] = None,
+    ) -> None:
+        """Idempotently settle a model token reservation via Rust resource authority."""
+        if not self.db_path:
+            return
+        harness_bin = _find_harness_binary()
+        if not harness_bin:
+            logger.error(f"Cannot settle token reservation {reservation_id}: Rust harness authority binary missing")
+            return
+        try:
+            cmd = [
+                str(harness_bin),
+                "token-settle",
+                "--state", str(self.db_path),
+                "--project", str(self.project_id),
+                "--reservation-id", str(reservation_id),
+                "--status", str(status),
+                "--prompt-tokens", str(prompt_tokens),
+                "--completion-tokens", str(completion_tokens),
+                "--cost-millicents", str(cost_millicents),
+            ]
+            if error:
+                cmd.extend(["--error", str(error)])
+            subprocess.run(cmd, capture_output=True, text=True, check=True)
+            self.sync_authoritative_status()
+        except Exception as exc:
+            logger.warning(f"Rust harness token-settle failed: {exc}")
+
+    def query_authoritative_resource_status(self) -> Optional[Dict[str, Any]]:
+        """Query single authoritative resource status from Rust harness."""
+        if not self.db_path:
+            return None
+        harness_bin = _find_harness_binary()
+        if not harness_bin:
+            return None
+        try:
+            cmd = [
+                str(harness_bin),
+                "resource-status",
+                "--state", str(self.db_path),
+                "--project", str(self.project_id),
+            ]
+            proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            return json.loads(proc.stdout)
+        except Exception as exc:
+            logger.warning(f"Rust harness resource-status failed: {exc}")
+            return None
+
+    def sync_authoritative_status(self) -> Optional[Dict[str, Any]]:
+        """Sync in-memory usage counters with single authoritative Rust SQLite state."""
+        status = self.query_authoritative_resource_status()
+        if not status:
+            return None
+        if status.get("accounting_verified"):
+            if status.get("prompt_tokens") is not None:
+                self.prompt_tokens_used = max(self.prompt_tokens_used, int(status["prompt_tokens"]))
+            if status.get("completion_tokens") is not None:
+                self.completion_tokens_used = max(self.completion_tokens_used, int(status["completion_tokens"]))
+            if status.get("total_tokens") is not None:
+                self.model_tokens_used = max(self.model_tokens_used, int(status["total_tokens"]))
+            if status.get("search_attempts") is not None:
+                self.web_search_used = max(self.web_search_used, int(status["search_attempts"]))
+        if status.get("kaggle_hours_used") is not None:
+            self.kaggle_hours_used = max(self.kaggle_hours_used, float(status["kaggle_hours_used"]))
+        return status
 
     @classmethod
     def load(cls, config_path: Optional[Union[str, Path]] = None, workspace_root: Optional[Union[str, Path]] = None,
@@ -313,9 +504,13 @@ class OperationalBudgets:
         return cnt
 
     def has_tokens_available(self, estimated_tokens: int = 0) -> bool:
+        if self.db_path:
+            self.sync_authoritative_status()
         return (self.model_tokens_used + max(0, estimated_tokens)) <= self.model_tokens_limit
 
     def has_kaggle_available(self, estimated_hours: float = 0.0) -> bool:
+        if self.db_path:
+            self.sync_authoritative_status()
         return (self.kaggle_hours_used + max(0.0, estimated_hours)) <= self.kaggle_hours_limit
 
     def sync_search_usage(self) -> int:
@@ -331,6 +526,8 @@ class OperationalBudgets:
 
     def get_status(self) -> Dict[str, Any]:
         """Structured dictionary of current usage against all three operational budgets."""
+        if self.db_path:
+            self.sync_authoritative_status()
         # A status response does not establish campaign-wide enforcement or
         # verified remote quotas; expose only observed session usage.
         search_status = {

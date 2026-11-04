@@ -163,6 +163,7 @@ enum Command {
         #[arg(long, default_value = "success")] status: String,
         #[arg(long)] error: Option<String>,
         #[arg(long, default_value_t = 0)] cost_millicents: i64,
+        #[arg(long)] evidence: Option<String>,
     },
     SearchCount {
         #[arg(long)] state: PathBuf,
@@ -180,6 +181,46 @@ enum Command {
     },
     KaggleListAccounts {
         #[arg(long)] state: PathBuf,
+    },
+    KaggleAdmit {
+        #[arg(long)] state: PathBuf,
+        #[arg(long)] project: String,
+        #[arg(long)] job_id: String,
+        #[arg(long)] account_username: String,
+        #[arg(long)] notebook_title: String,
+        #[arg(long, default_value = "gpu")] gpu_type: String,
+        #[arg(long, default_value_t = 12.0)] max_hours: f64,
+        #[arg(long, default_value_t = 30.0)] quota_hours_limit: f64,
+    },
+    KaggleSettle {
+        #[arg(long)] state: PathBuf,
+        #[arg(long)] project: String,
+        #[arg(long)] job_id: String,
+        #[arg(long, default_value = "success")] status: String,
+        #[arg(long, default_value_t = 0.0)] actual_hours: f64,
+        #[arg(long)] error: Option<String>,
+    },
+    TokenAdmit {
+        #[arg(long)] state: PathBuf,
+        #[arg(long)] project: String,
+        #[arg(long)] reservation_id: String,
+        #[arg(long, default_value = "worker")] role_id: String,
+        #[arg(long)] model: String,
+        #[arg(long, default_value_t = 0)] estimated_prompt_tokens: u32,
+        #[arg(long, default_value_t = 0)] estimated_completion_tokens: u32,
+        #[arg(long, default_value_t = 0)] cost_millicents: i64,
+        #[arg(long, default_value_t = 5000000)] token_limit: u64,
+        #[arg(long, default_value_t = 10000000)] spend_limit_millicents: i64,
+    },
+    TokenSettle {
+        #[arg(long)] state: PathBuf,
+        #[arg(long)] project: String,
+        #[arg(long)] reservation_id: String,
+        #[arg(long, default_value = "ok")] status: String,
+        #[arg(long, default_value_t = 0)] prompt_tokens: u32,
+        #[arg(long, default_value_t = 0)] completion_tokens: u32,
+        #[arg(long, default_value_t = 0)] cost_millicents: i64,
+        #[arg(long)] error: Option<String>,
     },
     Capabilities,
 }
@@ -373,7 +414,7 @@ async fn run()->Result<(),String>{
                 .and_then(|s| serde_json::from_str(&s).ok());
             let configured_model = provider_cfg.as_ref()
                 .and_then(|c| c["model"].as_str())
-                .unwrap_or("deepseek/deepseek-v4.1-flash");
+                .unwrap_or("deepseek/deepseek-v4.1-flash-1017");
             let effective_model = if model == "default-model" {
                 configured_model.to_string()
             } else {
@@ -654,12 +695,17 @@ async fn run()->Result<(),String>{
                 let _ = fs::create_dir_all(&state);
                 state.join("state.sqlite")
             };
-            match mlrescurix_harness::resource_authority::admit_search_attempt(&db_path, &project, &query, &sanitized, &provider, limit)? {
+            let sanitized_clean = if sanitized.trim().is_empty() {
+                mlrescurix_harness::resource_authority::sanitize_research_query(&query)?
+            } else {
+                mlrescurix_harness::resource_authority::sanitize_research_query(&sanitized)?
+            };
+            match mlrescurix_harness::resource_authority::admit_search_attempt(&db_path, &project, &query, &sanitized_clean, &provider, limit)? {
                 Some(attempt_id) => print(serde_json::json!({"admitted": true, "attempt_id": attempt_id})),
                 None => print(serde_json::json!({"admitted": false, "attempt_id": serde_json::Value::Null})),
             }
         },
-        Command::SearchSettle { state, project, attempt_id, status, error, cost_millicents } => {
+        Command::SearchSettle { state, project, attempt_id, status, error, cost_millicents, evidence } => {
             let db_path = if state.is_file() || state.extension().map_or(false, |ext| ext == "sqlite" || ext == "db") {
                 if let Some(parent) = state.parent() {
                     let _ = fs::create_dir_all(parent);
@@ -669,7 +715,7 @@ async fn run()->Result<(),String>{
                 let _ = fs::create_dir_all(&state);
                 state.join("state.sqlite")
             };
-            mlrescurix_harness::resource_authority::settle_search_attempt(&db_path, &project, &attempt_id, &status, error.as_deref(), cost_millicents)?;
+            mlrescurix_harness::resource_authority::settle_search_attempt_with_evidence(&db_path, &project, &attempt_id, &status, error.as_deref(), cost_millicents, evidence.as_deref())?;
             print(serde_json::json!({"settled": true, "attempt_id": attempt_id, "status": status}))
         },
         Command::SearchCount { state, project } => {
@@ -699,6 +745,66 @@ async fn run()->Result<(),String>{
             let pool = mlrescurix_harness::kaggle::KagglePoolManager::new(&state, true)?;
             let accounts = pool.list_accounts()?;
             print(serde_json::json!({"accounts": accounts}))
+        },
+        Command::KaggleAdmit { state, project, job_id, account_username, notebook_title, gpu_type, max_hours, quota_hours_limit } => {
+            let db_path = if state.is_file() || state.extension().map_or(false, |ext| ext == "sqlite" || ext == "db") {
+                if let Some(parent) = state.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+                state
+            } else {
+                let _ = fs::create_dir_all(&state);
+                state.join("state.sqlite")
+            };
+            let admitted = mlrescurix_harness::resource_authority::admit_kaggle_job(
+                &db_path, &project, &job_id, &account_username, &notebook_title, &gpu_type, max_hours, quota_hours_limit,
+            )?;
+            print(serde_json::json!({"admitted": admitted.is_some(), "job_id": job_id}))
+        },
+        Command::KaggleSettle { state, project, job_id, status, actual_hours, error } => {
+            let db_path = if state.is_file() || state.extension().map_or(false, |ext| ext == "sqlite" || ext == "db") {
+                if let Some(parent) = state.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+                state
+            } else {
+                let _ = fs::create_dir_all(&state);
+                state.join("state.sqlite")
+            };
+            mlrescurix_harness::resource_authority::settle_kaggle_job(
+                &db_path, &project, &job_id, &status, actual_hours, error.as_deref(),
+            )?;
+            print(serde_json::json!({"settled": true, "job_id": job_id, "status": status}))
+        },
+        Command::TokenAdmit { state, project, reservation_id, role_id, model, estimated_prompt_tokens, estimated_completion_tokens, cost_millicents, token_limit, spend_limit_millicents } => {
+            let db_path = if state.is_file() || state.extension().map_or(false, |ext| ext == "sqlite" || ext == "db") {
+                if let Some(parent) = state.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+                state
+            } else {
+                let _ = fs::create_dir_all(&state);
+                state.join("state.sqlite")
+            };
+            let admitted = mlrescurix_harness::resource_authority::admit_token_reservation(
+                &db_path, &project, &reservation_id, &role_id, &model, estimated_prompt_tokens, estimated_completion_tokens, cost_millicents, token_limit, spend_limit_millicents,
+            )?;
+            print(serde_json::json!({"admitted": admitted.is_some(), "reservation_id": reservation_id}))
+        },
+        Command::TokenSettle { state, project, reservation_id, status, prompt_tokens, completion_tokens, cost_millicents, error } => {
+            let db_path = if state.is_file() || state.extension().map_or(false, |ext| ext == "sqlite" || ext == "db") {
+                if let Some(parent) = state.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+                state
+            } else {
+                let _ = fs::create_dir_all(&state);
+                state.join("state.sqlite")
+            };
+            mlrescurix_harness::resource_authority::settle_token_reservation(
+                &db_path, &project, &reservation_id, &status, prompt_tokens, completion_tokens, cost_millicents, error.as_deref(),
+            )?;
+            print(serde_json::json!({"settled": true, "reservation_id": reservation_id, "status": status}))
         },
         Command::Worker{spec,output}=>{let result=execution::worker(&spec,&output)?;if result==0 {Ok(())} else {std::process::exit(result)}}
         Command::Capabilities=>print(serde_json::json!({

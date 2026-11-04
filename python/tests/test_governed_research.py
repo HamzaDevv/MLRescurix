@@ -9,6 +9,7 @@ from mlrescurix_worker.scientific.governed_research import (
     sanitize_external_content,
     sanitize_query,
 )
+from pathlib import Path
 from mlrescurix_worker.scientific.operational_budgets import OperationalBudgets
 
 
@@ -99,6 +100,17 @@ def test_mock_search_provider_records_budget_and_sources():
     res3 = client.research_topic("pricing another query", budgets=budgets)
     assert res3["status"] == "budget_exhausted"
     assert budgets.web_search_used == 2
+
+    # Verify search evidence is durably persisted in SQLite authority
+    if budgets.db_path and Path(budgets.db_path).is_file():
+        import sqlite3
+        conn = sqlite3.connect(budgets.db_path)
+        cur = conn.cursor()
+        cur.execute("SELECT response_evidence FROM operational_search_attempts WHERE project = ?", (budgets.project_id,))
+        rows = cur.fetchall()
+        assert len(rows) >= 2
+        assert any(r[0] and "Tabular Neural Networks" in r[0] for r in rows)
+        conn.close()
 
 
 def test_prompt_injection_sanitization():

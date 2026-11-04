@@ -1148,6 +1148,7 @@ Update the session row below with the packet link and evidence-based verdict, an
 | S4 | PARTIAL; genuine SIGKILL recovery and failed-fit repair fixtures improved, while resource authority, comprehensive fencing and research remain open. | [Independent review](../../docs/refactor_sessions/S4_S6_CONTINUATION_RED_TEAM_20261104.md) |
 | S5 | PARTIAL; offline grouped/temporal fixtures improved, but full task generality and remote verification remain open. | [Independent review](../../docs/refactor_sessions/S4_S6_CONTINUATION_RED_TEAM_20261104.md) |
 | S6 | PARTIAL; owner-driven scientific search, recursive deletion, final release and live Amazon campaign remain open. | [Independent review](../../docs/refactor_sessions/S4_S6_CONTINUATION_RED_TEAM_20261104.md) |
+| **Fast Completion Major Session 1** | **PARTIAL; independent acceptance not established.** New local resource APIs, evidence storage, repair and learned OLS fixtures improve coverage. Production token/Kaggle admission is not wired through those APIs, and owner-driven scientific exploration, comprehensive provenance, recursive deletion, verified isolation and live Amazon remain open. | [Independent review](../../docs/refactor_sessions/FAST_SESSION_1_RED_TEAM_20261104.md); [original prompt](ANTIGRAVITY_FAST_COMPLETION_SESSION_1.md) |
 
 ## 11. Verification, benchmarks, and fault coverage
 
@@ -1319,7 +1320,7 @@ The plan is ready for implementation because design choices, authority boundarie
 - Full v3 writer/validators and legacy compatibility pass; release sealing is atomic and controller anchored.
 - Real benchmark outcomes, quality limitations and unverified capabilities are reported honestly. No numerical rubric score substitutes for these gates.
 
-**Next implementation action:** Execute [fast completion session 1](./ANTIGRAVITY_FAST_COMPLETION_SESSION_1.md), then finish release and admitted live validation in session 2, with a third only if demonstrated defects or external gates remain.
+**Next implementation action:** Execute [the canonical fast completion session 2](./ANTIGRAVITY_FAST_COMPLETION_SESSION_2.md), including remaining foundations, release verification and admitted live validation.
 
 ### Source verification record
 

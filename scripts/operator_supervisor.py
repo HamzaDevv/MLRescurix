@@ -208,7 +208,7 @@ def main():
     parser.add_argument("--state", required=True, type=Path, help="Harness state directory")
     parser.add_argument("--project", required=True, help="Project identifier")
     parser.add_argument("--model", default="deepseek/deepseek-v4.1-flash-1017")
-    parser.add_argument("--route", default="wafer/us")
+    parser.add_argument("--route", default="relace/fp4")
     parser.add_argument("--harness", type=Path, default=REPO_ROOT / "target" / "release" / "mlrescurix-harness")
     parser.add_argument("--log-file", type=Path, help="Durable operator audit log file")
     parser.add_argument("--watch-pid", type=int, help="Optional agent PID to monitor")

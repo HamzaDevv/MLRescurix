@@ -1,0 +1,17 @@
+{
+  "provider": "relace",
+  "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+  "model": "deepseek/deepseek-v4.1-flash-1017",
+  "model_alias": "deepseek-v4.1-flash-1017",
+  "route": "relace/fp4",
+  "api_key_path": ".config/openrouter.key",
+  "pricing": {
+    "input_usd_per_million": 0.035,
+    "output_usd_per_million": 0.50,
+    "cache_read_usd_per_million": 0.005,
+    "context_tokens": 1050000,
+    "latency_s": 0.55,
+    "throughput_tok_s": 112,
+    "uptime": 0.9996
+  }
+}

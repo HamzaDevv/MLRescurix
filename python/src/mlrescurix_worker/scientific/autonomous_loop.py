@@ -109,7 +109,7 @@ class AutonomousAgentLoop:
     def __init__(self, workspace_root: Union[str, Path], project_id: str, session_id: str,
         campaign_authority: Any, dataset_path: Union[str, Path], target_column: str,
         task_type="binary_classification", metric_name="balanced_accuracy", metric_direction="maximize",
-        locked_folds=None, model_name="deepseek/deepseek-v4.1-flash-1017", endpoint="inference-net/fp8",
+        locked_folds=None, model_name="deepseek/deepseek-v4.1-flash-1017", endpoint="relace/fp4",
         max_turns=None, per_run_budget_usd=0.05, provider_caller=None, *, require_locked_folds=False,
         topology=None, problem_statement="", sandbox_image=None, evaluation_timeout_seconds=180,
         evaluator=None, pricing=None, outbound_script_output_approved=False,
