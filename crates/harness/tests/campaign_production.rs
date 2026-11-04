@@ -79,6 +79,7 @@ fn campaign_fails_closed_before_creating_state_without_isolation() {
         target_column: "target".into(), task_type: "regression".into(), metric: Metric::Mae,
         budget_millicents: 1000, model_name: "test".into(), endpoint: None, api_key: None,
         lockbox_fraction: None, seed: None, max_turns: None,
+        split_strategy: None, time_column: None, group_column: None,
     };
     let err = mlrescurix_harness::campaign::run_autonomous_campaign(&state, &spec, None).unwrap_err();
     assert!(err.contains("isolated worker execution is not yet implemented"));
@@ -106,6 +107,9 @@ fn test_autonomous_campaign_end_to_end_production_path() {
         lockbox_fraction: Some(0.20),
         seed: Some(2026),
         max_turns: Some(5),
+        split_strategy: None,
+        time_column: None,
+        group_column: None,
     };
 
     let outcome: CampaignOutcome = run_autonomous_campaign(root, &problem_spec, None).unwrap();
@@ -760,6 +764,9 @@ if __name__ == "__main__":
         lockbox_fraction: Some(0.20),
         seed: Some(2026),
         max_turns: Some(4),
+        split_strategy: None,
+        time_column: None,
+        group_column: None,
     };
 
     let outcome: CampaignOutcome = run_autonomous_campaign(
@@ -801,6 +808,9 @@ fn test_adversarial_intake_validation() {
         lockbox_fraction: Some(0.20),
         seed: Some(2026),
         max_turns: Some(2),
+        split_strategy: None,
+        time_column: None,
+        group_column: None,
     };
 
     // 1. Non-finite (NaN) in target column

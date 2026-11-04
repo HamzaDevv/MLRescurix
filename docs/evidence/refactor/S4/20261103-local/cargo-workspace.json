@@ -1,0 +1,10 @@
+{
+  "argv": [
+    "cargo",
+    "test",
+    "--locked",
+    "--workspace"
+  ],
+  "exit": 101,
+  "seconds": 90.3
+}

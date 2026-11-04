@@ -1,0 +1,16 @@
+{
+  "argv": [
+    "python3",
+    "-m",
+    "pytest",
+    "-q",
+    "python/tests/test_architecture_consolidation.py",
+    "python/tests/test_gate4_benchmarks.py",
+    "python/tests/test_kaggle_benchmarks.py"
+  ],
+  "environment": {
+    "PYTHONPATH": "python/src"
+  },
+  "exit": 0,
+  "seconds": 58.86
+}

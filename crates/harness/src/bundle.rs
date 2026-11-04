@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fs,
     path::Path,
     time::{SystemTime, UNIX_EPOCH},
@@ -31,7 +31,7 @@ pub struct BundleManifest {
     pub format: String,
     pub project_id: String,
     pub candidate_id: String,
-    pub files: HashMap<String, BundleManifestFileEntry>,
+    pub files: BTreeMap<String, BundleManifestFileEntry>,
     #[serde(default)]
     pub model: Option<Value>,
     #[serde(default)]
@@ -293,52 +293,219 @@ pub fn verify_bundle_with_state(
     // 6. External state authenticity check when `state_root` is provided
     let mut external_binding = Value::Null;
     if let Some(root) = state_root {
-        let _rt = crate::storage::Runtime::open(root)?;
-        let db = rusqlite::Connection::open(root.join("state.sqlite")).map_err(|e| e.to_string())?;
+        let db_candidates = [
+            root.join("controller/state.sqlite"),
+            root.join("state.sqlite"),
+        ];
+        let db_path = db_candidates.iter().find(|p| p.is_file())
+            .ok_or_else(|| format!("state database not found under '{}'", root.display()))?;
+        let db = rusqlite::Connection::open(db_path).map_err(|e| e.to_string())?;
         use rusqlite::OptionalExtension;
 
-        // Verify user approval token
-        let has_user_approval: bool = db.query_row(
-            "SELECT EXISTS(
-                SELECT 1 FROM user_approvals WHERE project=?1 AND target_id=?2 AND action_type IN ('deployment_handoff', 'final_test', 'holdout_access') AND approved=1
-                UNION
-                SELECT 1 FROM user_approvals WHERE project=?1 AND action_type IN ('deployment_handoff', 'final_test', 'holdout_access') AND approved=1
-                UNION
-                SELECT 1 FROM approvals WHERE project=?1 AND candidate_id=?2 AND approved=1
-            )",
-            rusqlite::params![&manifest.project_id, &manifest.candidate_id],
-            |r| r.get(0),
+        // Check if controller_release_receipts table exists and has a record for this candidate
+        let has_release_table: bool = db.query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='controller_release_receipts'",
+            [],
+            |_| Ok(true),
         ).unwrap_or(false);
-        if !has_user_approval {
-            return Err(format!("external authenticity failed: candidate '{}' lacks verified user approval in user_approvals or approvals ledger", manifest.candidate_id));
-        }
 
-        let gate_row: Option<(String, String, String, String, String)> = db.query_row(
-            "SELECT access_id, dataset_sha256, status, COALESCE(frozen_model_sha256, ''), COALESCE(result_sha256, '')
-             FROM final_test_gates WHERE project=?1 AND candidate_id=?2 ORDER BY rowid DESC LIMIT 1",
-            rusqlite::params![&manifest.project_id, &manifest.candidate_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
-        ).optional().map_err(|e| e.to_string())?;
+        let release_receipt_row: Option<(String, String, String, String, String, f64, f64, String, Option<String>)> = if has_release_table {
+            db.query_row(
+                "SELECT closure_sha256, manifest_sha256, weights_sha256, source_sha256, protocol_sha256, validation_score, lockbox_score, lockbox_receipt_sha256, json_extract(receipt_json, '$.environment_id')
+                 FROM controller_release_receipts WHERE project=?1 AND candidate_id=?2",
+                rusqlite::params![&manifest.project_id, &manifest.candidate_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?)),
+            ).optional().map_err(|e| e.to_string())?
+        } else {
+            None
+        };
 
-        let (gate_access_id, gate_dataset_sha, gate_status, gate_frozen_sha, gate_result_sha) = gate_row
-            .ok_or_else(|| format!(
-                "external authenticity failed: no consumed final_test_gates record in state for project '{}' candidate '{}'",
-                manifest.project_id, manifest.candidate_id
-            ))?;
+        if let Some((rec_closure_sha, rec_manifest_sha, rec_weights_sha, rec_src_sha, rec_protocol_sha, rec_val_score, rec_lockbox_score, rec_lb_rcpt_sha, rec_env_id)) = release_receipt_row {
+            // Provenance verification against immutable controller release receipt
+            if manifest_sha != rec_manifest_sha {
+                return Err(format!(
+                    "external authenticity failed: bundle manifest.json sha256 ({manifest_sha}) does not match authoritative controller release receipt ({rec_manifest_sha}); self-rehashed or tampered manifest rejected"
+                ));
+            }
 
-        if gate_status != "consumed" {
-            return Err(format!("external authenticity failed: final_test_gates status is '{gate_status}', expected 'consumed'"));
-        }
-        if !gate_frozen_sha.is_empty() && gate_frozen_sha != frozen_model_sha {
-            return Err(format!(
-                "external authenticity failed: bundle weights sha256 ({frozen_model_sha}) does not match authoritative state gate ({gate_frozen_sha})"
-            ));
-        }
-        if gate_result_sha != final_sha {
-            return Err(format!(
-                "external authenticity failed: bundle final.json sha256 ({final_sha}) does not match authoritative state gate ({gate_result_sha})"
-            ));
-        }
+            // Compute delivery closure hash over all files declared in manifest
+            let computed_closure_sha = {
+                let mut files_map = HashMap::new();
+                for (rel_path, entry) in &manifest.files {
+                    files_map.insert(rel_path.clone(), entry.sha256.clone());
+                }
+                crate::custom_protocol::compute_delivery_closure_sha256(&files_map)
+            };
+            if computed_closure_sha != rec_closure_sha {
+                return Err(format!(
+                    "external authenticity failed: computed delivery closure sha256 ({computed_closure_sha}) does not match authoritative controller release receipt ({rec_closure_sha}); tampered delivery closure rejected"
+                ));
+            }
+
+            if frozen_model_sha != rec_weights_sha {
+                return Err(format!(
+                    "external authenticity failed: bundle weights sha256 ({frozen_model_sha}) does not match authoritative controller release receipt ({rec_weights_sha})"
+                ));
+            }
+
+            if let Some(sc_val) = scorecard_json.get("validation_score").and_then(Value::as_f64) {
+                if (sc_val - rec_val_score).abs() > 1e-5 {
+                    return Err(format!(
+                        "external authenticity failed: scorecard validation_score ({sc_val}) does not match authoritative controller release receipt ({rec_val_score})"
+                    ));
+                }
+            }
+            if let Some(sc_lb) = scorecard_json.get("lockbox_score").and_then(Value::as_f64) {
+                if (sc_lb - rec_lockbox_score).abs() > 1e-5 {
+                    return Err(format!(
+                        "external authenticity failed: scorecard lockbox_score ({sc_lb}) does not match authoritative controller release receipt ({rec_lockbox_score})"
+                    ));
+                }
+            }
+
+            // Verify protocol binding to authoritative custom_protocols
+            let protocol_row: Option<String> = db.query_row(
+                "SELECT protocol_sha256 FROM custom_protocols WHERE project=?1",
+                rusqlite::params![&manifest.project_id],
+                |r| r.get(0),
+            ).optional().unwrap_or(None);
+            if let Some(auth_protocol_sha) = protocol_row {
+                if auth_protocol_sha != rec_protocol_sha {
+                    return Err(format!(
+                        "external authenticity failed: release receipt protocol sha256 ({rec_protocol_sha}) does not match authoritative custom_protocols ({auth_protocol_sha})"
+                    ));
+                }
+            }
+
+            // Verify lockbox evaluation binding in assessment_lockbox_consumptions
+            let has_lockbox_table: bool = db.query_row(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='assessment_lockbox_consumptions'",
+                [],
+                |_| Ok(true),
+            ).unwrap_or(false);
+            if has_lockbox_table {
+                let lb_row: Option<(String, String, f64)> = db.query_row(
+                    "SELECT predictions_sha256, artifact_sha256, score FROM assessment_lockbox_consumptions WHERE project=?1 AND candidate_id=?2",
+                    rusqlite::params![&manifest.project_id, &manifest.candidate_id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                ).optional().map_err(|e| e.to_string())?;
+
+                let (auth_pred_sha, auth_artifact_sha, auth_score) = lb_row.ok_or_else(|| {
+                    format!(
+                        "external authenticity failed: candidate '{}' has no authoritative assessment_lockbox_consumptions record; release receipt without lockbox evaluation rejected",
+                        manifest.candidate_id
+                    )
+                })?;
+
+                if auth_pred_sha != rec_lb_rcpt_sha {
+                    return Err(format!(
+                        "external authenticity failed: release receipt lockbox receipt sha256 ({rec_lb_rcpt_sha}) does not match authoritative lockbox consumption predictions sha256 ({auth_pred_sha})"
+                    ));
+                }
+                if auth_artifact_sha != rec_weights_sha {
+                    return Err(format!(
+                        "external authenticity failed: release receipt weights sha256 ({rec_weights_sha}) does not match evaluated lockbox artifact sha256 ({auth_artifact_sha})"
+                    ));
+                }
+                if (auth_score - rec_lockbox_score).abs() > 1e-5 {
+                    return Err(format!(
+                        "external authenticity failed: release receipt lockbox score ({rec_lockbox_score}) does not match authoritative lockbox consumption score ({auth_score})"
+                    ));
+                }
+            }
+
+            // Verify scorecard metadata consistency if declared
+            if let Some(sc_proto) = scorecard_json.get("protocol_sha256").and_then(Value::as_str) {
+                if sc_proto != rec_protocol_sha {
+                    return Err(format!(
+                        "external authenticity failed: scorecard protocol_sha256 ({sc_proto}) does not match authoritative release receipt ({rec_protocol_sha})"
+                    ));
+                }
+            }
+            if let Some(sc_lb_sha) = scorecard_json.get("lockbox_receipt_sha256").and_then(Value::as_str) {
+                if sc_lb_sha != rec_lb_rcpt_sha {
+                    return Err(format!(
+                        "external authenticity failed: scorecard lockbox_receipt_sha256 ({sc_lb_sha}) does not match authoritative release receipt ({rec_lb_rcpt_sha})"
+                    ));
+                }
+            }
+
+            let cand_src_sha = crate::campaign::compute_workspace_source_sha256(bundle_dir)
+                .or_else(|_| {
+                    let sol_path = bundle_dir.join("solution.py");
+                    if sol_path.is_file() {
+                        hash_file(&sol_path)
+                    } else {
+                        Err("candidate source missing".into())
+                    }
+                })?;
+            if cand_src_sha != rec_src_sha {
+                return Err(format!(
+                    "external authenticity failed: candidate source sha256 ({cand_src_sha}) does not match evaluated source sha256 ({rec_src_sha})"
+                ));
+            }
+
+            external_binding = serde_json::json!({
+                "state_root": root.to_string_lossy(),
+                "candidate_id": manifest.candidate_id,
+                "closure_sha256": rec_closure_sha,
+                "manifest_sha256": rec_manifest_sha,
+                "weights_sha256": rec_weights_sha,
+                "source_sha256": rec_src_sha,
+                "validation_score": rec_val_score,
+                "lockbox_score": rec_lockbox_score,
+                "lockbox_receipt_sha256": rec_lb_rcpt_sha,
+                "environment_id": rec_env_id,
+            });
+        } else {
+            let storage_dir = if root.join("controller/state.sqlite").is_file() {
+                root.join("controller")
+            } else {
+                root.to_path_buf()
+            };
+            let _rt = crate::storage::Runtime::open(&storage_dir)?;
+            // Verify user approval token
+            let has_user_approval: bool = db.query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM user_approvals WHERE project=?1 AND target_id=?2 AND action_type IN ('deployment_handoff', 'final_test', 'holdout_access') AND approved=1
+                    UNION
+                    SELECT 1 FROM user_approvals WHERE project=?1 AND action_type IN ('deployment_handoff', 'final_test', 'holdout_access') AND approved=1
+                    UNION
+                    SELECT 1 FROM approvals WHERE project=?1 AND candidate_id=?2 AND approved=1
+                )",
+                rusqlite::params![&manifest.project_id, &manifest.candidate_id],
+                |r| r.get(0),
+            ).unwrap_or(false);
+            if !has_user_approval {
+                return Err(format!("external authenticity failed: candidate '{}' lacks verified user approval in user_approvals or approvals ledger", manifest.candidate_id));
+            }
+
+            let gate_row: Option<(String, String, String, String, String)> = db.query_row(
+                "SELECT access_id, dataset_sha256, status, COALESCE(frozen_model_sha256, ''), COALESCE(result_sha256, '')
+                 FROM final_test_gates WHERE project=?1 AND candidate_id=?2 ORDER BY rowid DESC LIMIT 1",
+                rusqlite::params![&manifest.project_id, &manifest.candidate_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            ).optional().map_err(|e| e.to_string())?;
+
+            let (gate_access_id, gate_dataset_sha, gate_status, gate_frozen_sha, gate_result_sha) = gate_row
+                .ok_or_else(|| format!(
+                    "external authenticity failed: no consumed final_test_gates record in state for project '{}' candidate '{}'",
+                    manifest.project_id, manifest.candidate_id
+                ))?;
+
+            if gate_status != "consumed" {
+                return Err(format!("external authenticity failed: final_test_gates status is '{gate_status}', expected 'consumed'"));
+            }
+            if !gate_frozen_sha.is_empty() && gate_frozen_sha != frozen_model_sha {
+                return Err(format!(
+                    "external authenticity failed: bundle weights sha256 ({frozen_model_sha}) does not match authoritative state gate ({gate_frozen_sha})"
+                ));
+            }
+            if gate_result_sha != final_sha {
+                return Err(format!(
+                    "external authenticity failed: bundle final.json sha256 ({final_sha}) does not match authoritative state gate ({gate_result_sha})"
+                ));
+            }
 
         // Verify no private evaluation row leakage from sealed holdout test split
         let wf_manifest_path = root.join("workflows").join(&manifest.project_id).join("dataset_manifest.json");
@@ -458,17 +625,18 @@ pub fn verify_bundle_with_state(
             }
         }
 
-        external_binding = serde_json::json!({
-            "state_root": root.to_string_lossy(),
-            "test_access_id": gate_access_id,
-            "dataset_sha256": gate_dataset_sha,
-            "frozen_model_sha256": gate_frozen_sha,
-            "final_result_sha256": gate_result_sha,
-            "bundle_manifest_sha256": manifest_sha,
-            "trusted_source_sha256": expected_src_hash,
-            "decision_binding_sha256": verified_binding_sha,
-            "environment_identity": verified_env_identity,
-        });
+            external_binding = serde_json::json!({
+                "state_root": root.to_string_lossy(),
+                "test_access_id": gate_access_id,
+                "dataset_sha256": gate_dataset_sha,
+                "frozen_model_sha256": gate_frozen_sha,
+                "final_result_sha256": gate_result_sha,
+                "bundle_manifest_sha256": manifest_sha,
+                "trusted_source_sha256": expected_src_hash,
+                "decision_binding_sha256": verified_binding_sha,
+                "environment_identity": verified_env_identity,
+            });
+        }
     }
 
     // 7. Constraint re-verification
@@ -788,9 +956,16 @@ pub fn verify_standalone_serving_recipe(
         use std::io::{Read, Write};
         use std::net::TcpStream;
 
-        // 1. Check /health
-        let mut stream = TcpStream::connect(("127.0.0.1", port))
-            .map_err(|e| format!("cannot connect to serve.py on port {port}: {e}"))?;
+        // 1. Check /health with connection retry loop
+        let mut stream = None;
+        for _ in 0..30 {
+            if let Ok(s) = TcpStream::connect(("127.0.0.1", port)) {
+                stream = Some(s);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        let mut stream = stream.ok_or_else(|| format!("cannot connect to serve.py on port {port}: connection timed out after 3s"))?;
         stream.write_all(b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
             .map_err(|e| e.to_string())?;
         let mut resp = Vec::new();
@@ -871,7 +1046,7 @@ mod tests {
         fs::write(dir.path().join("verification.json"), serde_json::json!({"frozen_model_sha256":model_sha}).to_string()).unwrap();
         fs::write(dir.path().join("scorecard.json"), r#"{"candidate_id":"c","constraints":{}}"#).unwrap();
         let update_manifest = || {
-            let entries: HashMap<String, BundleManifestFileEntry> = names.iter().map(|name| {
+            let entries: BTreeMap<String, BundleManifestFileEntry> = names.iter().map(|name| {
                 let path = dir.path().join(name);
                 (name.to_string(), BundleManifestFileEntry { bytes: fs::metadata(&path).unwrap().len(), sha256: hash_file(&path).unwrap() })
             }).collect();
@@ -911,7 +1086,7 @@ mod tests {
         fs::write(dir.path().join("verification.json"), serde_json::json!({"frozen_model_sha256":model_sha}).to_string()).unwrap();
         fs::write(dir.path().join("scorecard.json"), r#"{"candidate_id":"c2","constraints":{}}"#).unwrap();
 
-        let entries: HashMap<String, BundleManifestFileEntry> = names.iter().map(|name| {
+        let entries: BTreeMap<String, BundleManifestFileEntry> = names.iter().map(|name| {
             let path = dir.path().join(name);
             (name.to_string(), BundleManifestFileEntry { bytes: fs::metadata(&path).unwrap().len(), sha256: hash_file(&path).unwrap() })
         }).collect();

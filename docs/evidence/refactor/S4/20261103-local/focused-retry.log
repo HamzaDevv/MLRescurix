@@ -1,0 +1,39 @@
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.96s
+     Running tests/s2_red_team.rs (target/debug/deps/s2_red_team-fc5969ff210d96a9)
+
+running 4 tests
+test challenger_rejects_contradictory_bindings_and_malformed_audits ... ok
+test specialist_text_cannot_select_an_unauthored_reference ... ok
+test post_audit_owner_reply_requires_explicit_finalization ... ok
+test owner_missing_ambiguous_or_negative_decision_cannot_finalize ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.22s
+
+     Running tests/s3_gates.rs (target/debug/deps/s3_gates-c7cb122961fc0a66)
+
+running 8 tests
+test test_gate_e_hostile_worker_denial_and_honest_refusal ... ok
+test test_gate_c_real_competing_controllers_and_sigkill_lease_fencing ... ok
+test test_gate_d_concurrent_resource_admission_and_conflicting_settlement ... ok
+test test_gate_b_trajectory_3_challenger_challenge_halts_without_assessment ... ok
+test test_gate_f_changed_source_rejected_and_once_only_holdout ... FAILED
+test test_gate_g_standalone_frozen_candidate_parity ... ok
+test test_gate_b_evidence_dependent_trajectories_and_context_isolation ... ok
+test test_gate_a_multi_file_unlisted_method_and_generic_replay ... ok
+
+failures:
+
+---- test_gate_f_changed_source_rejected_and_once_only_holdout stdout ----
+
+thread 'test_gate_f_changed_source_rejected_and_once_only_holdout' (2512321) panicked at crates/harness/tests/s3_gates.rs:875:134:
+called `Result::unwrap()` on an `Err` value: SqliteFailure(Error { code: ConstraintViolation, extended_code: 1811 }, Some("assessment consumption is immutable"))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    test_gate_f_changed_source_rejected_and_once_only_holdout
+
+test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.18s
+
+error: test failed, to rerun pass `-p mlrescurix-harness --test s3_gates`

@@ -990,9 +990,22 @@ pub fn total_state_bytes(root: &Path) -> Result<u64> {
 /// charged by link length while the target is never traversed.
 fn state_size(path: &Path) -> Result<u64> {
     let mut total = 0u64;
-    for entry in fs::read_dir(path).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let metadata = match fs::symlink_metadata(entry.path()) {Ok(m)=>m,Err(e) if e.kind()==std::io::ErrorKind::NotFound=>continue,Err(e)=>return Err(e.to_string())};
+    let read_res = match fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(e) => return Err(e.to_string()),
+    };
+    for entry in read_res {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e.to_string()),
+        };
+        let metadata = match fs::symlink_metadata(entry.path()) {
+            Ok(m) => m,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e.to_string()),
+        };
         if metadata.file_type().is_symlink() || metadata.is_file() {
             total = total.saturating_add(metadata.len());
         } else if metadata.is_dir() {
@@ -1490,7 +1503,35 @@ pub fn collect_artifacts(root:&Path)->Result<u64>{
     reclaimed = reclaimed.saturating_add(db_before.saturating_sub(db_after));
     Ok(reclaimed)
 }
-fn tree_size(path:&Path)->Result<u64>{let mut total=0u64;for e in fs::read_dir(path).map_err(|e|e.to_string())?{let e=e.map_err(|e|e.to_string())?;let m=fs::symlink_metadata(e.path()).map_err(|e|e.to_string())?;if m.file_type().is_symlink(){return Err("managed artifact symlink rejected".into());}if m.is_file(){total=total.saturating_add(m.len());}else if m.is_dir(){total=total.saturating_add(tree_size(&e.path())?);}}Ok(total)}
+fn tree_size(path: &Path) -> Result<u64> {
+    let mut total = 0u64;
+    let read_res = match fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(e) => return Err(e.to_string()),
+    };
+    for e in read_res {
+        let e = match e {
+            Ok(entry) => entry,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(err) => return Err(err.to_string()),
+        };
+        let m = match fs::symlink_metadata(e.path()) {
+            Ok(m) => m,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(err) => return Err(err.to_string()),
+        };
+        if m.file_type().is_symlink() {
+            return Err("managed artifact symlink rejected".into());
+        }
+        if m.is_file() {
+            total = total.saturating_add(m.len());
+        } else if m.is_dir() {
+            total = total.saturating_add(tree_size(&e.path())?);
+        }
+    }
+    Ok(total)
+}
 fn sample_process(root:&Path,project:&str,job:&str,pid:u32)->Result<Option<ResourceSample>>{
     let output=match Command::new("/bin/ps").args(["-o","%cpu=","-o","rss=","-p",&pid.to_string()]).output(){Ok(o) if o.status.success()=>o,_=>return Ok(None)};
     let fields=String::from_utf8_lossy(&output.stdout).split_whitespace().map(str::to_owned).collect::<Vec<_>>();if fields.len()<2{return Ok(None);}

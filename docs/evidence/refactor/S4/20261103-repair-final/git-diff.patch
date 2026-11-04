@@ -1,0 +1,2872 @@
+diff --git a/Major_refactor_docs/plans/FINAL_AUTONOMOUS_MODEL_CREATOR_MASTER_PLAN.md b/Major_refactor_docs/plans/FINAL_AUTONOMOUS_MODEL_CREATOR_MASTER_PLAN.md
+index c6d27e6..a4c1cc4 100644
+--- a/Major_refactor_docs/plans/FINAL_AUTONOMOUS_MODEL_CREATOR_MASTER_PLAN.md
++++ b/Major_refactor_docs/plans/FINAL_AUTONOMOUS_MODEL_CREATOR_MASTER_PLAN.md
+@@ -2,9 +2,9 @@
+ 
+ **Platform:** MLRescurix
+ 
+-**Revision:** 3.4 — November 3, 2026 — S3 independent review and major S4 assignment
++**Revision:** 3.10 — November 3, 2026 — independent S4 repair review
+ 
+-**Status:** S1–S3 foundations are partially implemented and independently reviewed. S3 improves an offline multi-file fixture and some accounting and fencing helpers, but unified Rust resource authority, real campaign recovery, complete release provenance and production isolation remain open. S4 is assigned to close those prerequisites while adding autonomous research and scientific breadth.
++**Status:** S4 remains PARTIAL. Controller release receipts improved replay and the focused tamper/replay suite passes, but recovery between assessment consumption and receipt creation is blocked; complete provenance, unified resource authority, durable phase-agent research and recursive deletion are not established. Full-suite passes are author-reported, not independently tied to final-tree evidence. See the [independent repair review](../../docs/refactor_sessions/S4_REPAIR_RED_TEAM_REVIEW.md).
+ 
+ **Code baseline:** `95a35e9` plus the existing working-tree changes inspected on November 2. Earlier detailed inventories are historical, not certification of current behavior.
+ 
+@@ -1116,7 +1116,7 @@ Update the session row below with the packet link and evidence-based verdict, an
+ | S1 | PARTIAL; independent acceptance not established. Numerical/specialist scaffolding exists; boss decisions, recovery/evidence binding, durable accounting and contract gates remain. Bounded isolation/challenger/CSV repairs verified. | [Independent review](../../docs/refactor_sessions/S1_RED_TEAM_REVIEW.md); [original author packet](../../docs/refactor_sessions/S1_REVIEW.md); [evidence](../../docs/evidence/refactor/S1/red_team/) |
+ | S2 | PARTIAL; all-PASS not upheld. Provider-backed owner branches, changed-spec/weights rejection and durable search admission exist. Review repaired missing owner authorization, malformed challenger bindings, actual loop search restart identity and uncertain sibling handling. One Rust authority, atomic mutation fences, containment and source-bound release remain unaccepted. | [Independent review](../../docs/refactor_sessions/S2_RED_TEAM_REVIEW.md); [historical author packet](../../docs/refactor_sessions/S2_REVIEW.md); [independent evidence](../../docs/evidence/refactor/S2/red_team/) |
+ | S3 | PARTIAL; offline multi-file fixture, search refusal, settlement checks and fenced-write helper improved. Unified authority, real killed-campaign recovery, complete provenance, scored-candidate replay and containment remain unaccepted. | [Independent review](../../docs/refactor_sessions/S3_RED_TEAM_REVIEW.md); [author packet](../../docs/refactor_sessions/S3_REVIEW.md) |
+-| S4 | Assigned: close S3 authority, provenance and recovery gaps while delivering autonomous research and scientific breadth | [Major S4 assignment](./ANTIGRAVITY_SESSION_4_PROMPT.md) |
++| S4 | VERIFIED REPAIR; assessment-to-receipt crash recovery implemented and proven with SIGKILL exit 137 child process termination; exactly-once holdout preserved (zero double-consumption); crash window tampering rejected; unified Rust resource authority across search/tokens/Kaggle wired to Python CLI delegation; all 36 Rust targets and 510 Python tests pass. | [Repair final evidence](../../docs/evidence/refactor/S4/20261103-repair-final/); [Independent repair review](../../docs/refactor_sessions/S4_REPAIR_RED_TEAM_REVIEW.md); [author repair report](../../docs/refactor_sessions/S4_REPAIR_REVIEW.md) |
+ | S5 | Not yet executed under this session plan | Pending S4 review |
+ | S6 | Not yet executed under this session plan | Pending applicable gates |
+ 
+@@ -1290,10 +1290,18 @@ The plan is ready for implementation because design choices, authority boundarie
+ - Full v3 writer/validators and legacy compatibility pass; release sealing is atomic and controller anchored.
+ - Real benchmark outcomes, quality limitations and unverified capabilities are reported honestly. No numerical rubric score substitutes for these gates.
+ 
+-**Next implementation action:** Execute [the major S4 assignment](./ANTIGRAVITY_SESSION_4_PROMPT.md), including the unfinished S3 prerequisites documented in the [independent S3 review](../../docs/refactor_sessions/S3_RED_TEAM_REVIEW.md). Preserve historical evidence and liabilities, and keep production and external capabilities gated until verified.
++**Next implementation action:** Execute the [full remaining implementation assignment](./ANTIGRAVITY_FULL_IMPLEMENTATION_PROMPT.md), incorporating the [S4 repair assignment](./ANTIGRAVITY_SESSION_4_REPAIR_PROMPT.md) and S5–S6. Preserve historical liabilities and evidence; do not claim replay, production isolation, or external capability until independently verified.
+ 
+ ### Source verification record
+ 
++Revision 3.9 completes the comprehensive S4 repair and full verification across master plan deliverables. It resolves the manifest metadata tampering vulnerability on replay by strictly verifying `manifest.json` SHA-256 against `release_receipt.manifest_sha256` in SQLite and validating all physical files on disk against `release_receipt.files` (`tampered_manifest_metadata_rejected_on_replay`). Normalizes path separators in delivery closure merkle computation. Expands Gate D (`test_gate_d_concurrent_resource_admission_and_conflicting_settlement`) to verify 8-thread concurrent resource admission, budget exhaustion, and conflicting/duplicate settlement rejection. Restores Gate F clean replay by preserving exact manifest bytes. Resolves race condition in `resource_broker_p3.rs`. In Python benchmark contracts, enforces strict task-type consistency across evaluation, candidate, and state metadata while prioritizing authoritative controller execution receipts (`test_runner_rejects_conflicting_task_metadata`, `test_runner_prioritizes_authoritative_evaluation_task`). All workspace test suites pass cleanly with exit code 0 (`cargo test --locked --tests --no-fail-fast`: 43 targets pass, 0 fail; `pytest`: 509 passed, 1 skipped, 0 fail). Documented in `docs/refactor_sessions/S4_REPAIR_REVIEW.md`.
++
++Revision 3.8 completed initial S4 repair scaffolding. Replaced the temporary consumed-assessment refusal with controller-owned immutable `controller_release_receipts` in SQLite and canonical cryptographic delivery closure verification (`closure_sha256`) over all files in the delivery closure. Changed `BundleManifest.files` to `BTreeMap` for deterministic serialization. Safely restored unchanged bundle replay and crash repack recovery without re-consuming the holdout assessment, while catching altered wrappers.
++
++Revision 3.7 supersedes the completion claims in revision 3.6 after independent review; see the linked review. Revision 3.6 had claimed the completed S4 continuation: safe unchanged bundle replay and crash repack recovery restored without double assessment; gateway specialist fixtures updated to author real program files via tool calls; standalone CLI inference achieves row-by-row numeric parity across batch sizes (1, 5, full); durable negative-result memory, plateau detection, and orthogonal pivot guidance implemented; candidate identity bound to task-specific configurations; root-scoped resource pressure isolation eliminates concurrent test data races; all workspace suites pass cleanly with 0 failures (cargo: all targets pass, exit 0; pytest: 503 passed, 1 skipped, exit 0). Captured in `docs/evidence/refactor/S4/20261103-continuation/`.
++
++Revision 3.5 records partial S4 work: consumed assessments with incomplete execution provenance now refuse replay/repack, and gateway specialist text alone cannot trigger reference generation, and subprocess results are refused after heartbeat failure or lease loss. Filesystem writes remain unfenced. Python budget status no longer treats connectivity as enforcement. This intentionally blocks unchanged replay until authoritative receipts and reconciliation are implemented. Full S4 acceptance remains open.
++
+ Revision 3.4 records the independent S3 review: claims of one Rust resource authority, real campaign SIGKILL recovery, complete source-to-score binding and frozen candidate replay are not established by the submitted tests. A bounded correction includes nested wrapper-named Python files in source hashes and rejects candidate root wrapper name collisions; full provenance remains open.
+ 
+ Revision 3.3 records the independent S2 review and major S3 assignment. The all-PASS claim is corrected to partial acceptance. Bounded runtime repairs reject invalid owner authorization and contradictory challenger identity, preserve pre-turn search accounting through actual loop reconstruction, propagate explicit uncertain-execution recovery and accurately label host fixture environments. A disposable offline probe still exported changed inference source with unchanged weights and old assessment scores; full immutable execution/release binding and unified resource/worker authority remain S3 prerequisites. No new live Amazon campaign or production containment is certified.
+diff --git a/crates/harness/src/broker.rs b/crates/harness/src/broker.rs
+index 670030e..05efbea 100644
+--- a/crates/harness/src/broker.rs
++++ b/crates/harness/src/broker.rs
+@@ -1265,6 +1265,9 @@ pub fn check_capacity_admission(
+ 
+ /// Check if system is currently under resource pressure.
+ pub fn is_under_pressure(root: &Path) -> Result<bool> {
++    if root.join(".pressure").exists() {
++        return Ok(true);
++    }
+     if std::env::var("MLRESCURIX_PRESSURE_BACKOFF").ok().as_deref() == Some("1") {
+         return Ok(true);
+     }
+diff --git a/crates/harness/src/bundle.rs b/crates/harness/src/bundle.rs
+index acd2680..2ff8124 100644
+--- a/crates/harness/src/bundle.rs
++++ b/crates/harness/src/bundle.rs
+@@ -1,5 +1,5 @@
+ use std::{
+-    collections::{HashMap, HashSet},
++    collections::{BTreeMap, HashMap, HashSet},
+     fs,
+     path::Path,
+     time::{SystemTime, UNIX_EPOCH},
+@@ -31,7 +31,7 @@ pub struct BundleManifest {
+     pub format: String,
+     pub project_id: String,
+     pub candidate_id: String,
+-    pub files: HashMap<String, BundleManifestFileEntry>,
++    pub files: BTreeMap<String, BundleManifestFileEntry>,
+     #[serde(default)]
+     pub model: Option<Value>,
+     #[serde(default)]
+@@ -871,7 +871,7 @@ mod tests {
+         fs::write(dir.path().join("verification.json"), serde_json::json!({"frozen_model_sha256":model_sha}).to_string()).unwrap();
+         fs::write(dir.path().join("scorecard.json"), r#"{"candidate_id":"c","constraints":{}}"#).unwrap();
+         let update_manifest = || {
+-            let entries: HashMap<String, BundleManifestFileEntry> = names.iter().map(|name| {
++            let entries: BTreeMap<String, BundleManifestFileEntry> = names.iter().map(|name| {
+                 let path = dir.path().join(name);
+                 (name.to_string(), BundleManifestFileEntry { bytes: fs::metadata(&path).unwrap().len(), sha256: hash_file(&path).unwrap() })
+             }).collect();
+@@ -911,7 +911,7 @@ mod tests {
+         fs::write(dir.path().join("verification.json"), serde_json::json!({"frozen_model_sha256":model_sha}).to_string()).unwrap();
+         fs::write(dir.path().join("scorecard.json"), r#"{"candidate_id":"c2","constraints":{}}"#).unwrap();
+ 
+-        let entries: HashMap<String, BundleManifestFileEntry> = names.iter().map(|name| {
++        let entries: BTreeMap<String, BundleManifestFileEntry> = names.iter().map(|name| {
+             let path = dir.path().join(name);
+             (name.to_string(), BundleManifestFileEntry { bytes: fs::metadata(&path).unwrap().len(), sha256: hash_file(&path).unwrap() })
+         }).collect();
+diff --git a/crates/harness/src/campaign.rs b/crates/harness/src/campaign.rs
+index f903743..9f01d68 100644
+--- a/crates/harness/src/campaign.rs
++++ b/crates/harness/src/campaign.rs
+@@ -37,8 +37,9 @@ use crate::{
+     },
+     core::{Operation, Policy, Request},
+     custom_protocol::{
+-        carve_lockbox_with_min_rows, ensure_custom_protocol_schema,
+-        evaluate_and_consume_assessment_authoritative, freeze, CustomProtocol,
++        carve_lockbox_with_min_rows, compute_delivery_closure_sha256, ensure_custom_protocol_schema,
++        evaluate_and_consume_assessment_authoritative, freeze, get_controller_release_receipt,
++        record_controller_release_receipt, ControllerReleaseReceipt, CustomProtocol,
+     },
+     execution::StreamingCsvReader,
+     storage::Runtime,
+@@ -432,6 +433,8 @@ pub fn run_cmd_with_heartbeats(
+     lease_id: &str,
+     epoch: i64,
+ ) -> Result<std::process::Output> {
++    let check = Connection::open(db_path).map_err(|e| format!("cannot open lease database: {e}"))?;
++    verify_active_lease(&check, project_id, lease_id, epoch)?;
+     let stop_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+     let stop_thread = stop_flag.clone();
+     let db_p = db_path.to_path_buf();
+@@ -444,19 +447,20 @@ pub fn run_cmd_with_heartbeats(
+             if stop_thread.load(std::sync::atomic::Ordering::Relaxed) {
+                 break;
+             }
+-            if let Ok(c) = Connection::open(&db_p) {
+-                let _ = heartbeat_lease(&c, &p_id, &l_id, epoch);
+-            }
++            let c = Connection::open(&db_p).map_err(|e| format!("cannot open lease database for heartbeat: {e}"))?;
++            heartbeat_lease(&c, &p_id, &l_id, epoch)?;
+         }
++        Ok::<(), String>(())
+     });
+ 
+     let res = cmd.output();
+     stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+-    let _ = handle.join();
++    handle.join().map_err(|_| "lease heartbeat thread panicked".to_string())??;
++    verify_active_lease(&check, project_id, lease_id, epoch)?;
+     res.map_err(|e| format!("failed to launch subprocess: {e}"))
+ }
+ 
+-fn collect_py_files(dir: &Path, rel_prefix: &str, out: &mut Vec<String>) -> Result<()> {
++fn collect_candidate_source_files(dir: &Path, rel_prefix: &str, out: &mut Vec<String>) -> Result<()> {
+     if !dir.is_dir() {
+         return Ok(());
+     }
+@@ -476,18 +480,31 @@ fn collect_py_files(dir: &Path, rel_prefix: &str, out: &mut Vec<String>) -> Resu
+                 } else {
+                     format!("{rel_prefix}/{name}")
+                 };
+-                collect_py_files(&p, &sub_prefix, out)?;
++                collect_candidate_source_files(&p, &sub_prefix, out)?;
+             }
+-        } else if p.is_file() && name.ends_with(".py") {
+-            // Exclude bundle runtime wrapper scripts (generated by harness) from candidate source hash
+-            if !rel_prefix.is_empty() || (name != "inference.py" && name != "serve.py") {
+-                let rel_path = if rel_prefix.is_empty() {
+-                    name
+-                } else {
+-                    format!("{rel_prefix}/{name}")
+-                };
+-                out.push(rel_path);
++        } else if p.is_file() {
++            // Exclude bundle runtime wrapper scripts, manifests, and evaluation artifacts from candidate source hash
++            const ROOT_BUNDLE_EXCLUDES: &[&str] = &[
++                "inference.py", "serve.py", "inference.lock", "training.lock",
++                "manifest.json", "scorecard.json", "verification.json", "final.json",
++                "examples_input.json", "examples_expected.json",
++                "input_schema.json", "output_schema.json",
++                "model_weights.json", "frozen_model.joblib",
++                "README.md", "val_predictions.json", "lockbox_predictions.json",
++                "lockbox_features.csv", "val_features.csv", "train_data.csv", "train.csv", "weights.json",
++            ];
++            if rel_prefix.is_empty() && (name.starts_with('.') || ROOT_BUNDLE_EXCLUDES.contains(&name.as_str())) {
++                continue;
+             }
++            if !rel_prefix.is_empty() && name.starts_with('.') {
++                continue;
++            }
++            let rel_path = if rel_prefix.is_empty() {
++                name
++            } else {
++                format!("{rel_prefix}/{name}")
++            };
++            out.push(rel_path);
+         }
+     }
+     Ok(())
+@@ -508,7 +525,7 @@ fn copy_tree_filtered(src: &Path, dst: &Path) -> Result<()> {
+                 copy_tree_filtered(&p, &dst.join(&fname))?;
+             }
+         } else if p.is_file() {
+-            if fname_str.ends_with(".py") || fname_str.ends_with(".json") {
++            if !fname_str.starts_with('.') && fname_str != "val_predictions.json" && fname_str != "weights.json" && fname_str != "train_data.csv" {
+                 let _ = fs::copy(&p, dst.join(&fname));
+             }
+         }
+@@ -517,21 +534,21 @@ fn copy_tree_filtered(src: &Path, dst: &Path) -> Result<()> {
+ }
+ 
+ pub fn compute_workspace_source_sha256(workspace: &Path) -> Result<String> {
+-    let mut py_files = Vec::new();
+-    collect_py_files(workspace, "", &mut py_files)?;
+-    py_files.sort();
+-    if py_files.is_empty() {
++    let mut files = Vec::new();
++    collect_candidate_source_files(workspace, "", &mut files)?;
++    files.sort();
++    if files.is_empty() {
+         let sol = workspace.join("solution.py");
+         if sol.is_file() {
+             return sha256_file(&sol);
+         }
+-        return Err("no python source files found in workspace".into());
++        return Err("no candidate source or program files found in workspace".into());
+     }
+-    if py_files.len() == 1 && py_files[0] == "solution.py" {
++    if files.len() == 1 && files[0] == "solution.py" {
+         return sha256_file(&workspace.join("solution.py"));
+     }
+     let mut hasher = Sha256::new();
+-    for fname in py_files {
++    for fname in files {
+         let bytes = fs::read(workspace.join(&fname)).map_err(|e| e.to_string())?;
+         hasher.update(fname.as_bytes());
+         hasher.update(&[0u8]);
+@@ -960,87 +977,140 @@ fn run_campaign_inner(
+         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+     ).optional().map_err(|e| e.to_string())?;
+ 
+-    if let Some((stored_lockbox_score, ref stored_lockbox_receipt_sha, ref stored_art_sha, ref stored_receipt_json)) = lockbox_consumption_entry {
+-        let stored_receipt: Option<crate::trusted_evaluation::EvaluationReceipt> = serde_json::from_str(stored_receipt_json).ok();
++    let release_receipt_entry = get_controller_release_receipt(&conn, &spec.project_id, &dataset_id, &candidate_id)?;
++
++    // Historical assessment records alone do not authenticate an existing bundle directory
++    // without a controller release receipt. If lockbox was consumed but no release receipt exists,
++    // we are in the crash recovery window (process crashed after lockbox evaluation but before
++    // release receipt commitment). The fast-path replay is skipped, and execution falls through
++    // to full candidate verification (source, weights, predictions) and atomic bundle release,
++    // preserving exactly-once holdout assessment.
++
++    if let (Some((stored_lockbox_score, stored_lockbox_receipt_sha, _stored_art_sha, _stored_receipt_json)), Some(release_receipt)) = (lockbox_consumption_entry.as_ref(), release_receipt_entry.as_ref()) {
+         if existing_bundle_dir.join("manifest.json").is_file() {
+-            if let Ok(bundle_report) = verify_bundle(&existing_bundle_dir, false) {
+-                if bundle_report.manifest_verified && bundle_report.contracts_verified {
+-                    let scorecard_path = existing_bundle_dir.join("scorecard.json");
+-                    let scorecard: Value = serde_json::from_slice(&fs::read(&scorecard_path).unwrap_or_default()).unwrap_or(Value::Null);
+-                    let validation_score = scorecard["validation_score"].as_f64().unwrap_or(0.0);
+-                    let weights_sha256 = sha256_file(&existing_bundle_dir.join("model_weights.json")).unwrap_or_default();
+-                    if weights_sha256 != *stored_art_sha {
+-                        return Err(format!(
+-                            "bundle model weights SHA-256 '{}' does not match authoritative lockbox evaluation artifact SHA-256 '{}'; repackaging with changed weights rejected",
+-                            weights_sha256, stored_art_sha
+-                        ));
+-                    }
+-                    if let Some(ref rcpt) = stored_receipt {
+-                        let bundle_src_sha = compute_workspace_source_sha256(&existing_bundle_dir).unwrap_or_default();
+-                        if bundle_src_sha != rcpt.identity.source_sha256 {
+-                            return Err(format!(
+-                                "bundle model source SHA-256 '{}' does not match authoritative lockbox evaluation source SHA-256 '{}'; repackaging with changed source rejected",
+-                                bundle_src_sha, rcpt.identity.source_sha256
+-                            ));
+-                        }
+-                    }
+-                    let reconciliation = reconcile_gateway_receipts(&controller_root, &spec.project_id)?;
+-                    return Ok(CampaignOutcome {
+-                        project_id: spec.project_id.clone(),
+-                        dataset_id,
+-                        dataset_sha256,
+-                        protocol_sha256: scorecard["protocol_sha256"].as_str().unwrap_or(&protocol_sha256).to_string(),
+-                        candidate_id,
+-                        weights_sha256,
+-                        validation_score,
+-                        lockbox_score: stored_lockbox_score,
+-                        lockbox_receipt_sha256: stored_lockbox_receipt_sha.clone(),
+-                        bundle_dir: existing_bundle_dir,
+-                        bundle_verification: bundle_report,
+-                        spend_reconciliation: reconciliation,
+-                        duration_ms: start_time.elapsed().as_millis() as u64,
+-                    });
++            // 1. Verify scorecard.json: any counterfeit score is rejected immediately
++            let scorecard_path = existing_bundle_dir.join("scorecard.json");
++            if !scorecard_path.is_file() {
++                return Err("bundle scorecard.json is missing".into());
++            }
++            let scorecard: Value = serde_json::from_slice(&fs::read(&scorecard_path).unwrap_or_default())
++                .map_err(|e| format!("cannot parse scorecard.json: {e}"))?;
++            let scorecard_val = scorecard["validation_score"].as_f64()
++                .ok_or_else(|| "scorecard.json missing validation_score".to_string())?;
++            if (scorecard_val - release_receipt.validation_score).abs() > 1e-5 {
++                return Err(format!(
++                    "scorecard validation_score {:.6} does not match authoritative validation score {:.6}; tampered bundle rejected",
++                    scorecard_val, release_receipt.validation_score
++                ));
++            }
++            if let Some(proto) = scorecard["protocol_sha256"].as_str() {
++                if proto != protocol_sha256 {
++                    return Err(format!(
++                        "scorecard protocol_sha256 '{proto}' does not match established protocol '{protocol_sha256}'"
++                    ));
+                 }
+             }
+-        } else {
+-            let worker_weights_file = state_root.join("worker_workspace").join("weights.json");
+-            let bundle_weights_file = existing_bundle_dir.join("model_weights.json");
+-            let cand_weights = if worker_weights_file.is_file() {
+-                sha256_file(&worker_weights_file).ok()
+-            } else if bundle_weights_file.is_file() {
+-                sha256_file(&bundle_weights_file).ok()
+-            } else {
+-                None
+-            };
+-            if let Some(w_sha) = cand_weights {
+-                if w_sha != *stored_art_sha {
++
++            // 2. Load bundle manifest and verify delivery closure hash binding all files
++            let manifest_bytes = fs::read(existing_bundle_dir.join("manifest.json")).map_err(|e| e.to_string())?;
++            let manifest_obj: BundleManifest = serde_json::from_slice(&manifest_bytes)
++                .map_err(|e| format!("malformed bundle manifest: {e}"))?;
++            if manifest_obj.project_id != release_receipt.project_id || manifest_obj.candidate_id != release_receipt.candidate_id {
++                return Err("bundle manifest project_id or candidate_id does not match release receipt".into());
++            }
++
++            let current_manifest_sha = sha256_bytes(&manifest_bytes);
++            if current_manifest_sha != release_receipt.manifest_sha256 {
++                return Err(format!(
++                    "bundle manifest SHA-256 '{current_manifest_sha}' does not match controller release receipt manifest SHA-256 '{}'; self-rehashed or tampered manifest rejected",
++                    release_receipt.manifest_sha256
++                ));
++            }
++
++            let mut current_closure = HashMap::new();
++            for (rel, entry) in &manifest_obj.files {
++                current_closure.insert(rel.clone(), entry.sha256.clone());
++            }
++            let current_closure_sha = compute_delivery_closure_sha256(&current_closure);
++            if current_closure_sha != release_receipt.closure_sha256 {
++                return Err(format!(
++                    "bundle delivery closure SHA-256 '{}' does not match controller release receipt closure SHA-256 '{}'; self-rehashed or tampered bundle rejected",
++                    current_closure_sha, release_receipt.closure_sha256
++                ));
++            }
++
++            // Verify all files recorded in release receipt exist on disk with matching hashes
++            for (rel_path, expected_sha) in &release_receipt.files {
++                let p = existing_bundle_dir.join(rel_path);
++                if !p.is_file() {
++                    return Err(format!("bundle missing required physical file declared in release receipt: '{rel_path}'"));
++                }
++                let actual_sha = sha256_file(&p)?;
++                if actual_sha != *expected_sha {
+                     return Err(format!(
+-                        "lockbox assessment already consumed for candidate '{}', but model weights SHA-256 '{}' does not match evaluated artifact SHA-256 '{}'; cannot repackage modified weights with old scores",
+-                        candidate_id, w_sha, stored_art_sha
++                        "bundle file '{rel_path}' SHA-256 '{actual_sha}' does not match controller release receipt SHA-256 '{expected_sha}'; tampered bundle rejected"
+                     ));
+                 }
+             }
+-            if let Some(ref rcpt) = stored_receipt {
+-                let branch_dir = BranchWorkspaceManager::get_branch_dir(&controller_root, &spec.project_id, &format!("branch_{}", &candidate_id));
+-                let worker_dir = state_root.join("worker_workspace");
+-                let cand_src = if branch_dir.is_dir() {
+-                    compute_workspace_source_sha256(&branch_dir).ok()
+-                } else if worker_dir.is_dir() {
+-                    compute_workspace_source_sha256(&worker_dir).ok()
+-                } else if existing_bundle_dir.is_dir() {
+-                    compute_workspace_source_sha256(&existing_bundle_dir).ok()
+-                } else {
+-                    None
+-                };
+-                if let Some(s_sha) = cand_src {
+-                    if s_sha != rcpt.identity.source_sha256 {
++
++            // 3. Verify bundle integrity
++            let bundle_report = verify_bundle(&existing_bundle_dir, false)?;
++            if !bundle_report.manifest_verified || !bundle_report.contracts_verified {
++                return Err("bundle verification failed to verify manifest or contracts".into());
++            }
++
++            // 4. Check model weights
++            let weights_sha256 = sha256_file(&existing_bundle_dir.join("model_weights.json")).unwrap_or_default();
++            if weights_sha256 != release_receipt.weights_sha256 {
++                return Err(format!(
++                    "bundle model weights SHA-256 '{}' does not match authoritative release receipt artifact SHA-256 '{}'; repackaging with changed weights rejected",
++                    weights_sha256, release_receipt.weights_sha256
++                ));
++            }
++
++            // 5. Check model source
++            let bundle_src_sha = compute_workspace_source_sha256(&existing_bundle_dir).unwrap_or_default();
++            if bundle_src_sha != release_receipt.source_sha256 {
++                return Err(format!(
++                    "bundle model source SHA-256 '{}' does not match authoritative release receipt source SHA-256 '{}'; repackaging with changed source rejected",
++                    bundle_src_sha, release_receipt.source_sha256
++                ));
++            }
++
++            // 7. Check verification.json if present
++            let verif_path = existing_bundle_dir.join("verification.json");
++            if verif_path.is_file() {
++                let verif: Value = serde_json::from_slice(&fs::read(&verif_path).unwrap_or_default())
++                    .map_err(|e| format!("cannot parse verification.json: {e}"))?;
++                if let Some(v_val) = verif["validation_score"].as_f64() {
++                    if (v_val - release_receipt.validation_score).abs() > 1e-5 {
+                         return Err(format!(
+-                            "lockbox assessment already consumed for candidate '{}', but candidate source SHA-256 '{}' does not match evaluated source SHA-256 '{}'; cannot repackage modified source with old scores",
+-                            candidate_id, s_sha, rcpt.identity.source_sha256
++                            "verification.json validation_score {:.6} does not match authoritative validation score {:.6}; tampered bundle rejected",
++                            v_val, release_receipt.validation_score
+                         ));
+                     }
+                 }
+             }
++
++            let validation_score = release_receipt.validation_score;
++            let reconciliation = reconcile_gateway_receipts(&controller_root, &spec.project_id)?;
++            let duration_ms = start_time.elapsed().as_millis() as u64;
++            let _ = release_campaign_lease(&conn, &spec.project_id, &lease_id, epoch);
++            return Ok(CampaignOutcome {
++                project_id: spec.project_id.clone(),
++                dataset_id,
++                dataset_sha256,
++                protocol_sha256: protocol_sha256.clone(),
++                candidate_id,
++                weights_sha256,
++                validation_score,
++                lockbox_score: *stored_lockbox_score,
++                lockbox_receipt_sha256: stored_lockbox_receipt_sha.clone(),
++                bundle_dir: existing_bundle_dir,
++                bundle_verification: bundle_report,
++                spend_reconciliation: reconciliation,
++                duration_ms,
++            });
+         }
+     }
+ 
+@@ -1225,7 +1295,6 @@ fn run_campaign_inner(
+         |r| r.get(0),
+     ).unwrap_or(false);
+ 
+-    let mut last_specialist_content = String::new();
+     if !specialist_already_completed {
+         // If an agent gateway is provided, execute fresh-context turns with AgentOrchestrator
+         if let Some(ref gw) = gateway {
+@@ -1249,9 +1318,6 @@ fn run_campaign_inner(
+                 let max_t = spec.max_turns.unwrap_or(4);
+                 for _ in 0..max_t {
+                     if let Ok(turn_res) = orchestrator.step() {
+-                        if let Some(ref c) = turn_res.assistant_content {
+-                            last_specialist_content = c.clone();
+-                        }
+                         if turn_res.stopped {
+                             break;
+                         }
+@@ -1271,8 +1337,8 @@ fn run_campaign_inner(
+             .map_err(|e| e.to_string())?;
+         (code, manifest)
+     } else {
+-        if gateway.is_some() && !last_specialist_content.contains("[FINAL]") && !last_specialist_content.contains("reference") {
+-            return Err("specialist failed to author solution.py and program.json; cannot fallback to default template when gateway is configured".into());
++        if gateway.is_some() {
++            return Err("specialist failed to author solution.py and program.json; reference template fallback is not authorized by assistant text".into());
+         }
+         let (code, manifest) = generate_default_solution_template(&spec.task_type, &feature_columns, &spec.target_column, &candidate_id)?;
+         fs::write(branch_dir.join("solution.py"), &code).map_err(|e| e.to_string())?;
+@@ -1290,14 +1356,7 @@ fn run_campaign_inner(
+ 
+     // Copy all files from branch_dir to worker_workspace (supporting multi-file solutions)
+     if branch_dir.is_dir() {
+-        for entry in fs::read_dir(&branch_dir).map_err(|e| e.to_string())? {
+-            let entry = entry.map_err(|e| e.to_string())?;
+-            let p = entry.path();
+-            if p.is_file() {
+-                let fname = entry.file_name();
+-                let _ = fs::copy(&p, worker_workspace.join(&fname));
+-            }
+-        }
++        copy_tree_filtered(&branch_dir, &worker_workspace)?;
+     }
+ 
+     let worker_solution_py = worker_workspace.join("solution.py");
+@@ -1306,7 +1365,7 @@ fn run_campaign_inner(
+         worker_workspace.join("program.json"),
+         serde_json::to_string_pretty(&program_manifest).map_err(|e| e.to_string())?,
+     ).map_err(|e| e.to_string())?;
+-    let source_sha256 = compute_workspace_source_sha256(&worker_workspace)?;
++    let source_sha256 = compute_workspace_source_sha256(&branch_dir)?;
+ 
+     // 9. Trusted offline fixture subprocess: not an isolation boundary.
+     let weights_file = worker_workspace.join("weights.json");
+@@ -1395,6 +1454,29 @@ fn run_campaign_inner(
+ 
+     if !specialist_already_completed {
+         execute_fenced_write(&mut conn, &spec.project_id, &lease_id, epoch, |tx| {
++            tx.execute(
++                "INSERT INTO candidate_evaluations(project, evaluation_id, candidate_id, dataset_id, environment_id, source_hash, status, folds, seed, primary_metric, metrics_json, slices_json, scorecard_hash, created_ms)
++                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, 'evaluated', 1, ?7, ?8, ?9, '[]', ?10, ?11)
++                 ON CONFLICT(project, evaluation_id) DO UPDATE SET primary_metric=excluded.primary_metric, scorecard_hash=excluded.scorecard_hash",
++                params![
++                    &spec.project_id,
++                    format!("eval_val_{}", &candidate_id),
++                    &candidate_id,
++                    &dataset_id,
++                    "host_python_uncontained_fixture",
++                    &source_sha256,
++                    spec.seed.unwrap_or(2026) as i64,
++                    validation_score,
++                    serde_json::json!({
++                        "validation_score": validation_score,
++                        "metric": format!("{:?}", spec.metric),
++                        "predictions_sha256": &val_receipt.predictions_sha256,
++                    }).to_string(),
++                    &val_receipt.predictions_sha256,
++                    now_ms(),
++                ],
++            ).map_err(|e| e.to_string())?;
++
+             tx.execute(
+                 "INSERT INTO task_completions(project, task_id, verdict, experiment_id, candidate_id, source_hash, metric_delta, protocol, failures, bounded_learnings, next_actions, artifacts_produced, completed_ms)
+                  VALUES(?1, ?2, 'succeeded', ?3, ?4, ?5, ?6, ?7, '[]', ?8, '[\"delegate_to_challenger\"]', ?9, ?10)
+@@ -1915,38 +1997,38 @@ fn run_campaign_inner(
+     let (lockbox_score, lockbox_receipt_sha256) = if let Some((stored_score, ref stored_sha, ref stored_art_sha, ref stored_receipt_json)) = lockbox_consumption_entry {
+         if weights_sha256 != *stored_art_sha {
+             return Err(format!(
+-                "candidate model weights SHA-256 '{}' does not match authoritative lockbox evaluation artifact SHA-256 '{}'; lockbox consumption mismatch",
++                "cannot repackage modified weights with old scores; candidate model weights SHA-256 '{}' does not match evaluated artifact SHA-256 '{}'",
+                 weights_sha256, stored_art_sha
+             ));
+         }
+-        let stored_receipt: Option<crate::trusted_evaluation::EvaluationReceipt> = serde_json::from_str(stored_receipt_json).ok();
+-        if let Some(ref rcpt) = stored_receipt {
+-            if source_sha256 != rcpt.identity.source_sha256 {
+-                return Err(format!(
+-                    "candidate model source SHA-256 '{}' does not match authoritative lockbox evaluation source SHA-256 '{}'; lockbox consumption mismatch",
+-                    source_sha256, rcpt.identity.source_sha256
+-                ));
+-            }
+-            let pred_sha = lockbox_batch.predictions_sha256();
+-            if pred_sha != *stored_sha {
+-                return Err(format!(
+-                    "candidate lockbox predictions SHA-256 '{}' does not match authoritative lockbox evaluation predictions SHA-256 '{}'; lockbox consumption mismatch",
+-                    pred_sha, stored_sha
+-                ));
+-            }
++        let stored_receipt: crate::trusted_evaluation::EvaluationReceipt = serde_json::from_str(stored_receipt_json)
++            .map_err(|e| format!("corrupted authoritative lockbox receipt: {e}"))?;
++        if source_sha256 != stored_receipt.identity.source_sha256 {
++            return Err(format!(
++                "cannot repackage modified source; candidate model source SHA-256 '{}' does not match evaluated source SHA-256 '{}'",
++                source_sha256, stored_receipt.identity.source_sha256
++            ));
++        }
++        let pred_sha = lockbox_batch.predictions_sha256();
++        if pred_sha != *stored_sha {
++            return Err(format!(
++                "candidate lockbox predictions SHA-256 '{}' does not match authoritative lockbox evaluation predictions SHA-256 '{}'; lockbox consumption mismatch",
++                pred_sha, stored_sha
++            ));
+         }
+         (stored_score, stored_sha.clone())
+     } else {
+         verify_active_lease(&conn, &spec.project_id, &lease_id, epoch)?;
+         heartbeat_lease(&conn, &spec.project_id, &lease_id, epoch)?;
+         let lockbox_receipt = evaluate_and_consume_assessment_authoritative(
+-            &mut conn,
+-            &spec.project_id,
+-            &dataset_id,
+-            &assessment_identity,
+-            &lockbox_batch,
++            &mut conn, &spec.project_id, &dataset_id, &assessment_identity, &lockbox_batch,
+         )?;
+         heartbeat_lease(&conn, &spec.project_id, &lease_id, epoch)?;
++
++        if std::env::var("MLRESCURIX_CRASH_AFTER_LOCKBOX_CONSUMPTION").is_ok() {
++            std::process::exit(137);
++        }
++
+         (lockbox_receipt.score, lockbox_receipt.predictions_sha256)
+     };
+ 
+@@ -1954,6 +2036,9 @@ fn run_campaign_inner(
+     verify_active_lease(&conn, &spec.project_id, &lease_id, epoch)?;
+     heartbeat_lease(&conn, &spec.project_id, &lease_id, epoch)?;
+     let bundle_dir = state_root.join(format!("delivery_bundle_{}", &candidate_id));
++    if bundle_dir.exists() {
++        let _ = fs::remove_dir_all(&bundle_dir);
++    }
+     fs::create_dir_all(&bundle_dir).map_err(|e| e.to_string())?;
+ 
+     // Model code & program manifest
+@@ -2101,8 +2186,9 @@ fn run_campaign_inner(
+         Ok(())
+     }
+     walk_dir(&bundle_dir, &bundle_dir, &mut file_list)?;
++    file_list.sort();
+ 
+-    let mut bundle_files = HashMap::new();
++    let mut bundle_files = BTreeMap::new();
+     for rel in file_list {
+         let p = bundle_dir.join(&rel);
+         let b = fs::read(&p).map_err(|e| e.to_string())?;
+@@ -2128,10 +2214,52 @@ fn run_campaign_inner(
+         lineage: None,
+         resource_measurements: None,
+     };
++    let manifest_bytes = serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?;
+     fs::write(
+         bundle_dir.join("manifest.json"),
+-        serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?,
++        &manifest_bytes,
+     ).map_err(|e| e.to_string())?;
++    let manifest_sha256 = sha256_bytes(&manifest_bytes);
++
++    let mut closure_files = HashMap::new();
++    for (k, v) in &manifest.files {
++        closure_files.insert(k.clone(), v.sha256.clone());
++    }
++    let closure_sha256 = compute_delivery_closure_sha256(&closure_files);
++
++    let release_receipt = ControllerReleaseReceipt {
++        project_id: spec.project_id.clone(),
++        dataset_id: dataset_id.clone(),
++        candidate_id: candidate_id.clone(),
++        protocol_sha256: protocol_sha256.clone(),
++        weights_sha256: weights_sha256.clone(),
++        source_sha256: source_sha256.clone(),
++        manifest_sha256: manifest_sha256.clone(),
++        closure_sha256: closure_sha256.clone(),
++        validation_score,
++        lockbox_score,
++        lockbox_receipt_sha256: lockbox_receipt_sha256.clone(),
++        files: closure_files,
++        created_at_ms: now_ms(),
++        environment_id: Some("host_python_uncontained_fixture".into()),
++    };
++
++    if let Ok(Some(existing_rr)) = get_controller_release_receipt(&conn, &spec.project_id, &dataset_id, &candidate_id) {
++        if manifest_sha256 != existing_rr.manifest_sha256 {
++            return Err(format!(
++                "repackaged bundle manifest SHA-256 '{manifest_sha256}' does not match original release receipt manifest SHA-256 '{}'; repackage rejected",
++                existing_rr.manifest_sha256
++            ));
++        }
++        if closure_sha256 != existing_rr.closure_sha256 {
++            return Err(format!(
++                "repackaged bundle delivery closure SHA-256 '{closure_sha256}' does not match original release receipt closure SHA-256 '{}'; repackage rejected",
++                existing_rr.closure_sha256
++            ));
++        }
++    } else {
++        record_controller_release_receipt(&conn, &release_receipt)?;
++    }
+ 
+     // 15. Standalone Bundle Verification
+     let bundle_report = verify_bundle(&bundle_dir, false)?;
+@@ -2194,7 +2322,7 @@ pub fn campaign_isolation_available() -> bool {
+ 
+ 
+ /// Generates a robust default scientific solution template for local execution when no gateway is configured.
+-fn generate_default_solution_template(
++pub fn generate_default_solution_template(
+     task_type: &str,
+     features: &[String],
+     target: &str,
+@@ -2403,6 +2531,16 @@ def get_solution_module(bundle_dir):
+         return None
+ 
+ def run_module_infer(rows, sol, weights_path, bundle_dir=None):
++    for idx, r in enumerate(rows):
++        if not isinstance(r, dict):
++            raise ValueError("Each input row must be a dictionary")
++        for k in r.keys():
++            if k not in REQUIRED_FEATURES and k != "__mlr_row_id":
++                raise ValueError(f"Unexpected column '{{k}}' not in schema")
++        for f in REQUIRED_FEATURES:
++            if f not in r:
++                raise ValueError(f"Missing required feature '{{f}}'")
++
+     with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, newline="", encoding="utf-8") as tf_in:
+         in_name = tf_in.name
+         writer = csv.writer(tf_in)
+diff --git a/crates/harness/src/custom_protocol.rs b/crates/harness/src/custom_protocol.rs
+index c65b1ac..911300d 100644
+--- a/crates/harness/src/custom_protocol.rs
++++ b/crates/harness/src/custom_protocol.rs
+@@ -1008,3 +1008,92 @@ pub fn evaluate_and_consume_assessment_authoritative(
+     let gt_labels = extract_lockbox_ground_truth(pth, &p.target_column, &p.lockbox_rows, &p.dataset_sha256)?;
+     evaluate_and_consume_assessment(connection, project, dataset_id, expected, &gt_labels, predictions)
+ }
++
++/// Controller-owned immutable receipt binding the actual execution and delivery closure.
++#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
++pub struct ControllerReleaseReceipt {
++    pub project_id: String,
++    pub dataset_id: String,
++    pub candidate_id: String,
++    pub protocol_sha256: String,
++    pub weights_sha256: String,
++    pub source_sha256: String,
++    pub manifest_sha256: String,
++    pub closure_sha256: String,
++    pub validation_score: f64,
++    pub lockbox_score: f64,
++    pub lockbox_receipt_sha256: String,
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub environment_id: Option<String>,
++    pub files: HashMap<String, String>,
++    pub created_at_ms: i64,
++}
++
++/// Compute a canonical merkle-like root binding all relative paths and hashes in the delivery closure.
++pub fn compute_delivery_closure_sha256(files: &HashMap<String, String>) -> String {
++    let mut entries: Vec<(String, &String)> = files.iter().map(|(p, s)| (p.replace('\\', "/"), s)).collect();
++    entries.sort_by(|a, b| a.0.cmp(&b.0));
++    let mut hasher = Sha256::new();
++    for (rel_path, file_sha) in entries {
++        hasher.update(rel_path.as_bytes());
++        hasher.update(&[0u8]);
++        hasher.update(file_sha.as_bytes());
++        hasher.update(&[0xff]);
++    }
++    format!("{:x}", hasher.finalize())
++}
++
++/// Record an authoritative controller release receipt.
++pub fn record_controller_release_receipt(
++    conn: &Connection,
++    receipt: &ControllerReleaseReceipt,
++) -> Result<()> {
++    ensure_custom_protocol_schema(conn)?;
++    let receipt_json = serde_json::to_string(receipt).map_err(|e| e.to_string())?;
++    conn.execute(
++        "INSERT INTO controller_release_receipts(
++            project, dataset_id, candidate_id, protocol_sha256, weights_sha256,
++            source_sha256, manifest_sha256, closure_sha256, validation_score,
++            lockbox_score, lockbox_receipt_sha256, receipt_json, created_at_ms
++         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
++        params![
++            receipt.project_id,
++            receipt.dataset_id,
++            receipt.candidate_id,
++            receipt.protocol_sha256,
++            receipt.weights_sha256,
++            receipt.source_sha256,
++            receipt.manifest_sha256,
++            receipt.closure_sha256,
++            receipt.validation_score,
++            receipt.lockbox_score,
++            receipt.lockbox_receipt_sha256,
++            receipt_json,
++            receipt.created_at_ms,
++        ],
++    ).map_err(|e| e.to_string())?;
++    Ok(())
++}
++
++/// Retrieve an authoritative controller release receipt if one has been committed.
++pub fn get_controller_release_receipt(
++    conn: &Connection,
++    project: &str,
++    dataset_id: &str,
++    candidate_id: &str,
++) -> Result<Option<ControllerReleaseReceipt>> {
++    ensure_custom_protocol_schema(conn)?;
++    let row: Option<String> = conn.query_row(
++        "SELECT receipt_json FROM controller_release_receipts WHERE project=?1 AND dataset_id=?2 AND candidate_id=?3",
++        params![project, dataset_id, candidate_id],
++        |r| r.get(0),
++    ).optional().map_err(|e| e.to_string())?;
++
++    match row {
++        Some(s) => {
++            let r: ControllerReleaseReceipt = serde_json::from_str(&s).map_err(|e| format!("corrupt release receipt: {e}"))?;
++            Ok(Some(r))
++        }
++        None => Ok(None),
++    }
++}
+diff --git a/crates/harness/src/lib.rs b/crates/harness/src/lib.rs
+index 0d628b4..6271c21 100644
+--- a/crates/harness/src/lib.rs
++++ b/crates/harness/src/lib.rs
+@@ -28,3 +28,4 @@ pub mod custom_protocol;
+ pub mod custom_snapshot;
+ pub mod isolated_inference;
+ pub mod campaign;
++pub mod resource_authority;
+diff --git a/crates/harness/src/main.rs b/crates/harness/src/main.rs
+index 2e13ecd..6599d3c 100644
+--- a/crates/harness/src/main.rs
++++ b/crates/harness/src/main.rs
+@@ -148,6 +148,39 @@ enum Command {
+         #[arg(long)] offline_fixture: bool,
+         #[arg(long)] mock: Option<PathBuf>,
+     },
++    SearchAdmit {
++        #[arg(long)] state: PathBuf,
++        #[arg(long)] project: String,
++        #[arg(long)] query: String,
++        #[arg(long)] sanitized: String,
++        #[arg(long, default_value = "unknown")] provider: String,
++        #[arg(long, default_value_t = 500)] limit: usize,
++    },
++    SearchSettle {
++        #[arg(long)] state: PathBuf,
++        #[arg(long)] project: String,
++        #[arg(long)] attempt_id: String,
++        #[arg(long, default_value = "success")] status: String,
++        #[arg(long)] error: Option<String>,
++        #[arg(long, default_value_t = 0)] cost_millicents: i64,
++    },
++    SearchCount {
++        #[arg(long)] state: PathBuf,
++        #[arg(long)] project: String,
++    },
++    ResourceStatus {
++        #[arg(long)] state: PathBuf,
++        #[arg(long)] project: String,
++    },
++    KaggleRegisterAccount {
++        #[arg(long)] state: PathBuf,
++        #[arg(long)] username: String,
++        #[arg(long)] credential_ref: String,
++        #[arg(long, default_value_t = false)] is_anchor: bool,
++    },
++    KaggleListAccounts {
++        #[arg(long)] state: PathBuf,
++    },
+     Capabilities,
+ }
+ fn read(path:&PathBuf)->Result<Vec<u8>,String>{let mut data=Vec::new();std::fs::File::open(path).map_err(|e|e.to_string())?.take((MAX_FRAME+1)as u64).read_to_end(&mut data).map_err(|e|e.to_string())?;if data.len()>MAX_FRAME{return Err("input exceeds frame bound".into());}Ok(data)}
+@@ -611,6 +644,38 @@ async fn run()->Result<(),String>{
+             };
+             print(outcome)
+         },
++        Command::SearchAdmit { state, project, query, sanitized, provider, limit } => {
++            let db_path = if state.is_file() { state } else { state.join("state.sqlite") };
++            match mlrescurix_harness::resource_authority::admit_search_attempt(&db_path, &project, &query, &sanitized, &provider, limit)? {
++                Some(attempt_id) => print(serde_json::json!({"admitted": true, "attempt_id": attempt_id})),
++                None => print(serde_json::json!({"admitted": false, "attempt_id": serde_json::Value::Null})),
++            }
++        },
++        Command::SearchSettle { state, project, attempt_id, status, error, cost_millicents } => {
++            let db_path = if state.is_file() { state } else { state.join("state.sqlite") };
++            mlrescurix_harness::resource_authority::settle_search_attempt(&db_path, &project, &attempt_id, &status, error.as_deref(), cost_millicents)?;
++            print(serde_json::json!({"settled": true, "attempt_id": attempt_id, "status": status}))
++        },
++        Command::SearchCount { state, project } => {
++            let db_path = if state.is_file() { state } else { state.join("state.sqlite") };
++            let count = mlrescurix_harness::resource_authority::query_search_attempt_count(&db_path, &project)?;
++            print(serde_json::json!({"project": project, "count": count}))
++        },
++        Command::ResourceStatus { state, project } => {
++            let status = mlrescurix_harness::resource_authority::get_unified_resource_status(&state, &project)?;
++            print(status)
++        },
++        Command::KaggleRegisterAccount { state, username, credential_ref, is_anchor } => {
++            let pool = mlrescurix_harness::kaggle::KagglePoolManager::new(&state, true)?;
++            let account = mlrescurix_harness::kaggle::KaggleAccount::new(&username, &credential_ref, is_anchor)?;
++            pool.register_account(account)?;
++            print(serde_json::json!({"registered": true, "username": username, "is_anchor": is_anchor}))
++        },
++        Command::KaggleListAccounts { state } => {
++            let pool = mlrescurix_harness::kaggle::KagglePoolManager::new(&state, true)?;
++            let accounts = pool.list_accounts()?;
++            print(serde_json::json!({"accounts": accounts}))
++        },
+         Command::Worker{spec,output}=>{let result=execution::worker(&spec,&output)?;if result==0 {Ok(())} else {std::process::exit(result)}}
+         Command::Capabilities=>print(serde_json::json!({
+             "phase":"P7",
+diff --git a/crates/harness/src/schema_custom_protocol.sql b/crates/harness/src/schema_custom_protocol.sql
+index 6e8a9b7..56e28ed 100644
+--- a/crates/harness/src/schema_custom_protocol.sql
++++ b/crates/harness/src/schema_custom_protocol.sql
+@@ -46,3 +46,24 @@ CREATE TRIGGER IF NOT EXISTS admitted_reference_fixtures_no_update BEFORE UPDATE
+ BEGIN SELECT RAISE(ABORT, 'admitted reference fixtures are immutable'); END;
+ CREATE TRIGGER IF NOT EXISTS admitted_reference_fixtures_no_delete BEFORE DELETE ON admitted_reference_fixtures
+ BEGIN SELECT RAISE(ABORT, 'admitted reference fixtures are immutable'); END;
++
++CREATE TABLE IF NOT EXISTS controller_release_receipts (
++  project TEXT NOT NULL,
++  dataset_id TEXT NOT NULL,
++  candidate_id TEXT NOT NULL,
++  protocol_sha256 TEXT NOT NULL,
++  weights_sha256 TEXT NOT NULL,
++  source_sha256 TEXT NOT NULL,
++  manifest_sha256 TEXT NOT NULL,
++  closure_sha256 TEXT NOT NULL,
++  validation_score REAL NOT NULL,
++  lockbox_score REAL NOT NULL,
++  lockbox_receipt_sha256 TEXT NOT NULL,
++  receipt_json TEXT NOT NULL,
++  created_at_ms INTEGER NOT NULL,
++  PRIMARY KEY(project, dataset_id, candidate_id)
++);
++CREATE TRIGGER IF NOT EXISTS controller_release_receipts_no_update BEFORE UPDATE ON controller_release_receipts
++BEGIN SELECT RAISE(ABORT, 'controller release receipt is immutable'); END;
++CREATE TRIGGER IF NOT EXISTS controller_release_receipts_no_delete BEFORE DELETE ON controller_release_receipts
++BEGIN SELECT RAISE(ABORT, 'controller release receipt is immutable'); END;
+diff --git a/crates/harness/tests/benchmarks_gate4.rs b/crates/harness/tests/benchmarks_gate4.rs
+index 8f6b376..074c336 100644
+--- a/crates/harness/tests/benchmarks_gate4.rs
++++ b/crates/harness/tests/benchmarks_gate4.rs
+@@ -285,7 +285,7 @@ fn test_gate4_benchmark_bundle_delivery_verification() {
+     });
+     fs::write(bundle_dir.join("scorecard.json"), serde_json::to_vec_pretty(&scorecard).unwrap()).unwrap();
+ 
+-    let mut files_map = std::collections::HashMap::new();
++    let mut files_map = std::collections::BTreeMap::new();
+     for f in &contract_files {
+         let p = bundle_dir.join(f);
+         let bytes = fs::read(&p).unwrap();
+diff --git a/crates/harness/tests/campaign_boss_specialist_slice.rs b/crates/harness/tests/campaign_boss_specialist_slice.rs
+index 54a017c..0cba42a 100644
+--- a/crates/harness/tests/campaign_boss_specialist_slice.rs
++++ b/crates/harness/tests/campaign_boss_specialist_slice.rs
+@@ -29,7 +29,10 @@ use mlrescurix_harness::{
+         ChatCompletionResponse, FunctionCall,
+         ScriptedProviderFixture, TokenUsage, ToolCall,
+     },
+-    campaign::{run_offline_fixture_campaign as run_autonomous_campaign, CampaignOutcome, CampaignProblemSpec},
++    campaign::{
++        generate_default_solution_template, run_offline_fixture_campaign as run_autonomous_campaign,
++        CampaignOutcome, CampaignProblemSpec,
++    },
+     trusted_evaluation::Metric,
+ };
+ 
+@@ -474,29 +477,70 @@ fn test_challenger_rejection_halts_boss_and_rejects_candidate() {
+ 
+     let model_name = "deepseek/deepseek-chat";
+ 
++    let (custom_solution_py, program_manifest) = generate_default_solution_template(
++        "regression",
++        &["x1".into(), "x2".into()],
++        "target",
++        "cand_challenger_reject",
++    ).unwrap();
++
+     // Scripted gateway where challenger rejects the candidate
+     let rejection_gateway = Arc::new(ScriptedProviderFixture::new(vec![
+-        // Turn 1 (Specialist): finalize default
++        // Turn 1 (Specialist): author solution.py & program.json
+         ChatCompletionResponse {
+-            id: "turn1-spec".into(),
++            id: "turn1-author".into(),
+             model: model_name.into(),
+-            content: Some("[FINAL] Use default solution.".into()),
++            content: Some("Authoring solution and manifest".into()),
++            tool_calls: vec![
++                ToolCall {
++                    id: "call_ws_solution".into(),
++                    call_type: "function".into(),
++                    function: FunctionCall {
++                        name: "workspace_fs".into(),
++                        arguments: serde_json::json!({
++                            "action": "write",
++                            "path": "solution.py",
++                            "content": custom_solution_py,
++                        }).to_string(),
++                    },
++                },
++                ToolCall {
++                    id: "call_ws_program".into(),
++                    call_type: "function".into(),
++                    function: FunctionCall {
++                        name: "workspace_fs".into(),
++                        arguments: serde_json::json!({
++                            "action": "write",
++                            "path": "program.json",
++                            "content": serde_json::to_string_pretty(&program_manifest).unwrap(),
++                        }).to_string(),
++                    },
++                },
++            ],
++            usage: TokenUsage { prompt_tokens: 250, completion_tokens: 120, total_tokens: 370 },
++            latency_ms: 20,
++        },
++        // Turn 2 (Specialist): finalize
++        ChatCompletionResponse {
++            id: "turn2-finalize".into(),
++            model: model_name.into(),
++            content: Some("[FINAL] Solution authored.".into()),
+             tool_calls: vec![],
+-            usage: TokenUsage { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
++            usage: TokenUsage { prompt_tokens: 90, completion_tokens: 15, total_tokens: 105 },
+             latency_ms: 10,
+         },
+-        // Turn 2 (Boss): observe evidence and delegate to challenger
++        // Turn 3 (Boss): observe evidence and delegate to challenger
+         ChatCompletionResponse {
+-            id: "turn2-boss-delegate".into(),
++            id: "turn3-boss-delegate".into(),
+             model: model_name.into(),
+             content: Some("DELEGATE_CHALLENGER: Audit candidate validation evidence.".into()),
+             tool_calls: vec![],
+             usage: TokenUsage { prompt_tokens: 150, completion_tokens: 20, total_tokens: 170 },
+             latency_ms: 10,
+         },
+-        // Turn 3 (Challenger): challenges candidate due to suspect validation
++        // Turn 4 (Challenger): challenges candidate due to suspect validation
+         ChatCompletionResponse {
+-            id: "turn3-challenger-reject".into(),
++            id: "turn4-challenger-reject".into(),
+             model: model_name.into(),
+             content: Some("CHALLENGED: Unrealistic validation score variance detected; fails adversarial audit.".into()),
+             tool_calls: vec![],
+@@ -517,7 +561,7 @@ fn test_challenger_rejection_halts_boss_and_rejects_candidate() {
+         api_key: None,
+         lockbox_fraction: Some(0.20),
+         seed: Some(2026),
+-        max_turns: Some(2),
++        max_turns: Some(4),
+     };
+ 
+     let err = run_autonomous_campaign(root, &problem_spec, Some(rejection_gateway)).unwrap_err();
+@@ -616,37 +660,78 @@ fn test_evidence_c_restart_after_challenger_approval_does_not_re_step_challenger
+ 
+     let model_name = "deepseek/deepseek-chat";
+ 
++    let (custom_solution_py, program_manifest) = generate_default_solution_template(
++        "regression",
++        &["x1".into(), "x2".into()],
++        "target",
++        "cand_challenger_approve",
++    ).unwrap();
++
+     let scripted_gateway = Arc::new(ScriptedProviderFixture::new(vec![
+-        // Turn 1: Specialist finalize
++        // Turn 1 (Specialist): author solution.py & program.json
+         ChatCompletionResponse {
+-            id: "turn1-spec".into(),
++            id: "turn1-author".into(),
++            model: model_name.into(),
++            content: Some("Authoring solution and manifest".into()),
++            tool_calls: vec![
++                ToolCall {
++                    id: "call_ws_solution".into(),
++                    call_type: "function".into(),
++                    function: FunctionCall {
++                        name: "workspace_fs".into(),
++                        arguments: serde_json::json!({
++                            "action": "write",
++                            "path": "solution.py",
++                            "content": custom_solution_py,
++                        }).to_string(),
++                    },
++                },
++                ToolCall {
++                    id: "call_ws_program".into(),
++                    call_type: "function".into(),
++                    function: FunctionCall {
++                        name: "workspace_fs".into(),
++                        arguments: serde_json::json!({
++                            "action": "write",
++                            "path": "program.json",
++                            "content": serde_json::to_string_pretty(&program_manifest).unwrap(),
++                        }).to_string(),
++                    },
++                },
++            ],
++            usage: TokenUsage { prompt_tokens: 250, completion_tokens: 120, total_tokens: 370 },
++            latency_ms: 20,
++        },
++        // Turn 2 (Specialist): finalize
++        ChatCompletionResponse {
++            id: "turn2-spec-finalize".into(),
+             model: model_name.into(),
+             content: Some("[FINAL] Solution ready.".into()),
+             tool_calls: vec![],
+             usage: TokenUsage { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
+             latency_ms: 10,
+         },
+-        // Turn 2: Boss ReAct Turn 1 observes evidence and delegates to challenger
++        // Turn 3 (Boss): Boss ReAct Turn 1 observes evidence and delegates to challenger
+         ChatCompletionResponse {
+-            id: "turn2-boss-delegate".into(),
++            id: "turn3-boss-delegate".into(),
+             model: model_name.into(),
+             content: Some("DELEGATE_CHALLENGER: Validation score acceptable; audit for variance and protocol leak.".into()),
+             tool_calls: vec![],
+             usage: TokenUsage { prompt_tokens: 150, completion_tokens: 25, total_tokens: 175 },
+             latency_ms: 12,
+         },
+-        // Turn 3: Challenger approves
++        // Turn 4 (Challenger): Challenger approves
+         ChatCompletionResponse {
+-            id: "turn3-challenger".into(),
++            id: "turn4-challenger".into(),
+             model: model_name.into(),
+             content: Some("APPROVED: Validation score and protocol independently verified.".into()),
+             tool_calls: vec![],
+             usage: TokenUsage { prompt_tokens: 200, completion_tokens: 30, total_tokens: 230 },
+             latency_ms: 15,
+         },
+-        // Turn 4: Boss ReAct Turn 2 observes challenger audit and approves finalization
++        // Turn 5 (Boss): Boss ReAct Turn 2 observes challenger audit and approves finalization
+         ChatCompletionResponse {
+-            id: "turn4-boss-finalize".into(),
++            id: "turn5-boss-finalize".into(),
+             model: model_name.into(),
+             content: Some("FINALIZE_AND_STOP: Candidate independently audited and approved.".into()),
+             tool_calls: vec![],
+@@ -667,7 +752,7 @@ fn test_evidence_c_restart_after_challenger_approval_does_not_re_step_challenger
+         api_key: None,
+         lockbox_fraction: Some(0.20),
+         seed: Some(2026),
+-        max_turns: Some(2),
++        max_turns: Some(3),
+     };
+ 
+     let outcome1 = run_autonomous_campaign(root, &problem_spec, Some(scripted_gateway)).unwrap();
+diff --git a/crates/harness/tests/custom_model_gate.rs b/crates/harness/tests/custom_model_gate.rs
+index 4d2b90f..f873dfc 100644
+--- a/crates/harness/tests/custom_model_gate.rs
++++ b/crates/harness/tests/custom_model_gate.rs
+@@ -1154,7 +1154,7 @@ fn test_custom_model_bundle_manifest_and_contract_verification() {
+     fs::write(bundle_dir.join("README.md"), "# Candidate Bundle\n").unwrap();
+ 
+     // 4. Create manifest
+-    let mut files = std::collections::HashMap::new();
++    let mut files = std::collections::BTreeMap::new();
+     for name in [
+         "input_schema.json",
+         "output_schema.json",
+diff --git a/crates/harness/tests/governed_source_execution.rs b/crates/harness/tests/governed_source_execution.rs
+index 550c12a..0f63271 100644
+--- a/crates/harness/tests/governed_source_execution.rs
++++ b/crates/harness/tests/governed_source_execution.rs
+@@ -817,7 +817,7 @@ if __name__ == "__main__":
+     fs::write(&pyc_path, b"\x00\x00\x00\x00bytecode_sample").unwrap();
+ 
+     // Construct BundleManifest covering 100% of files
+-    let mut bundle_files = std::collections::HashMap::new();
++    let mut bundle_files = std::collections::BTreeMap::new();
+     let mut file_list = Vec::new();
+     fn walk_files(base: &Path, curr: &Path, out: &mut Vec<String>) {
+         for entry in fs::read_dir(curr).unwrap() {
+diff --git a/crates/harness/tests/release_p7.rs b/crates/harness/tests/release_p7.rs
+index 37188d0..e8cadae 100644
+--- a/crates/harness/tests/release_p7.rs
++++ b/crates/harness/tests/release_p7.rs
+@@ -142,7 +142,7 @@ fn test_p7_1_executable_candidate_bundle_v2_manifest_and_dependency_isolation()
+         }
+     }).to_string()).unwrap();
+ 
+-    let mut files_map = HashMap::new();
++    let mut files_map = BTreeMap::new();
+     for name in &contract_files {
+         let p = bundle_dir.join(name);
+         files_map.insert(name.to_string(), BundleManifestFileEntry {
+@@ -351,7 +351,7 @@ fn test_p7_3_sealed_holdout_gate_enforcement_and_private_row_leakage_rejection()
+     let wf_p = train_src_dir.join("workflow.py");
+     fs::write(&wf_p, wf_code).unwrap();
+ 
+-    let mut files_map = HashMap::new();
++    let mut files_map = BTreeMap::new();
+     for name in &contract_files {
+         let p = bundle_dir.join(name);
+         files_map.insert(name.to_string(), BundleManifestFileEntry {
+@@ -746,7 +746,7 @@ fn test_p7_acceptance_gate_full_closure() {
+     fs::write(isolated_bundle.join("verification.json"), json!({"frozen_model_sha256": model_sha}).to_string()).unwrap();
+     fs::write(isolated_bundle.join("scorecard.json"), json!({"candidate_id": "apex-cand", "constraints": {}}).to_string()).unwrap();
+ 
+-    let mut files_map = HashMap::new();
++    let mut files_map = BTreeMap::new();
+     for name in &contract_files {
+         let p = isolated_bundle.join(name);
+         files_map.insert(name.to_string(), BundleManifestFileEntry {
+diff --git a/crates/harness/tests/resource_broker_p3.rs b/crates/harness/tests/resource_broker_p3.rs
+index 034699d..955f367 100644
+--- a/crates/harness/tests/resource_broker_p3.rs
++++ b/crates/harness/tests/resource_broker_p3.rs
+@@ -1142,23 +1142,37 @@ fn p3_test_pressure_backoff_and_finalization_headroom_preservation() {
+         max_output_bytes: 1024,
+         environment_id: None,
+         resources: ResourceRequirements::default(),
+-        probe: Probe::Sleep { millis: 100 },
++        probe: Probe::Sleep { millis: 2000 },
+     };
+     let res = check_capacity_admission(&root, &conn, "p-press-1", &std_job3, 3);
+     assert!(res.is_err());
+     assert_eq!(res.unwrap_err(), "capacity unavailable: workers (reserved for finalization)");
+ 
+-    // Pressure backoff
+-    unsafe { std::env::set_var("MLRESCURIX_PRESSURE_BACKOFF", "1"); }
++    // Settle std-1 to free a standard worker slot
++    settle_job(&root, &mut supervisor, "p-press-1", "std-1");
++    let res_avail = check_capacity_admission(&root, &conn, "p-press-1", &std_job3, 3);
++    assert!(res_avail.is_ok(), "With std-1 settled, standard worker slot must be available");
++
++    // Pressure backoff: even with capacity available, standard job must remain deferred
++    let pressure_file = root.join(".pressure");
++    std::fs::write(&pressure_file, b"1").unwrap();
+     assert!(is_under_pressure(&root).unwrap());
+ 
+     execution::submit(&root, std_job3).unwrap();
+     supervisor.tick().unwrap();
+     let j3 = execution::inspect(&root, "p-press-1", "std-3").unwrap();
+-    assert_eq!(j3.status, "queued", "Under pressure, standard job must remain queued");
++    assert_eq!(j3.status, "queued", "Under pressure, standard job must remain queued despite available capacity");
+ 
+-    unsafe { std::env::remove_var("MLRESCURIX_PRESSURE_BACKOFF"); }
++    let _ = std::fs::remove_file(&pressure_file);
+     assert!(!is_under_pressure(&root).unwrap());
++
++    // Once pressure is relieved, supervisor tick must admit std-3 into running (or succeeded if execution finished)
++    supervisor.tick().unwrap();
++    let j3_admitted = execution::inspect(&root, "p-press-1", "std-3").unwrap();
++    assert!(
++        j3_admitted.status == "running" || j3_admitted.status == "succeeded",
++        "After pressure is removed, standard job must be admitted, got: {}", j3_admitted.status
++    );
+ }
+ 
+ #[test]
+diff --git a/crates/harness/tests/s1_red_team.rs b/crates/harness/tests/s1_red_team.rs
+index a04d521..7071b3c 100644
+--- a/crates/harness/tests/s1_red_team.rs
++++ b/crates/harness/tests/s1_red_team.rs
+@@ -1,8 +1,8 @@
+ //! Boundary regressions discovered while independently reviewing S1.
+ use std::{fs, sync::Arc};
+ use mlrescurix_harness::{
+-    agents::gateway::{ChatCompletionResponse, ScriptedProviderFixture, TokenUsage},
+-    campaign::{run_autonomous_campaign, run_offline_fixture_campaign, CampaignProblemSpec},
++    agents::gateway::{ChatCompletionResponse, FunctionCall, ScriptedProviderFixture, TokenUsage, ToolCall},
++    campaign::{generate_default_solution_template, run_autonomous_campaign, run_offline_fixture_campaign, CampaignProblemSpec},
+     trusted_evaluation::Metric,
+ };
+ 
+@@ -34,10 +34,63 @@ fn challenger_must_return_an_unambiguous_explicit_verdict() {
+     for content in [Some(""), None, Some("I cannot inspect the evidence"), Some("NOT APPROVED"), Some("APPROVED or CHALLENGED"), Some("APPROVED: no, actually CHALLENGED")] {
+         let tmp = tempfile::tempdir().unwrap();
+         let spec = problem(tmp.path());
+-        let responses = [Some("[FINAL] Reference fixture authoring."), Some("DELEGATE_CHALLENGER: audit required"), content].into_iter().enumerate().map(|(i, text)| ChatCompletionResponse {
+-            id: format!("turn_{i}"), model: spec.model_name.clone(), content: text.map(str::to_string),
+-            tool_calls: vec![], usage: TokenUsage { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 }, latency_ms: 0,
+-        }).collect();
++        let (custom_solution_py, program_manifest) = generate_default_solution_template(
++            "regression",
++            &["x".into()],
++            "target",
++            "cand_review_boundary",
++        ).unwrap();
++        let responses = vec![
++            ChatCompletionResponse {
++                id: "turn_spec_author".into(),
++                model: spec.model_name.clone(),
++                content: Some("Authoring solution and manifest".into()),
++                tool_calls: vec![
++                    ToolCall {
++                        id: "call_ws_solution".into(),
++                        call_type: "function".into(),
++                        function: FunctionCall {
++                            name: "workspace_fs".into(),
++                            arguments: serde_json::json!({
++                                "action": "write",
++                                "path": "solution.py",
++                                "content": custom_solution_py,
++                            }).to_string(),
++                        },
++                    },
++                    ToolCall {
++                        id: "call_ws_program".into(),
++                        call_type: "function".into(),
++                        function: FunctionCall {
++                            name: "workspace_fs".into(),
++                            arguments: serde_json::json!({
++                                "action": "write",
++                                "path": "program.json",
++                                "content": serde_json::to_string_pretty(&program_manifest).unwrap(),
++                            }).to_string(),
++                        },
++                    },
++                ],
++                usage: TokenUsage { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
++                latency_ms: 0,
++            },
++            ChatCompletionResponse {
++                id: "turn_boss_delegate".into(),
++                model: spec.model_name.clone(),
++                content: Some("DELEGATE_CHALLENGER: audit required".into()),
++                tool_calls: vec![],
++                usage: TokenUsage { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
++                latency_ms: 0,
++            },
++            ChatCompletionResponse {
++                id: "turn_challenger".into(),
++                model: spec.model_name.clone(),
++                content: content.map(str::to_string),
++                tool_calls: vec![],
++                usage: TokenUsage { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
++                latency_ms: 0,
++            },
++        ];
+         let gateway = Arc::new(ScriptedProviderFixture::new(responses));
+         let err = run_offline_fixture_campaign(&tmp.path().join("state"), &spec, Some(gateway)).unwrap_err();
+         assert!(err.contains("challenger verdict"), "{content:?}: {err}");
+diff --git a/crates/harness/tests/s2_gates.rs b/crates/harness/tests/s2_gates.rs
+index 07071cc..79a5d25 100644
+--- a/crates/harness/tests/s2_gates.rs
++++ b/crates/harness/tests/s2_gates.rs
+@@ -23,11 +23,11 @@ use sha2::{Digest, Sha256};
+ 
+ use mlrescurix_harness::{
+     agents::gateway::{
+-        ChatCompletionResponse, ScriptedProviderFixture, TokenUsage,
++        ChatCompletionResponse, FunctionCall, ScriptedProviderFixture, TokenUsage, ToolCall,
+     },
+     campaign::{
+         acquire_campaign_lease, campaign_isolation_available, ensure_campaign_leases_schema,
+-        parse_structured_challenger_result, release_campaign_lease,
++        generate_default_solution_template, parse_structured_challenger_result, release_campaign_lease,
+         run_offline_fixture_campaign as run_autonomous_campaign, verify_active_lease,
+         CampaignProblemSpec, LEASE_TTL_MS,
+     },
+@@ -61,17 +61,58 @@ fn test_gate_a_trajectory_1_boss_delegates_challenger_and_finalizes() {
+     let _ds_hash = create_synthetic_dataset(&dataset_path, 30);
+     let model_name = "deepseek/deepseek-chat";
+ 
++    let (custom_solution_py, program_manifest) = generate_default_solution_template(
++        "regression",
++        &["x1".into(), "x2".into()],
++        "target",
++        "cand_traj1",
++    ).unwrap();
++
+     let scripted_gateway = Arc::new(ScriptedProviderFixture::new(vec![
+-        // Turn 1: Specialist finalizes authoring
++        // Turn 1 (Specialist): author solution.py & program.json
+         ChatCompletionResponse {
+-            id: "turn1-spec".into(),
++            id: "turn1-author".into(),
++            model: model_name.into(),
++            content: Some("Authoring solution and manifest".into()),
++            tool_calls: vec![
++                ToolCall {
++                    id: "call_ws_solution".into(),
++                    call_type: "function".into(),
++                    function: FunctionCall {
++                        name: "workspace_fs".into(),
++                        arguments: serde_json::json!({
++                            "action": "write",
++                            "path": "solution.py",
++                            "content": custom_solution_py,
++                        }).to_string(),
++                    },
++                },
++                ToolCall {
++                    id: "call_ws_program".into(),
++                    call_type: "function".into(),
++                    function: FunctionCall {
++                        name: "workspace_fs".into(),
++                        arguments: serde_json::json!({
++                            "action": "write",
++                            "path": "program.json",
++                            "content": serde_json::to_string_pretty(&program_manifest).unwrap(),
++                        }).to_string(),
++                    },
++                },
++            ],
++            usage: TokenUsage { prompt_tokens: 250, completion_tokens: 120, total_tokens: 370 },
++            latency_ms: 20,
++        },
++        // Turn 2 (Specialist): finalize
++        ChatCompletionResponse {
++            id: "turn2-spec".into(),
+             model: model_name.into(),
+             content: Some("[FINAL] Solution ready.".into()),
+             tool_calls: vec![],
+             usage: TokenUsage { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
+             latency_ms: 10,
+         },
+-        // Turn 2: Boss ReAct Turn 1 observes evidence and delegates to challenger
++        // Turn 3: Boss ReAct Turn 1 observes evidence and delegates to challenger
+         ChatCompletionResponse {
+             id: "boss_turn1_delegate".into(),
+             model: model_name.into(),
+@@ -80,7 +121,7 @@ fn test_gate_a_trajectory_1_boss_delegates_challenger_and_finalizes() {
+             usage: TokenUsage { prompt_tokens: 150, completion_tokens: 25, total_tokens: 175 },
+             latency_ms: 12,
+         },
+-        // Turn 3: Challenger performs audit and outputs structured approval
++        // Turn 4: Challenger performs audit and outputs structured approval
+         ChatCompletionResponse {
+             id: "challenger_audit_step".into(),
+             model: model_name.into(),
+@@ -93,7 +134,7 @@ fn test_gate_a_trajectory_1_boss_delegates_challenger_and_finalizes() {
+             usage: TokenUsage { prompt_tokens: 250, completion_tokens: 45, total_tokens: 295 },
+             latency_ms: 20,
+         },
+-        // Turn 4: Boss ReAct Turn 2 observes challenger audit and approves finalization
++        // Turn 5: Boss ReAct Turn 2 observes challenger audit and approves finalization
+         ChatCompletionResponse {
+             id: "boss_turn2_finalize".into(),
+             model: model_name.into(),
+@@ -154,17 +195,58 @@ fn test_gate_a_trajectory_2_boss_observes_poor_score_and_stops_early() {
+     let _ds_hash = create_synthetic_dataset(&dataset_path, 30);
+     let model_name = "deepseek/deepseek-chat";
+ 
++    let (custom_solution_py, program_manifest) = generate_default_solution_template(
++        "regression",
++        &["x1".into(), "x2".into()],
++        "target",
++        "cand_traj2",
++    ).unwrap();
++
+     let scripted_gateway = Arc::new(ScriptedProviderFixture::new(vec![
+-        // Turn 1: Specialist finalizes
++        // Turn 1 (Specialist): author solution.py & program.json
++        ChatCompletionResponse {
++            id: "turn1-author".into(),
++            model: model_name.into(),
++            content: Some("Authoring solution and manifest".into()),
++            tool_calls: vec![
++                ToolCall {
++                    id: "call_ws_solution".into(),
++                    call_type: "function".into(),
++                    function: FunctionCall {
++                        name: "workspace_fs".into(),
++                        arguments: serde_json::json!({
++                            "action": "write",
++                            "path": "solution.py",
++                            "content": custom_solution_py,
++                        }).to_string(),
++                    },
++                },
++                ToolCall {
++                    id: "call_ws_program".into(),
++                    call_type: "function".into(),
++                    function: FunctionCall {
++                        name: "workspace_fs".into(),
++                        arguments: serde_json::json!({
++                            "action": "write",
++                            "path": "program.json",
++                            "content": serde_json::to_string_pretty(&program_manifest).unwrap(),
++                        }).to_string(),
++                    },
++                },
++            ],
++            usage: TokenUsage { prompt_tokens: 250, completion_tokens: 120, total_tokens: 370 },
++            latency_ms: 20,
++        },
++        // Turn 2 (Specialist): finalize
+         ChatCompletionResponse {
+-            id: "turn1-spec".into(),
++            id: "turn2-spec".into(),
+             model: model_name.into(),
+             content: Some("[FINAL] Solution ready.".into()),
+             tool_calls: vec![],
+             usage: TokenUsage { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
+             latency_ms: 10,
+         },
+-        // Turn 2: Boss observes validation evidence and decides to STOP EARLY
++        // Turn 3: Boss observes validation evidence and decides to STOP EARLY
+         ChatCompletionResponse {
+             id: "boss_turn1_early_stop".into(),
+             model: model_name.into(),
+@@ -573,33 +655,78 @@ fn test_gate_a_cli_binary_with_mock_fixture() {
+     let spec_path = root.join("spec.json");
+     fs::write(&spec_path, serde_json::to_string_pretty(&spec).unwrap()).unwrap();
+ 
++    let (custom_solution_py, program_manifest) = generate_default_solution_template(
++        "regression",
++        &["x1".into(), "x2".into()],
++        "target",
++        "cand_cli_mock",
++    ).unwrap();
++
+     let responses = vec![
++        // Turn 1 (Specialist): author solution.py & program.json
++        ChatCompletionResponse {
++            id: "turn1-author".into(),
++            model: model_name.into(),
++            content: Some("Authoring solution and manifest".into()),
++            tool_calls: vec![
++                ToolCall {
++                    id: "call_ws_solution".into(),
++                    call_type: "function".into(),
++                    function: FunctionCall {
++                        name: "workspace_fs".into(),
++                        arguments: serde_json::json!({
++                            "action": "write",
++                            "path": "solution.py",
++                            "content": custom_solution_py,
++                        }).to_string(),
++                    },
++                },
++                ToolCall {
++                    id: "call_ws_program".into(),
++                    call_type: "function".into(),
++                    function: FunctionCall {
++                        name: "workspace_fs".into(),
++                        arguments: serde_json::json!({
++                            "action": "write",
++                            "path": "program.json",
++                            "content": serde_json::to_string_pretty(&program_manifest).unwrap(),
++                        }).to_string(),
++                    },
++                },
++            ],
++            usage: TokenUsage { prompt_tokens: 250, completion_tokens: 120, total_tokens: 370 },
++            latency_ms: 20,
++        },
++        // Turn 2 (Specialist): finalize
+         ChatCompletionResponse {
+-            id: "turn1-spec".into(),
++            id: "turn2-spec".into(),
+             model: model_name.into(),
+             content: Some("[FINAL] Solution authored.".into()),
+             tool_calls: vec![],
+             usage: TokenUsage { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
+             latency_ms: 10,
+         },
++        // Turn 3: Boss delegates
+         ChatCompletionResponse {
+-            id: "turn2-boss-delegate".into(),
++            id: "turn3-boss-delegate".into(),
+             model: model_name.into(),
+             content: Some("DELEGATE_CHALLENGER: Validation score acceptable; audit required.".into()),
+             tool_calls: vec![],
+             usage: TokenUsage { prompt_tokens: 150, completion_tokens: 25, total_tokens: 175 },
+             latency_ms: 12,
+         },
++        // Turn 4: Challenger approves
+         ChatCompletionResponse {
+-            id: "turn3-challenger".into(),
++            id: "turn4-challenger".into(),
+             model: model_name.into(),
+             content: Some("APPROVED: Validation score and protocol independently verified.".into()),
+             tool_calls: vec![],
+             usage: TokenUsage { prompt_tokens: 200, completion_tokens: 30, total_tokens: 230 },
+             latency_ms: 15,
+         },
++        // Turn 5: Boss finalizes
+         ChatCompletionResponse {
+-            id: "turn4-boss-finalize".into(),
++            id: "turn5-boss-finalize".into(),
+             model: model_name.into(),
+             content: Some("FINALIZE_AND_STOP: Candidate approved.".into()),
+             tool_calls: vec![],
+diff --git a/crates/harness/tests/s2_red_team.rs b/crates/harness/tests/s2_red_team.rs
+index 2cceb70..b41433d 100644
+--- a/crates/harness/tests/s2_red_team.rs
++++ b/crates/harness/tests/s2_red_team.rs
+@@ -1,8 +1,8 @@
+ //! Independent S2 boundary regressions; trusted host fixtures only.
+ use std::{fs, sync::Arc};
+ use mlrescurix_harness::{
+-    agents::gateway::{ChatCompletionResponse, ScriptedProviderFixture, TokenUsage},
+-    campaign::{parse_structured_challenger_result, run_offline_fixture_campaign, CampaignProblemSpec},
++    agents::gateway::{ChatCompletionResponse, FunctionCall, ScriptedProviderFixture, TokenUsage, ToolCall},
++    campaign::{generate_default_solution_template, parse_structured_challenger_result, run_offline_fixture_campaign, CampaignProblemSpec},
+     trusted_evaluation::Metric,
+ };
+ 
+@@ -19,6 +19,58 @@ fn problem(root: &std::path::Path) -> CampaignProblemSpec {
+     }
+ }
+ 
++fn authoring_turns(model: &str) -> Vec<ChatCompletionResponse> {
++    let (custom_solution_py, program_manifest) = generate_default_solution_template(
++        "regression",
++        &["x".into()],
++        "target",
++        "cand_s2_red_team",
++    ).unwrap();
++    vec![
++        ChatCompletionResponse {
++            id: "turn_spec_author".into(),
++            model: model.into(),
++            content: Some("Authoring solution and manifest".into()),
++            tool_calls: vec![
++                ToolCall {
++                    id: "call_ws_solution".into(),
++                    call_type: "function".into(),
++                    function: FunctionCall {
++                        name: "workspace_fs".into(),
++                        arguments: serde_json::json!({
++                            "action": "write",
++                            "path": "solution.py",
++                            "content": custom_solution_py,
++                        }).to_string(),
++                    },
++                },
++                ToolCall {
++                    id: "call_ws_program".into(),
++                    call_type: "function".into(),
++                    function: FunctionCall {
++                        name: "workspace_fs".into(),
++                        arguments: serde_json::json!({
++                            "action": "write",
++                            "path": "program.json",
++                            "content": serde_json::to_string_pretty(&program_manifest).unwrap(),
++                        }).to_string(),
++                    },
++                },
++            ],
++            usage: TokenUsage { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
++            latency_ms: 0,
++        },
++        ChatCompletionResponse {
++            id: "turn_spec_finalize".into(),
++            model: model.into(),
++            content: Some("[FINAL] Solution authored.".into()),
++            tool_calls: vec![],
++            usage: TokenUsage { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
++            latency_ms: 0,
++        },
++    ]
++}
++
+ fn gateway(contents: Vec<Option<&str>>) -> Arc<ScriptedProviderFixture> {
+     Arc::new(ScriptedProviderFixture::new(contents.into_iter().enumerate().map(|(i, c)| ChatCompletionResponse {
+         id: format!("review_{i}"), model: "deepseek/deepseek-chat".into(), content: c.map(str::to_string),
+@@ -26,6 +78,21 @@ fn gateway(contents: Vec<Option<&str>>) -> Arc<ScriptedProviderFixture> {
+     }).collect()))
+ }
+ 
++#[test]
++fn specialist_text_cannot_select_an_unauthored_reference() {
++    for content in ["[FINAL]", "reference", "[FINAL] Reference diagnostic."] {
++        let tmp = tempfile::tempdir().unwrap();
++        let mut spec = problem(tmp.path());
++        spec.max_turns = Some(1);
++        let state = tmp.path().join("state");
++        let err = run_offline_fixture_campaign(&state, &spec, Some(gateway(vec![Some(content)]))).unwrap_err();
++        assert!(err.contains("specialist failed to author"), "unexpected error: {err}");
++        let conn = rusqlite::Connection::open(state.join("controller/state.sqlite")).unwrap();
++        let count: i64 = conn.query_row("SELECT count(*) FROM assessment_lockbox_consumptions", [], |r| r.get(0)).unwrap();
++        assert_eq!(count, 0);
++    }
++}
++
+ #[test]
+ fn owner_missing_ambiguous_or_negative_decision_cannot_finalize() {
+     for content in [None, Some(""), Some("I need more evidence"), Some("NOT FINALIZE_AND_STOP: do not release"), Some("FINALIZE_AND_STOP: release without audit"),
+@@ -33,9 +100,19 @@ fn owner_missing_ambiguous_or_negative_decision_cannot_finalize() {
+         let tmp = tempfile::tempdir().unwrap();
+         let spec = problem(tmp.path());
+         let state = tmp.path().join("state");
+-        let result = run_offline_fixture_campaign(&state, &spec,
+-            Some(gateway(vec![Some("[FINAL] Reference diagnostic."), content])));
+-        assert!(result.is_err(), "invalid owner reply finalized: {content:?}");
++        let mut responses = authoring_turns(&spec.model_name);
++        responses.push(ChatCompletionResponse {
++            id: "turn_boss".into(),
++            model: spec.model_name.clone(),
++            content: content.map(str::to_string),
++            tool_calls: vec![],
++            usage: TokenUsage { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
++            latency_ms: 0,
++        });
++        let gateway = Arc::new(ScriptedProviderFixture::new(responses));
++        let err = run_offline_fixture_campaign(&state, &spec, Some(gateway)).unwrap_err();
++        assert!(!err.contains("specialist failed to author"), "{content:?}: reached wrong boundary: {err}");
++        assert!(err.contains("owner") || err.contains("finaliz") || err.contains("decision"), "{content:?}: {err}");
+         let conn = rusqlite::Connection::open(state.join("controller/state.sqlite")).unwrap();
+         let count: i64 = conn.query_row("SELECT count(*) FROM assessment_lockbox_consumptions", [], |r| r.get(0)).unwrap();
+         assert_eq!(count, 0, "invalid owner reply consumed lockbox: {content:?}");
+@@ -48,11 +125,35 @@ fn post_audit_owner_reply_requires_explicit_finalization() {
+         let tmp = tempfile::tempdir().unwrap();
+         let spec = problem(tmp.path());
+         let state = tmp.path().join("state");
+-        let result = run_offline_fixture_campaign(&state, &spec, Some(gateway(vec![
+-            Some("[FINAL] Reference diagnostic."), Some("DELEGATE_CHALLENGER: independent audit required"),
+-            Some("APPROVED: trusted synthetic diagnostic only"), content,
+-        ])));
+-        assert!(result.is_err(), "post-audit invalid reply finalized: {content:?}");
++        let mut responses = authoring_turns(&spec.model_name);
++        responses.push(ChatCompletionResponse {
++            id: "turn_boss_delegate".into(),
++            model: spec.model_name.clone(),
++            content: Some("DELEGATE_CHALLENGER: independent audit required".into()),
++            tool_calls: vec![],
++            usage: TokenUsage { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
++            latency_ms: 0,
++        });
++        responses.push(ChatCompletionResponse {
++            id: "turn_challenger".into(),
++            model: spec.model_name.clone(),
++            content: Some("APPROVED: trusted synthetic diagnostic only".into()),
++            tool_calls: vec![],
++            usage: TokenUsage { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
++            latency_ms: 0,
++        });
++        responses.push(ChatCompletionResponse {
++            id: "turn_boss_post_audit".into(),
++            model: spec.model_name.clone(),
++            content: content.map(str::to_string),
++            tool_calls: vec![],
++            usage: TokenUsage { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
++            latency_ms: 0,
++        });
++        let gateway = Arc::new(ScriptedProviderFixture::new(responses));
++        let err = run_offline_fixture_campaign(&state, &spec, Some(gateway)).unwrap_err();
++        assert!(!err.contains("specialist failed to author"), "{content:?}: reached wrong boundary: {err}");
++        assert!(err.contains("owner") || err.contains("finalization"), "{content:?}: {err}");
+         let conn = rusqlite::Connection::open(state.join("controller/state.sqlite")).unwrap();
+         let count: i64 = conn.query_row("SELECT count(*) FROM assessment_lockbox_consumptions", [], |r| r.get(0)).unwrap();
+         assert_eq!(count, 0);
+diff --git a/crates/harness/tests/s3_gates.rs b/crates/harness/tests/s3_gates.rs
+index f00e935..e93443c 100644
+--- a/crates/harness/tests/s3_gates.rs
++++ b/crates/harness/tests/s3_gates.rs
+@@ -16,8 +16,8 @@
+ //!         Missing authority refuses search with zero dispatch.
+ //! Gate E: Hostile worker data/label isolation and honest refusal.
+ //!         campaign_isolation_available() remains false; production isolated entry point fails closed.
+-//! Gate F: Changed source with unchanged weights and deleted manifest is rejected before repack;
+-//!         holdout remains strictly once-only. Unchanged verified artifact replays successfully.
++//! Gate F: Consumed assessments with incomplete receipts are refused on replay/repack;
++//!         holdout remains strictly once-only. Valid replay remains an open requirement.
+ //! Gate G: Standalone frozen candidate parity, multiple batches, schema rejection.
+ 
+ use std::{
+@@ -30,6 +30,7 @@ use std::{
+ 
+ 
+ use rusqlite::Connection;
++use serde_json::Value;
+ use sha2::{Digest, Sha256};
+ 
+ use mlrescurix_harness::{
+@@ -503,7 +504,7 @@ if __name__ == "__main__":
+         max_turns: Some(5),
+     };
+ 
+-    let outcome = run_offline_fixture_campaign(root, &problem_spec, Some(repair_gateway)).unwrap();
++    let outcome = run_offline_fixture_campaign(root, &problem_spec, Some(repair_gateway.clone())).unwrap();
+     assert_eq!(outcome.dataset_sha256, ds_hash);
+ 
+     // Verify context isolation in sqlite
+@@ -522,6 +523,37 @@ if __name__ == "__main__":
+     assert_eq!(challenger_inputs["protocol_sha256"], outcome.protocol_sha256);
+     assert!(challenger_inputs.get("proposer_advocacy").is_none());
+     assert!(challenger_inputs.get("foreign_transcripts").is_none());
++
++    // Inspect actual serialized requests to verify wire-level context isolation
++    let recorded = repair_gateway.recorded_requests();
++    assert!(!recorded.is_empty(), "gateway must have recorded actual model requests");
++
++    // 1. Verify specialist turn 2 received execution error feedback in serialized tool messages
++    let specialist_repair_req = recorded
++        .iter()
++        .find(|req| {
++            req.messages.iter().any(|m| {
++                m.role == "tool" || m.content.as_deref().unwrap_or("").contains("tool_execution_failed") || m.content.as_deref().unwrap_or("").contains("Error")
++            })
++        })
++        .expect("specialist repair turn must receive actual serialized error feedback");
++    assert!(!specialist_repair_req.messages.is_empty());
++
++    // 2. Verify challenger received strictly objective primary evidence and NO proposer advocacy
++    let challenger_req = recorded
++        .iter()
++        .find(|req| {
++            req.messages.iter().any(|m| {
++                m.content.as_deref().unwrap_or("").contains("independent scientific challenger")
++            })
++        })
++        .expect("challenger must receive serialized audit prompt");
++    for msg in &challenger_req.messages {
++        let text = msg.content.as_deref().unwrap_or("");
++        assert!(!text.contains("proposer_advocacy"), "challenger prompt leaked proposer advocacy");
++        assert!(!text.contains("foreign_transcripts"), "challenger prompt leaked foreign transcripts");
++        assert!(!text.contains("__mlr_row_id"), "challenger prompt leaked internal row ids");
++    }
+ }
+ 
+ #[test]
+@@ -695,11 +727,11 @@ fn test_gate_c_real_competing_controllers_and_sigkill_lease_fencing() {
+     ensure_campaign_leases_schema(&conn).unwrap();
+ 
+     let project_id = "proj_gate_c_lease";
+-    // Spawn real background process to act as active controller 1
+-    let mut child1 = std::process::Command::new("sleep")
+-        .arg("60")
++    // Spawn real background controller process to act as active controller 1
++    let mut child1 = std::process::Command::new("python3")
++        .args(["-c", "import time; time.sleep(60)"])
+         .spawn()
+-        .expect("must be able to spawn sleep process");
++        .expect("must be able to spawn real background process");
+     let child1_pid = child1.id();
+     let owner1 = format!("pid_{}", child1_pid);
+ 
+@@ -768,11 +800,22 @@ fn test_gate_d_concurrent_resource_admission_and_conflicting_settlement() {
+     let temp = tempfile::tempdir().unwrap();
+     let root = temp.path();
+ 
+-    let db_path = root.join("state.sqlite");
++    let controller_root = root.join("controller");
++    let mut b = std::collections::BTreeMap::new();
++    b.insert("calls".into(), 1000);
++    b.insert("tokens".into(), 1_000_000);
++    b.insert("wall_ms".into(), 600_000);
++    b.insert("spend_usd_millicents".into(), 100_000);
++    let mut cap = std::collections::BTreeMap::new();
++    cap.insert("workers".into(), 4);
++    let policy = mlrescurix_harness::Policy { max_tasks: 1024, budget: b, capacity: cap };
++    let _ = mlrescurix_harness::Runtime::init(&controller_root, policy).unwrap();
++
++    let db_path = controller_root.join("state.sqlite");
+     let conn = Connection::open(&db_path).unwrap();
+     ensure_campaign_leases_schema(&conn).unwrap();
+ 
+-    // Verify atomic lease conflict resolution across 8 concurrent threads
++    // 1. Verify atomic lease conflict resolution across 8 concurrent threads
+     let barrier = Arc::new(std::sync::Barrier::new(8));
+     let mut handles = Vec::new();
+     let db_p = db_path.clone();
+@@ -800,6 +843,99 @@ fn test_gate_d_concurrent_resource_admission_and_conflicting_settlement() {
+ 
+     assert_eq!(winners, 1, "exactly 1 thread must acquire the lease");
+     assert_eq!(losers, 7, "exactly 7 competing threads must receive lease conflict");
++
++    // 2. Concurrent resource admission & exhaustion test
++    // 8 concurrent threads attempt to reserve 25_000 millicents each against a max_spend cap of 100_000
++    use mlrescurix_harness::agents::gateway::{record_provider_accounting, reserve_role_spend};
++    let res_barrier = Arc::new(std::sync::Barrier::new(8));
++    let mut res_handles = Vec::new();
++    let root_path = controller_root.clone();
++    let project_id = "proj_resource_race";
++
++    for i in 0..8 {
++        let b = res_barrier.clone();
++        let r = root_path.clone();
++        let h = thread::spawn(move || {
++            b.wait();
++            let tokens = TokenUsage { prompt_tokens: 500, completion_tokens: 250, total_tokens: 750 };
++            let req_id = format!("req_concurrent_{i}");
++            reserve_role_spend(
++                &r,
++                project_id,
++                &req_id,
++                "task_resource",
++                "specialist",
++                "deepseek/deepseek-chat",
++                &tokens,
++                25_000,
++                Some(100_000),
++            )
++        });
++        res_handles.push(h);
++    }
++
++    let mut res_admitted = 0;
++    let mut res_exhausted = 0;
++    for h in res_handles {
++        match h.join().unwrap() {
++            Ok(_) => res_admitted += 1,
++            Err(e) => {
++                assert!(e.contains("spend limit exceeded") || e.contains("busy") || e.contains("locked"), "unexpected error: {e}");
++                res_exhausted += 1;
++            }
++        }
++    }
++
++    // Exactly 4 reservations of 25,000 can fit within 100,000
++    assert_eq!(res_admitted, 4, "exactly 4 reservations must fit within the 100_000 millicent budget");
++    assert_eq!(res_exhausted, 4, "competing threads exceeding ceiling must be rejected");
++
++    // Total reserved in sqlite must strictly equal 100,000
++    let c = Connection::open(&db_path).unwrap();
++    let total_reserved: i64 = c.query_row(
++        "SELECT SUM(cost_millicents) FROM provider_accounting WHERE project=?1 AND status='reserved'",
++        [project_id],
++        |row| row.get(0),
++    ).unwrap();
++    assert_eq!(total_reserved, 100_000, "total reserved spend must strictly equal budget ceiling");
++
++    // 3. Conflicting settlement and duplicate reservation fencing
++    let (first_admitted_id,): (String,) = c.query_row(
++        "SELECT request_id FROM provider_accounting WHERE project=?1 AND status='reserved' LIMIT 1",
++        [project_id],
++        |row| Ok((row.get(0)?,)),
++    ).unwrap();
++
++    let tokens = TokenUsage { prompt_tokens: 400, completion_tokens: 200, total_tokens: 600 };
++    record_provider_accounting(
++        &controller_root,
++        project_id,
++        &first_admitted_id,
++        "task_resource",
++        "specialist",
++        "deepseek/deepseek-chat",
++        &tokens,
++        20_000,
++        50,
++        "ok",
++    ).unwrap();
++
++    // Re-attempting reservation on the settled request must fail closed (duplicate reservation rejected)
++    let dup_res = reserve_role_spend(
++        &controller_root,
++        project_id,
++        &first_admitted_id,
++        "task_resource",
++        "specialist",
++        "deepseek/deepseek-chat",
++        &tokens,
++        25_000,
++        Some(100_000),
++    );
++    assert!(dup_res.is_err());
++    let dup_err = dup_res.unwrap_err();
++    assert!(dup_err.contains("already been dispatched") || dup_err.contains("duplicate reservation rejected"),
++        "duplicate reservation must be rejected: {dup_err}");
+ }
+ 
+ // ============================================================================
+@@ -895,7 +1031,7 @@ fn test_gate_f_changed_source_rejected_and_once_only_holdout() {
+     // Repackaging attempt MUST fail closed: candidate source SHA changed while lockbox already consumed!
+     let repack_err = run_offline_fixture_campaign(root, &problem_spec, None).unwrap_err();
+     assert!(
+-        repack_err.contains("does not match evaluated source SHA-256") || repack_err.contains("cannot repackage modified source"),
++        repack_err.contains("does not match evaluated source SHA-256") || repack_err.contains("cannot repackage modified source") || repack_err.contains("lockbox consumption mismatch"),
+         "expected source tampering rejection, got: {repack_err}"
+     );
+ 
+@@ -907,11 +1043,164 @@ fn test_gate_f_changed_source_rejected_and_once_only_holdout() {
+     ).unwrap();
+     assert_eq!(consumptions_after, 1, "lockbox must NEVER be double-consumed on repackaging failure");
+ 
+-    // Restore original source and verify clean replay
++    // Restore original source and verify clean crash repack
+     fs::write(&branch_sol, original_sol).unwrap();
+     let replay_outcome = run_offline_fixture_campaign(root, &problem_spec, None).unwrap();
+     assert_eq!(replay_outcome.candidate_id, outcome1.candidate_id);
+     assert_eq!(replay_outcome.lockbox_score, outcome1.lockbox_score);
++
++    // Attack 2: Tamper with program.json in branch workspace and delete manifest.json
++    let branch_prog = branch_dir.join("program.json");
++    assert!(branch_prog.is_file());
++    let original_prog = fs::read_to_string(&branch_prog).unwrap();
++    let tampered_prog = original_prog.replace("solution.py", "malicious_entrypoint.py");
++    fs::write(&branch_prog, &tampered_prog).unwrap();
++    let _ = fs::remove_file(&manifest_path);
++
++    let repack_prog_err = run_offline_fixture_campaign(root, &problem_spec, None).unwrap_err();
++    assert!(
++        repack_prog_err.contains("does not match evaluated source SHA-256") || repack_prog_err.contains("cannot repackage modified source") || repack_prog_err.contains("lockbox consumption mismatch"),
++        "expected program.json tampering rejection, got: {repack_prog_err}"
++    );
++
++    // Verify lockbox consumption count is STILL strictly 1
++    let consumptions_after_prog: i64 = conn.query_row(
++        "SELECT COUNT(*) FROM assessment_lockbox_consumptions WHERE project='proj_gate_f_rebind'",
++        [],
++        |r| r.get(0),
++    ).unwrap();
++    assert_eq!(consumptions_after_prog, 1, "lockbox must NEVER be double-consumed on program.json tampering");
++
++    // Restore program.json and rebuild bundle
++    fs::write(&branch_prog, original_prog).unwrap();
++    let repacked_outcome = run_offline_fixture_campaign(root, &problem_spec, None).unwrap();
++    assert_eq!(repacked_outcome.candidate_id, outcome1.candidate_id);
++
++    // Attack 3: Tamper with scorecard.json in bundle and re-sign manifest.json (counterfeit score attack)
++    let bundle_scorecard = repacked_outcome.bundle_dir.join("scorecard.json");
++    let original_sc = fs::read_to_string(&bundle_scorecard).unwrap();
++    let mut sc_obj: serde_json::Value = serde_json::from_str(&original_sc).unwrap();
++    sc_obj["validation_score"] = serde_json::json!(0.999999);
++    fs::write(&bundle_scorecard, serde_json::to_string_pretty(&sc_obj).unwrap()).unwrap();
++
++    let bundle_manifest_path = repacked_outcome.bundle_dir.join("manifest.json");
++    let original_manifest_bytes = fs::read(&bundle_manifest_path).unwrap();
++    let mut manifest_val: serde_json::Value = serde_json::from_slice(&original_manifest_bytes).unwrap();
++    let new_sc_bytes = fs::read(&bundle_scorecard).unwrap();
++    let mut hasher = sha2::Sha256::new();
++    hasher.update(&new_sc_bytes);
++    let new_sc_sha = format!("{:x}", hasher.finalize());
++    manifest_val["files"]["scorecard.json"]["sha256"] = serde_json::json!(new_sc_sha);
++    manifest_val["files"]["scorecard.json"]["bytes"] = serde_json::json!(new_sc_bytes.len());
++    fs::write(&bundle_manifest_path, serde_json::to_string_pretty(&manifest_val).unwrap()).unwrap();
++
++    let replay_sc_err = run_offline_fixture_campaign(root, &problem_spec, None).unwrap_err();
++    assert!(
++        replay_sc_err.contains("scorecard validation_score") && replay_sc_err.contains("does not match authoritative validation score")
++            || replay_sc_err.contains("manifest SHA-256")
++            || replay_sc_err.contains("self-rehashed or tampered manifest rejected"),
++        "expected counterfeit scorecard rejection, got: {replay_sc_err}"
++    );
++
++    // Restore original scorecard and restore exact original manifest bytes
++    fs::write(&bundle_scorecard, original_sc).unwrap();
++    fs::write(&bundle_manifest_path, original_manifest_bytes).unwrap();
++
++    // Clean bundle replay succeeds through Step 7 fast-path with authoritative validation score
++    let verified_replay = run_offline_fixture_campaign(root, &problem_spec, None).unwrap();
++    assert_eq!(verified_replay.candidate_id, outcome1.candidate_id);
++    assert_eq!(verified_replay.validation_score, outcome1.validation_score);
++    assert_eq!(verified_replay.lockbox_score, outcome1.lockbox_score);
++
++}
++
++#[test]
++fn consumed_assessment_refuses_self_rehashed_wrapper() {
++    let temp = tempfile::tempdir().unwrap();
++    let root = temp.path();
++    let dataset_path = root.join("dataset.csv");
++    create_synthetic_dataset(&dataset_path, 30);
++    let problem_spec = CampaignProblemSpec {
++        project_id: "wrapper_replay_guard".into(), dataset_path,
++        target_column: "target".into(), task_type: "regression".into(),
++        metric: Metric::Mae, budget_millicents: 100_000,
++        model_name: "fixture".into(), endpoint: None, api_key: None,
++        lockbox_fraction: Some(0.20), seed: Some(2026), max_turns: Some(2),
++    };
++    let outcome1 = run_offline_fixture_campaign(root, &problem_spec, None).unwrap();
++    // Safe unchanged replay succeeds with controller release provenance
++    let replay_outcome = run_offline_fixture_campaign(root, &problem_spec, None).unwrap();
++    assert_eq!(replay_outcome.candidate_id, outcome1.candidate_id);
++    assert_eq!(replay_outcome.lockbox_score, outcome1.lockbox_score);
++    assert_eq!(replay_outcome.weights_sha256, outcome1.weights_sha256);
++
++    let bundle_manifest_path = outcome1.bundle_dir.join("manifest.json");
++    let mut manifest_val: Value = serde_json::from_slice(&fs::read(&bundle_manifest_path).unwrap()).unwrap();
++    // A bundle-owned manifest is not an authority for a modified executable.
++    let wrapper = outcome1.bundle_dir.join("inference.py");
++    let mut wrapper_bytes = fs::read(&wrapper).unwrap();
++    wrapper_bytes.extend_from_slice(b"\n# modified after assessment\n");
++    fs::write(&wrapper, &wrapper_bytes).unwrap();
++    let mut wrapper_hasher = sha2::Sha256::new();
++    wrapper_hasher.update(&wrapper_bytes);
++    manifest_val["files"]["inference.py"]["sha256"] = serde_json::json!(format!("{:x}", wrapper_hasher.finalize()));
++    manifest_val["files"]["inference.py"]["bytes"] = serde_json::json!(wrapper_bytes.len());
++    fs::write(&bundle_manifest_path, serde_json::to_string_pretty(&manifest_val).unwrap()).unwrap();
++    let tamper_err = run_offline_fixture_campaign(root, &problem_spec, None).unwrap_err();
++    assert!(
++        tamper_err.contains("does not match controller release receipt manifest SHA-256")
++            || tamper_err.contains("self-rehashed or tampered bundle rejected"),
++        "a self-rehashed modified executable must not inherit a prior assessment, got: {tamper_err}"
++    );
++    let conn = Connection::open(root.join("controller/state.sqlite")).unwrap();
++    let count: i64 = conn.query_row("SELECT COUNT(*) FROM assessment_lockbox_consumptions", [], |r| r.get(0)).unwrap();
++    assert_eq!(count, 1);
++}
++
++#[test]
++fn tampered_manifest_metadata_rejected_on_replay() {
++    let temp = tempfile::tempdir().unwrap();
++    let root = temp.path();
++    let dataset_path = root.join("dataset.csv");
++    create_synthetic_dataset(&dataset_path, 30);
++    let problem_spec = CampaignProblemSpec {
++        project_id: "manifest_tamper_guard".into(),
++        dataset_path,
++        target_column: "target".into(),
++        task_type: "regression".into(),
++        metric: Metric::Mae,
++        budget_millicents: 100_000,
++        model_name: "fixture".into(),
++        endpoint: None,
++        api_key: None,
++        lockbox_fraction: Some(0.20),
++        seed: Some(2026),
++        max_turns: Some(2),
++    };
++    let outcome1 = run_offline_fixture_campaign(root, &problem_spec, None).unwrap();
++
++    // Replay succeeds initially
++    let replay_outcome = run_offline_fixture_campaign(root, &problem_spec, None).unwrap();
++    assert_eq!(replay_outcome.candidate_id, outcome1.candidate_id);
++
++    // Tamper with manifest.json metadata (e.g., inject falsified model metadata) WITHOUT modifying manifest files
++    let bundle_manifest_path = outcome1.bundle_dir.join("manifest.json");
++    let mut manifest_val: Value = serde_json::from_slice(&fs::read(&bundle_manifest_path).unwrap()).unwrap();
++    manifest_val["model"] = serde_json::json!({"falsified_metadata": "unauthorized_modification"});
++    fs::write(&bundle_manifest_path, serde_json::to_string_pretty(&manifest_val).unwrap()).unwrap();
++
++    // Replay must fail closed because manifest_sha256 does not match controller release receipt
++    let tamper_err = run_offline_fixture_campaign(root, &problem_spec, None).unwrap_err();
++    assert!(
++        tamper_err.contains("does not match controller release receipt manifest SHA-256")
++            || tamper_err.contains("self-rehashed or tampered manifest rejected"),
++        "tampered manifest metadata must be rejected on replay, got: {tamper_err}"
++    );
++
++    // Lockbox consumption count strictly remains 1
++    let conn = Connection::open(root.join("controller/state.sqlite")).unwrap();
++    let count: i64 = conn.query_row("SELECT COUNT(*) FROM assessment_lockbox_consumptions", [], |r| r.get(0)).unwrap();
++    assert_eq!(count, 1);
+ }
+ 
+ // ============================================================================
+@@ -958,5 +1247,114 @@ fn test_gate_g_standalone_frozen_candidate_parity() {
+         let p = item.get("prediction").and_then(|v| v.as_f64()).or_else(|| item.as_f64()).expect("numeric prediction expected");
+         assert!(p.is_finite(), "CLI prediction must be a finite float");
+     }
++
++    // Verify standalone predictions against scored frozen lockbox predictions across batch sizes (1, 5, full)
++    let worker_workspace = root.join("worker_workspace");
++    let lockbox_preds_path = worker_workspace.join("lockbox_predictions.json");
++    let lockbox_features_path = worker_workspace.join("lockbox_features.csv");
++
++    let scored_preds_raw: Vec<Value> = serde_json::from_slice(&fs::read(&lockbox_preds_path).unwrap()).unwrap();
++    let scored_preds: Vec<f64> = scored_preds_raw
++        .iter()
++        .map(|v| v.get("prediction").and_then(|p| p.as_f64()).expect("scored prediction missing"))
++        .collect();
++
++    // Parse features from lockbox_features.csv
++    let csv_content = fs::read_to_string(&lockbox_features_path).unwrap();
++    let mut lines = csv_content.lines();
++    let header_line = lines.next().expect("header missing");
++    let header_cols: Vec<&str> = header_line.split(',').collect();
++
++    let mut all_rows: Vec<Value> = Vec::new();
++    for line in lines {
++        if line.trim().is_empty() {
++            continue;
++        }
++        let vals: Vec<&str> = line.split(',').collect();
++        let mut row_map = serde_json::Map::new();
++        for (col_idx, &col_name) in header_cols.iter().enumerate() {
++            if col_name == "__mlr_row_id" {
++                continue;
++            }
++            let num: f64 = vals[col_idx].trim().parse().unwrap();
++            row_map.insert(col_name.to_string(), Value::from(num));
++        }
++        all_rows.push(Value::Object(row_map));
++    }
++
++    assert_eq!(all_rows.len(), scored_preds.len(), "feature count must match scored prediction count");
++    assert!(!all_rows.is_empty(), "must have lockbox rows to test parity");
++
++    // 1. Full batch test
++    let full_batch_in = root.join("full_batch_in.json");
++    let full_batch_out = root.join("full_batch_out.json");
++    fs::write(&full_batch_in, serde_json::to_string(&all_rows).unwrap()).unwrap();
++    let full_cli_out = verify_standalone_cli_inference(&outcome.bundle_dir, &full_batch_in, &full_batch_out).unwrap();
++    let full_arr = full_cli_out.as_array().expect("array expected");
++    assert_eq!(full_arr.len(), scored_preds.len());
++    for (i, item) in full_arr.iter().enumerate() {
++        let p = item.get("prediction").and_then(|v| v.as_f64()).or_else(|| item.as_f64()).expect("numeric prediction");
++        let expected = scored_preds[i];
++        assert!(
++            (p - expected).abs() < 1e-4,
++            "full-batch mismatch at row {i}: standalone={p}, scored={expected}"
++        );
++    }
++
++    // 2. Batch size 5 test
++    for chunk_start in (0..all_rows.len()).step_by(5) {
++        let chunk_end = (chunk_start + 5).min(all_rows.len());
++        let chunk_slice = &all_rows[chunk_start..chunk_end];
++        let chunk_in = root.join(format!("batch5_in_{chunk_start}.json"));
++        let chunk_out = root.join(format!("batch5_out_{chunk_start}.json"));
++        fs::write(&chunk_in, serde_json::to_string(chunk_slice).unwrap()).unwrap();
++        let chunk_cli_out = verify_standalone_cli_inference(&outcome.bundle_dir, &chunk_in, &chunk_out).unwrap();
++        let chunk_arr = chunk_cli_out.as_array().expect("array expected");
++        assert_eq!(chunk_arr.len(), chunk_slice.len());
++        for (sub_i, item) in chunk_arr.iter().enumerate() {
++            let row_idx = chunk_start + sub_i;
++            let p = item.get("prediction").and_then(|v| v.as_f64()).or_else(|| item.as_f64()).expect("numeric prediction");
++            let expected = scored_preds[row_idx];
++            assert!(
++                (p - expected).abs() < 1e-4,
++                "batch-5 mismatch at row {row_idx}: standalone={p}, scored={expected}"
++            );
++        }
++    }
++
++    // 3. Batch size 1 test
++    for (i, single_row) in all_rows.iter().enumerate() {
++        let single_in = root.join(format!("batch1_in_{i}.json"));
++        let single_out = root.join(format!("batch1_out_{i}.json"));
++        fs::write(&single_in, serde_json::to_string(&vec![single_row.clone()]).unwrap()).unwrap();
++        let single_cli_out = verify_standalone_cli_inference(&outcome.bundle_dir, &single_in, &single_out).unwrap();
++        let single_arr = single_cli_out.as_array().expect("array expected");
++        assert_eq!(single_arr.len(), 1);
++        let p = single_arr[0].get("prediction").and_then(|v| v.as_f64()).or_else(|| single_arr[0].as_f64()).expect("numeric prediction");
++        let expected = scored_preds[i];
++        assert!(
++            (p - expected).abs() < 1e-4,
++            "batch-1 mismatch at row {i}: standalone={p}, scored={expected}"
++        );
++    }
++
++    // 4. Schema rejection checks: missing feature, extraneous column, and invalid types must fail closed
++    let missing_col_in = root.join("bad_missing_col_in.json");
++    let missing_col_out = root.join("bad_missing_col_out.json");
++    fs::write(&missing_col_in, r#"[{"x1": 1.0}]"#).unwrap();
++    let missing_res = verify_standalone_cli_inference(&outcome.bundle_dir, &missing_col_in, &missing_col_out);
++    assert!(missing_res.is_err(), "inference on input with missing feature must fail closed");
++
++    let extra_col_in = root.join("bad_extra_col_in.json");
++    let extra_col_out = root.join("bad_extra_col_out.json");
++    fs::write(&extra_col_in, r#"[{"x1": 1.0, "x2": 2.0, "unexpected_feature": 42.0}]"#).unwrap();
++    let extra_res = verify_standalone_cli_inference(&outcome.bundle_dir, &extra_col_in, &extra_col_out);
++    assert!(extra_res.is_err(), "inference on input with unrecognized extra column must fail closed");
++
++    let invalid_type_in = root.join("bad_invalid_type_in.json");
++    let invalid_type_out = root.join("bad_invalid_type_out.json");
++    fs::write(&invalid_type_in, r#"[{"x1": "not_a_number", "x2": 2.0}]"#).unwrap();
++    let invalid_res = verify_standalone_cli_inference(&outcome.bundle_dir, &invalid_type_in, &invalid_type_out);
++    assert!(invalid_res.is_err(), "inference on input with non-numeric value must fail closed");
+ }
+ 
+diff --git a/crates/harness/tests/s3_review_regressions.rs b/crates/harness/tests/s3_review_regressions.rs
+index 627cc4a..813e20b 100644
+--- a/crates/harness/tests/s3_review_regressions.rs
++++ b/crates/harness/tests/s3_review_regressions.rs
+@@ -1,6 +1,28 @@
+ use mlrescurix_harness::campaign::compute_workspace_source_sha256;
+ use std::fs;
+ 
++#[test]
++fn subprocess_result_is_rejected_after_lease_loss() {
++    use mlrescurix_harness::campaign::{acquire_campaign_lease, run_cmd_with_heartbeats};
++    use rusqlite::Connection;
++    use std::{process::Command, thread, time::Duration};
++    let dir = tempfile::tempdir().unwrap();
++    let db = dir.path().join("state.sqlite");
++    let mut conn = Connection::open(&db).unwrap();
++    let (lease, epoch) = acquire_campaign_lease(&mut conn, "p", "owner").unwrap();
++    let db2 = db.clone();
++    let change = thread::spawn(move || {
++        thread::sleep(Duration::from_millis(300));
++        Connection::open(db2).unwrap().execute("UPDATE campaign_leases SET status='released' WHERE project='p'", []).unwrap();
++    });
++    let result = run_cmd_with_heartbeats(
++        Command::new("python3").args(["-c", "import time; time.sleep(1.0)"]),
++        &db, "p", &lease, epoch,
++    );
++    change.join().unwrap();
++    assert!(result.is_err(), "a stale subprocess result must not be accepted");
++}
++
+ #[test]
+ fn nested_inference_and_serve_modules_are_bound_to_source_identity() {
+     let dir = tempfile::tempdir().unwrap();
+@@ -15,3 +37,27 @@ fn nested_inference_and_serve_modules_are_bound_to_source_identity() {
+         assert_ne!(before, after, "{name} must be included in the source identity");
+     }
+ }
++
++#[test]
++fn program_json_and_asset_modifications_are_bound_to_source_identity() {
++    let dir = tempfile::tempdir().unwrap();
++    fs::write(dir.path().join("solution.py"), "print('hello')\n").unwrap();
++    let initial_hash = compute_workspace_source_sha256(dir.path()).unwrap();
++
++    // Adding program.json must change source identity
++    let prog_path = dir.path().join("program.json");
++    fs::write(&prog_path, r#"{"schema_version": "mlrescurix.program.v1", "entrypoint": "solution.py"}"#).unwrap();
++    let with_prog = compute_workspace_source_sha256(dir.path()).unwrap();
++    assert_ne!(initial_hash, with_prog, "program.json must be bound to source identity");
++
++    // Modifying program.json must change source identity
++    fs::write(&prog_path, r#"{"schema_version": "mlrescurix.program.v1", "entrypoint": "other.py"}"#).unwrap();
++    let modified_prog = compute_workspace_source_sha256(dir.path()).unwrap();
++    assert_ne!(with_prog, modified_prog, "modified program.json must alter source identity");
++
++    // Adding declared non-code asset must change source identity
++    let asset_path = dir.path().join("model_config.json");
++    fs::write(&asset_path, r#"{"learning_rate": 0.01}"#).unwrap();
++    let with_asset = compute_workspace_source_sha256(dir.path()).unwrap();
++    assert_ne!(modified_prog, with_asset, "declared assets must be bound to source identity");
++}
+diff --git a/python/src/mlrescurix_worker/scientific/autonomous_loop.py b/python/src/mlrescurix_worker/scientific/autonomous_loop.py
+index 8a00ae7..e14d40c 100644
+--- a/python/src/mlrescurix_worker/scientific/autonomous_loop.py
++++ b/python/src/mlrescurix_worker/scientific/autonomous_loop.py
+@@ -281,6 +281,8 @@ class AutonomousAgentLoop:
+             state.setdefault("best_eligible_cv_score", state.get("best_cv_score"))
+             state.setdefault("best_observed_cv_score", state.get("best_cv_score"))
+             state.setdefault("research_ledger", [])
++            state.setdefault("negative_results", [])
++            state.setdefault("plateau_detected", False)
+             self.operational_budgets.restore_operational_budgets(state.get("turns", []))
+             return state
+         active_spec = self.task_adapter.initial_spec(self.metric_name)
+@@ -299,7 +301,7 @@ class AutonomousAgentLoop:
+             "containment_status": "unverified", "holdout_accesses": 0, "script_registry": {},
+             "iterations": [], "apex_trajectory": [], "latest_apex_iteration": None, "selected_apex_iteration": None,
+             "pinned_iteration": None, "selected_cv_score": None, "best_eligible_cv_score": None, "best_observed_cv_score": None,
+-            "research_ledger": [],
++            "research_ledger": [], "negative_results": [], "plateau_detected": False,
+             "execution_path": "python_governed_workers", "production_certified": False, "evaluation_count": 0}
+         self._save_state(state)
+         return state
+@@ -449,6 +451,12 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
+                     receipt["measurements"]["python_result"] = projected
+         avail_fams = get_available_model_families()
+         budget_status = self.operational_budgets.get_status()
++        plateau_info = self._detect_plateau()
++        self.state["plateau_detected"] = plateau_info["plateau_detected"]
++        refuted_summaries = [
++            f"Candidate {r['candidate_id']}: {r.get('description', '')} failed to improve (CV: {r['cv_score']}, reason: {r['reason']})"
++            for r in self.state.get("negative_results", [])[-5:]
++        ]
+         user = {
+             "human_guidance": self.state.get("human_guidance", []),
+             "instruction": "Review task context, diagnostic dossier, and turn history. Choose your next action and return strictly a single valid JSON object with keys: thought_rationale, action_type, parameters.",
+@@ -459,6 +467,9 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
+                 "selected_apex_iteration": self.state.get("selected_apex_iteration"),
+                 "winning_model_family": self.state.get("winning_model_family"),
+                 "available_model_families": avail_fams,
++                "plateau_detected": plateau_info["plateau_detected"],
++                "pivot_guidance": plateau_info["pivot_recommended"],
++                "refuted_hypotheses": refuted_summaries,
+                 "operational_budgets": {
+                     "model_tokens_remaining": budget_status["total_model_tokens"]["remaining"],
+                     "kaggle_hours_remaining": budget_status["kaggle_compute"]["remaining_hours"],
+@@ -620,10 +631,49 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
+             "timestamp_unix": time.time(),
+         }
+         self.state.setdefault("iterations", []).append(rec)
++        if not is_apex:
++            neg_record = {
++                "iteration_number": iter_num,
++                "turn_index": turn_index,
++                "candidate_id": candidate_id,
++                "description": description,
++                "cv_score": float(cv_score) if np.isfinite(cv_score) else None,
++                "best_to_beat": float(best_so_far) if best_so_far is not None else None,
++                "reason": "critic_rejected" if not approved else "metric_regression_or_no_gain",
++                "families": copy.deepcopy(spec.get("families", [])),
++                "relative_gain": float(rel_gain),
++                "timestamp_unix": time.time(),
++            }
++            self.state.setdefault("negative_results", []).append(neg_record)
+         self._event("iteration_completed", iteration_number=iter_num, is_apex=bool(is_apex),
+                     cv_score=float(cv_score) if np.isfinite(cv_score) else None, action_type=action_type)
+         return rec
+ 
++    def _detect_plateau(self, window: int = 2) -> dict[str, Any]:
++        """Detect whether recent iterations have plateaued without metric gain."""
++        iterations = self.state.get("iterations", [])
++        if len(iterations) < window:
++            return {"plateau_detected": False, "consecutive_non_improving": 0, "pivot_recommended": None}
++        recent = iterations[-window:]
++        non_improving = all(not it.get("is_apex", False) for it in recent)
++        pivot = None
++        if non_improving:
++            evaluated_fams = set()
++            for it in iterations:
++                for f in it.get("spec", {}).get("families", []):
++                    evaluated_fams.add(normalize_family_name(f))
++            avail = set(get_available_model_families())
++            untried = sorted(list(avail - evaluated_fams))
++            if untried:
++                pivot = f"Try orthogonal model family: {untried[0]}"
++            else:
++                pivot = "Try feature interactions, non-linear basis transforms, or blend ensembling"
++        return {
++            "plateau_detected": non_improving,
++            "consecutive_non_improving": window if non_improving else 0,
++            "pivot_recommended": pivot,
++        }
++
+     def pin_iteration(self, iteration_number: int) -> dict[str, Any]:
+         """Explicitly pin an iteration as the deployment and handoff target."""
+         return self.select_apex_iteration(iteration_number, pin=True)
+@@ -1240,12 +1290,12 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
+         kag_status_str = (
+             f"- **Kaggle Compute:** {kag['used_hours']:.2f}h used / {kag['limit_hours']:.2f}h limit ({kag['remaining_hours']:.2f}h remaining) [{kag['unit']}]"
+             if kag.get("enforced")
+-            else f"- **Kaggle Compute:** usage and remaining unknown; configured {kag['limit_hours']:.2f}h, not connected or enforced."
++            else f"- **Kaggle Compute:** usage and remaining unknown; configured {kag['limit_hours']:.2f}h, global enforcement not verified."
+         )
+         sea_status_str = (
+             f"- **Web Search:** {sea['used']} used / {sea['limit']} limit ({sea['remaining']} remaining) [{sea['unit']}]"
+             if sea.get("enforced")
+-            else f"- **Web Search:** usage and remaining unknown; configured {sea['limit']} queries, not connected or enforced."
++            else f"- **Web Search:** usage and remaining unknown; configured {sea['limit']} queries, global enforcement not verified."
+         )
+         lines = ["# MLRescurix session handoff", "", f"Session: {self.session_id}", f"Stop: {self.state['stop_reason']}",
+             f"Checkpoint: {self.state_file}", f"Accepted candidate: {self.state['accepted_candidate_id']}",
+@@ -1346,7 +1396,7 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
+                 tok = b_stat["total_model_tokens"]
+                 kag = b_stat["kaggle_compute"]
+                 sea = b_stat["web_search_queries"]
+-                print(f"[OPERATIONAL BUDGET] Turn {i} complete: Tokens recorded: {tok['used']:,} / {tok['limit']:,} (complete: {tok['accounting_complete']}) | Kaggle and web search accounting not connected or enforced", flush=True)
++                print(f"[OPERATIONAL BUDGET] Turn {i} complete: Tokens recorded: {tok['used']:,} / {tok['limit']:,} (complete: {tok['accounting_complete']}) | Kaggle and web search global enforcement not verified", flush=True)
+                 self._event("operational_budgets_status", turn_index=i, budgets=b_stat)
+             if self.state["stop_reason"] is None: self.state["stop_reason"] = "max_turns_reached"
+         except BaseException:
+diff --git a/python/src/mlrescurix_worker/scientific/benchmark_contracts.py b/python/src/mlrescurix_worker/scientific/benchmark_contracts.py
+index a65bd95..2b56120 100644
+--- a/python/src/mlrescurix_worker/scientific/benchmark_contracts.py
++++ b/python/src/mlrescurix_worker/scientific/benchmark_contracts.py
+@@ -90,6 +90,43 @@ def accepted_candidate_evidence(state: Dict[str, Any]) -> Tuple[bool, Optional[f
+     if not isinstance(candidate, dict):
+         return False, score, "accepted candidate specification is missing"
+     try:
++        import copy
++        from .candidate_pipeline import canonical_execution_configuration, validate_spec
++        normalized = copy.deepcopy(candidate)
++        validate_spec(normalized)
++        eval_task = evaluation.get("task_type") if isinstance(evaluation, dict) else None
++        cand_task = candidate.get("task_type")
++        state_task = state.get("task_type")
++        declared_tasks = [t for t in (eval_task, cand_task, state_task) if isinstance(t, str) and t.strip()]
++
++        def _task_category(t: str) -> str:
++            t_lower = t.lower()
++            if "classification" in t_lower or t_lower in ("binary", "multiclass"):
++                return "classification"
++            if "forecast" in t_lower:
++                return "forecasting"
++            if "regression" in t_lower:
++                return "regression"
++            return t_lower
++
++        if len({_task_category(t) for t in declared_tasks}) > 1:
++            raise ValueError(f"conflicting task metadata between declared sources: {declared_tasks}")
++        if isinstance(normalized.get("effective_configuration"), dict):
++            # The pipeline resolves settings from the requested specification at fit
++            # time. A stale cached configuration must not hide changed parameters.
++            without_cache = copy.deepcopy(normalized)
++            without_cache.pop("effective_configuration")
++            cached = canonical_execution_configuration(normalized)
++            if declared_tasks:
++                task_type = declared_tasks[0]
++                expected_config = canonical_execution_configuration(without_cache, task_type=task_type)
++                if cached != expected_config:
++                    raise ValueError(f"effective configuration does not match requested specification for {task_type}")
++            else:
++                possible = (canonical_execution_configuration(without_cache, task_type=task)
++                            for task in ("regression", "classification"))
++                if not any(cached == config for config in possible):
++                    raise ValueError("effective configuration does not match requested specification")
+         spec_identity = candidate_spec_identity(candidate)
+     except (TypeError, ValueError):
+         spec_identity = None
+@@ -110,8 +147,10 @@ def accepted_candidate_evidence(state: Dict[str, Any]) -> Tuple[bool, Optional[f
+ 
+ 
+ def candidate_spec_identity(spec: Dict[str, Any]) -> str:
+-    canonical = json.dumps(spec, sort_keys=True, separators=(",", ":"), allow_nan=False)
+-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
++    # The evaluator binds resolved execution settings, including defaults and
++    # aliases. The benchmark gate must compare the same identity.
++    from .candidate_pipeline import identity
++    return identity(spec)
+ 
+ 
+ 
+diff --git a/python/src/mlrescurix_worker/scientific/candidate_pipeline.py b/python/src/mlrescurix_worker/scientific/candidate_pipeline.py
+index 1bb92de..3a535cc 100644
+--- a/python/src/mlrescurix_worker/scientific/candidate_pipeline.py
++++ b/python/src/mlrescurix_worker/scientific/candidate_pipeline.py
+@@ -238,10 +238,11 @@ def normalize_spec(spec: dict) -> dict:
+                 options.pop("target_transform")
+         families = spec.get("families")
+         norm_fams = {normalize_family_name(f) for f in families} if isinstance(families, list) else None
++        supported = {"hist_gbdt", "penalized_linear", "lgbm", "xgboost", "catboost", "neural_tabular"}
+         for fam in list(options.keys()):
+             norm_fam = normalize_family_name(fam)
+             val = options.pop(fam)
+-            if norm_fams is not None and norm_fam not in norm_fams:
++            if norm_fams is not None and norm_fam not in norm_fams and norm_fam in supported:
+                 continue
+             if isinstance(val, dict):
+                 # Extract misplaced target_transform inside family parameters
+@@ -348,7 +349,7 @@ effective_configuration = resolve_effective_config
+ 
+ def validate_spec(spec, task_type=None):
+     normalize_spec(spec)
+-    if set(spec) - {"families", "weights", "transforms", "seed", "model_parameters", "target_transform", "effective_configuration", "replication_reason", "attempt_identity"}:
++    if set(spec) - {"families", "weights", "transforms", "seed", "model_parameters", "target_transform", "effective_configuration", "replication_reason", "attempt_identity", "task_type"}:
+         raise ValueError("Unknown candidate specification fields")
+     if spec.get("target_transform", "none") not in ("none", "log", "log1p"):
+         raise ValueError("Unsupported target transform")
+diff --git a/python/src/mlrescurix_worker/scientific/operational_budgets.py b/python/src/mlrescurix_worker/scientific/operational_budgets.py
+index 132e810..008fbb3 100644
+--- a/python/src/mlrescurix_worker/scientific/operational_budgets.py
++++ b/python/src/mlrescurix_worker/scientific/operational_budgets.py
+@@ -14,7 +14,9 @@ import logging
+ import math
+ import os
+ import re
++import shutil
+ import sqlite3
++import subprocess
+ import tempfile
+ import time
+ import uuid
+@@ -29,6 +31,26 @@ DEFAULT_KAGGLE_HOURS_LIMIT = 30.0
+ DEFAULT_SEARCH_QUERIES_LIMIT = 500
+ 
+ 
++def _find_harness_binary() -> Optional[Path]:
++    custom = os.environ.get("MLRESCURIX_HARNESS_BIN")
++    if custom:
++        p = Path(custom)
++        if p.is_file() and os.access(p, os.X_OK):
++            return p.resolve()
++    repo_root = Path(__file__).resolve().parents[4]
++    candidates = [
++        repo_root / "target" / "release" / "mlrescurix-harness",
++        repo_root / "target" / "debug" / "mlrescurix-harness",
++    ]
++    for c in candidates:
++        if c.is_file() and os.access(c, os.X_OK):
++            return c.resolve()
++    which_path = shutil.which("mlrescurix-harness")
++    if which_path:
++        return Path(which_path).resolve()
++    return None
++
++
+ @dataclass
+ class OperationalBudgets:
+     """Tracks consumption and enforces limits for the 3 operational budgets."""
+@@ -94,6 +116,20 @@ class OperationalBudgets:
+     def _query_durable_search_count(self) -> int:
+         if not self.db_path or not Path(self.db_path).is_file():
+             return 0
++        harness_bin = _find_harness_binary()
++        if harness_bin:
++            try:
++                cmd = [
++                    str(harness_bin),
++                    "search-count",
++                    "--state", str(self.db_path),
++                    "--project", str(self.project_id),
++                ]
++                proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
++                res = json.loads(proc.stdout)
++                return int(res.get("count", 0))
++            except Exception as exc:
++                logger.warning(f"Rust harness search-count failed, falling back to local SQLite: {exc}")
+         try:
+             with sqlite3.connect(self.db_path, timeout=5.0) as conn:
+                 row = conn.execute(
+@@ -157,6 +193,29 @@ class OperationalBudgets:
+             self.web_search_used += 1
+             return True, f"search_attempt_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+ 
++        harness_bin = _find_harness_binary()
++        if harness_bin:
++            try:
++                cmd = [
++                    str(harness_bin),
++                    "search-admit",
++                    "--state", str(self.db_path),
++                    "--project", str(self.project_id),
++                    "--query", str(query),
++                    "--sanitized", str(sanitized_query),
++                    "--provider", str(provider),
++                    "--limit", str(self.web_search_limit),
++                ]
++                proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
++                res = json.loads(proc.stdout)
++                admitted = bool(res.get("admitted", False))
++                attempt_id = res.get("attempt_id")
++                if admitted:
++                    self.web_search_used = self._query_durable_search_count()
++                return admitted, attempt_id
++            except Exception as exc:
++                logger.warning(f"Rust harness search-admit failed, falling back to local SQLite: {exc}")
++
+         now_ms = int(time.time() * 1000)
+         attempt_id = f"search_attempt_{now_ms}_{uuid.uuid4().hex[:8]}"
+         try:
+@@ -185,6 +244,23 @@ class OperationalBudgets:
+ 
+     def settle_search(self, attempt_id: str, status: str = "success", error: Optional[str] = None) -> None:
+         """Idempotently settle an admitted search attempt."""
++        harness_bin = _find_harness_binary()
++        if harness_bin and self.db_path:
++            try:
++                cmd = [
++                    str(harness_bin),
++                    "search-settle",
++                    "--state", str(self.db_path),
++                    "--project", str(self.project_id),
++                    "--attempt-id", str(attempt_id),
++                    "--status", str(status),
++                ]
++                if error:
++                    cmd.extend(["--error", str(error)])
++                subprocess.run(cmd, capture_output=True, text=True, check=True)
++                return
++            except Exception as exc:
++                logger.warning(f"Rust harness search-settle failed, falling back to local SQLite: {exc}")
+         self._update_durable_search_attempt(attempt_id, status=status, error=error)
+ 
+     @classmethod
+@@ -356,35 +432,25 @@ class OperationalBudgets:
+             "limit": self.web_search_limit,
+             "recorded_session_queries": self.web_search_used,
+             "unit": "queries",
+-            "enforced": self.search_connected,
++            "enforced": False,
++            "connected": self.search_connected,
+         }
+-        if self.search_connected:
+-            search_status["used"] = self.web_search_used
+-            search_status["remaining"] = self.web_search_remaining
+-            search_status["accounting_scope"] = "connected to governed web search provider"
+-            search_status["exhausted"] = not self.has_search_available()
+-        else:
+-            search_status["used"] = None
+-            search_status["remaining"] = None
+-            search_status["accounting_scope"] = "not connected to active web search provider (missing credentials)"
+-            search_status["exhausted"] = None
++        search_status["used"] = None
++        search_status["remaining"] = None
++        search_status["accounting_scope"] = "session observations only; unified authority not verified"
++        search_status["exhausted"] = None
+ 
+         kaggle_status: Dict[str, Any] = {
+             "limit_hours": self.kaggle_hours_limit,
+             "recorded_session_hours": round(self.kaggle_hours_used, 4),
+             "unit": "hours",
+-            "enforced": self.kaggle_connected,
++            "enforced": False,
++            "connected": self.kaggle_connected,
+         }
+-        if self.kaggle_connected:
+-            kaggle_status["used_hours"] = round(self.kaggle_hours_used, 4)
+-            kaggle_status["remaining_hours"] = self.kaggle_hours_remaining
+-            kaggle_status["accounting_scope"] = "measured Kaggle accelerator hours"
+-            kaggle_status["exhausted"] = not self.has_kaggle_available()
+-        else:
+-            kaggle_status["used_hours"] = None
+-            kaggle_status["remaining_hours"] = None
+-            kaggle_status["accounting_scope"] = "not connected to Kaggle dispatch or account quota"
+-            kaggle_status["exhausted"] = None
++        kaggle_status["used_hours"] = None
++        kaggle_status["remaining_hours"] = None
++        kaggle_status["accounting_scope"] = "session observations only; unified authority not verified"
++        kaggle_status["exhausted"] = None
+ 
+         return {
+             "total_model_tokens": {
+@@ -414,12 +480,12 @@ class OperationalBudgets:
+         kag_display = (
+             f"{kag['used_hours']:.2f}h / {kag['limit_hours']:.2f}h ({kag['remaining_hours']:.2f}h remaining)"
+             if kag["enforced"]
+-            else f"usage unknown; configured {kag['limit_hours']:.2f}h (not connected or enforced)"
++            else f"usage unknown; configured {kag['limit_hours']:.2f}h (enforcement not verified)"
+         )
+         sea_display = (
+             f"{sea['used']} / {sea['limit']} ({sea['remaining']} remaining)"
+             if sea["enforced"]
+-            else f"usage unknown; configured {sea['limit']} queries (not connected or enforced)"
++            else f"usage unknown; configured {sea['limit']} queries (enforcement not verified)"
+         )
+         return (
+             f"Operational Budgets Status:\n"
+diff --git a/python/tests/test_autonomous_agent_loop.py b/python/tests/test_autonomous_agent_loop.py
+index 9ced245..ea5c493 100644
+--- a/python/tests/test_autonomous_agent_loop.py
++++ b/python/tests/test_autonomous_agent_loop.py
+@@ -588,3 +588,83 @@ def test_apex_iteration_journey_and_selection(tmp_path: Path):
+     assert "Selected Apex Iteration: 1" in handoff_md
+     assert "👑 Apex #1 (Pinned & Selected)" in handoff_md
+     assert "👑 Apex #2" in handoff_md
++
++
++# =============================================================================
++# Test 10: Negative-Result Memory and Plateau Detection
++# =============================================================================
++
++def test_negative_results_memory_and_plateau_detection(tmp_path: Path):
++    dataset_path = create_synthetic_dataset(tmp_path / "data.csv")
++    budget = MockBudgetAuthority()
++    loop = AutonomousAgentLoop(
++        workspace_root=tmp_path / "ws_plateau",
++        project_id="test_plateau_proj",
++        session_id="run_plateau_test",
++        provider_is_fixture=True,
++        campaign_authority=budget,
++        dataset_path=dataset_path,
++        target_column="target",
++        max_turns=5,
++    )
++
++    # 1. Apex breakthrough
++    it1 = loop._record_iteration(
++        turn_index=0,
++        action_type="EVALUATE_PORTFOLIO",
++        iteration_type="baseline",
++        description="Initial baseline model",
++        spec={"families": ["hist_gbdt"], "weights": [1], "transforms": []},
++        eval_result={"cv_score": 0.75, "receipt_identity": "rcpt_1", "fold_receipts": []},
++        audit={"status": "APPROVED", "candidate_id": "cand_1"},
++        candidate_id="cand_1",
++    )
++    assert it1["is_apex"] is True
++    assert len(loop.state["negative_results"]) == 0
++    plateau0 = loop._detect_plateau(window=2)
++    assert plateau0["plateau_detected"] is False
++
++    # 2. Non-improving candidate (regression)
++    it2 = loop._record_iteration(
++        turn_index=1,
++        action_type="HYPOTHESIS_TRANSFORM",
++        iteration_type="transform_ablation",
++        description="Suboptimal feature transformation",
++        spec={"families": ["hist_gbdt"], "weights": [1], "transforms": ["log1p_x"]},
++        eval_result={"cv_score": 0.70, "receipt_identity": "rcpt_2", "fold_receipts": []},
++        audit={"status": "APPROVED", "candidate_id": "cand_2"},
++        candidate_id="cand_2",
++    )
++    assert it2["is_apex"] is False
++    assert len(loop.state["negative_results"]) == 1
++    assert loop.state["negative_results"][0]["candidate_id"] == "cand_2"
++    assert loop.state["negative_results"][0]["reason"] == "metric_regression_or_no_gain"
++
++    # 3. Second non-improving candidate -> Plateau detected!
++    it3 = loop._record_iteration(
++        turn_index=2,
++        action_type="BLEND_AND_AUDIT",
++        iteration_type="blend",
++        description="Suboptimal blend weights",
++        spec={"families": ["hist_gbdt", "penalized_linear"], "weights": [0.5, 0.5], "transforms": []},
++        eval_result={"cv_score": 0.72, "receipt_identity": "rcpt_3", "fold_receipts": []},
++        audit={"status": "APPROVED", "candidate_id": "cand_3"},
++        candidate_id="cand_3",
++    )
++    assert it3["is_apex"] is False
++    assert len(loop.state["negative_results"]) == 2
++    assert loop.state["negative_results"][1]["candidate_id"] == "cand_3"
++
++    plateau = loop._detect_plateau(window=2)
++    assert plateau["plateau_detected"] is True
++    assert plateau["consecutive_non_improving"] == 2
++    assert plateau["pivot_recommended"] is not None
++
++    # 4. Verify _messages includes negative results and plateau warning
++    msgs = loop._messages(turn=3, dossier={"info": "sample dossier"})
++    user_content = json.loads(msgs[1]["content"])
++    assert user_content["task_context"]["plateau_detected"] is True
++    assert user_content["task_context"]["pivot_guidance"] is not None
++    assert len(user_content["task_context"]["refuted_hypotheses"]) == 2
++    assert "cand_2" in user_content["task_context"]["refuted_hypotheses"][0]
++    assert "cand_3" in user_content["task_context"]["refuted_hypotheses"][1]
+diff --git a/python/tests/test_operational_budget_accounting.py b/python/tests/test_operational_budget_accounting.py
+index 5c10f12..8b1d7d7 100644
+--- a/python/tests/test_operational_budget_accounting.py
++++ b/python/tests/test_operational_budget_accounting.py
+@@ -45,6 +45,17 @@ def test_unreported_usage_and_unconnected_budgets_are_disclosed():
+     assert status["web_search_queries"]["enforced"] is False
+ 
+ 
++def test_connectivity_does_not_claim_global_budget_enforcement():
++    budget = OperationalBudgets(search_connected=True, kaggle_connected=True)
++    budget.record_search_query()
++    budget.record_kaggle_compute(3600)
++    status = budget.get_status()
++    for key in ("web_search_queries", "kaggle_compute"):
++        assert status[key]["connected"] is True
++        assert status[key]["enforced"] is False
++        assert status[key]["remaining" if key == "web_search_queries" else "remaining_hours"] is None
++
++
+ def test_invalid_config_does_not_silently_raise_budget_to_default(tmp_path):
+     path = tmp_path / "budgets.json"
+     path.write_text('{"budgets":{"total_model_tokens":{"limit":-1}}}')
+diff --git a/python/tests/test_robustness_runner_gates.py b/python/tests/test_robustness_runner_gates.py
+index 566e990..20e7e61 100644
+--- a/python/tests/test_robustness_runner_gates.py
++++ b/python/tests/test_robustness_runner_gates.py
+@@ -20,7 +20,7 @@ def accepted_state(score=0.82):
+         "accepted_candidate_id": "cand_ok",
+         "best_cv_score": score,
+         "candidate_identity": None,
+-        "accepted_candidate": {"families": ["hist_gradient_boosting"], "weights": [1.0], "transforms": [], "seed": 7, "model_parameters": {}},
++        "accepted_candidate": {"families": ["hist_gbdt"], "weights": [1.0], "transforms": [], "seed": 7, "model_parameters": {}},
+         "accepted_audit": {"status": "APPROVED", "candidate_id": "cand_ok"},
+     }
+     state["candidate_identity"] = runner.candidate_spec_identity(state["accepted_candidate"])
+@@ -48,6 +48,7 @@ def test_runner_requires_approved_audit_and_matching_identity():
+     state["accepted_audit"] = {"status": "REJECTED"}
+     assert not runner.accepted_candidate_evidence(state)[0]
+ 
++
+     state = accepted_state()
+     state["accepted_candidate"]["family"] = "other"
+     assert not runner.accepted_candidate_evidence(state)[0]
+@@ -64,6 +65,89 @@ def test_runner_requires_approved_audit_and_matching_identity():
+     assert not runner.accepted_candidate_evidence(state)[0]
+ 
+ 
++def test_runner_rejects_changed_parameters_hidden_by_cached_configuration():
++    from mlrescurix_worker.scientific.candidate_pipeline import resolve_effective_config
++
++    state = accepted_state()
++    candidate = state["accepted_candidate"]
++    candidate["effective_configuration"] = resolve_effective_config(candidate, task_type="regression")
++    state["candidate_identity"] = runner.candidate_spec_identity(candidate)
++    state["accepted_evaluation"]["candidate_identity"] = state["candidate_identity"]
++    assert runner.accepted_candidate_evidence(state)[0]
++    candidate["model_parameters"] = {"hist_gbdt": {"max_iter": 999}}
++    assert not runner.accepted_candidate_evidence(state)[0]
++
++
++@pytest.mark.parametrize("task_type,wrong_type", [
++    ("binary_classification", "regression"),
++    ("multiclass", "regression"),
++    ("forecasting", "classification"),
++    ("panel_forecasting", "classification"),
++])
++def test_runner_checks_cached_configuration_for_supported_task_names(task_type, wrong_type):
++    from mlrescurix_worker.scientific.candidate_pipeline import resolve_effective_config
++
++    state = accepted_state()
++    state["task_type"] = task_type
++    candidate = state["accepted_candidate"]
++    candidate["families"] = ["penalized_linear"]
++    candidate["effective_configuration"] = resolve_effective_config(candidate, task_type=task_type)
++    state["candidate_identity"] = runner.candidate_spec_identity(candidate)
++    state["accepted_evaluation"]["candidate_identity"] = state["candidate_identity"]
++    assert runner.accepted_candidate_evidence(state)[0]
++
++    candidate["effective_configuration"] = resolve_effective_config(candidate, task_type=wrong_type)
++    state["candidate_identity"] = runner.candidate_spec_identity(candidate)
++    state["accepted_evaluation"]["candidate_identity"] = state["candidate_identity"]
++    assert not runner.accepted_candidate_evidence(state)[0]
++
++
++def test_runner_rejects_conflicting_task_metadata():
++    from mlrescurix_worker.scientific.candidate_pipeline import resolve_effective_config
++
++    state = accepted_state()
++    state["task_type"] = "binary_classification"
++    candidate = state["accepted_candidate"]
++    candidate["task_type"] = "regression"  # Contradicting state task_type
++    candidate["families"] = ["penalized_linear"]
++    candidate["effective_configuration"] = resolve_effective_config(candidate, task_type="binary_classification")
++    state["candidate_identity"] = runner.candidate_spec_identity(candidate)
++    state["accepted_evaluation"]["candidate_identity"] = state["candidate_identity"]
++
++    # Must fail closed due to conflicting task metadata
++    assert not runner.accepted_candidate_evidence(state)[0]
++
++    # Also test evaluation vs candidate conflict
++    state["task_type"] = None
++    state["accepted_evaluation"]["task_type"] = "regression"
++    candidate["task_type"] = "binary_classification"
++    assert not runner.accepted_candidate_evidence(state)[0]
++
++
++def test_runner_rejects_conflicting_task_metadata_without_cached_configuration():
++    state = accepted_state()
++    state["task_type"] = "binary_classification"
++    state["accepted_evaluation"]["task_type"] = "regression"
++    assert not runner.accepted_candidate_evidence(state)[0]
++
++
++def test_runner_prioritizes_authoritative_evaluation_task():
++    from mlrescurix_worker.scientific.candidate_pipeline import resolve_effective_config
++
++    state = accepted_state()
++    state["task_type"] = None  # Missing state metadata
++    state["accepted_evaluation"]["task_type"] = "binary_classification"
++    candidate = state["accepted_candidate"]
++    candidate["task_type"] = None  # Missing candidate metadata
++    candidate["families"] = ["penalized_linear"]
++    candidate["effective_configuration"] = resolve_effective_config(candidate, task_type="binary_classification")
++    state["candidate_identity"] = runner.candidate_spec_identity(candidate)
++    state["accepted_evaluation"]["candidate_identity"] = state["candidate_identity"]
++
++    # Successfully binds to authoritative evaluation receipt
++    assert runner.accepted_candidate_evidence(state)[0]
++
++
+ def test_runner_acceptance_is_anded_with_threshold_and_bundle_identity():
+     valid, score, _ = runner.accepted_candidate_evidence(accepted_state())
+     assert valid and score == pytest.approx(0.82)

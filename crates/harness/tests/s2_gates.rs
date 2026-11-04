@@ -23,11 +23,11 @@ use sha2::{Digest, Sha256};
 
 use mlrescurix_harness::{
     agents::gateway::{
-        ChatCompletionResponse, ScriptedProviderFixture, TokenUsage,
+        ChatCompletionResponse, FunctionCall, ScriptedProviderFixture, TokenUsage, ToolCall,
     },
     campaign::{
         acquire_campaign_lease, campaign_isolation_available, ensure_campaign_leases_schema,
-        parse_structured_challenger_result, release_campaign_lease,
+        generate_default_solution_template, parse_structured_challenger_result, release_campaign_lease,
         run_offline_fixture_campaign as run_autonomous_campaign, verify_active_lease,
         CampaignProblemSpec, LEASE_TTL_MS,
     },
@@ -61,17 +61,58 @@ fn test_gate_a_trajectory_1_boss_delegates_challenger_and_finalizes() {
     let _ds_hash = create_synthetic_dataset(&dataset_path, 30);
     let model_name = "deepseek/deepseek-chat";
 
+    let (custom_solution_py, program_manifest) = generate_default_solution_template(
+        "regression",
+        &["x1".into(), "x2".into()],
+        "target",
+        "cand_traj1",
+    ).unwrap();
+
     let scripted_gateway = Arc::new(ScriptedProviderFixture::new(vec![
-        // Turn 1: Specialist finalizes authoring
+        // Turn 1 (Specialist): author solution.py & program.json
         ChatCompletionResponse {
-            id: "turn1-spec".into(),
+            id: "turn1-author".into(),
+            model: model_name.into(),
+            content: Some("Authoring solution and manifest".into()),
+            tool_calls: vec![
+                ToolCall {
+                    id: "call_ws_solution".into(),
+                    call_type: "function".into(),
+                    function: FunctionCall {
+                        name: "workspace_fs".into(),
+                        arguments: serde_json::json!({
+                            "action": "write",
+                            "path": "solution.py",
+                            "content": custom_solution_py,
+                        }).to_string(),
+                    },
+                },
+                ToolCall {
+                    id: "call_ws_program".into(),
+                    call_type: "function".into(),
+                    function: FunctionCall {
+                        name: "workspace_fs".into(),
+                        arguments: serde_json::json!({
+                            "action": "write",
+                            "path": "program.json",
+                            "content": serde_json::to_string_pretty(&program_manifest).unwrap(),
+                        }).to_string(),
+                    },
+                },
+            ],
+            usage: TokenUsage { prompt_tokens: 250, completion_tokens: 120, total_tokens: 370 },
+            latency_ms: 20,
+        },
+        // Turn 2 (Specialist): finalize
+        ChatCompletionResponse {
+            id: "turn2-spec".into(),
             model: model_name.into(),
             content: Some("[FINAL] Solution ready.".into()),
             tool_calls: vec![],
             usage: TokenUsage { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
             latency_ms: 10,
         },
-        // Turn 2: Boss ReAct Turn 1 observes evidence and delegates to challenger
+        // Turn 3: Boss ReAct Turn 1 observes evidence and delegates to challenger
         ChatCompletionResponse {
             id: "boss_turn1_delegate".into(),
             model: model_name.into(),
@@ -80,7 +121,7 @@ fn test_gate_a_trajectory_1_boss_delegates_challenger_and_finalizes() {
             usage: TokenUsage { prompt_tokens: 150, completion_tokens: 25, total_tokens: 175 },
             latency_ms: 12,
         },
-        // Turn 3: Challenger performs audit and outputs structured approval
+        // Turn 4: Challenger performs audit and outputs structured approval
         ChatCompletionResponse {
             id: "challenger_audit_step".into(),
             model: model_name.into(),
@@ -93,7 +134,7 @@ fn test_gate_a_trajectory_1_boss_delegates_challenger_and_finalizes() {
             usage: TokenUsage { prompt_tokens: 250, completion_tokens: 45, total_tokens: 295 },
             latency_ms: 20,
         },
-        // Turn 4: Boss ReAct Turn 2 observes challenger audit and approves finalization
+        // Turn 5: Boss ReAct Turn 2 observes challenger audit and approves finalization
         ChatCompletionResponse {
             id: "boss_turn2_finalize".into(),
             model: model_name.into(),
@@ -117,6 +158,9 @@ fn test_gate_a_trajectory_1_boss_delegates_challenger_and_finalizes() {
         lockbox_fraction: Some(0.20),
         seed: Some(2026),
         max_turns: Some(4),
+        split_strategy: None,
+        time_column: None,
+        group_column: None,
     };
 
     let outcome = run_autonomous_campaign(root, &problem_spec, Some(scripted_gateway.clone())).unwrap();
@@ -154,17 +198,58 @@ fn test_gate_a_trajectory_2_boss_observes_poor_score_and_stops_early() {
     let _ds_hash = create_synthetic_dataset(&dataset_path, 30);
     let model_name = "deepseek/deepseek-chat";
 
+    let (custom_solution_py, program_manifest) = generate_default_solution_template(
+        "regression",
+        &["x1".into(), "x2".into()],
+        "target",
+        "cand_traj2",
+    ).unwrap();
+
     let scripted_gateway = Arc::new(ScriptedProviderFixture::new(vec![
-        // Turn 1: Specialist finalizes
+        // Turn 1 (Specialist): author solution.py & program.json
         ChatCompletionResponse {
-            id: "turn1-spec".into(),
+            id: "turn1-author".into(),
+            model: model_name.into(),
+            content: Some("Authoring solution and manifest".into()),
+            tool_calls: vec![
+                ToolCall {
+                    id: "call_ws_solution".into(),
+                    call_type: "function".into(),
+                    function: FunctionCall {
+                        name: "workspace_fs".into(),
+                        arguments: serde_json::json!({
+                            "action": "write",
+                            "path": "solution.py",
+                            "content": custom_solution_py,
+                        }).to_string(),
+                    },
+                },
+                ToolCall {
+                    id: "call_ws_program".into(),
+                    call_type: "function".into(),
+                    function: FunctionCall {
+                        name: "workspace_fs".into(),
+                        arguments: serde_json::json!({
+                            "action": "write",
+                            "path": "program.json",
+                            "content": serde_json::to_string_pretty(&program_manifest).unwrap(),
+                        }).to_string(),
+                    },
+                },
+            ],
+            usage: TokenUsage { prompt_tokens: 250, completion_tokens: 120, total_tokens: 370 },
+            latency_ms: 20,
+        },
+        // Turn 2 (Specialist): finalize
+        ChatCompletionResponse {
+            id: "turn2-spec".into(),
             model: model_name.into(),
             content: Some("[FINAL] Solution ready.".into()),
             tool_calls: vec![],
             usage: TokenUsage { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
             latency_ms: 10,
         },
-        // Turn 2: Boss observes validation evidence and decides to STOP EARLY
+        // Turn 3: Boss observes validation evidence and decides to STOP EARLY
         ChatCompletionResponse {
             id: "boss_turn1_early_stop".into(),
             model: model_name.into(),
@@ -188,6 +273,9 @@ fn test_gate_a_trajectory_2_boss_observes_poor_score_and_stops_early() {
         lockbox_fraction: Some(0.20),
         seed: Some(2026),
         max_turns: Some(4),
+        split_strategy: None,
+        time_column: None,
+        group_column: None,
     };
 
     let err = run_autonomous_campaign(root, &problem_spec, Some(scripted_gateway)).unwrap_err();
@@ -336,6 +424,9 @@ fn test_gate_d_physical_label_isolation_and_honest_reporting() {
         lockbox_fraction: Some(0.20),
         seed: Some(2026),
         max_turns: None,
+        split_strategy: None,
+        time_column: None,
+        group_column: None,
     };
 
     let outcome = run_autonomous_campaign(root, &problem_spec, None).unwrap();
@@ -378,6 +469,9 @@ fn test_gate_e_resumption_rejects_changed_metric() {
         lockbox_fraction: Some(0.20),
         seed: Some(2026),
         max_turns: None,
+        split_strategy: None,
+        time_column: None,
+        group_column: None,
     };
 
     // First run with MAE succeeds
@@ -414,6 +508,9 @@ fn test_gate_e_repackaging_rejects_tampered_model_weights() {
         lockbox_fraction: Some(0.20),
         seed: Some(2026),
         max_turns: None,
+        split_strategy: None,
+        time_column: None,
+        group_column: None,
     };
 
     let outcome = run_autonomous_campaign(root, &problem_spec, None).unwrap();
@@ -462,6 +559,9 @@ fn test_gate_e_resumption_rejects_changed_seed() {
         lockbox_fraction: Some(0.20),
         seed: Some(2026),
         max_turns: None,
+        split_strategy: None,
+        time_column: None,
+        group_column: None,
     };
 
     // First run with seed 2026 succeeds
@@ -498,6 +598,9 @@ fn test_gate_e_resumption_rejects_changed_dataset_bytes() {
         lockbox_fraction: Some(0.20),
         seed: Some(2026),
         max_turns: None,
+        split_strategy: None,
+        time_column: None,
+        group_column: None,
     };
 
     // First run succeeds
@@ -573,33 +676,78 @@ fn test_gate_a_cli_binary_with_mock_fixture() {
     let spec_path = root.join("spec.json");
     fs::write(&spec_path, serde_json::to_string_pretty(&spec).unwrap()).unwrap();
 
+    let (custom_solution_py, program_manifest) = generate_default_solution_template(
+        "regression",
+        &["x1".into(), "x2".into()],
+        "target",
+        "cand_cli_mock",
+    ).unwrap();
+
     let responses = vec![
+        // Turn 1 (Specialist): author solution.py & program.json
         ChatCompletionResponse {
-            id: "turn1-spec".into(),
+            id: "turn1-author".into(),
+            model: model_name.into(),
+            content: Some("Authoring solution and manifest".into()),
+            tool_calls: vec![
+                ToolCall {
+                    id: "call_ws_solution".into(),
+                    call_type: "function".into(),
+                    function: FunctionCall {
+                        name: "workspace_fs".into(),
+                        arguments: serde_json::json!({
+                            "action": "write",
+                            "path": "solution.py",
+                            "content": custom_solution_py,
+                        }).to_string(),
+                    },
+                },
+                ToolCall {
+                    id: "call_ws_program".into(),
+                    call_type: "function".into(),
+                    function: FunctionCall {
+                        name: "workspace_fs".into(),
+                        arguments: serde_json::json!({
+                            "action": "write",
+                            "path": "program.json",
+                            "content": serde_json::to_string_pretty(&program_manifest).unwrap(),
+                        }).to_string(),
+                    },
+                },
+            ],
+            usage: TokenUsage { prompt_tokens: 250, completion_tokens: 120, total_tokens: 370 },
+            latency_ms: 20,
+        },
+        // Turn 2 (Specialist): finalize
+        ChatCompletionResponse {
+            id: "turn2-spec".into(),
             model: model_name.into(),
             content: Some("[FINAL] Solution authored.".into()),
             tool_calls: vec![],
             usage: TokenUsage { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
             latency_ms: 10,
         },
+        // Turn 3: Boss delegates
         ChatCompletionResponse {
-            id: "turn2-boss-delegate".into(),
+            id: "turn3-boss-delegate".into(),
             model: model_name.into(),
             content: Some("DELEGATE_CHALLENGER: Validation score acceptable; audit required.".into()),
             tool_calls: vec![],
             usage: TokenUsage { prompt_tokens: 150, completion_tokens: 25, total_tokens: 175 },
             latency_ms: 12,
         },
+        // Turn 4: Challenger approves
         ChatCompletionResponse {
-            id: "turn3-challenger".into(),
+            id: "turn4-challenger".into(),
             model: model_name.into(),
             content: Some("APPROVED: Validation score and protocol independently verified.".into()),
             tool_calls: vec![],
             usage: TokenUsage { prompt_tokens: 200, completion_tokens: 30, total_tokens: 230 },
             latency_ms: 15,
         },
+        // Turn 5: Boss finalizes
         ChatCompletionResponse {
-            id: "turn4-boss-finalize".into(),
+            id: "turn5-boss-finalize".into(),
             model: model_name.into(),
             content: Some("FINALIZE_AND_STOP: Candidate approved.".into()),
             tool_calls: vec![],

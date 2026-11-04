@@ -1,0 +1,17 @@
+{
+  "argv": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "mlrescurix-harness",
+    "--test",
+    "s3_review_regressions",
+    "--test",
+    "s3_gates",
+    "--test",
+    "s2_red_team"
+  ],
+  "exit": 0,
+  "seconds": 20.62
+}

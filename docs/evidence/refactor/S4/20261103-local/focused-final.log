@@ -1,0 +1,33 @@
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.48s
+     Running tests/s2_red_team.rs (target/debug/deps/s2_red_team-fc5969ff210d96a9)
+
+running 4 tests
+test challenger_rejects_contradictory_bindings_and_malformed_audits ... ok
+test specialist_text_cannot_select_an_unauthored_reference ... ok
+test post_audit_owner_reply_requires_explicit_finalization ... ok
+test owner_missing_ambiguous_or_negative_decision_cannot_finalize ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.73s
+
+     Running tests/s3_gates.rs (target/debug/deps/s3_gates-c7cb122961fc0a66)
+
+running 8 tests
+test test_gate_e_hostile_worker_denial_and_honest_refusal ... ok
+test test_gate_d_concurrent_resource_admission_and_conflicting_settlement ... ok
+test test_gate_c_real_competing_controllers_and_sigkill_lease_fencing ... ok
+test test_gate_b_trajectory_3_challenger_challenge_halts_without_assessment ... ok
+test test_gate_f_changed_source_rejected_and_once_only_holdout ... ok
+test test_gate_g_standalone_frozen_candidate_parity ... ok
+test test_gate_b_evidence_dependent_trajectories_and_context_isolation ... ok
+test test_gate_a_multi_file_unlisted_method_and_generic_replay ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.06s
+
+     Running tests/s3_review_regressions.rs (target/debug/deps/s3_review_regressions-1f659032269bd502)
+
+running 1 test
+test nested_inference_and_serve_modules_are_bound_to_source_identity ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

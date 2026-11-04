@@ -1,0 +1,16 @@
+{
+  "argv": [
+    "python3",
+    "-m",
+    "pytest",
+    "-q",
+    "python/tests/test_operational_budget_accounting.py",
+    "python/tests/test_governed_research.py",
+    "python/tests/test_s2_resource_and_boundaries.py"
+  ],
+  "environment": {
+    "PYTHONPATH": "python/src"
+  },
+  "exit": 0,
+  "seconds": 7.67
+}

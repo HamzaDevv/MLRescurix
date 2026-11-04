@@ -1,0 +1,11 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests/s6_gates.rs (target/debug/deps/s6_gates-79a60a722536d8cf)
+
+running 4 tests
+test test_s6_gate_a_offline_readiness_and_parameter_isolation ... ok
+test test_s6_gate_c_scientific_search_portfolio_and_diagnostic_pivot ... ok
+test test_s6_gate_b_durable_react_loop_and_evidence_driven_repair ... ok
+test test_s6_gate_d_delivery_verification_and_release_provenance ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.96s
+

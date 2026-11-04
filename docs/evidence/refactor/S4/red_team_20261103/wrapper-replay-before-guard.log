@@ -1,0 +1,19 @@
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.63s
+     Running tests/s3_gates.rs (target/debug/deps/s3_gates-c7cb122961fc0a66)
+
+running 1 test
+
+thread 'test_gate_f_changed_source_rejected_and_once_only_holdout' (5700833) panicked at crates/harness/tests/s3_gates.rs:1024:5:
+a self-rehashed modified executable must not inherit a prior assessment
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test test_gate_f_changed_source_rejected_and_once_only_holdout ... FAILED
+
+failures:
+
+failures:
+    test_gate_f_changed_source_rejected_and_once_only_holdout
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 7 filtered out; finished in 6.67s
+
+error: test failed, to rerun pass `-p mlrescurix-harness --test s3_gates`

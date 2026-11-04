@@ -29,7 +29,10 @@ use mlrescurix_harness::{
         ChatCompletionResponse, FunctionCall,
         ScriptedProviderFixture, TokenUsage, ToolCall,
     },
-    campaign::{run_offline_fixture_campaign as run_autonomous_campaign, CampaignOutcome, CampaignProblemSpec},
+    campaign::{
+        generate_default_solution_template, run_offline_fixture_campaign as run_autonomous_campaign,
+        CampaignOutcome, CampaignProblemSpec,
+    },
     trusted_evaluation::Metric,
 };
 
@@ -236,6 +239,9 @@ if __name__ == "__main__":
         lockbox_fraction: Some(0.20),
         seed: Some(2026),
         max_turns: Some(4),
+        split_strategy: None,
+        time_column: None,
+        group_column: None,
     };
 
     let outcome: CampaignOutcome = run_autonomous_campaign(
@@ -309,6 +315,9 @@ fn test_evidence_a_second_configuration_changes_behavior() {
         lockbox_fraction: Some(0.25),
         seed: Some(42),
         max_turns: Some(3),
+        split_strategy: None,
+        time_column: None,
+        group_column: None,
     };
 
     let outcome: CampaignOutcome = run_autonomous_campaign(root, &problem_spec, None).unwrap();
@@ -351,6 +360,9 @@ fn test_evidence_b_serialized_context_isolation_and_evidence_binding() {
         lockbox_fraction: Some(0.20),
         seed: Some(2026),
         max_turns: Some(2),
+        split_strategy: None,
+        time_column: None,
+        group_column: None,
     };
 
     let outcome = run_autonomous_campaign(root, &problem_spec, None).unwrap();
@@ -416,6 +428,9 @@ fn test_evidence_c_restart_boundary_preserves_outcome_and_prevents_double_lockbo
         lockbox_fraction: Some(0.20),
         seed: Some(2026),
         max_turns: Some(2),
+        split_strategy: None,
+        time_column: None,
+        group_column: None,
     };
 
     // First execution: completes campaign from scratch
@@ -474,29 +489,70 @@ fn test_challenger_rejection_halts_boss_and_rejects_candidate() {
 
     let model_name = "deepseek/deepseek-chat";
 
+    let (custom_solution_py, program_manifest) = generate_default_solution_template(
+        "regression",
+        &["x1".into(), "x2".into()],
+        "target",
+        "cand_challenger_reject",
+    ).unwrap();
+
     // Scripted gateway where challenger rejects the candidate
     let rejection_gateway = Arc::new(ScriptedProviderFixture::new(vec![
-        // Turn 1 (Specialist): finalize default
+        // Turn 1 (Specialist): author solution.py & program.json
         ChatCompletionResponse {
-            id: "turn1-spec".into(),
+            id: "turn1-author".into(),
             model: model_name.into(),
-            content: Some("[FINAL] Use default solution.".into()),
+            content: Some("Authoring solution and manifest".into()),
+            tool_calls: vec![
+                ToolCall {
+                    id: "call_ws_solution".into(),
+                    call_type: "function".into(),
+                    function: FunctionCall {
+                        name: "workspace_fs".into(),
+                        arguments: serde_json::json!({
+                            "action": "write",
+                            "path": "solution.py",
+                            "content": custom_solution_py,
+                        }).to_string(),
+                    },
+                },
+                ToolCall {
+                    id: "call_ws_program".into(),
+                    call_type: "function".into(),
+                    function: FunctionCall {
+                        name: "workspace_fs".into(),
+                        arguments: serde_json::json!({
+                            "action": "write",
+                            "path": "program.json",
+                            "content": serde_json::to_string_pretty(&program_manifest).unwrap(),
+                        }).to_string(),
+                    },
+                },
+            ],
+            usage: TokenUsage { prompt_tokens: 250, completion_tokens: 120, total_tokens: 370 },
+            latency_ms: 20,
+        },
+        // Turn 2 (Specialist): finalize
+        ChatCompletionResponse {
+            id: "turn2-finalize".into(),
+            model: model_name.into(),
+            content: Some("[FINAL] Solution authored.".into()),
             tool_calls: vec![],
-            usage: TokenUsage { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
+            usage: TokenUsage { prompt_tokens: 90, completion_tokens: 15, total_tokens: 105 },
             latency_ms: 10,
         },
-        // Turn 2 (Boss): observe evidence and delegate to challenger
+        // Turn 3 (Boss): observe evidence and delegate to challenger
         ChatCompletionResponse {
-            id: "turn2-boss-delegate".into(),
+            id: "turn3-boss-delegate".into(),
             model: model_name.into(),
             content: Some("DELEGATE_CHALLENGER: Audit candidate validation evidence.".into()),
             tool_calls: vec![],
             usage: TokenUsage { prompt_tokens: 150, completion_tokens: 20, total_tokens: 170 },
             latency_ms: 10,
         },
-        // Turn 3 (Challenger): challenges candidate due to suspect validation
+        // Turn 4 (Challenger): challenges candidate due to suspect validation
         ChatCompletionResponse {
-            id: "turn3-challenger-reject".into(),
+            id: "turn4-challenger-reject".into(),
             model: model_name.into(),
             content: Some("CHALLENGED: Unrealistic validation score variance detected; fails adversarial audit.".into()),
             tool_calls: vec![],
@@ -517,7 +573,10 @@ fn test_challenger_rejection_halts_boss_and_rejects_candidate() {
         api_key: None,
         lockbox_fraction: Some(0.20),
         seed: Some(2026),
-        max_turns: Some(2),
+        max_turns: Some(4),
+        split_strategy: None,
+        time_column: None,
+        group_column: None,
     };
 
     let err = run_autonomous_campaign(root, &problem_spec, Some(rejection_gateway)).unwrap_err();
@@ -559,6 +618,9 @@ fn test_evidence_c_restart_recovers_when_bundle_incomplete_after_lockbox_consump
         lockbox_fraction: Some(0.20),
         seed: Some(2026),
         max_turns: Some(2),
+        split_strategy: None,
+        time_column: None,
+        group_column: None,
     };
 
     // First execution: completes campaign
@@ -616,37 +678,78 @@ fn test_evidence_c_restart_after_challenger_approval_does_not_re_step_challenger
 
     let model_name = "deepseek/deepseek-chat";
 
+    let (custom_solution_py, program_manifest) = generate_default_solution_template(
+        "regression",
+        &["x1".into(), "x2".into()],
+        "target",
+        "cand_challenger_approve",
+    ).unwrap();
+
     let scripted_gateway = Arc::new(ScriptedProviderFixture::new(vec![
-        // Turn 1: Specialist finalize
+        // Turn 1 (Specialist): author solution.py & program.json
         ChatCompletionResponse {
-            id: "turn1-spec".into(),
+            id: "turn1-author".into(),
+            model: model_name.into(),
+            content: Some("Authoring solution and manifest".into()),
+            tool_calls: vec![
+                ToolCall {
+                    id: "call_ws_solution".into(),
+                    call_type: "function".into(),
+                    function: FunctionCall {
+                        name: "workspace_fs".into(),
+                        arguments: serde_json::json!({
+                            "action": "write",
+                            "path": "solution.py",
+                            "content": custom_solution_py,
+                        }).to_string(),
+                    },
+                },
+                ToolCall {
+                    id: "call_ws_program".into(),
+                    call_type: "function".into(),
+                    function: FunctionCall {
+                        name: "workspace_fs".into(),
+                        arguments: serde_json::json!({
+                            "action": "write",
+                            "path": "program.json",
+                            "content": serde_json::to_string_pretty(&program_manifest).unwrap(),
+                        }).to_string(),
+                    },
+                },
+            ],
+            usage: TokenUsage { prompt_tokens: 250, completion_tokens: 120, total_tokens: 370 },
+            latency_ms: 20,
+        },
+        // Turn 2 (Specialist): finalize
+        ChatCompletionResponse {
+            id: "turn2-spec-finalize".into(),
             model: model_name.into(),
             content: Some("[FINAL] Solution ready.".into()),
             tool_calls: vec![],
             usage: TokenUsage { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
             latency_ms: 10,
         },
-        // Turn 2: Boss ReAct Turn 1 observes evidence and delegates to challenger
+        // Turn 3 (Boss): Boss ReAct Turn 1 observes evidence and delegates to challenger
         ChatCompletionResponse {
-            id: "turn2-boss-delegate".into(),
+            id: "turn3-boss-delegate".into(),
             model: model_name.into(),
             content: Some("DELEGATE_CHALLENGER: Validation score acceptable; audit for variance and protocol leak.".into()),
             tool_calls: vec![],
             usage: TokenUsage { prompt_tokens: 150, completion_tokens: 25, total_tokens: 175 },
             latency_ms: 12,
         },
-        // Turn 3: Challenger approves
+        // Turn 4 (Challenger): Challenger approves
         ChatCompletionResponse {
-            id: "turn3-challenger".into(),
+            id: "turn4-challenger".into(),
             model: model_name.into(),
             content: Some("APPROVED: Validation score and protocol independently verified.".into()),
             tool_calls: vec![],
             usage: TokenUsage { prompt_tokens: 200, completion_tokens: 30, total_tokens: 230 },
             latency_ms: 15,
         },
-        // Turn 4: Boss ReAct Turn 2 observes challenger audit and approves finalization
+        // Turn 5 (Boss): Boss ReAct Turn 2 observes challenger audit and approves finalization
         ChatCompletionResponse {
-            id: "turn4-boss-finalize".into(),
+            id: "turn5-boss-finalize".into(),
             model: model_name.into(),
             content: Some("FINALIZE_AND_STOP: Candidate independently audited and approved.".into()),
             tool_calls: vec![],
@@ -667,7 +770,10 @@ fn test_evidence_c_restart_after_challenger_approval_does_not_re_step_challenger
         api_key: None,
         lockbox_fraction: Some(0.20),
         seed: Some(2026),
-        max_turns: Some(2),
+        max_turns: Some(3),
+        split_strategy: None,
+        time_column: None,
+        group_column: None,
     };
 
     let outcome1 = run_autonomous_campaign(root, &problem_spec, Some(scripted_gateway)).unwrap();
@@ -705,6 +811,9 @@ fn test_evidence_d_csv_header_whitespace_resilience() {
         lockbox_fraction: Some(0.25),
         seed: Some(2026),
         max_turns: Some(2),
+        split_strategy: None,
+        time_column: None,
+        group_column: None,
     };
 
     let outcome = run_autonomous_campaign(root, &problem_spec, None).unwrap();

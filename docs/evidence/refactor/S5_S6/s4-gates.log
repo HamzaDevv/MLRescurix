@@ -1,0 +1,12 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+     Running tests/s4_gates.rs (target/debug/deps/s4_gates-77abdd0e22e62d29)
+
+running 5 tests
+test test_s4_gate_kaggle_pool_authority ... ok
+test test_s4_gate_rust_resource_authority_concurrent_search ... ok
+test test_s4_gate_real_process_termination_crash_recovery_window ... ok
+test test_s4_gate_crash_window_weights_tamper_rejected ... ok
+test test_s4_gate_crash_window_tamper_rejected ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.78s
+

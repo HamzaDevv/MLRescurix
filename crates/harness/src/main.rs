@@ -148,6 +148,39 @@ enum Command {
         #[arg(long)] offline_fixture: bool,
         #[arg(long)] mock: Option<PathBuf>,
     },
+    SearchAdmit {
+        #[arg(long)] state: PathBuf,
+        #[arg(long)] project: String,
+        #[arg(long)] query: String,
+        #[arg(long)] sanitized: String,
+        #[arg(long, default_value = "unknown")] provider: String,
+        #[arg(long, default_value_t = 500)] limit: usize,
+    },
+    SearchSettle {
+        #[arg(long)] state: PathBuf,
+        #[arg(long)] project: String,
+        #[arg(long)] attempt_id: String,
+        #[arg(long, default_value = "success")] status: String,
+        #[arg(long)] error: Option<String>,
+        #[arg(long, default_value_t = 0)] cost_millicents: i64,
+    },
+    SearchCount {
+        #[arg(long)] state: PathBuf,
+        #[arg(long)] project: String,
+    },
+    ResourceStatus {
+        #[arg(long)] state: PathBuf,
+        #[arg(long)] project: String,
+    },
+    KaggleRegisterAccount {
+        #[arg(long)] state: PathBuf,
+        #[arg(long)] username: String,
+        #[arg(long)] credential_ref: String,
+        #[arg(long, default_value_t = false)] is_anchor: bool,
+    },
+    KaggleListAccounts {
+        #[arg(long)] state: PathBuf,
+    },
     Capabilities,
 }
 fn read(path:&PathBuf)->Result<Vec<u8>,String>{let mut data=Vec::new();std::fs::File::open(path).map_err(|e|e.to_string())?.take((MAX_FRAME+1)as u64).read_to_end(&mut data).map_err(|e|e.to_string())?;if data.len()>MAX_FRAME{return Err("input exceeds frame bound".into());}Ok(data)}
@@ -610,6 +643,62 @@ async fn run()->Result<(),String>{
                 mlrescurix_harness::campaign::run_autonomous_campaign(&state, &problem_spec, fixture_gw)?
             };
             print(outcome)
+        },
+        Command::SearchAdmit { state, project, query, sanitized, provider, limit } => {
+            let db_path = if state.is_file() || state.extension().map_or(false, |ext| ext == "sqlite" || ext == "db") {
+                if let Some(parent) = state.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+                state
+            } else {
+                let _ = fs::create_dir_all(&state);
+                state.join("state.sqlite")
+            };
+            match mlrescurix_harness::resource_authority::admit_search_attempt(&db_path, &project, &query, &sanitized, &provider, limit)? {
+                Some(attempt_id) => print(serde_json::json!({"admitted": true, "attempt_id": attempt_id})),
+                None => print(serde_json::json!({"admitted": false, "attempt_id": serde_json::Value::Null})),
+            }
+        },
+        Command::SearchSettle { state, project, attempt_id, status, error, cost_millicents } => {
+            let db_path = if state.is_file() || state.extension().map_or(false, |ext| ext == "sqlite" || ext == "db") {
+                if let Some(parent) = state.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+                state
+            } else {
+                let _ = fs::create_dir_all(&state);
+                state.join("state.sqlite")
+            };
+            mlrescurix_harness::resource_authority::settle_search_attempt(&db_path, &project, &attempt_id, &status, error.as_deref(), cost_millicents)?;
+            print(serde_json::json!({"settled": true, "attempt_id": attempt_id, "status": status}))
+        },
+        Command::SearchCount { state, project } => {
+            let db_path = if state.is_file() || state.extension().map_or(false, |ext| ext == "sqlite" || ext == "db") {
+                if let Some(parent) = state.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+                state
+            } else {
+                let _ = fs::create_dir_all(&state);
+                state.join("state.sqlite")
+            };
+            let count = mlrescurix_harness::resource_authority::query_search_attempt_count(&db_path, &project)?;
+            print(serde_json::json!({"project": project, "count": count}))
+        },
+        Command::ResourceStatus { state, project } => {
+            let status = mlrescurix_harness::resource_authority::get_unified_resource_status(&state, &project)?;
+            print(status)
+        },
+        Command::KaggleRegisterAccount { state, username, credential_ref, is_anchor } => {
+            let pool = mlrescurix_harness::kaggle::KagglePoolManager::new(&state, true)?;
+            let account = mlrescurix_harness::kaggle::KaggleAccount::new(&username, &credential_ref, is_anchor)?;
+            pool.register_account(account)?;
+            print(serde_json::json!({"registered": true, "username": username, "is_anchor": is_anchor}))
+        },
+        Command::KaggleListAccounts { state } => {
+            let pool = mlrescurix_harness::kaggle::KagglePoolManager::new(&state, true)?;
+            let accounts = pool.list_accounts()?;
+            print(serde_json::json!({"accounts": accounts}))
         },
         Command::Worker{spec,output}=>{let result=execution::worker(&spec,&output)?;if result==0 {Ok(())} else {std::process::exit(result)}}
         Command::Capabilities=>print(serde_json::json!({

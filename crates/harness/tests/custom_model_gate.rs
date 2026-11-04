@@ -1154,7 +1154,7 @@ fn test_custom_model_bundle_manifest_and_contract_verification() {
     fs::write(bundle_dir.join("README.md"), "# Candidate Bundle\n").unwrap();
 
     // 4. Create manifest
-    let mut files = std::collections::HashMap::new();
+    let mut files = std::collections::BTreeMap::new();
     for name in [
         "input_schema.json",
         "output_schema.json",

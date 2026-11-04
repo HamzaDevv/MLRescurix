@@ -1,0 +1,11 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/s5_gates.rs (target/debug/deps/s5_gates-3b3f64f103671b11)
+
+running 4 tests
+test test_s5_gate_2_task_generality_splits ... ok
+test test_s5_gate_3_multi_task_ml_science ... ok
+test test_s5_gate_1_kaggle_remote_compute_lifecycle ... ok
+test test_s5_gate_4_extensible_agent_authored_program_contract ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.28s
+

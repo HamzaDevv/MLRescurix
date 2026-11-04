@@ -281,6 +281,8 @@ class AutonomousAgentLoop:
             state.setdefault("best_eligible_cv_score", state.get("best_cv_score"))
             state.setdefault("best_observed_cv_score", state.get("best_cv_score"))
             state.setdefault("research_ledger", [])
+            state.setdefault("negative_results", [])
+            state.setdefault("plateau_detected", False)
             self.operational_budgets.restore_operational_budgets(state.get("turns", []))
             return state
         active_spec = self.task_adapter.initial_spec(self.metric_name)
@@ -299,7 +301,7 @@ class AutonomousAgentLoop:
             "containment_status": "unverified", "holdout_accesses": 0, "script_registry": {},
             "iterations": [], "apex_trajectory": [], "latest_apex_iteration": None, "selected_apex_iteration": None,
             "pinned_iteration": None, "selected_cv_score": None, "best_eligible_cv_score": None, "best_observed_cv_score": None,
-            "research_ledger": [],
+            "research_ledger": [], "negative_results": [], "plateau_detected": False,
             "execution_path": "python_governed_workers", "production_certified": False, "evaluation_count": 0}
         self._save_state(state)
         return state
@@ -449,6 +451,12 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
                     receipt["measurements"]["python_result"] = projected
         avail_fams = get_available_model_families()
         budget_status = self.operational_budgets.get_status()
+        plateau_info = self._detect_plateau()
+        self.state["plateau_detected"] = plateau_info["plateau_detected"]
+        refuted_summaries = [
+            f"Candidate {r['candidate_id']}: {r.get('description', '')} failed to improve (CV: {r['cv_score']}, reason: {r['reason']})"
+            for r in self.state.get("negative_results", [])[-5:]
+        ]
         user = {
             "human_guidance": self.state.get("human_guidance", []),
             "instruction": "Review task context, diagnostic dossier, and turn history. Choose your next action and return strictly a single valid JSON object with keys: thought_rationale, action_type, parameters.",
@@ -459,6 +467,9 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
                 "selected_apex_iteration": self.state.get("selected_apex_iteration"),
                 "winning_model_family": self.state.get("winning_model_family"),
                 "available_model_families": avail_fams,
+                "plateau_detected": plateau_info["plateau_detected"],
+                "pivot_guidance": plateau_info["pivot_recommended"],
+                "refuted_hypotheses": refuted_summaries,
                 "operational_budgets": {
                     "model_tokens_remaining": budget_status["total_model_tokens"]["remaining"],
                     "kaggle_hours_remaining": budget_status["kaggle_compute"]["remaining_hours"],
@@ -620,9 +631,48 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
             "timestamp_unix": time.time(),
         }
         self.state.setdefault("iterations", []).append(rec)
+        if not is_apex:
+            neg_record = {
+                "iteration_number": iter_num,
+                "turn_index": turn_index,
+                "candidate_id": candidate_id,
+                "description": description,
+                "cv_score": float(cv_score) if np.isfinite(cv_score) else None,
+                "best_to_beat": float(best_so_far) if best_so_far is not None else None,
+                "reason": "critic_rejected" if not approved else "metric_regression_or_no_gain",
+                "families": copy.deepcopy(spec.get("families", [])),
+                "relative_gain": float(rel_gain),
+                "timestamp_unix": time.time(),
+            }
+            self.state.setdefault("negative_results", []).append(neg_record)
         self._event("iteration_completed", iteration_number=iter_num, is_apex=bool(is_apex),
                     cv_score=float(cv_score) if np.isfinite(cv_score) else None, action_type=action_type)
         return rec
+
+    def _detect_plateau(self, window: int = 2) -> dict[str, Any]:
+        """Detect whether recent iterations have plateaued without metric gain."""
+        iterations = self.state.get("iterations", [])
+        if len(iterations) < window:
+            return {"plateau_detected": False, "consecutive_non_improving": 0, "pivot_recommended": None}
+        recent = iterations[-window:]
+        non_improving = all(not it.get("is_apex", False) for it in recent)
+        pivot = None
+        if non_improving:
+            evaluated_fams = set()
+            for it in iterations:
+                for f in it.get("spec", {}).get("families", []):
+                    evaluated_fams.add(normalize_family_name(f))
+            avail = set(get_available_model_families())
+            untried = sorted(list(avail - evaluated_fams))
+            if untried:
+                pivot = f"Try orthogonal model family: {untried[0]}"
+            else:
+                pivot = "Try feature interactions, non-linear basis transforms, or blend ensembling"
+        return {
+            "plateau_detected": non_improving,
+            "consecutive_non_improving": window if non_improving else 0,
+            "pivot_recommended": pivot,
+        }
 
     def pin_iteration(self, iteration_number: int) -> dict[str, Any]:
         """Explicitly pin an iteration as the deployment and handoff target."""
@@ -1240,12 +1290,12 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
         kag_status_str = (
             f"- **Kaggle Compute:** {kag['used_hours']:.2f}h used / {kag['limit_hours']:.2f}h limit ({kag['remaining_hours']:.2f}h remaining) [{kag['unit']}]"
             if kag.get("enforced")
-            else f"- **Kaggle Compute:** usage and remaining unknown; configured {kag['limit_hours']:.2f}h, not connected or enforced."
+            else f"- **Kaggle Compute:** usage and remaining unknown; configured {kag['limit_hours']:.2f}h, global enforcement not verified."
         )
         sea_status_str = (
             f"- **Web Search:** {sea['used']} used / {sea['limit']} limit ({sea['remaining']} remaining) [{sea['unit']}]"
             if sea.get("enforced")
-            else f"- **Web Search:** usage and remaining unknown; configured {sea['limit']} queries, not connected or enforced."
+            else f"- **Web Search:** usage and remaining unknown; configured {sea['limit']} queries, global enforcement not verified."
         )
         lines = ["# MLRescurix session handoff", "", f"Session: {self.session_id}", f"Stop: {self.state['stop_reason']}",
             f"Checkpoint: {self.state_file}", f"Accepted candidate: {self.state['accepted_candidate_id']}",
@@ -1346,7 +1396,7 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
                 tok = b_stat["total_model_tokens"]
                 kag = b_stat["kaggle_compute"]
                 sea = b_stat["web_search_queries"]
-                print(f"[OPERATIONAL BUDGET] Turn {i} complete: Tokens recorded: {tok['used']:,} / {tok['limit']:,} (complete: {tok['accounting_complete']}) | Kaggle and web search accounting not connected or enforced", flush=True)
+                print(f"[OPERATIONAL BUDGET] Turn {i} complete: Tokens recorded: {tok['used']:,} / {tok['limit']:,} (complete: {tok['accounting_complete']}) | Kaggle and web search global enforcement not verified", flush=True)
                 self._event("operational_budgets_status", turn_index=i, budgets=b_stat)
             if self.state["stop_reason"] is None: self.state["stop_reason"] = "max_turns_reached"
         except BaseException:

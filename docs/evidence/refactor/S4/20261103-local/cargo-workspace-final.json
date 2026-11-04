@@ -1,0 +1,11 @@
+{
+  "argv": [
+    "cargo",
+    "test",
+    "--locked",
+    "--workspace",
+    "--no-fail-fast"
+  ],
+  "exit": 101,
+  "seconds": 356.55
+}

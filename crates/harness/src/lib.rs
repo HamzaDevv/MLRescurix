@@ -28,3 +28,4 @@ pub mod custom_protocol;
 pub mod custom_snapshot;
 pub mod isolated_inference;
 pub mod campaign;
+pub mod resource_authority;

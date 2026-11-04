@@ -35,6 +35,18 @@ fn hash_str(s: &str) -> String {
     format!("{:x}", Sha256::digest(s.as_bytes()))
 }
 
+fn is_cmd_in_path(cmd: &str) -> bool {
+    if let Ok(path_var) = std::env::var("PATH") {
+        for dir in std::env::split_paths(&path_var) {
+            let candidate = dir.join(cmd);
+            if candidate.is_file() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WarmPoolMode {
@@ -438,7 +450,15 @@ impl WarmWorkerPool {
             )
         } else {
             // Simulated Mode: Execute directly in slot.workflow_dir
-            let mut cmd = Command::new(&task.argv[0]);
+            let bin_owned: String = if task.argv[0] == "python"
+                && !is_cmd_in_path("python")
+                && is_cmd_in_path("python3")
+            {
+                "python3".to_string()
+            } else {
+                task.argv[0].clone()
+            };
+            let mut cmd = Command::new(&bin_owned);
             cmd.args(&task.argv[1..]);
             cmd.current_dir(&slot.workflow_dir);
             cmd.env("TMPDIR", slot.slot_dir.join("tmp"));
@@ -685,6 +705,13 @@ for d in ['/tmp', '/outputs']:
             let _ = Command::new(&self.config.docker_cmd)
                 .args(["exec", &slot.container_name, "python", "-c", wipe_cmd])
                 .output();
+        } else {
+            let slot_tmp = slot.slot_dir.join("tmp");
+            if slot_tmp.is_dir() {
+                let _ = fs::remove_dir_all(&slot_tmp);
+                let _ = fs::create_dir_all(&slot_tmp);
+            }
+            let _ = fs::remove_file("/tmp/tmpfs_leak_canary.txt");
         }
 
         Ok(WarmTaskResult {

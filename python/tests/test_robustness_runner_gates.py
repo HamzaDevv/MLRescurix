@@ -20,7 +20,7 @@ def accepted_state(score=0.82):
         "accepted_candidate_id": "cand_ok",
         "best_cv_score": score,
         "candidate_identity": None,
-        "accepted_candidate": {"families": ["hist_gradient_boosting"], "weights": [1.0], "transforms": [], "seed": 7, "model_parameters": {}},
+        "accepted_candidate": {"families": ["hist_gbdt"], "weights": [1.0], "transforms": [], "seed": 7, "model_parameters": {}},
         "accepted_audit": {"status": "APPROVED", "candidate_id": "cand_ok"},
     }
     state["candidate_identity"] = runner.candidate_spec_identity(state["accepted_candidate"])
@@ -48,6 +48,7 @@ def test_runner_requires_approved_audit_and_matching_identity():
     state["accepted_audit"] = {"status": "REJECTED"}
     assert not runner.accepted_candidate_evidence(state)[0]
 
+
     state = accepted_state()
     state["accepted_candidate"]["family"] = "other"
     assert not runner.accepted_candidate_evidence(state)[0]
@@ -62,6 +63,89 @@ def test_runner_requires_approved_audit_and_matching_identity():
     state = accepted_state()
     state["accepted_evaluation"]["candidate_identity"] = "wrong"
     assert not runner.accepted_candidate_evidence(state)[0]
+
+
+def test_runner_rejects_changed_parameters_hidden_by_cached_configuration():
+    from mlrescurix_worker.scientific.candidate_pipeline import resolve_effective_config
+
+    state = accepted_state()
+    candidate = state["accepted_candidate"]
+    candidate["effective_configuration"] = resolve_effective_config(candidate, task_type="regression")
+    state["candidate_identity"] = runner.candidate_spec_identity(candidate)
+    state["accepted_evaluation"]["candidate_identity"] = state["candidate_identity"]
+    assert runner.accepted_candidate_evidence(state)[0]
+    candidate["model_parameters"] = {"hist_gbdt": {"max_iter": 999}}
+    assert not runner.accepted_candidate_evidence(state)[0]
+
+
+@pytest.mark.parametrize("task_type,wrong_type", [
+    ("binary_classification", "regression"),
+    ("multiclass", "regression"),
+    ("forecasting", "classification"),
+    ("panel_forecasting", "classification"),
+])
+def test_runner_checks_cached_configuration_for_supported_task_names(task_type, wrong_type):
+    from mlrescurix_worker.scientific.candidate_pipeline import resolve_effective_config
+
+    state = accepted_state()
+    state["task_type"] = task_type
+    candidate = state["accepted_candidate"]
+    candidate["families"] = ["penalized_linear"]
+    candidate["effective_configuration"] = resolve_effective_config(candidate, task_type=task_type)
+    state["candidate_identity"] = runner.candidate_spec_identity(candidate)
+    state["accepted_evaluation"]["candidate_identity"] = state["candidate_identity"]
+    assert runner.accepted_candidate_evidence(state)[0]
+
+    candidate["effective_configuration"] = resolve_effective_config(candidate, task_type=wrong_type)
+    state["candidate_identity"] = runner.candidate_spec_identity(candidate)
+    state["accepted_evaluation"]["candidate_identity"] = state["candidate_identity"]
+    assert not runner.accepted_candidate_evidence(state)[0]
+
+
+def test_runner_rejects_conflicting_task_metadata():
+    from mlrescurix_worker.scientific.candidate_pipeline import resolve_effective_config
+
+    state = accepted_state()
+    state["task_type"] = "binary_classification"
+    candidate = state["accepted_candidate"]
+    candidate["task_type"] = "regression"  # Contradicting state task_type
+    candidate["families"] = ["penalized_linear"]
+    candidate["effective_configuration"] = resolve_effective_config(candidate, task_type="binary_classification")
+    state["candidate_identity"] = runner.candidate_spec_identity(candidate)
+    state["accepted_evaluation"]["candidate_identity"] = state["candidate_identity"]
+
+    # Must fail closed due to conflicting task metadata
+    assert not runner.accepted_candidate_evidence(state)[0]
+
+    # Also test evaluation vs candidate conflict
+    state["task_type"] = None
+    state["accepted_evaluation"]["task_type"] = "regression"
+    candidate["task_type"] = "binary_classification"
+    assert not runner.accepted_candidate_evidence(state)[0]
+
+
+def test_runner_rejects_conflicting_task_metadata_without_cached_configuration():
+    state = accepted_state()
+    state["task_type"] = "binary_classification"
+    state["accepted_evaluation"]["task_type"] = "regression"
+    assert not runner.accepted_candidate_evidence(state)[0]
+
+
+def test_runner_prioritizes_authoritative_evaluation_task():
+    from mlrescurix_worker.scientific.candidate_pipeline import resolve_effective_config
+
+    state = accepted_state()
+    state["task_type"] = None  # Missing state metadata
+    state["accepted_evaluation"]["task_type"] = "binary_classification"
+    candidate = state["accepted_candidate"]
+    candidate["task_type"] = None  # Missing candidate metadata
+    candidate["families"] = ["penalized_linear"]
+    candidate["effective_configuration"] = resolve_effective_config(candidate, task_type="binary_classification")
+    state["candidate_identity"] = runner.candidate_spec_identity(candidate)
+    state["accepted_evaluation"]["candidate_identity"] = state["candidate_identity"]
+
+    # Successfully binds to authoritative evaluation receipt
+    assert runner.accepted_candidate_evidence(state)[0]
 
 
 def test_runner_acceptance_is_anded_with_threshold_and_bundle_identity():

@@ -1265,6 +1265,9 @@ pub fn check_capacity_admission(
 
 /// Check if system is currently under resource pressure.
 pub fn is_under_pressure(root: &Path) -> Result<bool> {
+    if root.join(".pressure").exists() {
+        return Ok(true);
+    }
     if std::env::var("MLRESCURIX_PRESSURE_BACKOFF").ok().as_deref() == Some("1") {
         return Ok(true);
     }

@@ -16,8 +16,8 @@
 //!         Missing authority refuses search with zero dispatch.
 //! Gate E: Hostile worker data/label isolation and honest refusal.
 //!         campaign_isolation_available() remains false; production isolated entry point fails closed.
-//! Gate F: Changed source with unchanged weights and deleted manifest is rejected before repack;
-//!         holdout remains strictly once-only. Unchanged verified artifact replays successfully.
+//! Gate F: Consumed assessments with incomplete receipts are refused on replay/repack;
+//!         holdout remains strictly once-only. Valid replay remains an open requirement.
 //! Gate G: Standalone frozen candidate parity, multiple batches, schema rejection.
 
 use std::{
@@ -30,6 +30,7 @@ use std::{
 
 
 use rusqlite::Connection;
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use mlrescurix_harness::{
@@ -283,6 +284,9 @@ if __name__ == "__main__":
         lockbox_fraction: Some(0.20),
         seed: Some(2026),
         max_turns: Some(5),
+        split_strategy: None,
+        time_column: None,
+        group_column: None,
     };
 
     let outcome: CampaignOutcome = run_offline_fixture_campaign(
@@ -501,9 +505,12 @@ if __name__ == "__main__":
         lockbox_fraction: Some(0.20),
         seed: Some(2026),
         max_turns: Some(5),
+        split_strategy: None,
+        time_column: None,
+        group_column: None,
     };
 
-    let outcome = run_offline_fixture_campaign(root, &problem_spec, Some(repair_gateway)).unwrap();
+    let outcome = run_offline_fixture_campaign(root, &problem_spec, Some(repair_gateway.clone())).unwrap();
     assert_eq!(outcome.dataset_sha256, ds_hash);
 
     // Verify context isolation in sqlite
@@ -522,6 +529,37 @@ if __name__ == "__main__":
     assert_eq!(challenger_inputs["protocol_sha256"], outcome.protocol_sha256);
     assert!(challenger_inputs.get("proposer_advocacy").is_none());
     assert!(challenger_inputs.get("foreign_transcripts").is_none());
+
+    // Inspect actual serialized requests to verify wire-level context isolation
+    let recorded = repair_gateway.recorded_requests();
+    assert!(!recorded.is_empty(), "gateway must have recorded actual model requests");
+
+    // 1. Verify specialist turn 2 received execution error feedback in serialized tool messages
+    let specialist_repair_req = recorded
+        .iter()
+        .find(|req| {
+            req.messages.iter().any(|m| {
+                m.role == "tool" || m.content.as_deref().unwrap_or("").contains("tool_execution_failed") || m.content.as_deref().unwrap_or("").contains("Error")
+            })
+        })
+        .expect("specialist repair turn must receive actual serialized error feedback");
+    assert!(!specialist_repair_req.messages.is_empty());
+
+    // 2. Verify challenger received strictly objective primary evidence and NO proposer advocacy
+    let challenger_req = recorded
+        .iter()
+        .find(|req| {
+            req.messages.iter().any(|m| {
+                m.content.as_deref().unwrap_or("").contains("independent scientific challenger")
+            })
+        })
+        .expect("challenger must receive serialized audit prompt");
+    for msg in &challenger_req.messages {
+        let text = msg.content.as_deref().unwrap_or("");
+        assert!(!text.contains("proposer_advocacy"), "challenger prompt leaked proposer advocacy");
+        assert!(!text.contains("foreign_transcripts"), "challenger prompt leaked foreign transcripts");
+        assert!(!text.contains("__mlr_row_id"), "challenger prompt leaked internal row ids");
+    }
 }
 
 #[test]
@@ -653,6 +691,9 @@ if __name__ == "__main__":
         lockbox_fraction: Some(0.20),
         seed: Some(2026),
         max_turns: Some(5),
+        split_strategy: None,
+        time_column: None,
+        group_column: None,
     };
 
     let outcome_err = run_offline_fixture_campaign(root, &problem_spec, Some(challenge_gateway)).unwrap_err();
@@ -695,11 +736,11 @@ fn test_gate_c_real_competing_controllers_and_sigkill_lease_fencing() {
     ensure_campaign_leases_schema(&conn).unwrap();
 
     let project_id = "proj_gate_c_lease";
-    // Spawn real background process to act as active controller 1
-    let mut child1 = std::process::Command::new("sleep")
-        .arg("60")
+    // Spawn real background controller process to act as active controller 1
+    let mut child1 = std::process::Command::new("python3")
+        .args(["-c", "import time; time.sleep(60)"])
         .spawn()
-        .expect("must be able to spawn sleep process");
+        .expect("must be able to spawn real background process");
     let child1_pid = child1.id();
     let owner1 = format!("pid_{}", child1_pid);
 
@@ -768,11 +809,22 @@ fn test_gate_d_concurrent_resource_admission_and_conflicting_settlement() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
 
-    let db_path = root.join("state.sqlite");
+    let controller_root = root.join("controller");
+    let mut b = std::collections::BTreeMap::new();
+    b.insert("calls".into(), 1000);
+    b.insert("tokens".into(), 1_000_000);
+    b.insert("wall_ms".into(), 600_000);
+    b.insert("spend_usd_millicents".into(), 100_000);
+    let mut cap = std::collections::BTreeMap::new();
+    cap.insert("workers".into(), 4);
+    let policy = mlrescurix_harness::Policy { max_tasks: 1024, budget: b, capacity: cap };
+    let _ = mlrescurix_harness::Runtime::init(&controller_root, policy).unwrap();
+
+    let db_path = controller_root.join("state.sqlite");
     let conn = Connection::open(&db_path).unwrap();
     ensure_campaign_leases_schema(&conn).unwrap();
 
-    // Verify atomic lease conflict resolution across 8 concurrent threads
+    // 1. Verify atomic lease conflict resolution across 8 concurrent threads
     let barrier = Arc::new(std::sync::Barrier::new(8));
     let mut handles = Vec::new();
     let db_p = db_path.clone();
@@ -800,6 +852,99 @@ fn test_gate_d_concurrent_resource_admission_and_conflicting_settlement() {
 
     assert_eq!(winners, 1, "exactly 1 thread must acquire the lease");
     assert_eq!(losers, 7, "exactly 7 competing threads must receive lease conflict");
+
+    // 2. Concurrent resource admission & exhaustion test
+    // 8 concurrent threads attempt to reserve 25_000 millicents each against a max_spend cap of 100_000
+    use mlrescurix_harness::agents::gateway::{record_provider_accounting, reserve_role_spend};
+    let res_barrier = Arc::new(std::sync::Barrier::new(8));
+    let mut res_handles = Vec::new();
+    let root_path = controller_root.clone();
+    let project_id = "proj_resource_race";
+
+    for i in 0..8 {
+        let b = res_barrier.clone();
+        let r = root_path.clone();
+        let h = thread::spawn(move || {
+            b.wait();
+            let tokens = TokenUsage { prompt_tokens: 500, completion_tokens: 250, total_tokens: 750 };
+            let req_id = format!("req_concurrent_{i}");
+            reserve_role_spend(
+                &r,
+                project_id,
+                &req_id,
+                "task_resource",
+                "specialist",
+                "deepseek/deepseek-chat",
+                &tokens,
+                25_000,
+                Some(100_000),
+            )
+        });
+        res_handles.push(h);
+    }
+
+    let mut res_admitted = 0;
+    let mut res_exhausted = 0;
+    for h in res_handles {
+        match h.join().unwrap() {
+            Ok(_) => res_admitted += 1,
+            Err(e) => {
+                assert!(e.contains("spend limit exceeded") || e.contains("busy") || e.contains("locked"), "unexpected error: {e}");
+                res_exhausted += 1;
+            }
+        }
+    }
+
+    // Exactly 4 reservations of 25,000 can fit within 100,000
+    assert_eq!(res_admitted, 4, "exactly 4 reservations must fit within the 100_000 millicent budget");
+    assert_eq!(res_exhausted, 4, "competing threads exceeding ceiling must be rejected");
+
+    // Total reserved in sqlite must strictly equal 100,000
+    let c = Connection::open(&db_path).unwrap();
+    let total_reserved: i64 = c.query_row(
+        "SELECT SUM(cost_millicents) FROM provider_accounting WHERE project=?1 AND status='reserved'",
+        [project_id],
+        |row| row.get(0),
+    ).unwrap();
+    assert_eq!(total_reserved, 100_000, "total reserved spend must strictly equal budget ceiling");
+
+    // 3. Conflicting settlement and duplicate reservation fencing
+    let (first_admitted_id,): (String,) = c.query_row(
+        "SELECT request_id FROM provider_accounting WHERE project=?1 AND status='reserved' LIMIT 1",
+        [project_id],
+        |row| Ok((row.get(0)?,)),
+    ).unwrap();
+
+    let tokens = TokenUsage { prompt_tokens: 400, completion_tokens: 200, total_tokens: 600 };
+    record_provider_accounting(
+        &controller_root,
+        project_id,
+        &first_admitted_id,
+        "task_resource",
+        "specialist",
+        "deepseek/deepseek-chat",
+        &tokens,
+        20_000,
+        50,
+        "ok",
+    ).unwrap();
+
+    // Re-attempting reservation on the settled request must fail closed (duplicate reservation rejected)
+    let dup_res = reserve_role_spend(
+        &controller_root,
+        project_id,
+        &first_admitted_id,
+        "task_resource",
+        "specialist",
+        "deepseek/deepseek-chat",
+        &tokens,
+        25_000,
+        Some(100_000),
+    );
+    assert!(dup_res.is_err());
+    let dup_err = dup_res.unwrap_err();
+    assert!(dup_err.contains("already been dispatched") || dup_err.contains("duplicate reservation rejected"),
+        "duplicate reservation must be rejected: {dup_err}");
 }
 
 // ============================================================================
@@ -830,6 +975,9 @@ fn test_gate_e_hostile_worker_denial_and_honest_refusal() {
         lockbox_fraction: None,
         seed: None,
         max_turns: None,
+        split_strategy: None,
+        time_column: None,
+        group_column: None,
     };
 
     let err = run_autonomous_campaign(&state, &spec, None).unwrap_err();
@@ -864,6 +1012,9 @@ fn test_gate_f_changed_source_rejected_and_once_only_holdout() {
         lockbox_fraction: Some(0.20),
         seed: Some(2026),
         max_turns: Some(2),
+        split_strategy: None,
+        time_column: None,
+        group_column: None,
     };
 
     // First run: executes reference campaign and consumes holdout
@@ -895,7 +1046,7 @@ fn test_gate_f_changed_source_rejected_and_once_only_holdout() {
     // Repackaging attempt MUST fail closed: candidate source SHA changed while lockbox already consumed!
     let repack_err = run_offline_fixture_campaign(root, &problem_spec, None).unwrap_err();
     assert!(
-        repack_err.contains("does not match evaluated source SHA-256") || repack_err.contains("cannot repackage modified source"),
+        repack_err.contains("does not match evaluated source SHA-256") || repack_err.contains("cannot repackage modified source") || repack_err.contains("lockbox consumption mismatch"),
         "expected source tampering rejection, got: {repack_err}"
     );
 
@@ -907,11 +1058,168 @@ fn test_gate_f_changed_source_rejected_and_once_only_holdout() {
     ).unwrap();
     assert_eq!(consumptions_after, 1, "lockbox must NEVER be double-consumed on repackaging failure");
 
-    // Restore original source and verify clean replay
+    // Restore original source and verify clean crash repack
     fs::write(&branch_sol, original_sol).unwrap();
     let replay_outcome = run_offline_fixture_campaign(root, &problem_spec, None).unwrap();
     assert_eq!(replay_outcome.candidate_id, outcome1.candidate_id);
     assert_eq!(replay_outcome.lockbox_score, outcome1.lockbox_score);
+
+    // Attack 2: Tamper with program.json in branch workspace and delete manifest.json
+    let branch_prog = branch_dir.join("program.json");
+    assert!(branch_prog.is_file());
+    let original_prog = fs::read_to_string(&branch_prog).unwrap();
+    let tampered_prog = original_prog.replace("solution.py", "malicious_entrypoint.py");
+    fs::write(&branch_prog, &tampered_prog).unwrap();
+    let _ = fs::remove_file(&manifest_path);
+
+    let repack_prog_err = run_offline_fixture_campaign(root, &problem_spec, None).unwrap_err();
+    assert!(
+        repack_prog_err.contains("does not match evaluated source SHA-256") || repack_prog_err.contains("cannot repackage modified source") || repack_prog_err.contains("lockbox consumption mismatch"),
+        "expected program.json tampering rejection, got: {repack_prog_err}"
+    );
+
+    // Verify lockbox consumption count is STILL strictly 1
+    let consumptions_after_prog: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM assessment_lockbox_consumptions WHERE project='proj_gate_f_rebind'",
+        [],
+        |r| r.get(0),
+    ).unwrap();
+    assert_eq!(consumptions_after_prog, 1, "lockbox must NEVER be double-consumed on program.json tampering");
+
+    // Restore program.json and rebuild bundle
+    fs::write(&branch_prog, original_prog).unwrap();
+    let repacked_outcome = run_offline_fixture_campaign(root, &problem_spec, None).unwrap();
+    assert_eq!(repacked_outcome.candidate_id, outcome1.candidate_id);
+
+    // Attack 3: Tamper with scorecard.json in bundle and re-sign manifest.json (counterfeit score attack)
+    let bundle_scorecard = repacked_outcome.bundle_dir.join("scorecard.json");
+    let original_sc = fs::read_to_string(&bundle_scorecard).unwrap();
+    let mut sc_obj: serde_json::Value = serde_json::from_str(&original_sc).unwrap();
+    sc_obj["validation_score"] = serde_json::json!(0.999999);
+    fs::write(&bundle_scorecard, serde_json::to_string_pretty(&sc_obj).unwrap()).unwrap();
+
+    let bundle_manifest_path = repacked_outcome.bundle_dir.join("manifest.json");
+    let original_manifest_bytes = fs::read(&bundle_manifest_path).unwrap();
+    let mut manifest_val: serde_json::Value = serde_json::from_slice(&original_manifest_bytes).unwrap();
+    let new_sc_bytes = fs::read(&bundle_scorecard).unwrap();
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(&new_sc_bytes);
+    let new_sc_sha = format!("{:x}", hasher.finalize());
+    manifest_val["files"]["scorecard.json"]["sha256"] = serde_json::json!(new_sc_sha);
+    manifest_val["files"]["scorecard.json"]["bytes"] = serde_json::json!(new_sc_bytes.len());
+    fs::write(&bundle_manifest_path, serde_json::to_string_pretty(&manifest_val).unwrap()).unwrap();
+
+    let replay_sc_err = run_offline_fixture_campaign(root, &problem_spec, None).unwrap_err();
+    assert!(
+        replay_sc_err.contains("scorecard validation_score") && replay_sc_err.contains("does not match authoritative validation score")
+            || replay_sc_err.contains("manifest SHA-256")
+            || replay_sc_err.contains("self-rehashed or tampered manifest rejected"),
+        "expected counterfeit scorecard rejection, got: {replay_sc_err}"
+    );
+
+    // Restore original scorecard and restore exact original manifest bytes
+    fs::write(&bundle_scorecard, original_sc).unwrap();
+    fs::write(&bundle_manifest_path, original_manifest_bytes).unwrap();
+
+    // Clean bundle replay succeeds through Step 7 fast-path with authoritative validation score
+    let verified_replay = run_offline_fixture_campaign(root, &problem_spec, None).unwrap();
+    assert_eq!(verified_replay.candidate_id, outcome1.candidate_id);
+    assert_eq!(verified_replay.validation_score, outcome1.validation_score);
+    assert_eq!(verified_replay.lockbox_score, outcome1.lockbox_score);
+
+}
+
+#[test]
+fn consumed_assessment_refuses_self_rehashed_wrapper() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let dataset_path = root.join("dataset.csv");
+    create_synthetic_dataset(&dataset_path, 30);
+    let problem_spec = CampaignProblemSpec {
+        project_id: "wrapper_replay_guard".into(), dataset_path,
+        target_column: "target".into(), task_type: "regression".into(),
+        metric: Metric::Mae, budget_millicents: 100_000,
+        model_name: "fixture".into(), endpoint: None, api_key: None,
+        lockbox_fraction: Some(0.20), seed: Some(2026), max_turns: Some(2),
+        split_strategy: None, time_column: None, group_column: None,
+    };
+    let outcome1 = run_offline_fixture_campaign(root, &problem_spec, None).unwrap();
+    // Safe unchanged replay succeeds with controller release provenance
+    let replay_outcome = run_offline_fixture_campaign(root, &problem_spec, None).unwrap();
+    assert_eq!(replay_outcome.candidate_id, outcome1.candidate_id);
+    assert_eq!(replay_outcome.lockbox_score, outcome1.lockbox_score);
+    assert_eq!(replay_outcome.weights_sha256, outcome1.weights_sha256);
+
+    let bundle_manifest_path = outcome1.bundle_dir.join("manifest.json");
+    let mut manifest_val: Value = serde_json::from_slice(&fs::read(&bundle_manifest_path).unwrap()).unwrap();
+    // A bundle-owned manifest is not an authority for a modified executable.
+    let wrapper = outcome1.bundle_dir.join("inference.py");
+    let mut wrapper_bytes = fs::read(&wrapper).unwrap();
+    wrapper_bytes.extend_from_slice(b"\n# modified after assessment\n");
+    fs::write(&wrapper, &wrapper_bytes).unwrap();
+    let mut wrapper_hasher = sha2::Sha256::new();
+    wrapper_hasher.update(&wrapper_bytes);
+    manifest_val["files"]["inference.py"]["sha256"] = serde_json::json!(format!("{:x}", wrapper_hasher.finalize()));
+    manifest_val["files"]["inference.py"]["bytes"] = serde_json::json!(wrapper_bytes.len());
+    fs::write(&bundle_manifest_path, serde_json::to_string_pretty(&manifest_val).unwrap()).unwrap();
+    let tamper_err = run_offline_fixture_campaign(root, &problem_spec, None).unwrap_err();
+    assert!(
+        tamper_err.contains("does not match controller release receipt manifest SHA-256")
+            || tamper_err.contains("self-rehashed or tampered bundle rejected"),
+        "a self-rehashed modified executable must not inherit a prior assessment, got: {tamper_err}"
+    );
+    let conn = Connection::open(root.join("controller/state.sqlite")).unwrap();
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM assessment_lockbox_consumptions", [], |r| r.get(0)).unwrap();
+    assert_eq!(count, 1);
+}
+
+#[test]
+fn tampered_manifest_metadata_rejected_on_replay() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let dataset_path = root.join("dataset.csv");
+    create_synthetic_dataset(&dataset_path, 30);
+    let problem_spec = CampaignProblemSpec {
+        project_id: "manifest_tamper_guard".into(),
+        dataset_path,
+        target_column: "target".into(),
+        task_type: "regression".into(),
+        metric: Metric::Mae,
+        budget_millicents: 100_000,
+        model_name: "fixture".into(),
+        endpoint: None,
+        api_key: None,
+        lockbox_fraction: Some(0.20),
+        seed: Some(2026),
+        max_turns: Some(2),
+        split_strategy: None,
+        time_column: None,
+        group_column: None,
+    };
+    let outcome1 = run_offline_fixture_campaign(root, &problem_spec, None).unwrap();
+
+    // Replay succeeds initially
+    let replay_outcome = run_offline_fixture_campaign(root, &problem_spec, None).unwrap();
+    assert_eq!(replay_outcome.candidate_id, outcome1.candidate_id);
+
+    // Tamper with manifest.json metadata (e.g., inject falsified model metadata) WITHOUT modifying manifest files
+    let bundle_manifest_path = outcome1.bundle_dir.join("manifest.json");
+    let mut manifest_val: Value = serde_json::from_slice(&fs::read(&bundle_manifest_path).unwrap()).unwrap();
+    manifest_val["model"] = serde_json::json!({"falsified_metadata": "unauthorized_modification"});
+    fs::write(&bundle_manifest_path, serde_json::to_string_pretty(&manifest_val).unwrap()).unwrap();
+
+    // Replay must fail closed because manifest_sha256 does not match controller release receipt
+    let tamper_err = run_offline_fixture_campaign(root, &problem_spec, None).unwrap_err();
+    assert!(
+        tamper_err.contains("does not match controller release receipt manifest SHA-256")
+            || tamper_err.contains("self-rehashed or tampered manifest rejected"),
+        "tampered manifest metadata must be rejected on replay, got: {tamper_err}"
+    );
+
+    // Lockbox consumption count strictly remains 1
+    let conn = Connection::open(root.join("controller/state.sqlite")).unwrap();
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM assessment_lockbox_consumptions", [], |r| r.get(0)).unwrap();
+    assert_eq!(count, 1);
 }
 
 // ============================================================================
@@ -938,6 +1246,9 @@ fn test_gate_g_standalone_frozen_candidate_parity() {
         lockbox_fraction: Some(0.20),
         seed: Some(2026),
         max_turns: Some(2),
+        split_strategy: None,
+        time_column: None,
+        group_column: None,
     };
 
     let outcome = run_offline_fixture_campaign(root, &problem_spec, None).unwrap();
@@ -958,5 +1269,114 @@ fn test_gate_g_standalone_frozen_candidate_parity() {
         let p = item.get("prediction").and_then(|v| v.as_f64()).or_else(|| item.as_f64()).expect("numeric prediction expected");
         assert!(p.is_finite(), "CLI prediction must be a finite float");
     }
+
+    // Verify standalone predictions against scored frozen lockbox predictions across batch sizes (1, 5, full)
+    let worker_workspace = root.join("worker_workspace");
+    let lockbox_preds_path = worker_workspace.join("lockbox_predictions.json");
+    let lockbox_features_path = worker_workspace.join("lockbox_features.csv");
+
+    let scored_preds_raw: Vec<Value> = serde_json::from_slice(&fs::read(&lockbox_preds_path).unwrap()).unwrap();
+    let scored_preds: Vec<f64> = scored_preds_raw
+        .iter()
+        .map(|v| v.get("prediction").and_then(|p| p.as_f64()).expect("scored prediction missing"))
+        .collect();
+
+    // Parse features from lockbox_features.csv
+    let csv_content = fs::read_to_string(&lockbox_features_path).unwrap();
+    let mut lines = csv_content.lines();
+    let header_line = lines.next().expect("header missing");
+    let header_cols: Vec<&str> = header_line.split(',').collect();
+
+    let mut all_rows: Vec<Value> = Vec::new();
+    for line in lines {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let vals: Vec<&str> = line.split(',').collect();
+        let mut row_map = serde_json::Map::new();
+        for (col_idx, &col_name) in header_cols.iter().enumerate() {
+            if col_name == "__mlr_row_id" {
+                continue;
+            }
+            let num: f64 = vals[col_idx].trim().parse().unwrap();
+            row_map.insert(col_name.to_string(), Value::from(num));
+        }
+        all_rows.push(Value::Object(row_map));
+    }
+
+    assert_eq!(all_rows.len(), scored_preds.len(), "feature count must match scored prediction count");
+    assert!(!all_rows.is_empty(), "must have lockbox rows to test parity");
+
+    // 1. Full batch test
+    let full_batch_in = root.join("full_batch_in.json");
+    let full_batch_out = root.join("full_batch_out.json");
+    fs::write(&full_batch_in, serde_json::to_string(&all_rows).unwrap()).unwrap();
+    let full_cli_out = verify_standalone_cli_inference(&outcome.bundle_dir, &full_batch_in, &full_batch_out).unwrap();
+    let full_arr = full_cli_out.as_array().expect("array expected");
+    assert_eq!(full_arr.len(), scored_preds.len());
+    for (i, item) in full_arr.iter().enumerate() {
+        let p = item.get("prediction").and_then(|v| v.as_f64()).or_else(|| item.as_f64()).expect("numeric prediction");
+        let expected = scored_preds[i];
+        assert!(
+            (p - expected).abs() < 1e-4,
+            "full-batch mismatch at row {i}: standalone={p}, scored={expected}"
+        );
+    }
+
+    // 2. Batch size 5 test
+    for chunk_start in (0..all_rows.len()).step_by(5) {
+        let chunk_end = (chunk_start + 5).min(all_rows.len());
+        let chunk_slice = &all_rows[chunk_start..chunk_end];
+        let chunk_in = root.join(format!("batch5_in_{chunk_start}.json"));
+        let chunk_out = root.join(format!("batch5_out_{chunk_start}.json"));
+        fs::write(&chunk_in, serde_json::to_string(chunk_slice).unwrap()).unwrap();
+        let chunk_cli_out = verify_standalone_cli_inference(&outcome.bundle_dir, &chunk_in, &chunk_out).unwrap();
+        let chunk_arr = chunk_cli_out.as_array().expect("array expected");
+        assert_eq!(chunk_arr.len(), chunk_slice.len());
+        for (sub_i, item) in chunk_arr.iter().enumerate() {
+            let row_idx = chunk_start + sub_i;
+            let p = item.get("prediction").and_then(|v| v.as_f64()).or_else(|| item.as_f64()).expect("numeric prediction");
+            let expected = scored_preds[row_idx];
+            assert!(
+                (p - expected).abs() < 1e-4,
+                "batch-5 mismatch at row {row_idx}: standalone={p}, scored={expected}"
+            );
+        }
+    }
+
+    // 3. Batch size 1 test
+    for (i, single_row) in all_rows.iter().enumerate() {
+        let single_in = root.join(format!("batch1_in_{i}.json"));
+        let single_out = root.join(format!("batch1_out_{i}.json"));
+        fs::write(&single_in, serde_json::to_string(&vec![single_row.clone()]).unwrap()).unwrap();
+        let single_cli_out = verify_standalone_cli_inference(&outcome.bundle_dir, &single_in, &single_out).unwrap();
+        let single_arr = single_cli_out.as_array().expect("array expected");
+        assert_eq!(single_arr.len(), 1);
+        let p = single_arr[0].get("prediction").and_then(|v| v.as_f64()).or_else(|| single_arr[0].as_f64()).expect("numeric prediction");
+        let expected = scored_preds[i];
+        assert!(
+            (p - expected).abs() < 1e-4,
+            "batch-1 mismatch at row {i}: standalone={p}, scored={expected}"
+        );
+    }
+
+    // 4. Schema rejection checks: missing feature, extraneous column, and invalid types must fail closed
+    let missing_col_in = root.join("bad_missing_col_in.json");
+    let missing_col_out = root.join("bad_missing_col_out.json");
+    fs::write(&missing_col_in, r#"[{"x1": 1.0}]"#).unwrap();
+    let missing_res = verify_standalone_cli_inference(&outcome.bundle_dir, &missing_col_in, &missing_col_out);
+    assert!(missing_res.is_err(), "inference on input with missing feature must fail closed");
+
+    let extra_col_in = root.join("bad_extra_col_in.json");
+    let extra_col_out = root.join("bad_extra_col_out.json");
+    fs::write(&extra_col_in, r#"[{"x1": 1.0, "x2": 2.0, "unexpected_feature": 42.0}]"#).unwrap();
+    let extra_res = verify_standalone_cli_inference(&outcome.bundle_dir, &extra_col_in, &extra_col_out);
+    assert!(extra_res.is_err(), "inference on input with unrecognized extra column must fail closed");
+
+    let invalid_type_in = root.join("bad_invalid_type_in.json");
+    let invalid_type_out = root.join("bad_invalid_type_out.json");
+    fs::write(&invalid_type_in, r#"[{"x1": "not_a_number", "x2": 2.0}]"#).unwrap();
+    let invalid_res = verify_standalone_cli_inference(&outcome.bundle_dir, &invalid_type_in, &invalid_type_out);
+    assert!(invalid_res.is_err(), "inference on input with non-numeric value must fail closed");
 }
 

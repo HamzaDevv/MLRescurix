@@ -45,6 +45,17 @@ def test_unreported_usage_and_unconnected_budgets_are_disclosed():
     assert status["web_search_queries"]["enforced"] is False
 
 
+def test_connectivity_does_not_claim_global_budget_enforcement():
+    budget = OperationalBudgets(search_connected=True, kaggle_connected=True)
+    budget.record_search_query()
+    budget.record_kaggle_compute(3600)
+    status = budget.get_status()
+    for key in ("web_search_queries", "kaggle_compute"):
+        assert status[key]["connected"] is True
+        assert status[key]["enforced"] is False
+        assert status[key]["remaining" if key == "web_search_queries" else "remaining_hours"] is None
+
+
 def test_invalid_config_does_not_silently_raise_budget_to_default(tmp_path):
     path = tmp_path / "budgets.json"
     path.write_text('{"budgets":{"total_model_tokens":{"limit":-1}}}')
@@ -80,4 +91,29 @@ def test_restore_search_and_kaggle_usage_without_cumulative_multiplication():
     budget.restore_operational_budgets(turns)
     assert budget.web_search_used == 2
     assert budget.kaggle_hours_used == 1.2
+
+
+def test_authoritative_resource_status_query(tmp_path):
+    db_file = tmp_path / "state.sqlite"
+    proj = "proj_auth_test"
+    budget = OperationalBudgets(project_id=proj, db_path=db_file, web_search_limit=50)
+
+    # 1. Before admission: DB doesn't exist yet, so enforced is False
+    status_pre = budget.get_status()
+    assert status_pre["web_search_queries"]["enforced"] is False
+
+    # 2. Admit a search attempt via Rust harness
+    admitted, attempt_id = budget.admit_search("what is boosting", "what is boosting", provider="fixture")
+    assert admitted is True
+    assert attempt_id is not None
+    budget.settle_search(attempt_id, status="success")
+
+    # A local attempt record does not prove campaign-wide or remote enforcement.
+    status_post = budget.get_status()
+    assert status_post["web_search_queries"]["enforced"] is False
+    assert status_post["web_search_queries"]["recorded_session_queries"] == 1
+    assert status_post["web_search_queries"]["used"] is None
+    assert status_post["web_search_queries"]["remaining"] is None
+    assert status_post["kaggle_compute"]["enforced"] is False
+    assert status_post["kaggle_compute"]["remaining_hours"] is None
 

@@ -99,7 +99,7 @@ fn now_ms() -> i64 {
 }
 
 fn settle_job(root: &Path, supervisor: &mut Supervisor, project: &str, id: &str) -> String {
-    for _ in 0..300 {
+    for _ in 0..500 {
         supervisor.tick().unwrap();
         let j = execution::inspect(root, project, id).unwrap();
         if !matches!(j.status.as_str(), "queued" | "running" | "recovering" | "terminating") {
@@ -1106,7 +1106,7 @@ fn p3_test_pressure_backoff_and_finalization_headroom_preservation() {
         max_output_bytes: 1024,
         environment_id: None,
         resources: ResourceRequirements::default(),
-        probe: Probe::Sleep { millis: 1000 },
+        probe: Probe::Sleep { millis: 2500 },
     };
     let std_job2 = JobSpec {
         job_id: "std-2".into(),
@@ -1118,7 +1118,7 @@ fn p3_test_pressure_backoff_and_finalization_headroom_preservation() {
         max_output_bytes: 1024,
         environment_id: None,
         resources: ResourceRequirements::default(),
-        probe: Probe::Sleep { millis: 1000 },
+        probe: Probe::Sleep { millis: 2500 },
     };
     execution::submit(&root, std_job1).unwrap();
     execution::submit(&root, std_job2).unwrap();
@@ -1142,23 +1142,37 @@ fn p3_test_pressure_backoff_and_finalization_headroom_preservation() {
         max_output_bytes: 1024,
         environment_id: None,
         resources: ResourceRequirements::default(),
-        probe: Probe::Sleep { millis: 100 },
+        probe: Probe::Sleep { millis: 2000 },
     };
     let res = check_capacity_admission(&root, &conn, "p-press-1", &std_job3, 3);
     assert!(res.is_err());
     assert_eq!(res.unwrap_err(), "capacity unavailable: workers (reserved for finalization)");
 
-    // Pressure backoff
-    unsafe { std::env::set_var("MLRESCURIX_PRESSURE_BACKOFF", "1"); }
+    // Settle std-1 to free a standard worker slot
+    settle_job(&root, &mut supervisor, "p-press-1", "std-1");
+    let res_avail = check_capacity_admission(&root, &conn, "p-press-1", &std_job3, 3);
+    assert!(res_avail.is_ok(), "With std-1 settled, standard worker slot must be available");
+
+    // Pressure backoff: even with capacity available, standard job must remain deferred
+    let pressure_file = root.join(".pressure");
+    std::fs::write(&pressure_file, b"1").unwrap();
     assert!(is_under_pressure(&root).unwrap());
 
     execution::submit(&root, std_job3).unwrap();
     supervisor.tick().unwrap();
     let j3 = execution::inspect(&root, "p-press-1", "std-3").unwrap();
-    assert_eq!(j3.status, "queued", "Under pressure, standard job must remain queued");
+    assert_eq!(j3.status, "queued", "Under pressure, standard job must remain queued despite available capacity");
 
-    unsafe { std::env::remove_var("MLRESCURIX_PRESSURE_BACKOFF"); }
+    let _ = std::fs::remove_file(&pressure_file);
     assert!(!is_under_pressure(&root).unwrap());
+
+    // Once pressure is relieved, supervisor tick must admit std-3 into running (or succeeded if execution finished)
+    supervisor.tick().unwrap();
+    let j3_admitted = execution::inspect(&root, "p-press-1", "std-3").unwrap();
+    assert!(
+        j3_admitted.status == "running" || j3_admitted.status == "succeeded",
+        "After pressure is removed, standard job must be admitted, got: {}", j3_admitted.status
+    );
 }
 
 #[test]

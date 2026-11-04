@@ -1,8 +1,8 @@
 //! Boundary regressions discovered while independently reviewing S1.
 use std::{fs, sync::Arc};
 use mlrescurix_harness::{
-    agents::gateway::{ChatCompletionResponse, ScriptedProviderFixture, TokenUsage},
-    campaign::{run_autonomous_campaign, run_offline_fixture_campaign, CampaignProblemSpec},
+    agents::gateway::{ChatCompletionResponse, FunctionCall, ScriptedProviderFixture, TokenUsage, ToolCall},
+    campaign::{generate_default_solution_template, run_autonomous_campaign, run_offline_fixture_campaign, CampaignProblemSpec},
     trusted_evaluation::Metric,
 };
 
@@ -16,6 +16,7 @@ fn problem(root: &std::path::Path) -> CampaignProblemSpec {
         task_type: "regression".into(), metric: Metric::Mae, budget_millicents: 150_000,
         model_name: "deepseek/deepseek-chat".into(), endpoint: None, api_key: None,
         lockbox_fraction: Some(0.2), seed: Some(2026), max_turns: Some(1),
+        split_strategy: None, time_column: None, group_column: None,
     }
 }
 
@@ -34,10 +35,63 @@ fn challenger_must_return_an_unambiguous_explicit_verdict() {
     for content in [Some(""), None, Some("I cannot inspect the evidence"), Some("NOT APPROVED"), Some("APPROVED or CHALLENGED"), Some("APPROVED: no, actually CHALLENGED")] {
         let tmp = tempfile::tempdir().unwrap();
         let spec = problem(tmp.path());
-        let responses = [Some("[FINAL] Reference fixture authoring."), Some("DELEGATE_CHALLENGER: audit required"), content].into_iter().enumerate().map(|(i, text)| ChatCompletionResponse {
-            id: format!("turn_{i}"), model: spec.model_name.clone(), content: text.map(str::to_string),
-            tool_calls: vec![], usage: TokenUsage { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 }, latency_ms: 0,
-        }).collect();
+        let (custom_solution_py, program_manifest) = generate_default_solution_template(
+            "regression",
+            &["x".into()],
+            "target",
+            "cand_review_boundary",
+        ).unwrap();
+        let responses = vec![
+            ChatCompletionResponse {
+                id: "turn_spec_author".into(),
+                model: spec.model_name.clone(),
+                content: Some("Authoring solution and manifest".into()),
+                tool_calls: vec![
+                    ToolCall {
+                        id: "call_ws_solution".into(),
+                        call_type: "function".into(),
+                        function: FunctionCall {
+                            name: "workspace_fs".into(),
+                            arguments: serde_json::json!({
+                                "action": "write",
+                                "path": "solution.py",
+                                "content": custom_solution_py,
+                            }).to_string(),
+                        },
+                    },
+                    ToolCall {
+                        id: "call_ws_program".into(),
+                        call_type: "function".into(),
+                        function: FunctionCall {
+                            name: "workspace_fs".into(),
+                            arguments: serde_json::json!({
+                                "action": "write",
+                                "path": "program.json",
+                                "content": serde_json::to_string_pretty(&program_manifest).unwrap(),
+                            }).to_string(),
+                        },
+                    },
+                ],
+                usage: TokenUsage { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
+                latency_ms: 0,
+            },
+            ChatCompletionResponse {
+                id: "turn_boss_delegate".into(),
+                model: spec.model_name.clone(),
+                content: Some("DELEGATE_CHALLENGER: audit required".into()),
+                tool_calls: vec![],
+                usage: TokenUsage { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
+                latency_ms: 0,
+            },
+            ChatCompletionResponse {
+                id: "turn_challenger".into(),
+                model: spec.model_name.clone(),
+                content: content.map(str::to_string),
+                tool_calls: vec![],
+                usage: TokenUsage { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
+                latency_ms: 0,
+            },
+        ];
         let gateway = Arc::new(ScriptedProviderFixture::new(responses));
         let err = run_offline_fixture_campaign(&tmp.path().join("state"), &spec, Some(gateway)).unwrap_err();
         assert!(err.contains("challenger verdict"), "{content:?}: {err}");

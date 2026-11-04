@@ -1,0 +1,25 @@
+    Blocking waiting for file lock on artifact directory
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.93s
+     Running tests/s2_red_team.rs (target/debug/deps/s2_red_team-fc5969ff210d96a9)
+
+running 4 tests
+test challenger_rejects_contradictory_bindings_and_malformed_audits ... ok
+test specialist_text_cannot_select_an_unauthored_reference ... FAILED
+test post_audit_owner_reply_requires_explicit_finalization ... ok
+test owner_missing_ambiguous_or_negative_decision_cannot_finalize ... ok
+
+failures:
+
+---- specialist_text_cannot_select_an_unauthored_reference stdout ----
+
+thread 'specialist_text_cannot_select_an_unauthored_reference' (2492149) panicked at crates/harness/tests/s2_red_team.rs:36:9:
+unexpected error: specialist step failed unexpectedly
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    specialist_text_cannot_select_an_unauthored_reference
+
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.85s
+
+error: test failed, to rerun pass `-p mlrescurix-harness --test s2_red_team`

@@ -67,6 +67,7 @@ fn test_warm_worker_clean_state_isolation_negative_guard() {
     let temp = tempfile::tempdir().unwrap();
     let state_root = temp.path().join("state");
     fs::create_dir_all(&state_root).unwrap();
+    let _ = fs::remove_file("/tmp/tmpfs_leak_canary.txt");
 
     let mode = if WarmWorkerPool::is_docker_available() {
         WarmPoolMode::LiveDocker
@@ -208,11 +209,12 @@ fn test_cgroup_v2_memory_certification_and_diagnostic_bridge_oom() {
     let state_root = temp.path().join("state");
     fs::create_dir_all(&state_root).unwrap();
 
-    let mode = if WarmWorkerPool::is_docker_available() {
-        WarmPoolMode::LiveDocker
-    } else {
-        WarmPoolMode::Simulated
-    };
+    if !WarmWorkerPool::is_docker_available() {
+        println!("ignored, requires Docker for cgroup v2 memory enforcement");
+        return;
+    }
+
+    let mode = WarmPoolMode::LiveDocker;
 
     let memory_limit = 64 * 1024 * 1024; // 64 MiB strict cap
 

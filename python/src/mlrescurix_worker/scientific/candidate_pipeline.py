@@ -238,10 +238,11 @@ def normalize_spec(spec: dict) -> dict:
                 options.pop("target_transform")
         families = spec.get("families")
         norm_fams = {normalize_family_name(f) for f in families} if isinstance(families, list) else None
+        supported = {"hist_gbdt", "penalized_linear", "lgbm", "xgboost", "catboost", "neural_tabular"}
         for fam in list(options.keys()):
             norm_fam = normalize_family_name(fam)
             val = options.pop(fam)
-            if norm_fams is not None and norm_fam not in norm_fams:
+            if norm_fams is not None and norm_fam not in norm_fams and norm_fam in supported:
                 continue
             if isinstance(val, dict):
                 # Extract misplaced target_transform inside family parameters
@@ -348,7 +349,7 @@ effective_configuration = resolve_effective_config
 
 def validate_spec(spec, task_type=None):
     normalize_spec(spec)
-    if set(spec) - {"families", "weights", "transforms", "seed", "model_parameters", "target_transform", "effective_configuration", "replication_reason", "attempt_identity"}:
+    if set(spec) - {"families", "weights", "transforms", "seed", "model_parameters", "target_transform", "effective_configuration", "replication_reason", "attempt_identity", "task_type"}:
         raise ValueError("Unknown candidate specification fields")
     if spec.get("target_transform", "none") not in ("none", "log", "log1p"):
         raise ValueError("Unsupported target transform")

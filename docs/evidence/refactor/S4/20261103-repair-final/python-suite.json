@@ -1,0 +1,11 @@
+{
+  "command": "PYTHONPATH=python/src python3 -m pytest python/tests/ -q",
+  "exit_code": 0,
+  "timestamp_utc": "2026-11-03T15:57:42Z",
+  "platform": "darwin",
+  "status": "PASS",
+  "passed": 510,
+  "skipped": 1,
+  "failed": 0,
+  "duration_seconds": 266.38
+}

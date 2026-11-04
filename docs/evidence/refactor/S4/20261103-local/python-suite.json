@@ -1,0 +1,13 @@
+{
+  "argv": [
+    "python3",
+    "-m",
+    "pytest",
+    "python/tests"
+  ],
+  "environment": {
+    "PYTHONPATH": "python/src"
+  },
+  "exit": 1,
+  "seconds": 327.11
+}

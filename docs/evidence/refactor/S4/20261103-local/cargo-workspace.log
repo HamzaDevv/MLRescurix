@@ -1,0 +1,204 @@
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.43s
+     Running unittests src/lib.rs (target/debug/deps/mlrescurix_harness-c9b0a6a2da25d54f)
+
+running 44 tests
+test adapters::tests::test_arrow_adapter_memory_bounds_and_rejection ... ok
+test agents::gateway::campaign_admission_tests::exact_dollar_precision ... ok
+test adapters::tests::test_temporal_split_integrity_rejects_future_lookahead ... ok
+test adapters::tests::test_anomaly_clustering_bounds_and_rejection ... ok
+test agents::gateway::campaign_admission_tests::implicit_openrouter_credentials_require_exact_https_authority ... ok
+test adapters::tests::test_frozen_embeddings_bounds_and_rejection ... ok
+test agents::gateway::campaign_admission_tests::live_price_caps_must_fit_reservation_rates ... ok
+test agents::gateway::disclosure_regression_tests::short_and_nested_records_cannot_be_hidden_by_marker ... ok
+test agents::gateway::disclosure_regression_tests::aggregate_dossier_and_multiline_prose_are_not_rows ... ok
+test agents::gateway::disclosure_regression_tests::tool_call_arguments_are_checked_even_without_message_content ... ok
+test agents::gateway::disclosure_regression_tests::tool_schemas_and_provider_options_do_not_bypass_disclosure_check ... ok
+test agents::gateway::disclosure_regression_tests::adversarial_rows_in_history_or_receipts_are_rejected ... ok
+test agents::tools::tests::unavailable_sandbox_refuses_tool_before_any_state_or_workspace_write ... ok
+test agents::gateway::disclosure_regression_tests::legitimate_typed_experiment_receipts_are_permitted_in_turn_history ... ok
+test bundle::tests::bundle_collection_includes_bytecode_and_rejects_hidden_symlinks ... ok
+test campaign::csv_serialization_tests::quotes_special_csv_fields_and_preserves_whitespace ... ok
+test agents::gateway::campaign_admission_tests::transport_sends_exact_json_and_auth_over_pipe ... ok
+test agents::gateway::campaign_admission_tests::reservation_binding_survives_reopen_and_rejects_cross_scope_replay ... ok
+test cas::tests::test_cas_blob_store_and_read ... ok
+test bundle::tests::integrity_does_not_certify_execution_or_unknown_constraints ... ok
+test bundle::tests::v2_bundle_manifest_and_dependency_isolation ... ok
+test cas::tests::test_cas_directory_manifest ... ok
+test agents::gateway::campaign_admission_tests::multi_provider_role_routing_and_context_bounds ... ok
+test execution::resources::tests::live_cgroup_oom_is_enforced_and_event_is_received_before_teardown ... ignored, requires explicit locally installed digest-pinned Docker image
+test execution::resources::tests::live_cgroup_receipt_and_daemon_survivor_restart ... ignored, requires explicit locally installed digest-pinned Docker image
+test assets::tests::runtime_assets_reject_directory_and_file_symlink_escape ... ok
+test execution::resources::tests::feature_detection_and_required_certification_refuse_without_dispatch ... ok
+test execution::resources::tests::completing_one_job_does_not_stop_other_live_workers ... ok
+test execution::resources::tests::claimed_complete_measurement_without_effective_limits_is_not_certified ... ok
+test execution::tests::low_disk_admission_boundary ... ok
+test execution::resources::tests::foreign_supervisor_container_is_skipped_during_discovery ... ok
+test iteration::tests::test_hypothesis_settlement_rules ... ok
+test iteration::tests::test_pareto_frontier_computation_maximize ... ok
+test iteration::tests::test_pareto_frontier_computation_minimize ... ok
+test execution::resources::tests::missing_measurement_and_state_ceiling_do_not_claim_certification ... ok
+test pool::tests::test_warm_pool_clean_state_isolation_between_tasks ... ok
+test pool::tests::test_warm_pool_simulated_dispatch_and_sub_100ms_latency ... ok
+test pool::tests::test_warm_pool_exhaustion_under_concurrent_load ... ok
+test execution::resources::tests::stop_acknowledgement_without_exit_cannot_release_or_remove ... ok
+test execution::resources::tests::survivor_discovery_adopts_missing_identity_then_reaps_exact_id ... ok
+test iteration::tests::test_hypothesis_and_pareto_sqlite_persistence ... ok
+test execution::resources::tests::failed_stop_or_remove_keeps_receipts_and_reservations_for_restart ... ok
+test execution::resources::tests::survivor_ownership_epoch_and_identity_conflicts_are_never_reaped ... ok
+test assets::tests::installed_runtime_supports_common_controller_and_human_interface_without_checkout ... ok
+
+test result: ok. 42 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 5.40s
+
+     Running unittests src/main.rs (target/debug/deps/mlrescurix_harness-8cc11fd9f71f687a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/adapters_p9.rs (target/debug/deps/adapters_p9-60aadc984ea74428)
+
+running 12 tests
+test test_p9_2_temporal_split_out_of_order_rejection ... ok
+test test_p9_1_arrow_adapter_memory_cap_enforcement ... ok
+test test_p9_2_temporal_split_integrity_and_leakage_rejection ... ok
+test test_p9_2_time_series_adapter_schema_models_and_json_roundtrip ... ok
+test test_p9_1_arrow_adapter_schema_models_and_json_roundtrip ... ok
+test test_p9_3_anomaly_clustering_adapter_models_and_json_roundtrip ... ok
+test test_p9_4_frozen_embeddings_adapter_models_and_json_roundtrip ... ok
+test test_p9_1_arrow_adapter_db_persistence_and_query ... ok
+test test_p9_2_time_series_db_persistence_and_query ... ok
+test test_p9_acceptance_gate_full_closure ... ok
+test test_p9_orchestrator_tool_dispatch_arrow_and_time_series ... ok
+test test_p9_cli_commands_and_capabilities ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.18s
+
+     Running tests/agent_m4.rs (target/debug/deps/agent_m4-1141c4a760b6cf02)
+
+running 27 tests
+test m4_authoritative_budget_query_and_remaining_calculation ... ok
+test m4_outbound_data_redaction_filter ... ok
+test m4_cross_branch_immutable_snapshot_reuse ... ok
+test m4_exhausted_budget_blocks_provider_before_dispatch ... ok
+test duplicate_dispatch_does_not_release_inflight_spend ... ok
+test m4_path_traversal_and_symlink_rejection_in_workspace ... ok
+test m4_role_registry_defines_all_eight_specialist_roles ... ok
+test m4_sandbox_detector_and_honest_refusal_when_unavailable ... ok
+test gateway_concurrent_duplicate_and_ambiguous_receipts_never_redispatch ... ok
+test m4_conservative_ceiling_settlement_on_provider_failure ... ok
+test m4_achievement_checkpointing_and_context_compaction ... ok
+test m4_schema_validation_pre_and_post_execution ... ok
+test m4_role_rbac_enforcement ... ok
+test m4_workspace_symlink_cannot_read_or_overwrite_host_file ... ok
+test m4_reconstructable_checkpoint_and_evidence_integrity ... ok
+test m4_agent_authors_tests_and_reuses_diagnostic_tool_and_adapts_decision ... ok
+test m6_outbound_view_policy_approval_content_binding_and_expiry ... ok
+test m6_currency_cost_millicents_and_finalization_reserve_enforcement ... ok
+test m6_specialist_scheduling_crash_recovery_and_handoff ... ok
+test provider_gateway_requires_prices_before_any_transport ... ok
+test m5_delegation_preserves_prior_tasks_and_reports_provider_failure ... ok
+test m6_provider_turn_crash_reconciliation_all_four_states ... ok
+test test_dispatch_gateway_outbound_policy_approval_and_accounting ... ok
+test m4_research_closure_and_critic_finalization ... ok
+test p1_delegation_and_registration_crash_reconciliation_and_fault_regressions ... ok
+test p1_scheduler_job_submission_crash_reconciliation_and_fault_regressions ... ok
+test m4_ten_projects_and_three_branches_fairness ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.67s
+
+     Running tests/artifact_registry_p2.rs (target/debug/deps/artifact_registry_p2-4ad16c0edcbd6b7f)
+
+running 14 tests
+test p2_test_cas_blob_storage_deduplication_and_permissions ... ok
+test p2_test_directory_manifest_canonicalization_and_symlink_rejection ... ok
+test p24_artifact_event_rolls_back_with_registry_mutation ... ok
+test p23_queries_use_bounded_read_only_pool_and_pin_events ... ok
+test p26_tombstone_respects_pins_and_selection_history ... ok
+test p26_successor_and_tombstone_commands_are_revisioned_and_idempotent ... ok
+test p2_test_migration_v9_to_v10_with_populated_state ... ok
+test p2_test_partial_cas_and_db_commit_reconciliation ... ok
+test p2_test_populated_state_upgrade_preserves_selection_and_final_test_records ... ok
+test p2_test_lineage_annotations_and_apex_selection ... ok
+test p2_test_two_tier_summary_bounds_and_authority ... ok
+test p2_test_event_restart_and_reconnect_consistency ... ok
+test p2_test_protected_references_survive_concurrent_gc ... ok
+test p24_event_retention_tracks_expired_cursor_per_project ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.24s
+
+     Running tests/autonomous_rescue_p10.rs (target/debug/deps/autonomous_rescue_p10-0c5727565419bd6f)
+
+running 5 tests
+test p10_4_negative_role_rbac_authorization ... ok
+test p10_4_schema_v10_persistence_and_rescue_session_model ... ok
+test p10_4_negative_holdout_access_refusal_without_approval ... ok
+test p10_4_dataset_profiling_tool_dispatch ... ok
+test p10_4_full_autonomous_rescue_closed_loop_and_bundle_delivery ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.64s
+
+     Running tests/benchmarks_gate4.rs (target/debug/deps/benchmarks_gate4-b0c2c078d67a0272)
+
+running 5 tests
+test test_gate4_benchmark_bundle_delivery_verification ... ok
+test test_gate4_sealed_holdout_zero_leakage_and_single_use_guard ... ok
+test test_gate4_rejection_of_non_generalizing_overfit_candidates ... ok
+test test_gate4_matched_compute_and_memory_budget_enforcement ... ok
+test test_gate4_multi_seed_benchmarks_on_standard_openml_datasets ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.21s
+
+     Running tests/bundle_scientific_docker.rs (target/debug/deps/bundle_scientific_docker-c7858464148b3674)
+
+running 1 test
+test scientific_bundle_parity_schema_and_hostile_containment ... ignored, requires explicit local digest-pinned scientific Docker image
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/campaign_boss_specialist_slice.rs (target/debug/deps/campaign_boss_specialist_slice-35c1686fdd0185eb)
+
+running 9 tests
+test test_evidence_d_action_parity_embedded_assets_json ... ok
+test test_evidence_c_restart_after_challenger_approval_does_not_re_step_challenger ... FAILED
+test test_challenger_rejection_halts_boss_and_rejects_candidate ... FAILED
+test test_evidence_a_second_configuration_changes_behavior ... ok
+test test_evidence_d_csv_header_whitespace_resilience ... ok
+test test_evidence_b_serialized_context_isolation_and_evidence_binding ... ok
+test test_evidence_c_restart_boundary_preserves_outcome_and_prevents_double_lockbox ... FAILED
+test test_evidence_c_restart_recovers_when_bundle_incomplete_after_lockbox_consumption ... FAILED
+test test_evidence_a_boss_specialist_slice_end_to_end ... ok
+
+failures:
+
+---- test_evidence_c_restart_after_challenger_approval_does_not_re_step_challenger stdout ----
+
+thread 'test_evidence_c_restart_after_challenger_approval_does_not_re_step_challenger' (2517322) panicked at crates/harness/tests/campaign_boss_specialist_slice.rs:673:89:
+called `Result::unwrap()` on an `Err` value: "specialist failed to author solution.py and program.json; reference template fallback is not authorized by assistant text"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- test_challenger_rejection_halts_boss_and_rejects_candidate stdout ----
+
+thread 'test_challenger_rejection_halts_boss_and_rejects_candidate' (2517318) panicked at crates/harness/tests/campaign_boss_specialist_slice.rs:525:5:
+expected challenger rejection error, got: specialist failed to author solution.py and program.json; reference template fallback is not authorized by assistant text
+
+---- test_evidence_c_restart_boundary_preserves_outcome_and_prevents_double_lockbox stdout ----
+
+thread 'test_evidence_c_restart_boundary_preserves_outcome_and_prevents_double_lockbox' (2517323) panicked at crates/harness/tests/campaign_boss_specialist_slice.rs:437:71:
+called `Result::unwrap()` on an `Err` value: "assessment already consumed; replay requires reconciliation of the incomplete historical execution receipt"
+
+---- test_evidence_c_restart_recovers_when_bundle_incomplete_after_lockbox_consumption stdout ----
+
+thread 'test_evidence_c_restart_recovers_when_bundle_incomplete_after_lockbox_consumption' (2517324) panicked at crates/harness/tests/campaign_boss_specialist_slice.rs:587:71:
+called `Result::unwrap()` on an `Err` value: "assessment already consumed; replay requires reconciliation of the incomplete historical execution receipt"
+
+
+failures:
+    test_challenger_rejection_halts_boss_and_rejects_candidate
+    test_evidence_c_restart_after_challenger_approval_does_not_re_step_challenger
+    test_evidence_c_restart_boundary_preserves_outcome_and_prevents_double_lockbox
+    test_evidence_c_restart_recovers_when_bundle_incomplete_after_lockbox_consumption
+
+test result: FAILED. 5 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.36s
+
+error: test failed, to rerun pass `--test campaign_boss_specialist_slice`

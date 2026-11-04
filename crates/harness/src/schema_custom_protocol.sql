@@ -46,3 +46,24 @@ CREATE TRIGGER IF NOT EXISTS admitted_reference_fixtures_no_update BEFORE UPDATE
 BEGIN SELECT RAISE(ABORT, 'admitted reference fixtures are immutable'); END;
 CREATE TRIGGER IF NOT EXISTS admitted_reference_fixtures_no_delete BEFORE DELETE ON admitted_reference_fixtures
 BEGIN SELECT RAISE(ABORT, 'admitted reference fixtures are immutable'); END;
+
+CREATE TABLE IF NOT EXISTS controller_release_receipts (
+  project TEXT NOT NULL,
+  dataset_id TEXT NOT NULL,
+  candidate_id TEXT NOT NULL,
+  protocol_sha256 TEXT NOT NULL,
+  weights_sha256 TEXT NOT NULL,
+  source_sha256 TEXT NOT NULL,
+  manifest_sha256 TEXT NOT NULL,
+  closure_sha256 TEXT NOT NULL,
+  validation_score REAL NOT NULL,
+  lockbox_score REAL NOT NULL,
+  lockbox_receipt_sha256 TEXT NOT NULL,
+  receipt_json TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  PRIMARY KEY(project, dataset_id, candidate_id)
+);
+CREATE TRIGGER IF NOT EXISTS controller_release_receipts_no_update BEFORE UPDATE ON controller_release_receipts
+BEGIN SELECT RAISE(ABORT, 'controller release receipt is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS controller_release_receipts_no_delete BEFORE DELETE ON controller_release_receipts
+BEGIN SELECT RAISE(ABORT, 'controller release receipt is immutable'); END;

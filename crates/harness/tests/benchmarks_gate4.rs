@@ -285,7 +285,7 @@ fn test_gate4_benchmark_bundle_delivery_verification() {
     });
     fs::write(bundle_dir.join("scorecard.json"), serde_json::to_vec_pretty(&scorecard).unwrap()).unwrap();
 
-    let mut files_map = std::collections::HashMap::new();
+    let mut files_map = std::collections::BTreeMap::new();
     for f in &contract_files {
         let p = bundle_dir.join(f);
         let bytes = fs::read(&p).unwrap();

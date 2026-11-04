@@ -588,3 +588,83 @@ def test_apex_iteration_journey_and_selection(tmp_path: Path):
     assert "Selected Apex Iteration: 1" in handoff_md
     assert "👑 Apex #1 (Pinned & Selected)" in handoff_md
     assert "👑 Apex #2" in handoff_md
+
+
+# =============================================================================
+# Test 10: Negative-Result Memory and Plateau Detection
+# =============================================================================
+
+def test_negative_results_memory_and_plateau_detection(tmp_path: Path):
+    dataset_path = create_synthetic_dataset(tmp_path / "data.csv")
+    budget = MockBudgetAuthority()
+    loop = AutonomousAgentLoop(
+        workspace_root=tmp_path / "ws_plateau",
+        project_id="test_plateau_proj",
+        session_id="run_plateau_test",
+        provider_is_fixture=True,
+        campaign_authority=budget,
+        dataset_path=dataset_path,
+        target_column="target",
+        max_turns=5,
+    )
+
+    # 1. Apex breakthrough
+    it1 = loop._record_iteration(
+        turn_index=0,
+        action_type="EVALUATE_PORTFOLIO",
+        iteration_type="baseline",
+        description="Initial baseline model",
+        spec={"families": ["hist_gbdt"], "weights": [1], "transforms": []},
+        eval_result={"cv_score": 0.75, "receipt_identity": "rcpt_1", "fold_receipts": []},
+        audit={"status": "APPROVED", "candidate_id": "cand_1"},
+        candidate_id="cand_1",
+    )
+    assert it1["is_apex"] is True
+    assert len(loop.state["negative_results"]) == 0
+    plateau0 = loop._detect_plateau(window=2)
+    assert plateau0["plateau_detected"] is False
+
+    # 2. Non-improving candidate (regression)
+    it2 = loop._record_iteration(
+        turn_index=1,
+        action_type="HYPOTHESIS_TRANSFORM",
+        iteration_type="transform_ablation",
+        description="Suboptimal feature transformation",
+        spec={"families": ["hist_gbdt"], "weights": [1], "transforms": ["log1p_x"]},
+        eval_result={"cv_score": 0.70, "receipt_identity": "rcpt_2", "fold_receipts": []},
+        audit={"status": "APPROVED", "candidate_id": "cand_2"},
+        candidate_id="cand_2",
+    )
+    assert it2["is_apex"] is False
+    assert len(loop.state["negative_results"]) == 1
+    assert loop.state["negative_results"][0]["candidate_id"] == "cand_2"
+    assert loop.state["negative_results"][0]["reason"] == "metric_regression_or_no_gain"
+
+    # 3. Second non-improving candidate -> Plateau detected!
+    it3 = loop._record_iteration(
+        turn_index=2,
+        action_type="BLEND_AND_AUDIT",
+        iteration_type="blend",
+        description="Suboptimal blend weights",
+        spec={"families": ["hist_gbdt", "penalized_linear"], "weights": [0.5, 0.5], "transforms": []},
+        eval_result={"cv_score": 0.72, "receipt_identity": "rcpt_3", "fold_receipts": []},
+        audit={"status": "APPROVED", "candidate_id": "cand_3"},
+        candidate_id="cand_3",
+    )
+    assert it3["is_apex"] is False
+    assert len(loop.state["negative_results"]) == 2
+    assert loop.state["negative_results"][1]["candidate_id"] == "cand_3"
+
+    plateau = loop._detect_plateau(window=2)
+    assert plateau["plateau_detected"] is True
+    assert plateau["consecutive_non_improving"] == 2
+    assert plateau["pivot_recommended"] is not None
+
+    # 4. Verify _messages includes negative results and plateau warning
+    msgs = loop._messages(turn=3, dossier={"info": "sample dossier"})
+    user_content = json.loads(msgs[1]["content"])
+    assert user_content["task_context"]["plateau_detected"] is True
+    assert user_content["task_context"]["pivot_guidance"] is not None
+    assert len(user_content["task_context"]["refuted_hypotheses"]) == 2
+    assert "cand_2" in user_content["task_context"]["refuted_hypotheses"][0]
+    assert "cand_3" in user_content["task_context"]["refuted_hypotheses"][1]

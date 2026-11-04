@@ -14,7 +14,8 @@ import logging
 import math
 import os
 import re
-import sqlite3
+import shutil
+import subprocess
 import tempfile
 import time
 import uuid
@@ -27,6 +28,26 @@ logger = logging.getLogger("mlrescurix.scientific.operational_budgets")
 DEFAULT_TOKEN_LIMIT = 5_000_000
 DEFAULT_KAGGLE_HOURS_LIMIT = 30.0
 DEFAULT_SEARCH_QUERIES_LIMIT = 500
+
+
+def _find_harness_binary() -> Optional[Path]:
+    custom = os.environ.get("MLRESCURIX_HARNESS_BIN")
+    if custom:
+        p = Path(custom)
+        if p.is_file() and os.access(p, os.X_OK):
+            return p.resolve()
+    repo_root = Path(__file__).resolve().parents[4]
+    candidates = [
+        repo_root / "target" / "release" / "mlrescurix-harness",
+        repo_root / "target" / "debug" / "mlrescurix-harness",
+    ]
+    existing = [c.resolve() for c in candidates if c.is_file() and os.access(c, os.X_OK)]
+    if existing:
+        return max(existing, key=lambda p: p.stat().st_mtime)
+    which_path = shutil.which("mlrescurix-harness")
+    if which_path:
+        return Path(which_path).resolve()
+    return None
 
 
 @dataclass
@@ -62,130 +83,88 @@ class OperationalBudgets:
             else:
                 clean_proj = re.sub(r"[^\w.-]", "_", self.project_id)
                 self.db_path = str(Path(tempfile.gettempdir()) / f"mlrescurix_search_{clean_proj}.sqlite")
-        self._ensure_db_schema()
         self.web_search_used = max(self.web_search_used, self._query_durable_search_count())
-
-    def _ensure_db_schema(self) -> None:
-        if not self.db_path:
-            return
-        try:
-            p = Path(self.db_path)
-            p.parent.mkdir(parents=True, exist_ok=True)
-            with sqlite3.connect(str(p), timeout=10.0) as conn:
-                conn.execute(
-                    """CREATE TABLE IF NOT EXISTS operational_search_attempts (
-                        project TEXT NOT NULL,
-                        attempt_id TEXT NOT NULL,
-                        query_text TEXT NOT NULL,
-                        sanitized_query TEXT NOT NULL,
-                        provider TEXT NOT NULL,
-                        status TEXT NOT NULL CHECK(status IN ('admitted', 'dispatched', 'success', 'failed', 'timeout', 'outcome_unknown')),
-                        cost_millicents INTEGER NOT NULL DEFAULT 0,
-                        created_ms INTEGER NOT NULL,
-                        settled_ms INTEGER,
-                        error_message TEXT,
-                        PRIMARY KEY(project, attempt_id)
-                    );"""
-                )
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_search_attempts_status ON operational_search_attempts(project, status);")
-        except Exception as exc:
-            logger.warning(f"Failed to ensure search attempt database schema at {self.db_path}: {exc}")
 
     def _query_durable_search_count(self) -> int:
         if not self.db_path or not Path(self.db_path).is_file():
             return 0
+        harness_bin = _find_harness_binary()
+        if not harness_bin:
+            return 0
         try:
-            with sqlite3.connect(self.db_path, timeout=5.0) as conn:
-                row = conn.execute(
-                    "SELECT COUNT(*) FROM operational_search_attempts WHERE project = ? AND status IN ('admitted', 'dispatched', 'success', 'failed', 'timeout', 'outcome_unknown')",
-                    (self.project_id,)
-                ).fetchone()
-                return int(row[0]) if row else 0
-        except Exception:
+            cmd = [
+                str(harness_bin),
+                "search-count",
+                "--state", str(self.db_path),
+                "--project", str(self.project_id),
+            ]
+            proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            res = json.loads(proc.stdout)
+            return int(res.get("count", 0))
+        except Exception as exc:
+            logger.warning(f"Rust harness search-count failed: {exc}")
             return 0
 
-    def _record_durable_search_attempt(self, attempt_id: str, query: str, sanitized: str, provider: str, status: str = "admitted") -> None:
-        if not self.db_path:
-            return
-        try:
-            now_ms = int(time.time() * 1000)
-            with sqlite3.connect(self.db_path, timeout=10.0) as conn:
-                conn.execute(
-                    """INSERT INTO operational_search_attempts(project, attempt_id, query_text, sanitized_query, provider, status, cost_millicents, created_ms, settled_ms, error_message)
-                       VALUES(?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL)
-                       ON CONFLICT(project, attempt_id) DO NOTHING""",
-                    (self.project_id, attempt_id, query, sanitized, provider, status, now_ms)
-                )
-        except Exception as exc:
-            logger.warning(f"Failed to record search attempt {attempt_id}: {exc}")
-
-    def _update_durable_search_attempt(self, attempt_id: str, status: str = "success", error: Optional[str] = None) -> None:
-        if not self.db_path:
-            return
-        try:
-            now_ms = int(time.time() * 1000)
-            with sqlite3.connect(self.db_path, timeout=10.0) as conn:
-                cur = conn.execute(
-                    "SELECT status FROM operational_search_attempts WHERE project = ? AND attempt_id = ?",
-                    (self.project_id, attempt_id)
-                ).fetchone()
-                if cur:
-                    current_status = cur[0]
-                    terminal_states = {"success", "failed", "timeout"}
-                    if current_status in terminal_states:
-                        if current_status == status:
-                            return
-                        logger.warning(
-                            f"Rejected conflicting settlement for attempt {attempt_id}: "
-                            f"already terminal ({current_status}), requested ({status})"
-                        )
-                        return
-                conn.execute(
-                    """UPDATE operational_search_attempts
-                       SET status = ?, settled_ms = ?, error_message = ?
-                       WHERE project = ? AND attempt_id = ?""",
-                    (status, now_ms, error, self.project_id, attempt_id)
-                )
-        except Exception as exc:
-            logger.warning(f"Failed to update search attempt {attempt_id}: {exc}")
-
     def admit_search(self, query: str, sanitized_query: str, provider: str = "unknown") -> tuple[bool, Optional[str]]:
-        """Atomically admit a search query before dispatch. Returns (admitted: bool, attempt_id: Optional[str])."""
+        """Atomically admit a search query before dispatch. Returns (admitted: bool, attempt_id: Optional[str]).
+
+        Delegates strictly to mlrescurix-harness authority. Fails closed if the Rust authority is unavailable.
+        """
         if not self.db_path:
             if not self.has_search_available(count=1):
                 return False, None
             self.web_search_used += 1
-            return True, f"search_attempt_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+            return True, f"inmem_search_attempt_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
 
-        now_ms = int(time.time() * 1000)
-        attempt_id = f"search_attempt_{now_ms}_{uuid.uuid4().hex[:8]}"
+        harness_bin = _find_harness_binary()
+        if not harness_bin:
+            logger.error("Single Rust resource authority binary not found; search admission failed closed")
+            return False, None
+
         try:
-            with sqlite3.connect(self.db_path, timeout=10.0, isolation_level=None) as conn:
-                conn.execute("BEGIN IMMEDIATE")
-                row = conn.execute(
-                    "SELECT COUNT(*) FROM operational_search_attempts WHERE project = ? AND status IN ('admitted', 'dispatched', 'success', 'failed', 'timeout', 'outcome_unknown')",
-                    (self.project_id,)
-                ).fetchone()
-                current_count = int(row[0]) if row else 0
-                if current_count >= self.web_search_limit:
-                    conn.execute("ROLLBACK")
-                    self.web_search_used = current_count
-                    return False, None
-                conn.execute(
-                    """INSERT INTO operational_search_attempts(project, attempt_id, query_text, sanitized_query, provider, status, cost_millicents, created_ms, settled_ms, error_message)
-                       VALUES(?, ?, ?, ?, ?, 'admitted', 0, ?, NULL, NULL)""",
-                    (self.project_id, attempt_id, query, sanitized_query, provider, now_ms)
-                )
-                conn.execute("COMMIT")
-                self.web_search_used = current_count + 1
-                return True, attempt_id
+            cmd = [
+                str(harness_bin),
+                "search-admit",
+                "--state", str(self.db_path),
+                "--project", str(self.project_id),
+                "--query", str(query),
+                "--sanitized", str(sanitized_query),
+                "--provider", str(provider),
+                "--limit", str(self.web_search_limit),
+            ]
+            proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            res = json.loads(proc.stdout)
+            admitted = bool(res.get("admitted", False))
+            attempt_id = res.get("attempt_id")
+            if admitted:
+                self.web_search_used = self._query_durable_search_count()
+            return admitted, attempt_id
         except Exception as exc:
-            logger.warning(f"Failed atomic search admission: {exc}")
+            logger.error(f"Rust harness search-admit failed closed: {exc}")
             return False, None
 
     def settle_search(self, attempt_id: str, status: str = "success", error: Optional[str] = None) -> None:
-        """Idempotently settle an admitted search attempt."""
-        self._update_durable_search_attempt(attempt_id, status=status, error=error)
+        """Idempotently settle an admitted search attempt via the single Rust resource authority."""
+        if not self.db_path:
+            return
+        harness_bin = _find_harness_binary()
+        if not harness_bin:
+            logger.error(f"Cannot settle search attempt {attempt_id}: Rust harness authority binary missing")
+            return
+        try:
+            cmd = [
+                str(harness_bin),
+                "search-settle",
+                "--state", str(self.db_path),
+                "--project", str(self.project_id),
+                "--attempt-id", str(attempt_id),
+                "--status", str(status),
+            ]
+            if error:
+                cmd.extend(["--error", str(error)])
+            subprocess.run(cmd, capture_output=True, text=True, check=True)
+        except Exception as exc:
+            logger.warning(f"Rust harness search-settle failed: {exc}")
 
     @classmethod
     def load(cls, config_path: Optional[Union[str, Path]] = None, workspace_root: Optional[Union[str, Path]] = None,
@@ -352,39 +331,30 @@ class OperationalBudgets:
 
     def get_status(self) -> Dict[str, Any]:
         """Structured dictionary of current usage against all three operational budgets."""
-        search_status: Dict[str, Any] = {
+        # A status response does not establish campaign-wide enforcement or
+        # verified remote quotas; expose only observed session usage.
+        search_status = {
             "limit": self.web_search_limit,
             "recorded_session_queries": self.web_search_used,
             "unit": "queries",
-            "enforced": self.search_connected,
+            "enforced": False,
+            "connected": self.search_connected,
+            "used": None,
+            "remaining": None,
+            "accounting_scope": "session observations only; unified authority not verified",
+            "exhausted": None,
         }
-        if self.search_connected:
-            search_status["used"] = self.web_search_used
-            search_status["remaining"] = self.web_search_remaining
-            search_status["accounting_scope"] = "connected to governed web search provider"
-            search_status["exhausted"] = not self.has_search_available()
-        else:
-            search_status["used"] = None
-            search_status["remaining"] = None
-            search_status["accounting_scope"] = "not connected to active web search provider (missing credentials)"
-            search_status["exhausted"] = None
-
-        kaggle_status: Dict[str, Any] = {
+        kaggle_status = {
             "limit_hours": self.kaggle_hours_limit,
             "recorded_session_hours": round(self.kaggle_hours_used, 4),
             "unit": "hours",
-            "enforced": self.kaggle_connected,
+            "enforced": False,
+            "connected": self.kaggle_connected,
+            "used_hours": None,
+            "remaining_hours": None,
+            "accounting_scope": "session observations only; unified authority not verified",
+            "exhausted": None,
         }
-        if self.kaggle_connected:
-            kaggle_status["used_hours"] = round(self.kaggle_hours_used, 4)
-            kaggle_status["remaining_hours"] = self.kaggle_hours_remaining
-            kaggle_status["accounting_scope"] = "measured Kaggle accelerator hours"
-            kaggle_status["exhausted"] = not self.has_kaggle_available()
-        else:
-            kaggle_status["used_hours"] = None
-            kaggle_status["remaining_hours"] = None
-            kaggle_status["accounting_scope"] = "not connected to Kaggle dispatch or account quota"
-            kaggle_status["exhausted"] = None
 
         return {
             "total_model_tokens": {
@@ -414,12 +384,12 @@ class OperationalBudgets:
         kag_display = (
             f"{kag['used_hours']:.2f}h / {kag['limit_hours']:.2f}h ({kag['remaining_hours']:.2f}h remaining)"
             if kag["enforced"]
-            else f"usage unknown; configured {kag['limit_hours']:.2f}h (not connected or enforced)"
+            else f"usage unknown; configured {kag['limit_hours']:.2f}h (enforcement not verified)"
         )
         sea_display = (
             f"{sea['used']} / {sea['limit']} ({sea['remaining']} remaining)"
             if sea["enforced"]
-            else f"usage unknown; configured {sea['limit']} queries (not connected or enforced)"
+            else f"usage unknown; configured {sea['limit']} queries (enforcement not verified)"
         )
         return (
             f"Operational Budgets Status:\n"

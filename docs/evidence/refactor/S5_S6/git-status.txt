@@ -1,0 +1,53 @@
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   Major_refactor_docs/plans/FINAL_AUTONOMOUS_MODEL_CREATOR_MASTER_PLAN.md
+	modified:   crates/harness/src/broker.rs
+	modified:   crates/harness/src/bundle.rs
+	modified:   crates/harness/src/campaign.rs
+	modified:   crates/harness/src/custom_protocol.rs
+	modified:   crates/harness/src/execution.rs
+	modified:   crates/harness/src/lib.rs
+	modified:   crates/harness/src/main.rs
+	modified:   crates/harness/src/schema_custom_protocol.sql
+	modified:   crates/harness/tests/benchmarks_gate4.rs
+	modified:   crates/harness/tests/campaign_boss_specialist_slice.rs
+	modified:   crates/harness/tests/custom_model_gate.rs
+	modified:   crates/harness/tests/dashboard_p6.rs
+	modified:   crates/harness/tests/governed_source_execution.rs
+	modified:   crates/harness/tests/release_p7.rs
+	modified:   crates/harness/tests/resource_broker_p3.rs
+	modified:   crates/harness/tests/s1_red_team.rs
+	modified:   crates/harness/tests/s2_gates.rs
+	modified:   crates/harness/tests/s2_red_team.rs
+	modified:   crates/harness/tests/s3_gates.rs
+	modified:   crates/harness/tests/s3_review_regressions.rs
+	modified:   python/src/mlrescurix_worker/scientific/autonomous_loop.py
+	modified:   python/src/mlrescurix_worker/scientific/benchmark_contracts.py
+	modified:   python/src/mlrescurix_worker/scientific/candidate_pipeline.py
+	modified:   python/src/mlrescurix_worker/scientific/operational_budgets.py
+	modified:   python/tests/test_autonomous_agent_loop.py
+	modified:   python/tests/test_operational_budget_accounting.py
+	modified:   python/tests/test_robustness_runner_gates.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	Major_refactor_docs/plans/ANTIGRAVITY_FULL_IMPLEMENTATION_PROMPT.md
+	Major_refactor_docs/plans/ANTIGRAVITY_SESSION_4_CONTINUATION_PROMPT.md
+	Major_refactor_docs/plans/ANTIGRAVITY_SESSION_4_REPAIR_PROMPT.md
+	crates/harness/src/resource_authority.rs
+	crates/harness/tests/s4_gates.rs
+	crates/harness/tests/s5_gates.rs
+	crates/harness/tests/s6_gates.rs
+	docs/evidence/refactor/S4/
+	docs/evidence/refactor/S5_S6/
+	docs/refactor_sessions/S4_RED_TEAM_REVIEW.md
+	docs/refactor_sessions/S4_REPAIR_RED_TEAM_REVIEW.md
+	docs/refactor_sessions/S4_REPAIR_REVIEW.md
+	docs/refactor_sessions/S4_REVIEW.md
+	docs/refactor_sessions/S5_S6_REVIEW.md
+
+no changes added to commit (use "git add" and/or "git commit -a")

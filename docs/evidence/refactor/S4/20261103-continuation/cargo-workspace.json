@@ -1,0 +1,9 @@
+{
+  "command": "cargo test --locked --workspace --no-fail-fast",
+  "exit_code": 0,
+  "timestamp_utc": "2026-11-03T12:50:50Z",
+  "platform": "darwin",
+  "status": "PASS",
+  "total_targets": 13,
+  "failed_targets": 0
+}

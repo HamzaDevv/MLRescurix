@@ -90,6 +90,43 @@ def accepted_candidate_evidence(state: Dict[str, Any]) -> Tuple[bool, Optional[f
     if not isinstance(candidate, dict):
         return False, score, "accepted candidate specification is missing"
     try:
+        import copy
+        from .candidate_pipeline import canonical_execution_configuration, validate_spec
+        normalized = copy.deepcopy(candidate)
+        validate_spec(normalized)
+        eval_task = evaluation.get("task_type") if isinstance(evaluation, dict) else None
+        cand_task = candidate.get("task_type")
+        state_task = state.get("task_type")
+        declared_tasks = [t for t in (eval_task, cand_task, state_task) if isinstance(t, str) and t.strip()]
+
+        def _task_category(t: str) -> str:
+            t_lower = t.lower()
+            if "classification" in t_lower or t_lower in ("binary", "multiclass"):
+                return "classification"
+            if "forecast" in t_lower:
+                return "forecasting"
+            if "regression" in t_lower:
+                return "regression"
+            return t_lower
+
+        if len({_task_category(t) for t in declared_tasks}) > 1:
+            raise ValueError(f"conflicting task metadata between declared sources: {declared_tasks}")
+        if isinstance(normalized.get("effective_configuration"), dict):
+            # The pipeline resolves settings from the requested specification at fit
+            # time. A stale cached configuration must not hide changed parameters.
+            without_cache = copy.deepcopy(normalized)
+            without_cache.pop("effective_configuration")
+            cached = canonical_execution_configuration(normalized)
+            if declared_tasks:
+                task_type = declared_tasks[0]
+                expected_config = canonical_execution_configuration(without_cache, task_type=task_type)
+                if cached != expected_config:
+                    raise ValueError(f"effective configuration does not match requested specification for {task_type}")
+            else:
+                possible = (canonical_execution_configuration(without_cache, task_type=task)
+                            for task in ("regression", "classification"))
+                if not any(cached == config for config in possible):
+                    raise ValueError("effective configuration does not match requested specification")
         spec_identity = candidate_spec_identity(candidate)
     except (TypeError, ValueError):
         spec_identity = None
@@ -110,8 +147,10 @@ def accepted_candidate_evidence(state: Dict[str, Any]) -> Tuple[bool, Optional[f
 
 
 def candidate_spec_identity(spec: Dict[str, Any]) -> str:
-    canonical = json.dumps(spec, sort_keys=True, separators=(",", ":"), allow_nan=False)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    # The evaluator binds resolved execution settings, including defaults and
+    # aliases. The benchmark gate must compare the same identity.
+    from .candidate_pipeline import identity
+    return identity(spec)
 
 
 

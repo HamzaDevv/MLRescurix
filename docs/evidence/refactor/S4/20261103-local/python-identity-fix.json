@@ -1,0 +1,15 @@
+{
+  "argv": [
+    "python3",
+    "-m",
+    "pytest",
+    "-q",
+    "python/tests/test_architecture_consolidation.py",
+    "python/tests/test_benchmark_contracts.py"
+  ],
+  "environment": {
+    "PYTHONPATH": "python/src"
+  },
+  "exit": 4,
+  "seconds": 0.41
+}

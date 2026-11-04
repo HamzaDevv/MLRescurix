@@ -1008,3 +1008,92 @@ pub fn evaluate_and_consume_assessment_authoritative(
     let gt_labels = extract_lockbox_ground_truth(pth, &p.target_column, &p.lockbox_rows, &p.dataset_sha256)?;
     evaluate_and_consume_assessment(connection, project, dataset_id, expected, &gt_labels, predictions)
 }
+
+/// Controller-owned immutable receipt binding the actual execution and delivery closure.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ControllerReleaseReceipt {
+    pub project_id: String,
+    pub dataset_id: String,
+    pub candidate_id: String,
+    pub protocol_sha256: String,
+    pub weights_sha256: String,
+    pub source_sha256: String,
+    pub manifest_sha256: String,
+    pub closure_sha256: String,
+    pub validation_score: f64,
+    pub lockbox_score: f64,
+    pub lockbox_receipt_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment_id: Option<String>,
+    pub files: HashMap<String, String>,
+    pub created_at_ms: i64,
+}
+
+/// Compute a canonical merkle-like root binding all relative paths and hashes in the delivery closure.
+pub fn compute_delivery_closure_sha256(files: &HashMap<String, String>) -> String {
+    let mut entries: Vec<(String, &String)> = files.iter().map(|(p, s)| (p.replace('\\', "/"), s)).collect();
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut hasher = Sha256::new();
+    for (rel_path, file_sha) in entries {
+        hasher.update(rel_path.as_bytes());
+        hasher.update(&[0u8]);
+        hasher.update(file_sha.as_bytes());
+        hasher.update(&[0xff]);
+    }
+    format!("{:x}", hasher.finalize())
+}
+
+/// Record an authoritative controller release receipt.
+pub fn record_controller_release_receipt(
+    conn: &Connection,
+    receipt: &ControllerReleaseReceipt,
+) -> Result<()> {
+    ensure_custom_protocol_schema(conn)?;
+    let receipt_json = serde_json::to_string(receipt).map_err(|e| e.to_string())?;
+    conn.execute(
+        "INSERT INTO controller_release_receipts(
+            project, dataset_id, candidate_id, protocol_sha256, weights_sha256,
+            source_sha256, manifest_sha256, closure_sha256, validation_score,
+            lockbox_score, lockbox_receipt_sha256, receipt_json, created_at_ms
+         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        params![
+            receipt.project_id,
+            receipt.dataset_id,
+            receipt.candidate_id,
+            receipt.protocol_sha256,
+            receipt.weights_sha256,
+            receipt.source_sha256,
+            receipt.manifest_sha256,
+            receipt.closure_sha256,
+            receipt.validation_score,
+            receipt.lockbox_score,
+            receipt.lockbox_receipt_sha256,
+            receipt_json,
+            receipt.created_at_ms,
+        ],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Retrieve an authoritative controller release receipt if one has been committed.
+pub fn get_controller_release_receipt(
+    conn: &Connection,
+    project: &str,
+    dataset_id: &str,
+    candidate_id: &str,
+) -> Result<Option<ControllerReleaseReceipt>> {
+    ensure_custom_protocol_schema(conn)?;
+    let row: Option<String> = conn.query_row(
+        "SELECT receipt_json FROM controller_release_receipts WHERE project=?1 AND dataset_id=?2 AND candidate_id=?3",
+        params![project, dataset_id, candidate_id],
+        |r| r.get(0),
+    ).optional().map_err(|e| e.to_string())?;
+
+    match row {
+        Some(s) => {
+            let r: ControllerReleaseReceipt = serde_json::from_str(&s).map_err(|e| format!("corrupt release receipt: {e}"))?;
+            Ok(Some(r))
+        }
+        None => Ok(None),
+    }
+}

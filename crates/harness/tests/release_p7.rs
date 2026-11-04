@@ -142,7 +142,7 @@ fn test_p7_1_executable_candidate_bundle_v2_manifest_and_dependency_isolation() 
         }
     }).to_string()).unwrap();
 
-    let mut files_map = HashMap::new();
+    let mut files_map = BTreeMap::new();
     for name in &contract_files {
         let p = bundle_dir.join(name);
         files_map.insert(name.to_string(), BundleManifestFileEntry {
@@ -351,7 +351,7 @@ fn test_p7_3_sealed_holdout_gate_enforcement_and_private_row_leakage_rejection()
     let wf_p = train_src_dir.join("workflow.py");
     fs::write(&wf_p, wf_code).unwrap();
 
-    let mut files_map = HashMap::new();
+    let mut files_map = BTreeMap::new();
     for name in &contract_files {
         let p = bundle_dir.join(name);
         files_map.insert(name.to_string(), BundleManifestFileEntry {
@@ -746,7 +746,7 @@ fn test_p7_acceptance_gate_full_closure() {
     fs::write(isolated_bundle.join("verification.json"), json!({"frozen_model_sha256": model_sha}).to_string()).unwrap();
     fs::write(isolated_bundle.join("scorecard.json"), json!({"candidate_id": "apex-cand", "constraints": {}}).to_string()).unwrap();
 
-    let mut files_map = HashMap::new();
+    let mut files_map = BTreeMap::new();
     for name in &contract_files {
         let p = isolated_bundle.join(name);
         files_map.insert(name.to_string(), BundleManifestFileEntry {

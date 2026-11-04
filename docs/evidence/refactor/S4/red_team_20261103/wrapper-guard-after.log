@@ -1,0 +1,9 @@
+   Compiling mlrescurix-harness v0.1.0 (/Users/hamza/Developer/Imp_Projects/MLRescurix/crates/harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.62s
+     Running tests/s3_gates.rs (target/debug/deps/s3_gates-c7cb122961fc0a66)
+
+running 1 test
+test consumed_assessment_refuses_self_rehashed_wrapper ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 5.27s
+

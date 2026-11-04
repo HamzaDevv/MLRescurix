@@ -817,7 +817,7 @@ if __name__ == "__main__":
     fs::write(&pyc_path, b"\x00\x00\x00\x00bytecode_sample").unwrap();
 
     // Construct BundleManifest covering 100% of files
-    let mut bundle_files = std::collections::HashMap::new();
+    let mut bundle_files = std::collections::BTreeMap::new();
     let mut file_list = Vec::new();
     fn walk_files(base: &Path, curr: &Path, out: &mut Vec<String>) {
         for entry in fs::read_dir(curr).unwrap() {

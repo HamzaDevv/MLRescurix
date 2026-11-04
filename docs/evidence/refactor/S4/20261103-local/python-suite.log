@@ -1,0 +1,247 @@
+/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/pytest_asyncio/plugin.py:208: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the fixture caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to function scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+============================= test session starts ==============================
+platform darwin -- Python 3.13.3, pytest-8.3.4, pluggy-1.6.0
+rootdir: /Users/hamza/Developer/Imp_Projects/MLRescurix/python
+configfile: pyproject.toml
+plugins: asyncio-0.24.0, langsmith-0.4.1, anyio-4.14.2
+asyncio: mode=Mode.STRICT, default_loop_scope=None
+collected 501 items
+
+python/tests/test_amazon_text_smape.py ...                               [  0%]
+python/tests/test_architecture_consolidation.py ...........FFF....       [  4%]
+python/tests/test_autonomous_agent_loop.py .........                     [  5%]
+python/tests/test_autonomy_regressions.py .............................. [ 11%]
+.                                                                        [ 12%]
+python/tests/test_candidate_bundle_runtime.py ..                         [ 12%]
+python/tests/test_candidate_runner.py .....                              [ 13%]
+python/tests/test_custom_agent.py ..                                     [ 13%]
+python/tests/test_custom_evaluation_review.py ....                       [ 14%]
+python/tests/test_custom_worker_process.py ............................. [ 20%]
+                                                                         [ 20%]
+python/tests/test_gate4_benchmarks.py ......                             [ 21%]
+python/tests/test_governed_research.py ....                              [ 22%]
+python/tests/test_hypothesis_executor.py ..........                      [ 24%]
+python/tests/test_iris_real_data_smoke.py .                              [ 24%]
+python/tests/test_kaggle_benchmarks.py .....                             [ 25%]
+python/tests/test_kaggle_output_transport.py ...........                 [ 27%]
+python/tests/test_kaggle_pool.py ......                                  [ 29%]
+python/tests/test_m5_review.py .....                                     [ 30%]
+python/tests/test_m5_scientific.py .......                               [ 31%]
+python/tests/test_m6_bundle.py ......                                    [ 32%]
+python/tests/test_ml_task_adapters.py ...                                [ 33%]
+python/tests/test_offline_evaluation_corrections.py ....                 [ 34%]
+python/tests/test_operational_budget_accounting.py .....                 [ 35%]
+python/tests/test_p10_autonomous_rescue.py ......                        [ 36%]
+python/tests/test_p10_candidate_synthesis.py ......                      [ 37%]
+python/tests/test_p10_diagnostic_bridge.py ........                      [ 39%]
+python/tests/test_p10_iteration_loop.py ......                           [ 40%]
+python/tests/test_p11_schemas_and_storage.py ....                        [ 41%]
+python/tests/test_p11_training_handoff.py ..........                     [ 43%]
+python/tests/test_p13_dirty_sanitizer_and_eda.py .....                   [ 44%]
+python/tests/test_p14_primitives_and_ablation.py ..............          [ 46%]
+python/tests/test_p15_model_zoo_and_forensics.py ................        [ 50%]
+python/tests/test_p16_critic_and_reflexive_loop.py ..........            [ 52%]
+python/tests/test_p7_scientific_delivery.py .....                        [ 53%]
+python/tests/test_p8_feasibility.py ......                               [ 54%]
+python/tests/test_p9_anomaly_clustering.py ........                      [ 55%]
+python/tests/test_p9_arrow_adapter.py .....                              [ 56%]
+python/tests/test_p9_frozen_embeddings.py ......                         [ 58%]
+python/tests/test_p9_time_series.py ......                               [ 59%]
+python/tests/test_panel_evaluator_and_critic.py .......                  [ 60%]
+python/tests/test_portfolio_exploration.py ....                          [ 61%]
+python/tests/test_prerequisite_repairs.py .......................        [ 66%]
+python/tests/test_protocol.py ...                                        [ 66%]
+python/tests/test_python_tool.py ..............                          [ 69%]
+python/tests/test_rehearsal_launch_path.py .                             [ 69%]
+python/tests/test_resource_monitor.py ....                               [ 70%]
+python/tests/test_review_safety_regressions.py .........                 [ 72%]
+python/tests/test_robustness_runner_gates.py ............                [ 74%]
+python/tests/test_rust_gateway_adapter.py ........                       [ 76%]
+python/tests/test_s1_contracts_and_parity.py ..........                  [ 78%]
+python/tests/test_s1_followup_guards.py ...........                      [ 80%]
+python/tests/test_s1_robustness_reproducers.py ............              [ 82%]
+python/tests/test_s2_red_team.py ..                                      [ 83%]
+python/tests/test_s2_resource_and_boundaries.py ......                   [ 84%]
+python/tests/test_scheduled_pipeline.py .s                               [ 84%]
+python/tests/test_scientific_workflow.py ........                        [ 86%]
+python/tests/test_search.py ........                                     [ 88%]
+python/tests/test_session1_contracts_and_torch.py ................       [ 91%]
+python/tests/test_session2_kaggle_execution.py ........................  [ 96%]
+python/tests/test_session3_tuning_and_delivery.py ............           [ 98%]
+python/tests/test_v3_contracts_and_routing.py ........                   [100%]
+
+=================================== FAILURES ===================================
+_______ test_common_lifecycle_real_workers_and_identity_bound_bundle[K2] _______
+
+tmp_path = PosixPath('/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-145/test_common_lifecycle_real_wor0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x120b59040>
+task_id = 'K2'
+
+    @pytest.mark.parametrize('task_id', ['K2', 'K3', 'K5'])
+    def test_common_lifecycle_real_workers_and_identity_bound_bundle(tmp_path, monkeypatch, task_id):
+        campaign = fixture_campaign(tmp_path, task_id)
+        monkeypatch.setattr(benchmark_runner, 'benchmark_adapter', lambda policy, task, root: benchmark_adapter(policy, task, tmp_path))
+        monkeypatch.setattr(benchmark_runner, 'verified_provider_pricing', lambda policy: {'verified': True, 'input_per_million': 0, 'output_per_million': 0})
+        monkeypatch.setattr(benchmark_runner, 'RustGatewayAdapter', lambda **kw: None)
+        prompts = []
+        def factory(**kw):
+            def provider(messages, tokens):
+                prompts.append(messages)
+                a = action('BLEND_AND_AUDIT', families=['penalized_linear']) if len(prompts) == 1 else action('FINALIZE_AND_STOP')
+                return {'content': json.dumps(a), 'cost_usd': 0}
+            kw.update(provider_caller=provider, provider_is_fixture=True)
+            loop = AutonomousAgentLoop(**kw)
+            loop.critic_engine.audit = lambda **args: SimpleNamespace(to_dict=lambda: {'status': 'APPROVED', 'candidate_id': args['candidate']['candidate_id']})
+            return loop
+        monkeypatch.setattr(benchmark_runner, 'AutonomousAgentLoop', factory)
+        outcome = benchmark_runner.run_benchmark(campaign, task_id)
+>       assert outcome['status'] == 'passed', outcome
+E       AssertionError: {'accepted_candidate_id': 'cand_a99b694df6e7458f02e9c188', 'best_cv_score': 0.5697099421518758, 'bundle_identity_verified': False, 'bundle_verified': False, ...}
+E       assert 'failed' == 'passed'
+E         
+E         - passed
+E         + failed
+
+python/tests/test_architecture_consolidation.py:193: AssertionError
+----------------------------- Captured stdout call -----------------------------
+[OPERATIONAL BUDGET] Turn 0 complete: Tokens recorded: 0 / 5,000,000 (complete: False) | Kaggle and web search accounting not connected or enforced
+[OPERATIONAL BUDGET] Turn 1 complete: Tokens recorded: 0 / 5,000,000 (complete: False) | Kaggle and web search accounting not connected or enforced
+_______ test_common_lifecycle_real_workers_and_identity_bound_bundle[K3] _______
+
+tmp_path = PosixPath('/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-145/test_common_lifecycle_real_wor1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x120bad450>
+task_id = 'K3'
+
+    @pytest.mark.parametrize('task_id', ['K2', 'K3', 'K5'])
+    def test_common_lifecycle_real_workers_and_identity_bound_bundle(tmp_path, monkeypatch, task_id):
+        campaign = fixture_campaign(tmp_path, task_id)
+        monkeypatch.setattr(benchmark_runner, 'benchmark_adapter', lambda policy, task, root: benchmark_adapter(policy, task, tmp_path))
+        monkeypatch.setattr(benchmark_runner, 'verified_provider_pricing', lambda policy: {'verified': True, 'input_per_million': 0, 'output_per_million': 0})
+        monkeypatch.setattr(benchmark_runner, 'RustGatewayAdapter', lambda **kw: None)
+        prompts = []
+        def factory(**kw):
+            def provider(messages, tokens):
+                prompts.append(messages)
+                a = action('BLEND_AND_AUDIT', families=['penalized_linear']) if len(prompts) == 1 else action('FINALIZE_AND_STOP')
+                return {'content': json.dumps(a), 'cost_usd': 0}
+            kw.update(provider_caller=provider, provider_is_fixture=True)
+            loop = AutonomousAgentLoop(**kw)
+            loop.critic_engine.audit = lambda **args: SimpleNamespace(to_dict=lambda: {'status': 'APPROVED', 'candidate_id': args['candidate']['candidate_id']})
+            return loop
+        monkeypatch.setattr(benchmark_runner, 'AutonomousAgentLoop', factory)
+        outcome = benchmark_runner.run_benchmark(campaign, task_id)
+>       assert outcome['status'] == 'passed', outcome
+E       AssertionError: {'accepted_candidate_id': 'cand_89cdd6ac1b67bfdc302f4b08', 'best_cv_score': 0.5, 'bundle_identity_verified': False, 'bundle_verified': False, ...}
+E       assert 'failed' == 'passed'
+E         
+E         - passed
+E         + failed
+
+python/tests/test_architecture_consolidation.py:193: AssertionError
+----------------------------- Captured stdout call -----------------------------
+[OPERATIONAL BUDGET] Turn 0 complete: Tokens recorded: 0 / 5,000,000 (complete: False) | Kaggle and web search accounting not connected or enforced
+[OPERATIONAL BUDGET] Turn 1 complete: Tokens recorded: 0 / 5,000,000 (complete: False) | Kaggle and web search accounting not connected or enforced
+_______ test_common_lifecycle_real_workers_and_identity_bound_bundle[K5] _______
+
+tmp_path = PosixPath('/private/var/folders/m9/z4r79pxs1q1bcxn5xk4xr1m80000gn/T/pytest-of-hamza/pytest-145/test_common_lifecycle_real_wor2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x120bace50>
+task_id = 'K5'
+
+    @pytest.mark.parametrize('task_id', ['K2', 'K3', 'K5'])
+    def test_common_lifecycle_real_workers_and_identity_bound_bundle(tmp_path, monkeypatch, task_id):
+        campaign = fixture_campaign(tmp_path, task_id)
+        monkeypatch.setattr(benchmark_runner, 'benchmark_adapter', lambda policy, task, root: benchmark_adapter(policy, task, tmp_path))
+        monkeypatch.setattr(benchmark_runner, 'verified_provider_pricing', lambda policy: {'verified': True, 'input_per_million': 0, 'output_per_million': 0})
+        monkeypatch.setattr(benchmark_runner, 'RustGatewayAdapter', lambda **kw: None)
+        prompts = []
+        def factory(**kw):
+            def provider(messages, tokens):
+                prompts.append(messages)
+                a = action('BLEND_AND_AUDIT', families=['penalized_linear']) if len(prompts) == 1 else action('FINALIZE_AND_STOP')
+                return {'content': json.dumps(a), 'cost_usd': 0}
+            kw.update(provider_caller=provider, provider_is_fixture=True)
+            loop = AutonomousAgentLoop(**kw)
+            loop.critic_engine.audit = lambda **args: SimpleNamespace(to_dict=lambda: {'status': 'APPROVED', 'candidate_id': args['candidate']['candidate_id']})
+            return loop
+        monkeypatch.setattr(benchmark_runner, 'AutonomousAgentLoop', factory)
+        outcome = benchmark_runner.run_benchmark(campaign, task_id)
+>       assert outcome['status'] == 'passed', outcome
+E       AssertionError: {'accepted_candidate_id': 'cand_2b1fde383df2964931e5c958', 'best_cv_score': 0.30283728631939166, 'bundle_identity_verified': False, 'bundle_verified': False, ...}
+E       assert 'failed' == 'passed'
+E         
+E         - passed
+E         + failed
+
+python/tests/test_architecture_consolidation.py:193: AssertionError
+----------------------------- Captured stdout call -----------------------------
+[OPERATIONAL BUDGET] Turn 0 complete: Tokens recorded: 0 / 5,000,000 (complete: False) | Kaggle and web search accounting not connected or enforced
+[OPERATIONAL BUDGET] Turn 1 complete: Tokens recorded: 0 / 5,000,000 (complete: False) | Kaggle and web search accounting not connected or enforced
+=============================== warnings summary ===============================
+tests/test_amazon_text_smape.py::test_text_transform_fits_only_training_vocabulary_and_survives_prediction
+tests/test_amazon_text_smape.py::test_text_transform_fits_only_training_vocabulary_and_survives_prediction
+  /Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/sklearn/decomposition/_truncated_svd.py:273: RuntimeWarning: divide by zero encountered in divide
+    self.explained_variance_ratio_ = exp_var / full_var
+
+tests/test_amazon_text_smape.py::test_text_transform_fits_only_training_vocabulary_and_survives_prediction
+tests/test_amazon_text_smape.py::test_text_transform_fits_only_training_vocabulary_and_survives_prediction
+  /Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/sklearn/decomposition/_truncated_svd.py:273: RuntimeWarning: invalid value encountered in divide
+    self.explained_variance_ratio_ = exp_var / full_var
+
+tests/test_candidate_runner.py::test_diagnostic_slices_min_support_suppression
+tests/test_candidate_runner.py::test_diagnostic_slices_min_support_suppression
+  /Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/sklearn/metrics/_classification.py:620: UserWarning: A single label was found in 'y_true' and 'y_pred'. For the confusion matrix to have the correct shape, use the 'labels' parameter to pass all known labels.
+    warnings.warn(
+
+tests/test_m5_scientific.py::M5ScientificTests::test_split_aware_feature_pipeline
+  /Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/sklearn/preprocessing/_discretization.py:304: FutureWarning: The current default behavior, quantile_method='linear', will be changed to quantile_method='averaged_inverted_cdf' in scikit-learn version 1.9 to naturally support sample weight equivalence properties by default. Pass quantile_method='averaged_inverted_cdf' explicitly to silence this warning.
+    warnings.warn(
+
+tests/test_p16_critic_and_reflexive_loop.py::test_full_inference_pipeline_raw_records_and_parity
+tests/test_p16_critic_and_reflexive_loop.py::test_zero_skew_bundle_packaging
+  /Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/sklearn/linear_model/_logistic.py:406: ConvergenceWarning: lbfgs failed to converge after 1000 iteration(s) (status=1):
+  STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT
+  
+  Increase the number of iterations to improve the convergence (max_iter=1000).
+  You might also want to scale the data as shown in:
+      https://scikit-learn.org/stable/modules/preprocessing.html
+  Please also refer to the documentation for alternative solver options:
+      https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression
+    n_iter_i = _check_optimize_result(
+
+tests/test_p16_critic_and_reflexive_loop.py::test_titanic_end_to_end_reflexive_loop
+tests/test_p16_critic_and_reflexive_loop.py::test_titanic_end_to_end_reflexive_loop
+tests/test_p16_critic_and_reflexive_loop.py::test_titanic_end_to_end_reflexive_loop
+  /Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/sklearn/linear_model/_logistic.py:406: ConvergenceWarning: lbfgs failed to converge after 2000 iteration(s) (status=1):
+  STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT
+  
+  Increase the number of iterations to improve the convergence (max_iter=2000).
+  You might also want to scale the data as shown in:
+      https://scikit-learn.org/stable/modules/preprocessing.html
+  Please also refer to the documentation for alternative solver options:
+      https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression
+    n_iter_i = _check_optimize_result(
+
+tests/test_p7_scientific_delivery.py::TestP7ScientificDelivery::test_joblib_parity_checks_the_saved_artifact
+tests/test_p7_scientific_delivery.py::TestP7ScientificDelivery::test_joblib_parity_checks_the_saved_artifact
+tests/test_p7_scientific_delivery.py::TestP7ScientificDelivery::test_joblib_parity_checks_the_saved_artifact
+tests/test_p7_scientific_delivery.py::TestP7ScientificDelivery::test_joblib_parity_checks_the_saved_artifact
+tests/test_p7_scientific_delivery.py::TestP7ScientificDelivery::test_model_export_regression
+  /Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/sklearn/utils/validation.py:2684: UserWarning: X has feature names, but Ridge was fitted without feature names
+    warnings.warn(
+
+tests/test_p7_scientific_delivery.py::TestP7ScientificDelivery::test_model_export_safetensors_and_tolerances
+tests/test_p7_scientific_delivery.py::TestP7ScientificDelivery::test_model_export_safetensors_and_tolerances
+tests/test_p7_scientific_delivery.py::TestP7ScientificDelivery::test_model_export_safetensors_and_tolerances
+tests/test_p7_scientific_delivery.py::TestP7ScientificDelivery::test_model_export_safetensors_and_tolerances
+  /Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/sklearn/utils/validation.py:2684: UserWarning: X has feature names, but LogisticRegression was fitted without feature names
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED python/tests/test_architecture_consolidation.py::test_common_lifecycle_real_workers_and_identity_bound_bundle[K2]
+FAILED python/tests/test_architecture_consolidation.py::test_common_lifecycle_real_workers_and_identity_bound_bundle[K3]
+FAILED python/tests/test_architecture_consolidation.py::test_common_lifecycle_real_workers_and_identity_bound_bundle[K5]
+====== 3 failed, 497 passed, 1 skipped, 21 warnings in 325.47s (0:05:25) =======
