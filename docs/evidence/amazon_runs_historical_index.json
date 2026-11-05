@@ -1,0 +1,716 @@
+{
+  "timestamp": "2026-11-05T05:00:00Z",
+  "description": "Compact historical index and deletion record for obsolete Amazon 2025 runs and artifacts",
+  "disk_free_before_bytes": 89129467904,
+  "preserved_inputs": {
+    "train_csv": ".mlrescurix-state/amazon-2025/train.csv",
+    "train_csv_size": 73495639,
+    "development_csv": ".mlrescurix-state/amazon-2025/staged/development.csv",
+    "development_csv_size": 69073907,
+    "development_folds": ".mlrescurix-state/amazon-2025/development_folds.json",
+    "development_folds_size": 1027856,
+    "rust_harness_state": ".mlrescurix-state/amazon-2025/rust_harness_state"
+  },
+  "inventory": {
+    "fresh-20261101-2318": {
+      "type": "run_directory",
+      "path": ".mlrescurix-state/amazon-2025/fresh-20261101-2318",
+      "size_bytes": 70042804,
+      "size_mb": 66.8,
+      "turns": 0,
+      "best_score": null,
+      "best_candidate": null,
+      "tokens": 0,
+      "cost_usd": 0,
+      "handoff_score": null,
+      "handoff_candidate": null,
+      "sqlite_provider_accounting": {
+        "count": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "cost_millicents": 0,
+        "cost_usd": 0.0
+      },
+      "sqlite_records": []
+    },
+    "fresh-20261101-2320": {
+      "type": "run_directory",
+      "path": ".mlrescurix-state/amazon-2025/fresh-20261101-2320",
+      "size_bytes": 70043234,
+      "size_mb": 66.8,
+      "turns": 0,
+      "best_score": null,
+      "best_candidate": null,
+      "tokens": 0,
+      "cost_usd": 0,
+      "handoff_score": null,
+      "handoff_candidate": null,
+      "sqlite_provider_accounting": {
+        "count": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "cost_millicents": 0,
+        "cost_usd": 0.0
+      },
+      "sqlite_records": []
+    },
+    "fresh-preflight-20261101": {
+      "type": "run_directory",
+      "path": ".mlrescurix-state/amazon-2025/fresh-preflight-20261101",
+      "size_bytes": 69076878,
+      "size_mb": 65.88,
+      "turns": 0,
+      "best_score": null,
+      "best_candidate": null,
+      "tokens": 0,
+      "cost_usd": 0
+    },
+    "fresh-preflight-20261102": {
+      "type": "run_directory",
+      "path": ".mlrescurix-state/amazon-2025/fresh-preflight-20261102",
+      "size_bytes": 69076851,
+      "size_mb": 65.88,
+      "turns": 0,
+      "best_score": null,
+      "best_candidate": null,
+      "tokens": 0,
+      "cost_usd": 0
+    },
+    "live-20261102-run1": {
+      "type": "run_directory",
+      "path": ".mlrescurix-state/amazon-2025/live-20261102-run1",
+      "size_bytes": 83583098,
+      "size_mb": 79.71,
+      "turns": 2,
+      "best_score": null,
+      "best_candidate": null,
+      "tokens": 0,
+      "cost_usd": 0.00053,
+      "handoff_score": null,
+      "handoff_candidate": null,
+      "sqlite_provider_accounting": {
+        "count": 2,
+        "prompt_tokens": 4841,
+        "completion_tokens": 607,
+        "cost_millicents": 53,
+        "cost_usd": 0.00053
+      },
+      "sqlite_records": [
+        {
+          "request_id": "gw-f16338ff32b7b7fb5c356dff88288b5548feabff3d1c15ac27a237e62c5f0127",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 968,
+          "completion": 207,
+          "cost_millicents": 15,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-85492b8a288a182be3d8167b5fd23726a31b9fdbeee151613c479942ab0dd4d8",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 3873,
+          "completion": 400,
+          "cost_millicents": 38,
+          "status": "ok"
+        }
+      ]
+    },
+    "live-20261102-run2": {
+      "type": "run_directory",
+      "path": ".mlrescurix-state/amazon-2025/live-20261102-run2",
+      "size_bytes": 87688125,
+      "size_mb": 83.63,
+      "turns": 3,
+      "best_score": null,
+      "best_candidate": null,
+      "tokens": 0,
+      "cost_usd": 0.00105,
+      "handoff_score": null,
+      "handoff_candidate": null,
+      "sqlite_provider_accounting": {
+        "count": 3,
+        "prompt_tokens": 11323,
+        "completion_tokens": 1075,
+        "cost_millicents": 105,
+        "cost_usd": 0.00105
+      },
+      "sqlite_records": [
+        {
+          "request_id": "gw-8ef417f324088e489a77747e2ba69afd74db2e8179146f8fc87b7a31a7089fa9",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 968,
+          "completion": 253,
+          "cost_millicents": 18,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-273ea2cec687444dbea60922bf241172d7edb0a9465d28c38211651cf35f8c04",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 3881,
+          "completion": 422,
+          "cost_millicents": 39,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-715f3745598bfcf458d9c3bc306acdff047fc6b24915990357540128d6f564b1",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6474,
+          "completion": 400,
+          "cost_millicents": 48,
+          "status": "ok"
+        }
+      ]
+    },
+    "live-20261102-run3": {
+      "type": "run_directory",
+      "path": ".mlrescurix-state/amazon-2025/live-20261102-run3",
+      "size_bytes": 98349424,
+      "size_mb": 93.79,
+      "turns": 8,
+      "best_score": null,
+      "best_candidate": null,
+      "tokens": 0,
+      "cost_usd": 0.00346,
+      "handoff_score": null,
+      "handoff_candidate": null,
+      "sqlite_provider_accounting": {
+        "count": 8,
+        "prompt_tokens": 39475,
+        "completion_tokens": 3442,
+        "cost_millicents": 346,
+        "cost_usd": 0.00346
+      },
+      "sqlite_records": [
+        {
+          "request_id": "gw-2c90ed79dace3c37001a6df15e7d2cc2628b21b648a43a1d502c19f1cae798b5",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 1081,
+          "completion": 157,
+          "cost_millicents": 14,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-9a245d40ce009672373563e2718f21fd0a5d0c871a19d99aa2bf3fb576ad890a",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 4078,
+          "completion": 430,
+          "cost_millicents": 40,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-ee4a99a778acbe4548754113f18097f91b49024f0ccdd09ff7135bb99ccdfcc9",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 4466,
+          "completion": 333,
+          "cost_millicents": 36,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-d05727dc5b8513cad397a69a6020e42db17b992e52719fd2d3da1293b9c25158",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 4902,
+          "completion": 375,
+          "cost_millicents": 40,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-47b1512b20902e2f1000129cb6a909bc158f3978c36d015de4c0eae198e24407",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6237,
+          "completion": 895,
+          "cost_millicents": 73,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-6b5c0ebc4f2daa8925b4c02b365622466d848c3e53dde56b1a312d1647df7b8e",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6237,
+          "completion": 553,
+          "cost_millicents": 55,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-6bb825c430e5c14fefd2b5e4f65ce90a3b94dd3f6c17c5552ec479df8ebd19bd",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6237,
+          "completion": 398,
+          "cost_millicents": 47,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-df2b10153b9121f92ab55ea74a6f000ecfb6dfd5027253c41fa8d1ce61e942c6",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6237,
+          "completion": 301,
+          "cost_millicents": 41,
+          "status": "ok"
+        }
+      ]
+    },
+    "live-20261102-run4": {
+      "type": "run_directory",
+      "path": ".mlrescurix-state/amazon-2025/live-20261102-run4",
+      "size_bytes": 104748230,
+      "size_mb": 99.9,
+      "turns": 12,
+      "best_score": null,
+      "best_candidate": null,
+      "tokens": 0,
+      "cost_usd": 0.00749,
+      "handoff_score": null,
+      "handoff_candidate": null,
+      "sqlite_provider_accounting": {
+        "count": 12,
+        "prompt_tokens": 73022,
+        "completion_tokens": 8430,
+        "cost_millicents": 749,
+        "cost_usd": 0.00749
+      },
+      "sqlite_records": [
+        {
+          "request_id": "gw-35dbb7774ffcb81574438da426cb9a8f9e1a5a083db65fee24d50b49db46f568",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 1342,
+          "completion": 186,
+          "cost_millicents": 16,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-07f2687a60d1fd53c1386f522344a569b0cf27a8570ebc9ca7e6b9e15940a7de",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 4339,
+          "completion": 300,
+          "cost_millicents": 34,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-759320b9b6b135bb36d63014ff2b493b377d70aed5a72100389780661909538d",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6668,
+          "completion": 733,
+          "cost_millicents": 66,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-e549f2cc23967373028f5f255159eda900d924363b5d08b778a44ac7721b7119",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6668,
+          "completion": 668,
+          "cost_millicents": 63,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-01f6a8072020e5f12914a94fbc17f3f9938eb0402081f455ddac901b3f09d2e8",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6668,
+          "completion": 511,
+          "cost_millicents": 55,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-cf7fc56354aacd5f4c175dd66c36b00f757bcc0b8379d46af815ad06015032a0",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6668,
+          "completion": 884,
+          "cost_millicents": 74,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-082f7ffd6e1ee83e1c7fd4800e945b4513567641a7dfc4d08a37b4ea1db23bed",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6668,
+          "completion": 648,
+          "cost_millicents": 62,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-e8722d5e99d5be4b51a10cfc41122fe5528356e3bd4a90a14f352726f9650bd9",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6668,
+          "completion": 1262,
+          "cost_millicents": 94,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-abd9ade06b5ad75b976255693f8731017dc0ffba07a91328f7cc19d97ac1468e",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6668,
+          "completion": 1147,
+          "cost_millicents": 88,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-5c45e3c462b3646ec8e5f33332ae52bfd1764559a5adc72cf652381e4da4b542",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 7001,
+          "completion": 597,
+          "cost_millicents": 61,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-f2cc63a91d3eb09bfd06ce2ef224a932f548246c1514af3cffdc90df19ac19a6",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6850,
+          "completion": 810,
+          "cost_millicents": 71,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-c146eeb83de06081722e220c6245bb95ae184077aa76b23e7f47a8eabe80e82f",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6814,
+          "completion": 684,
+          "cost_millicents": 65,
+          "status": "ok"
+        }
+      ]
+    },
+    "live-20261102-run5": {
+      "type": "run_directory",
+      "path": ".mlrescurix-state/amazon-2025/live-20261102-run5",
+      "size_bytes": 111797879,
+      "size_mb": 106.62,
+      "turns": 10,
+      "best_score": null,
+      "best_candidate": null,
+      "tokens": 0,
+      "cost_usd": 0.00636,
+      "handoff_score": null,
+      "handoff_candidate": null,
+      "sqlite_provider_accounting": {
+        "count": 10,
+        "prompt_tokens": 59617,
+        "completion_tokens": 7345,
+        "cost_millicents": 636,
+        "cost_usd": 0.00636
+      },
+      "sqlite_records": [
+        {
+          "request_id": "gw-42557f18197b57a89c1f29feafe02646a608ce5625ddfbfa016a67dd28c7ec2b",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 1342,
+          "completion": 156,
+          "cost_millicents": 15,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-d6c30ca1fee988e2f08e3942214b36bd74569f7640df813ff30e38169631d7cb",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 4336,
+          "completion": 557,
+          "cost_millicents": 48,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-cb9ef569472efe1311902d01401393e9bbac9ff86b1eb936af1a7f78e5502be9",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6703,
+          "completion": 729,
+          "cost_millicents": 66,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-bcd66c4f80388d14b5930c3a53b049ec8f0c5c7dbfbfa4116f73466d76c30dc3",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6703,
+          "completion": 819,
+          "cost_millicents": 71,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-f22be3e1df3e4779f4c0374684ad971f73031130febfd0a4faf5a5a9566c9f69",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6703,
+          "completion": 569,
+          "cost_millicents": 58,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-8eb003d5ee868cc704af86685001230accae435771e43118c12e4f2632da0c6f",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6703,
+          "completion": 1318,
+          "cost_millicents": 97,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-e2d9770bcd02e76e7e14490f14fbae11323ed29c2b7bfa4be406e0f2d33f12e7",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6703,
+          "completion": 771,
+          "cost_millicents": 68,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-37eb7ddaebfe42d0fcbb0a4f2023deacd73d1295613430985def011b4d7b0013",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6703,
+          "completion": 797,
+          "cost_millicents": 70,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-466eeace21613341e36818f9906e7e76c4fe8072363f0a971986157417f348f5",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6703,
+          "completion": 1182,
+          "cost_millicents": 90,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-d537d65176e31edb306f879e0180d30db283258c9010c3eb3959f90f2cc8689d",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 7018,
+          "completion": 447,
+          "cost_millicents": 53,
+          "status": "ok"
+        }
+      ]
+    },
+    "live-20261102-run6": {
+      "type": "run_directory",
+      "path": ".mlrescurix-state/amazon-2025/live-20261102-run6",
+      "size_bytes": 131730739,
+      "size_mb": 125.63,
+      "turns": 9,
+      "best_score": null,
+      "best_candidate": null,
+      "tokens": 0,
+      "cost_usd": 0.00619,
+      "handoff_score": null,
+      "handoff_candidate": null,
+      "sqlite_provider_accounting": {
+        "count": 9,
+        "prompt_tokens": 52725,
+        "completion_tokens": 7577,
+        "cost_millicents": 619,
+        "cost_usd": 0.00619
+      },
+      "sqlite_records": [
+        {
+          "request_id": "gw-9dd737f191afc3c90a36711a313546d20781430b0a3dcc69733b31fec8a72783",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 1385,
+          "completion": 152,
+          "cost_millicents": 15,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-ef6593a962f061c5470121c44d3d3ab71cf6848828e4e3108914555637f36854",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 4377,
+          "completion": 254,
+          "cost_millicents": 32,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-4a52b0e01985c75ec3a0afe823794eaf3f6d600a43115fc2f9c736e90ddd7c72",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6709,
+          "completion": 1082,
+          "cost_millicents": 85,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-893deab5267d3d29f61ae0174db439f609d4d58cee9e0ce3b80fe9a9b639d238",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6709,
+          "completion": 849,
+          "cost_millicents": 72,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-b5d183eba38b269c8f9ba9504c919c1bd2425bb01292ff897d3491d3eba1a94e",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6709,
+          "completion": 402,
+          "cost_millicents": 49,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-732cae3392c02f5e99c05b7a0ab5b9821cbda296eed4699f3e568b199c514295",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6709,
+          "completion": 989,
+          "cost_millicents": 80,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-2be2870c9e95bb41ced48cbd88ad7604c84f22d2d187edc141e8937d6f586898",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6709,
+          "completion": 1241,
+          "cost_millicents": 93,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-de016c70cccaabd5f4109e20c1af101437d9ed41c175cfe1bfd7abc1f08385b7",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6709,
+          "completion": 948,
+          "cost_millicents": 78,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-6d23edd0976b8d182a82b166e013de95f0fac62eb638a3fb8003d57b3bacc5e6",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6709,
+          "completion": 1660,
+          "cost_millicents": 115,
+          "status": "ok"
+        }
+      ]
+    },
+    "live-20261102-run7": {
+      "type": "run_directory",
+      "path": ".mlrescurix-state/amazon-2025/live-20261102-run7",
+      "size_bytes": 102837016,
+      "size_mb": 98.07,
+      "turns": 4,
+      "best_score": null,
+      "best_candidate": null,
+      "tokens": 0,
+      "cost_usd": 0.00174,
+      "handoff_score": null,
+      "handoff_candidate": null,
+      "sqlite_provider_accounting": {
+        "count": 4,
+        "prompt_tokens": 19697,
+        "completion_tokens": 1695,
+        "cost_millicents": 174,
+        "cost_usd": 0.00174
+      },
+      "sqlite_records": [
+        {
+          "request_id": "gw-de40f09e893e6de8c02822d8834d688122201547b7f069228f088c1b5c815c31",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 1512,
+          "completion": 190,
+          "cost_millicents": 18,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-4217b0442a98b0b8173768158e89939b1ba04765ee7caaa1094ff1c0696fb8f3",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 4509,
+          "completion": 274,
+          "cost_millicents": 34,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-165877245d260fb6cfcb49f2c91fe166a24d91588864a0faf64cd6a4b8997248",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6838,
+          "completion": 787,
+          "cost_millicents": 70,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-d0ae5482eb78d35ed4b0863c0b1656ff4155958b72ed092af2e7a84c21a76a47",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6838,
+          "completion": 444,
+          "cost_millicents": 52,
+          "status": "ok"
+        }
+      ]
+    },
+    "live-20261102-run8": {
+      "type": "run_directory",
+      "path": ".mlrescurix-state/amazon-2025/live-20261102-run8",
+      "size_bytes": 101535653,
+      "size_mb": 96.83,
+      "turns": 4,
+      "best_score": null,
+      "best_candidate": null,
+      "tokens": 0,
+      "cost_usd": 0.002,
+      "handoff_score": null,
+      "handoff_candidate": null,
+      "sqlite_provider_accounting": {
+        "count": 4,
+        "prompt_tokens": 18117,
+        "completion_tokens": 2296,
+        "cost_millicents": 200,
+        "cost_usd": 0.002
+      },
+      "sqlite_records": [
+        {
+          "request_id": "gw-8232ee9be513f120965eb05dafc45f5fbd1e1f507f6df72678b078381f003e88",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 1512,
+          "completion": 176,
+          "cost_millicents": 17,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-a650394cdf652f6e837b2bd98be6f3b293a25709c206a266b548e5ec3c3a3d98",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 4508,
+          "completion": 510,
+          "cost_millicents": 47,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-99a7ba13d859f9cc1f1964f16acefadb73f2110ff1e616255072cf830c3399d0",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 5625,
+          "completion": 454,
+          "cost_millicents": 48,
+          "status": "ok"
+        },
+        {
+          "request_id": "gw-93e9053857c29f497838cfa4f602e93f868933cd5e07b0a6f74c44a77716e851",
+          "model": "deepseek/deepseek-v4.1-flash-1017",
+          "prompt": 6472,
+          "completion": 1156,
+          "cost_millicents": 88,
+          "status": "ok"
+        }
+      ]
+    },
+    "session": {
+      "type": "run_directory",
+      "path": ".mlrescurix-state/amazon-2025/session",
+      "size_bytes": 78170590,
+      "size_mb": 74.55,
+      "turns": 3,
+      "best_score": null,
+      "best_candidate": null,
+      "tokens": 0,
+      "cost_usd": 0.0018700000000000001,
+      "handoff_score": null,
+      "handoff_candidate": null
+    },
+    "session-continuation": {
+      "type": "run_directory",
+      "path": ".mlrescurix-state/amazon-2025/session-continuation",
+      "size_bytes": 83574436,
+      "size_mb": 79.7,
+      "turns": 2,
+      "best_score": null,
+      "best_candidate": null,
+      "tokens": 0,
+      "cost_usd": 0.00101,
+      "handoff_score": null,
+      "handoff_candidate": null
+    },
+    "amazon-development-model.joblib": {
+      "type": "file",
+      "path": ".mlrescurix-state/amazon-2025/amazon-development-model.joblib",
+      "size_bytes": 884937,
+      "size_mb": 0.84
+    },
+    "outbound-request.json": {
+      "type": "file",
+      "path": ".mlrescurix-state/amazon-2025/outbound-request.json",
+      "size_bytes": 41068,
+      "size_mb": 0.04
+    },
+    "catalog_development.csv": {
+      "type": "file",
+      "path": ".mlrescurix-state/amazon-2025/catalog_development.csv",
+      "size_bytes": 69073907,
+      "size_mb": 65.87
+    }
+  }
+}

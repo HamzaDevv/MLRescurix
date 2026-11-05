@@ -1,11 +1,13 @@
 //! Single authoritative controller resource management across tokens, monetary spend,
 //! web search queries, and Kaggle compute quotas.
 
+use std::collections::HashSet;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use crate::agents::gateway::accounting_request_key;
 use crate::Result;
 
 fn now_ms() -> i64 {
@@ -66,7 +68,7 @@ pub fn ensure_resource_authority_schema(conn: &Connection) -> Result<()> {
             prompt_tokens INTEGER NOT NULL,
             completion_tokens INTEGER NOT NULL,
             cost_millicents INTEGER NOT NULL,
-            status TEXT NOT NULL CHECK(status IN ('reserved', 'ok', 'failed', 'outcome_unknown')),
+            status TEXT NOT NULL CHECK(status IN ('reserved', 'ok', 'failed', 'outcome_unknown', 'cancelled')),
             created_ms INTEGER NOT NULL,
             settled_ms INTEGER,
             error_message TEXT,
@@ -77,6 +79,41 @@ pub fn ensure_resource_authority_schema(conn: &Connection) -> Result<()> {
 
     // Safe backward compatibility migration for pre-existing tables missing new columns
     let _ = conn.execute("ALTER TABLE operational_search_attempts ADD COLUMN response_evidence TEXT", []);
+
+    // Safe backward compatibility migration for pre-existing tables missing 'cancelled' in CHECK constraint
+    let op_table_sql: Option<String> = conn.query_row(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='operational_token_reservations'",
+        [],
+        |r| r.get(0),
+    ).optional().map_err(|e| e.to_string())?;
+
+    if let Some(sql) = op_table_sql {
+        if !sql.contains("'cancelled'") {
+            let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+            tx.execute_batch(
+                "CREATE TABLE operational_token_reservations_v2 (
+                     project TEXT NOT NULL,
+                     reservation_id TEXT NOT NULL,
+                     role_id TEXT NOT NULL,
+                     model_id TEXT NOT NULL,
+                     prompt_tokens INTEGER NOT NULL,
+                     completion_tokens INTEGER NOT NULL,
+                     cost_millicents INTEGER NOT NULL,
+                     status TEXT NOT NULL CHECK(status IN ('reserved', 'ok', 'failed', 'outcome_unknown', 'cancelled')),
+                     created_ms INTEGER NOT NULL,
+                     settled_ms INTEGER,
+                     error_message TEXT,
+                     PRIMARY KEY(project, reservation_id)
+                 );
+                 INSERT INTO operational_token_reservations_v2 SELECT * FROM operational_token_reservations;
+                 DROP TABLE operational_token_reservations;
+                 ALTER TABLE operational_token_reservations_v2 RENAME TO operational_token_reservations;
+                 CREATE INDEX IF NOT EXISTS idx_token_res_status ON operational_token_reservations(project, status);"
+            ).map_err(|e| format!("failed to migrate operational_token_reservations check constraint: {e}"))?;
+            tx.commit().map_err(|e| e.to_string())?;
+        }
+    }
+
     Ok(())
 }
 
@@ -424,6 +461,127 @@ pub fn settle_kaggle_job(
     Ok(())
 }
 
+/// Query deduplicated token and spend liability across provider_accounting and operational_token_reservations.
+///
+/// If a request has an operational reservation AND a corresponding provider_accounting record,
+/// they represent the same physical request and must be counted exactly once to avoid double-counting.
+pub fn query_deduplicated_token_and_spend(
+    conn: &Connection,
+    project: &str,
+) -> Result<(u64, i64, i64, i64, bool)> {
+    let has_pa: bool = conn.query_row::<i64, _, _>(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='provider_accounting'",
+        [],
+        |r| r.get(0),
+    ).map(|c| c > 0).map_err(|e| e.to_string())?;
+
+    let mut unpriced_provider_usage = false;
+    let mut pa_records: Vec<(String, String, i64, i64, i64)> = Vec::new(); // (request_id, task_id, prompt, comp, cost)
+
+    if has_pa {
+        unpriced_provider_usage = conn.query_row::<i64, _, _>(
+            "SELECT COUNT(*) FROM provider_accounting WHERE project=?1 AND status='success_cost_unpriced'",
+            params![project],
+            |r| r.get(0),
+        ).map_err(|e| e.to_string())? > 0;
+
+        let mut pragma_stmt = conn.prepare("PRAGMA table_info(provider_accounting)").map_err(|e| e.to_string())?;
+        let columns: Vec<String> = pragma_stmt.query_map([], |r| r.get::<_, String>(1))
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect();
+        let has_request_id = columns.iter().any(|c| c == "request_id");
+        let has_task_id = columns.iter().any(|c| c == "task_id");
+
+        if has_request_id && has_task_id {
+            let mut stmt = conn.prepare(
+                "SELECT request_id, task_id, COALESCE(prompt_tokens, 0), COALESCE(completion_tokens, 0), COALESCE(cost_millicents, 0)
+                 FROM provider_accounting WHERE project = ?1 AND status IN ('ok', 'reserved', 'outcome_unknown', 'priced', 'outcome_unknown_ceiling_estimate', 'success_cost_unpriced')"
+            ).map_err(|e| e.to_string())?;
+            let rows = stmt.query_map(params![project], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?, r.get::<_, i64>(4)?))
+            }).map_err(|e| e.to_string())?;
+            for row in rows {
+                pa_records.push(row.map_err(|e| e.to_string())?);
+            }
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT COALESCE(prompt_tokens, 0), COALESCE(completion_tokens, 0), COALESCE(cost_millicents, 0)
+                 FROM provider_accounting WHERE project = ?1 AND status IN ('ok', 'reserved', 'outcome_unknown', 'priced', 'outcome_unknown_ceiling_estimate', 'success_cost_unpriced')"
+            ).map_err(|e| e.to_string())?;
+            let rows = stmt.query_map(params![project], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
+            }).map_err(|e| e.to_string())?;
+            for (idx, row) in rows.enumerate() {
+                let (prompt, comp, cost) = row.map_err(|e| e.to_string())?;
+                pa_records.push((format!("legacy_pa_{idx}"), String::new(), prompt, comp, cost));
+            }
+        }
+    }
+
+    let mut op_records: Vec<(String, i64, i64, i64)> = Vec::new(); // (reservation_id, prompt, comp, cost)
+    let has_op: bool = conn.query_row::<i64, _, _>(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='operational_token_reservations'",
+        [],
+        |r| r.get(0),
+    ).map(|c| c > 0).map_err(|e| e.to_string())?;
+
+    if has_op {
+        let mut stmt = conn.prepare(
+            "SELECT reservation_id, COALESCE(prompt_tokens, 0), COALESCE(completion_tokens, 0), COALESCE(cost_millicents, 0)
+             FROM operational_token_reservations WHERE project = ?1 AND status IN ('reserved', 'ok', 'outcome_unknown')"
+        ).map_err(|e| e.to_string())?;
+        let rows = stmt.query_map(params![project], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?))
+        }).map_err(|e| e.to_string())?;
+        for row in rows {
+            op_records.push(row.map_err(|e| e.to_string())?);
+        }
+    }
+
+    let mut matched_pa_indices = HashSet::new();
+    let mut matched_op_indices = HashSet::new();
+    let mut total_prompt: i64 = 0;
+    let mut total_comp: i64 = 0;
+    let mut total_cost: i64 = 0;
+
+    for (op_idx, (res_id, op_prompt, op_comp, op_cost)) in op_records.iter().enumerate() {
+        for (pa_idx, (pa_req_id, pa_task_id, pa_prompt, pa_comp, pa_cost)) in pa_records.iter().enumerate() {
+            if matched_pa_indices.contains(&pa_idx) {
+                continue;
+            }
+            let key = accounting_request_key(project, pa_task_id, res_id);
+            if pa_req_id == res_id || pa_req_id == &key {
+                matched_pa_indices.insert(pa_idx);
+                matched_op_indices.insert(op_idx);
+                total_prompt = total_prompt.checked_add((*op_prompt).max(*pa_prompt)).ok_or("prompt token overflow")?;
+                total_comp = total_comp.checked_add((*op_comp).max(*pa_comp)).ok_or("completion token overflow")?;
+                total_cost = total_cost.checked_add((*op_cost).max(*pa_cost)).ok_or("cost millicents overflow")?;
+                break;
+            }
+        }
+    }
+
+    for (op_idx, (_, op_prompt, op_comp, op_cost)) in op_records.iter().enumerate() {
+        if !matched_op_indices.contains(&op_idx) {
+            total_prompt = total_prompt.checked_add(*op_prompt).ok_or("prompt token overflow")?;
+            total_comp = total_comp.checked_add(*op_comp).ok_or("completion token overflow")?;
+            total_cost = total_cost.checked_add(*op_cost).ok_or("cost millicents overflow")?;
+        }
+    }
+
+    for (pa_idx, (_, _, pa_prompt, pa_comp, pa_cost)) in pa_records.iter().enumerate() {
+        if !matched_pa_indices.contains(&pa_idx) {
+            total_prompt = total_prompt.checked_add(*pa_prompt).ok_or("prompt token overflow")?;
+            total_comp = total_comp.checked_add(*pa_comp).ok_or("completion token overflow")?;
+            total_cost = total_cost.checked_add(*pa_cost).ok_or("cost millicents overflow")?;
+        }
+    }
+
+    let total_tokens = (total_prompt as u64).checked_add(total_comp as u64).ok_or("token count overflow")?;
+    Ok((total_tokens, total_cost, total_prompt, total_comp, unpriced_provider_usage))
+}
+
 /// Atomically admit an operational token reservation under token and monetary spend ceilings.
 pub fn admit_token_reservation(
     db_path: &Path,
@@ -447,44 +605,10 @@ pub fn admit_token_reservation(
 
     let requested_tokens = (prompt_tokens as u64) + (completion_tokens as u64);
 
-    let (curr_tokens, curr_spend): (i64, i64) = tx.query_row(
-        "SELECT COALESCE(SUM(prompt_tokens + completion_tokens), 0),
-                COALESCE(SUM(cost_millicents), 0)
-         FROM operational_token_reservations WHERE project = ?1 AND status IN ('reserved', 'ok', 'outcome_unknown')",
-        params![project],
-        |r| Ok((r.get(0)?, r.get(1)?)),
-    ).map_err(|e| e.to_string())?;
-
-    let has_pa: bool = tx.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='provider_accounting'",
-        [],
-        |r| r.get::<_, i64>(0),
-    ).map(|c| c > 0).map_err(|e| e.to_string())?;
-
-    let (pa_tokens, pa_spend): (i64, i64) = if has_pa {
-        let unpriced: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM provider_accounting WHERE project=?1 AND status='success_cost_unpriced'",
-            params![project], |r| r.get(0),
-        ).map_err(|e| e.to_string())?;
-        if unpriced > 0 {
-            return Err("unpriced provider usage requires reconciliation before admission".into());
-        }
-        tx.query_row(
-            "SELECT COALESCE(SUM(prompt_tokens + completion_tokens), 0),
-                    COALESCE(SUM(cost_millicents), 0)
-             FROM provider_accounting WHERE project = ?1 AND status IN ('reserved', 'ok', 'outcome_unknown', 'priced', 'outcome_unknown_ceiling_estimate')",
-            params![project],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        ).map_err(|e| e.to_string())?
-    } else {
-        (0, 0)
-    };
-
-    if curr_tokens < 0 || pa_tokens < 0 || curr_spend < 0 || pa_spend < 0 {
-        return Err("negative recorded resource liability".into());
+    let (total_tokens, total_spend, _, _, unpriced) = query_deduplicated_token_and_spend(&tx, project)?;
+    if unpriced {
+        return Err("unpriced provider usage requires reconciliation before admission".into());
     }
-    let total_tokens = curr_tokens.checked_add(pa_tokens).ok_or("token liability overflow")? as u64;
-    let total_spend = curr_spend.checked_add(pa_spend).ok_or("spend liability overflow")?;
 
     if total_tokens.checked_add(requested_tokens).ok_or("token admission overflow")? > token_limit
         || total_spend.checked_add(cost_millicents).ok_or("spend admission overflow")? > spend_limit {
@@ -514,7 +638,7 @@ pub fn settle_token_reservation(
     cost_millicents: i64,
     error: Option<&str>,
 ) -> Result<()> {
-    if cost_millicents < 0 || !["ok", "failed", "outcome_unknown"].contains(&status) { return Err("invalid token settlement".into()); }
+    if cost_millicents < 0 || !["ok", "failed", "outcome_unknown", "cancelled"].contains(&status) { return Err("invalid token settlement".into()); }
     let mut conn = Connection::open(db_path).map_err(|e| e.to_string())?;
     conn.busy_timeout(std::time::Duration::from_secs(10)).map_err(|e| e.to_string())?;
     ensure_resource_authority_schema(&conn)?;
@@ -529,14 +653,31 @@ pub fn settle_token_reservation(
     ).optional().map_err(|e| e.to_string())?;
 
     let (current, prev_prompt_tokens, prev_comp_tokens, prev_cost, prev_error) = existing.ok_or_else(|| format!("token reservation '{reservation_id}' not found for project '{project}'"))?;
-    let terminal_states = ["ok", "failed", "outcome_unknown"];
+    let terminal_states = ["ok", "failed", "outcome_unknown", "cancelled"];
     if terminal_states.contains(&current.as_str()) {
-        if current == status && prev_prompt_tokens == prompt_tokens && prev_comp_tokens == completion_tokens && prev_cost == cost_millicents && prev_error.as_deref() == error {
-            return Ok(()); // idempotent no-op
+        if current == status {
+            if status == "cancelled" {
+                return Ok(()); // idempotent no-op for cancelled
+            }
+            if prev_prompt_tokens == prompt_tokens && prev_comp_tokens == completion_tokens && prev_cost == cost_millicents && prev_error.as_deref() == error {
+                return Ok(()); // idempotent no-op
+            }
         }
         return Err(format!(
             "rejected conflicting settlement for token reservation '{reservation_id}': already terminal ({current}), requested ({status})"
         ));
+    }
+
+    if status == "cancelled" {
+        let timestamp = now_ms();
+        tx.execute(
+            "UPDATE operational_token_reservations
+             SET status='cancelled', settled_ms=?1, error_message=?2, prompt_tokens=0, completion_tokens=0, cost_millicents=0
+             WHERE project=?3 AND reservation_id=?4",
+            params![timestamp, error.unwrap_or("cancelled before dispatch"), project, reservation_id],
+        ).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+        return Ok(());
     }
 
     if status == "outcome_unknown" && (prompt_tokens < prev_prompt_tokens || completion_tokens < prev_comp_tokens || cost_millicents < prev_cost) {
@@ -575,42 +716,14 @@ pub fn get_unified_resource_status(state_dir: &Path, project: &str) -> Result<Va
                 conn.busy_timeout(std::time::Duration::from_secs(5)).map_err(|e| e.to_string())?;
                 ensure_resource_authority_schema(&conn)?;
 
-                // 1. Query model tokens & spend across provider_accounting and operational_token_reservations
-                let mut total_spend: i64 = 0;
-                let mut prompt_tokens: i64 = 0;
-                let mut completion_tokens: i64 = 0;
-
                 let pa_exists = conn.query_row::<i64, _, _>(
                     "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='provider_accounting'",
                     [],
                     |r| r.get(0),
                 ).map_err(|e| e.to_string())?;
-                let mut unpriced_provider_usage = false;
-                if pa_exists > 0 {
-                        unpriced_provider_usage = conn.query_row::<i64, _, _>(
-                            "SELECT COUNT(*) FROM provider_accounting WHERE project=?1 AND status='success_cost_unpriced'",
-                            params![project], |r| r.get(0),
-                        ).map_err(|e| e.to_string())? > 0;
-                        let (pa_spend, pa_prompt, pa_comp) = conn.query_row::<(i64, i64, i64), _, _>(
-                            "SELECT COALESCE(SUM(cost_millicents), 0), COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0)
-                             FROM provider_accounting WHERE project=?1 AND status IN ('ok', 'reserved', 'outcome_unknown', 'priced', 'outcome_unknown_ceiling_estimate', 'success_cost_unpriced')",
-                            params![project],
-                            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-                        ).map_err(|e| e.to_string())?;
-                        total_spend += pa_spend;
-                        prompt_tokens += pa_prompt;
-                        completion_tokens += pa_comp;
-                }
 
-                let (op_spend, op_prompt, op_comp) = conn.query_row::<(i64, i64, i64), _, _>(
-                    "SELECT COALESCE(SUM(cost_millicents), 0), COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0)
-                     FROM operational_token_reservations WHERE project=?1 AND status IN ('ok', 'reserved', 'outcome_unknown')",
-                    params![project],
-                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-                ).map_err(|e| e.to_string())?;
-                total_spend += op_spend;
-                prompt_tokens += op_prompt;
-                completion_tokens += op_comp;
+                let (total_tokens, total_spend, prompt_tokens, completion_tokens, unpriced_provider_usage) =
+                    query_deduplicated_token_and_spend(&conn, project)?;
 
                 // 2. Query search attempts
                 let search_res: std::result::Result<i64, rusqlite::Error> = conn.query_row(
@@ -640,10 +753,10 @@ pub fn get_unified_resource_status(state_dir: &Path, project: &str) -> Result<Va
                         if unpriced_provider_usage { Value::Null } else { serde_json::json!(total_spend) },
                         serde_json::json!(prompt_tokens),
                         serde_json::json!(completion_tokens),
-                        serde_json::json!(prompt_tokens + completion_tokens),
+                        serde_json::json!(total_tokens),
                         serde_json::json!(search_attempts),
-                        if unpriced_provider_usage { "unpriced_provider_usage" } else if pa_exists > 0 { "local_accounting_queried" } else { "provider_accounting_unavailable" },
-                        pa_exists > 0 && !unpriced_provider_usage,
+                        if unpriced_provider_usage { "unpriced_provider_usage" } else if pa_exists > 0 || total_tokens > 0 { "local_accounting_queried" } else { "provider_accounting_unavailable" },
+                        (pa_exists > 0 || total_tokens > 0) && !unpriced_provider_usage,
                     ),
                     Err(_) => (
                         Value::Null,

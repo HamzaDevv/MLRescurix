@@ -266,6 +266,12 @@ class RustGatewayAdapter:
 
             try:
                 dispatch_env = os.environ.copy()
+                if "OPENROUTER_API_KEY" not in dispatch_env:
+                    key_file = REPO_ROOT / ".config/openrouter.key"
+                    if key_file.is_file():
+                        k = key_file.read_text(encoding="utf-8").strip()
+                        if k:
+                            dispatch_env["OPENROUTER_API_KEY"] = k
                 if self.mock_path is None:
                     if not hasattr(self, "campaign_ledger"):
                         raise ValueError("Real gateway requires a bound shared campaign ledger")

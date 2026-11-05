@@ -179,7 +179,8 @@ class OperationalBudgets:
             subprocess.run(cmd, capture_output=True, text=True, check=True)
             self.sync_authoritative_status()
         except Exception as exc:
-            logger.warning(f"Rust harness search-settle failed: {exc}")
+            logger.error(f"Rust harness search-settle failed: {exc}")
+            raise RuntimeError(f"Rust harness search-settle failed for attempt {attempt_id}: {exc}") from exc
 
     def admit_kaggle_job(
         self,
@@ -230,7 +231,7 @@ class OperationalBudgets:
         harness_bin = self._authority_binary()
         if not harness_bin:
             logger.error(f"Cannot settle kaggle job {job_id}: Rust harness authority binary missing")
-            return
+            raise RuntimeError(f"Cannot settle kaggle job {job_id}: Rust harness authority binary missing")
         try:
             cmd = [
                 str(harness_bin),
@@ -246,7 +247,8 @@ class OperationalBudgets:
             subprocess.run(cmd, capture_output=True, text=True, check=True)
             self.sync_authoritative_status()
         except Exception as exc:
-            logger.warning(f"Rust harness kaggle-settle failed: {exc}")
+            logger.error(f"Rust harness kaggle-settle failed: {exc}")
+            raise RuntimeError(f"Rust harness kaggle-settle failed for job {job_id}: {exc}") from exc
 
     def admit_token_reservation(
         self,
@@ -309,7 +311,7 @@ class OperationalBudgets:
         harness_bin = self._authority_binary()
         if not harness_bin:
             logger.error(f"Cannot settle token reservation {reservation_id}: Rust harness authority binary missing")
-            return
+            raise RuntimeError(f"Cannot settle token reservation {reservation_id}: Rust harness authority binary missing")
         try:
             cmd = [
                 str(harness_bin),
@@ -327,7 +329,8 @@ class OperationalBudgets:
             subprocess.run(cmd, capture_output=True, text=True, check=True)
             self.sync_authoritative_status()
         except Exception as exc:
-            logger.warning(f"Rust harness token-settle failed: {exc}")
+            logger.error(f"Rust harness token-settle failed: {exc}")
+            raise RuntimeError(f"Rust harness token-settle failed for reservation {reservation_id}: {exc}") from exc
 
     def query_authoritative_resource_status(self) -> Optional[Dict[str, Any]]:
         """Query single authoritative resource status from Rust harness."""

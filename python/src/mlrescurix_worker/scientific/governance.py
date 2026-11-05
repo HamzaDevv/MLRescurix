@@ -110,6 +110,15 @@ class CampaignBudgetAuthority:
                 old = {"run_id": run_id, "amount_usd": str(amount), "status": "reserved"}
                 active[request_id] = dict(old)
                 change("total_reserved_usd", "reserved_usd", amount)
+            elif operation == "cancel":
+                if not old:
+                    return amount
+                if old.get("status") != "reserved":
+                    raise ValueError(f"Cannot cancel request in status '{old.get('status')}'; only un-dispatched 'reserved' requests can be cancelled")
+                reserved = Decimal(old["amount_usd"])
+                change("total_reserved_usd", "reserved_usd", -reserved)
+                active.pop(request_id, None)
+                old.update(status="cancelled_before_dispatch", settled_usd="0.00", unreconciled_usd="0.00")
             else:
                 reserved = Decimal(old["amount_usd"])
                 if operation == "uncertain" and amount != reserved:
@@ -149,6 +158,9 @@ class CampaignBudgetAuthority:
 
     def reserve(self, run_id, request_id, amount_usd):
         return self._transition(run_id, request_id, "reserve", amount_usd)
+
+    def cancel(self, run_id, request_id):
+        return self._transition(run_id, request_id, "cancel", Decimal("0"))
 
     def settle(self, run_id, request_id, actual_billed_usd, *, cost_kind="unverified"):
         return self._transition(run_id, request_id, "settle", actual_billed_usd, cost_kind)
@@ -225,7 +237,7 @@ class GovernanceService:
         campaign_ceiling = Decimal(str(ceiling_val))
         if Decimal(str(status.get("campaign_ceiling_usd", campaign_ceiling))) > campaign_ceiling:
             raise ValueError(f"Campaign authority exceeds authorized ${campaign_ceiling} ceiling")
-        session.campaign_authority.reserve(session.session_id, request_id, amount)
+
         token_res_id = None
         if (hasattr(session, "operational_budgets") and session.operational_budgets.db_path
                 and not getattr(session, "provider_is_fixture", False)):
@@ -243,18 +255,35 @@ class GovernanceService:
             if not admitted or not t_id:
                 raise ValueError(f"Rust resource authority token admission rejected for limit {token_ceiling}")
             token_res_id = t_id
-        session._event("provider_reserved", request_id=request_id, reserved_usd=str(amount), fixture=session.provider_is_fixture)
-        pending.update(phase="provider_dispatching", reserved_usd=str(amount)); session._save_state(session.state)
+
         try:
+            session.campaign_authority.reserve(session.session_id, request_id, amount)
+        except Exception:
+            if token_res_id and hasattr(session, "operational_budgets") and session.operational_budgets.db_path:
+                try:
+                    session.operational_budgets.settle_token_reservation(token_res_id, status="cancelled")
+                except Exception:
+                    pass
+            raise
+
+        pending.update(phase="provider_admitted", reserved_usd=str(amount))
+        try:
+            session._event("provider_reserved", request_id=request_id, reserved_usd=str(amount), fixture=session.provider_is_fixture)
+            pending.update(phase="provider_dispatching")
+            session._save_state(session.state)
             if session.provider_caller is not None:
                 stable_call = getattr(session.provider_caller, "call_with_request_id", None)
                 res = stable_call(messages, max_tokens, request_id) if callable(stable_call) else session.provider_caller(messages, max_tokens)
-            else: res = session._http_provider(messages, max_tokens)
-            if "cost_usd" not in res: raise ValueError("Provider must return billed cost or marked conservative cost estimate")
+            else:
+                res = session._http_provider(messages, max_tokens)
+            if "cost_usd" not in res:
+                raise ValueError("Provider must return billed cost or marked conservative cost estimate")
             cost = Decimal(str(res["cost_usd"]))
-            if not cost.is_finite() or cost < 0: raise ValueError("Invalid provider cost")
+            if not cost.is_finite() or cost < 0:
+                raise ValueError("Invalid provider cost")
             # Durable response precedes settlement, so an interrupted settlement is reconciled, never resent.
-            pending.update(phase="provider_received", provider_receipt=res); session._save_state(session.state)
+            pending.update(phase="provider_received", provider_receipt=res)
+            session._save_state(session.state)
             session.campaign_authority.settle(session.session_id, request_id, cost) if session.provider_is_fixture else session.campaign_authority.settle(
                 session.session_id, request_id, cost, cost_kind="calculated_estimate" if res.get("cost_is_estimate", True) else "unverified")
             if token_res_id and hasattr(session, "operational_budgets") and session.operational_budgets.db_path:
@@ -269,12 +298,14 @@ class GovernanceService:
                     completion_tokens=c_tok,
                     cost_millicents=c_mc,
                 )
-            pending["phase"] = "provider_settled"; session._save_state(session.state)
-            if cost > amount: raise RecoveryRequired("Provider charge exceeded verified reservation; reconcile pricing before continuation")
+            pending["phase"] = "provider_settled"
+            session._save_state(session.state)
+            if cost > amount:
+                raise RecoveryRequired("Provider charge exceeded verified reservation; reconcile pricing before continuation")
             session._event("provider_settled", request_id=request_id, cost_usd=str(cost), estimated=res.get("cost_is_estimate", False))
             return res
         except BaseException as exc:
-            if pending["phase"] == "provider_dispatching":
+            if pending.get("phase") == "provider_dispatching":
                 session.campaign_authority.mark_uncertain(session.session_id, request_id, amount)
                 if token_res_id and hasattr(session, "operational_budgets") and session.operational_budgets.db_path:
                     session.operational_budgets.settle_token_reservation(
@@ -285,4 +316,14 @@ class GovernanceService:
                         cost_millicents=int((amount * 100_000).to_integral_value()),
                         error=str(exc),
                     )
+            elif pending.get("phase") == "provider_admitted":
+                try:
+                    session.campaign_authority.cancel(session.session_id, request_id)
+                except Exception:
+                    pass
+                if token_res_id and hasattr(session, "operational_budgets") and session.operational_budgets.db_path:
+                    try:
+                        session.operational_budgets.settle_token_reservation(token_res_id, status="cancelled")
+                    except Exception:
+                        pass
             raise

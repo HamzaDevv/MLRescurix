@@ -524,3 +524,296 @@ def test_governance_live_provider_dispatch_admits_and_settles_tokens(tmp_path):
         assert row[2] == 120
         assert row[3] == 40
         assert row[4] == "ok"
+
+
+def test_governance_dispatch_rolls_back_token_res_when_campaign_reserve_fails(tmp_path):
+    from pathlib import Path
+    import sqlite3
+    from decimal import Decimal
+    from mlrescurix_worker.scientific.governance import GovernanceService
+    from mlrescurix_worker.scientific.operational_budgets import OperationalBudgets
+    from mlrescurix_worker.scientific.rust_gateway import RustGatewayAdapter
+
+    db_file = tmp_path / "gateway_state.sqlite"
+    harness_bin = Path("target/release/mlrescurix-harness").resolve()
+    if not harness_bin.exists():
+        pytest.skip("Harness binary not built")
+
+    budgets = OperationalBudgets(project_id="rollback_test_proj", db_path=db_file)
+
+    class FailingCampaignAuthority:
+        def get_status(self):
+            return {"campaign_ceiling_usd": "100.00"}
+        def reserve(self, session_id, req_id, amt):
+            raise ValueError("Simulated campaign authority rejection")
+
+    class MockRustGateway(RustGatewayAdapter):
+        def __init__(self):
+            self.state_dir = tmp_path
+            self.binary = harness_bin
+            self.project_id = "rollback_test_proj"
+            self.pricing = {"verified": True, "input_per_million": 140, "output_per_million": 280}
+        def reservation(self, messages, max_tokens):
+            return Decimal("0.0005")
+
+    class DummySession:
+        def __init__(self):
+            self.session_id = "sess_rb"
+            self.model_name = "deepseek/deepseek-chat"
+            self.campaign_authority = FailingCampaignAuthority()
+            self.operational_budgets = budgets
+            self.provider_is_fixture = False
+            self.provider_caller = MockRustGateway()
+            self.per_run_budget_usd = Decimal("1.00")
+            self.pricing = {"verified": True, "input_per_million": 140, "output_per_million": 280}
+            self.state = {"turns": [], "pending_turn": {"request_id": "req_rb_1"}}
+            self.events = []
+        def _reservation(self, messages, max_tokens):
+            return Decimal("0.0005")
+        def _event(self, name, **kwargs):
+            self.events.append((name, kwargs))
+        def _save_state(self, state):
+            self.state = state
+
+    session = DummySession()
+    service = GovernanceService()
+
+    with pytest.raises(ValueError, match="Simulated campaign authority rejection"):
+        service.dispatch(session, messages=[{"role": "user", "content": "hi"}], max_tokens=100)
+
+    # Verify that the token reservation in SQLite was cancelled, not left active or orphan!
+    with sqlite3.connect(db_file) as conn:
+        row = conn.execute(
+            "SELECT status, cost_millicents FROM operational_token_reservations WHERE project='rollback_test_proj' AND reservation_id='req_rb_1'"
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "cancelled"
+        assert row[1] == 0
+
+
+def test_governance_dispatch_cancels_when_error_before_dispatch(tmp_path):
+    from pathlib import Path
+    import sqlite3
+    from decimal import Decimal
+    from mlrescurix_worker.scientific.governance import GovernanceService
+    from mlrescurix_worker.scientific.operational_budgets import OperationalBudgets
+    from mlrescurix_worker.scientific.rust_gateway import RustGatewayAdapter
+
+    db_file = tmp_path / "gateway_state.sqlite"
+    harness_bin = Path("target/release/mlrescurix-harness").resolve()
+    if not harness_bin.exists():
+        pytest.skip("Harness binary not built")
+
+    budgets = OperationalBudgets(project_id="predispatch_test_proj", db_path=db_file)
+
+    class DummyCampaignAuthority:
+        def __init__(self):
+            self.cancelled = []
+        def get_status(self):
+            return {"campaign_ceiling_usd": "100.00"}
+        def reserve(self, session_id, req_id, amt):
+            pass
+        def cancel(self, session_id, req_id):
+            self.cancelled.append((session_id, req_id))
+
+    class MockRustGateway(RustGatewayAdapter):
+        def __init__(self):
+            self.state_dir = tmp_path
+            self.binary = harness_bin
+            self.project_id = "predispatch_test_proj"
+            self.pricing = {"verified": True, "input_per_million": 140, "output_per_million": 280}
+        def reservation(self, messages, max_tokens):
+            return Decimal("0.0005")
+
+    class DummySession:
+        def __init__(self):
+            self.session_id = "sess_predispatch"
+            self.model_name = "deepseek/deepseek-chat"
+            self.campaign_authority = DummyCampaignAuthority()
+            self.operational_budgets = budgets
+            self.provider_is_fixture = False
+            self.provider_caller = MockRustGateway()
+            self.per_run_budget_usd = Decimal("1.00")
+            self.pricing = {"verified": True, "input_per_million": 140, "output_per_million": 280}
+            self.state = {"turns": [], "pending_turn": {"request_id": "req_predispatch_1"}}
+            self.events = []
+        def _reservation(self, messages, max_tokens):
+            return Decimal("0.0005")
+        def _event(self, name, **kwargs):
+            # Intentionally fail during provider_admitted phase before dispatching
+            if name == "provider_reserved":
+                raise RuntimeError("Simulated failure right after reservation admission")
+            self.events.append((name, kwargs))
+        def _save_state(self, state):
+            self.state = state
+
+    session = DummySession()
+    service = GovernanceService()
+
+    with pytest.raises(RuntimeError, match="Simulated failure right after reservation admission"):
+        service.dispatch(session, messages=[{"role": "user", "content": "hi"}], max_tokens=100)
+
+    # Verify campaign authority cancel was invoked
+    assert session.campaign_authority.cancelled == [("sess_predispatch", "req_predispatch_1")]
+
+    # Verify SQLite reservation was cancelled
+    with sqlite3.connect(db_file) as conn:
+        row = conn.execute(
+            "SELECT status, cost_millicents FROM operational_token_reservations WHERE project='predispatch_test_proj' AND reservation_id='req_predispatch_1'"
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "cancelled"
+        assert row[1] == 0
+
+
+def test_deduplicated_accounting_across_operational_and_provider_tables(tmp_path):
+    from pathlib import Path
+    import sqlite3
+    from mlrescurix_worker.scientific.operational_budgets import OperationalBudgets
+
+    db_file = tmp_path / "gateway_state.sqlite"
+    harness_bin = Path("target/release/mlrescurix-harness").resolve()
+    if not harness_bin.exists():
+        pytest.skip("Harness binary not built")
+
+    budgets = OperationalBudgets(project_id="dedup_test_proj", db_path=db_file)
+    admitted, res_id = budgets.admit_token_reservation(
+        reservation_id="req_dedup_1",
+        model="deepseek/deepseek-chat",
+        prompt_tokens=100,
+        completion_tokens=50,
+        cost_millicents=1000,
+    )
+    assert admitted is True
+    budgets.settle_token_reservation(
+        res_id,
+        status="ok",
+        prompt_tokens=100,
+        completion_tokens=50,
+        cost_millicents=1000,
+    )
+
+    # Simulate provider_accounting recording the same request_id
+    with sqlite3.connect(db_file) as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS provider_accounting (
+                project TEXT NOT NULL,
+                request_id TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                role_id TEXT NOT NULL,
+                model TEXT NOT NULL,
+                prompt_tokens INTEGER NOT NULL,
+                completion_tokens INTEGER NOT NULL,
+                cost_millicents INTEGER NOT NULL,
+                latency_ms INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                created_ms INTEGER NOT NULL,
+                PRIMARY KEY(project, request_id)
+            )
+        """)
+        conn.execute(
+            "INSERT INTO provider_accounting VALUES('dedup_test_proj', 'req_dedup_1', 'task_1', 'worker', 'deepseek/deepseek-chat', 100, 50, 1000, 250, 'priced', 12345)"
+        )
+        conn.commit()
+
+    # Query authoritative status via Rust resource authority
+    status = budgets.query_authoritative_resource_status()
+    assert status is not None
+    # Spend should be deduplicated to 1000 millicents ($0.01000), NOT doubled to 2000 millicents ($0.02000)!
+    assert status["total_spend_millicents"] == 1000
+    assert status["prompt_tokens"] == 100
+    assert status["completion_tokens"] == 50
+    assert status["total_tokens"] == 150
+
+
+def test_legacy_token_reservation_check_constraint_migration_and_idempotent_cancellation(tmp_path):
+    from pathlib import Path
+    import sqlite3
+    from mlrescurix_worker.scientific.operational_budgets import OperationalBudgets
+
+    db_file = tmp_path / "gateway_state.sqlite"
+    harness_bin = Path("target/release/mlrescurix-harness").resolve()
+    if not harness_bin.exists():
+        pytest.skip("Harness binary not built")
+
+    # 1. Pre-create table with legacy schema lacking 'cancelled' in CHECK constraint
+    with sqlite3.connect(db_file) as conn:
+        conn.execute("""
+            CREATE TABLE operational_token_reservations (
+                project TEXT NOT NULL,
+                reservation_id TEXT NOT NULL,
+                role_id TEXT NOT NULL,
+                model_id TEXT NOT NULL,
+                prompt_tokens INTEGER NOT NULL,
+                completion_tokens INTEGER NOT NULL,
+                cost_millicents INTEGER NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('reserved', 'ok', 'failed', 'outcome_unknown')),
+                created_ms INTEGER NOT NULL,
+                settled_ms INTEGER,
+                error_message TEXT,
+                PRIMARY KEY(project, reservation_id)
+            )
+        """)
+        conn.execute(
+            "INSERT INTO operational_token_reservations VALUES('migr_proj', 'req_legacy_1', 'lead', 'deepseek/deepseek-chat', 100, 50, 500, 'reserved', 10000, NULL, NULL)"
+        )
+        conn.commit()
+
+    budgets = OperationalBudgets(project_id="migr_proj", db_path=db_file)
+
+    # 2. Settle as cancelled - Rust authority should transparently migrate CHECK constraint and succeed
+    budgets.settle_token_reservation("req_legacy_1", status="cancelled")
+
+    with sqlite3.connect(db_file) as conn:
+        row = conn.execute(
+            "SELECT status, cost_millicents, prompt_tokens, completion_tokens FROM operational_token_reservations WHERE project='migr_proj' AND reservation_id='req_legacy_1'"
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "cancelled"
+        assert row[1] == 0
+        assert row[2] == 0
+        assert row[3] == 0
+
+    # 3. Repeated cancellation must be an idempotent no-op without conflicting settlement error
+    budgets.settle_token_reservation("req_legacy_1", status="cancelled")
+
+
+def test_deduplicated_accounting_without_operational_table(tmp_path):
+    from pathlib import Path
+    import sqlite3
+    from mlrescurix_worker.scientific.operational_budgets import OperationalBudgets
+
+    db_file = tmp_path / "gateway_state.sqlite"
+    harness_bin = Path("target/release/mlrescurix-harness").resolve()
+    if not harness_bin.exists():
+        pytest.skip("Harness binary not built")
+
+    # DB with only provider_accounting, no operational_token_reservations
+    with sqlite3.connect(db_file) as conn:
+        conn.execute("""
+            CREATE TABLE provider_accounting (
+                project TEXT NOT NULL,
+                request_id TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                role_id TEXT NOT NULL,
+                model TEXT NOT NULL,
+                prompt_tokens INTEGER NOT NULL,
+                completion_tokens INTEGER NOT NULL,
+                cost_millicents INTEGER NOT NULL,
+                latency_ms INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                created_ms INTEGER NOT NULL,
+                PRIMARY KEY(project, request_id)
+            )
+        """)
+        conn.execute(
+            "INSERT INTO provider_accounting VALUES('no_op_proj', 'req_p1', 'task_1', 'lead', 'deepseek/deepseek-chat', 200, 80, 2500, 300, 'ok', 10000)"
+        )
+        conn.commit()
+
+    budgets = OperationalBudgets(project_id="no_op_proj", db_path=db_file)
+    status = budgets.query_authoritative_resource_status()
+    assert status is not None
+    assert status["total_spend_millicents"] == 2500
+    assert status["prompt_tokens"] == 200
+    assert status["completion_tokens"] == 80

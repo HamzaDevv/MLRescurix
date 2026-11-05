@@ -62,7 +62,7 @@
     "wall_seconds_max": 72000,
     "main_jobs_concurrent": 1,
     "host_vm_memory_reserve_fraction_min": 0.3,
-    "provider_usd_max": "0.280494020",
+    "provider_usd_max": "0.420114020",
     "raw_data_disk_gib_max": 20,
     "retained_artifact_disk_gib_max": 8,
     "managed_state_mib_max": 128,
@@ -106,7 +106,7 @@
       "allow_fallbacks": false
     },
     "pricing_snapshot": {
-      "checked_local_date": "2026-11-04",
+      "checked_local_date": "2026-11-05",
       "source": "https://openrouter.ai/provider/relace",
       "provider": "relace",
       "route": "relace/fp4",

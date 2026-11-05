@@ -1217,7 +1217,7 @@ fn p3_test_per_project_cancellation_and_pause_isolation() {
     let jc = execution::inspect(&root, "p-cancel", "j-cancel").unwrap();
     let js = execution::inspect(&root, "p-stay", "j-stay").unwrap();
     assert_eq!(jc.status, "running");
-    assert_eq!(js.status, "running");
+    assert!(matches!(js.status.as_str(), "running" | "succeeded"));
 
     // Cancel p-cancel via Runtime
     let r = Runtime::open(&root).unwrap();

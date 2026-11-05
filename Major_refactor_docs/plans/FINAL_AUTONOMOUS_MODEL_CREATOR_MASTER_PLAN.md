@@ -2,11 +2,9 @@
 
 **Platform:** MLRescurix
 
-**Revision:** 3.13 — November 4, 2026 — Fast Session 2 completion and unified resource authority migration
+**Revision:** 3.15 — November 5, 2026 — Independent live-run review
 
-**Status:** Fast session 2 is PARTIAL. Ledger migration and resource admission improved, but a single authority across all real dispatch paths, autonomous scientific breadth, containment, provenance, release and a live Amazon campaign remain unverified. See [independent review](../../docs/refactor_sessions/FAST_SESSION_2_RED_TEAM_20261105.md).
-
-**Fast session 2 completed:** Migration safety, triggering, and authority integration are documented in the [progress record](../../docs/refactor_sessions/FAST_SESSION_2_PROGRESS_20261104.md). Live paid dispatch safely fails closed under the unified resource authority.
+**Status:** PARTIAL. A three-turn live Amazon development campaign produced a candidate and bundle, but stopped at the turn limit; its handoff explicitly says production certification is false. Its $0.00101 recorded cost is estimated and $0.00677 remains uncertain. Cross-table accounting and local scientific tests have improved, but end-to-end resource authority, independent specialist orchestration, holdout certification and verified containment remain open. See the [independent review](../../docs/refactor_sessions/FAST_COMPLETION_LIVE_RED_TEAM_20261105.md).
 
 **Code baseline:** `95a35e9` plus the existing working-tree changes inspected on November 2. Earlier detailed inventories are historical, not certification of current behavior.
 
@@ -1151,7 +1149,7 @@ Update the session row below with the packet link and evidence-based verdict, an
 | S5 | PARTIAL; offline grouped/temporal fixtures improved, but full task generality and remote verification remain open. | [Independent review](../../docs/refactor_sessions/S4_S6_CONTINUATION_RED_TEAM_20261104.md) |
 | S6 | PARTIAL; owner-driven scientific search, recursive deletion, final release and live Amazon campaign remain open. | [Independent review](../../docs/refactor_sessions/S4_S6_CONTINUATION_RED_TEAM_20261104.md) |
 | **Fast Completion Major Session 1** | **PARTIAL; independent acceptance not established.** New local resource APIs, evidence storage, repair and learned OLS fixtures improve coverage. At that review production token/Kaggle admission was not wired through those APIs; session 2 added integration, whose complete coverage remains unverified. Owner-driven scientific exploration, comprehensive provenance, recursive deletion, verified isolation and live Amazon remain open. | [Independent review](../../docs/refactor_sessions/FAST_SESSION_1_RED_TEAM_20261104.md); [original prompt](ANTIGRAVITY_FAST_COMPLETION_SESSION_1.md) |
-| **Fast Completion Major Session 2** | **PARTIAL.** Ledger migration and selected token/Kaggle integration, replay and scheduler changes landed; global enforcement and scientific/live acceptance remain unproven. | [Independent review](../../docs/refactor_sessions/FAST_SESSION_2_RED_TEAM_20261105.md); [session record](../../docs/refactor_sessions/FAST_SESSION_2_PROGRESS_20261104.md) |
+| **Fast Completion Major Session 2** | **PARTIAL.** Cross-table accounting and a real three-turn Amazon development run were added; global enforcement, autonomous specialist workflow and production release remain unverified. | [Independent review](../../docs/refactor_sessions/FAST_COMPLETION_LIVE_RED_TEAM_20261105.md); [session record](../../docs/refactor_sessions/FAST_SESSION_2_PROGRESS_20261104.md) |
 
 ## 11. Verification, benchmarks, and fault coverage
 
@@ -1326,6 +1324,8 @@ The plan is ready for implementation because design choices, authority boundarie
 **Next implementation action:** Resolve remaining gaps in the [session 2 independent review](../../docs/refactor_sessions/FAST_SESSION_2_RED_TEAM_20261105.md), then verify release and admitted live validation.
 
 ### Source verification record
+
+Revision 3.14 reported completion; independent inspection found that this claim exceeded the evidence. Revision 3.15 records the live development run and remaining gaps in the review linked above.
 
 Revision 3.10 completes the implementation and verification of Sessions 5 and 6. It implements Session 5 Gates 1–4 (`crates/harness/tests/s5_gates.rs`): Kaggle remote compute lifecycle (credential resolution, secret scrubbing, state transitions, uncertain dispatch fencing, and fail-closed local offline fallback), topology-aware splits (entity-aware grouped splits preventing leakage, temporal lookahead integrity validation), multi-task ML science (binary ROC-AUC/LogLoss, multiclass vector distributions, robust Cauchy/Huber/SMAPE), and extensible agent-authored model program contracts on non-Amazon tasks. It implements Session 6 Gates A–D (`crates/harness/tests/s6_gates.rs`): Gate A offline readiness with strict pre-flight parameter validation (`CampaignProblemSpec::validate`), Gate B durable ReAct loop with feedback-driven repair of a failed fit and independent challenger audit, Gate C scientific search portfolio with hypothesis refutation, diagnostic pivot, and Pareto frontier tracking, and Gate D release provenance with multi-file workspace source hashing (`compute_workspace_source_sha256`), tamper rejection against `controller_release_receipts` across manifest, source, weights, and scorecard, standalone CLI inference parity across batch sizes (1, 5, full), and HTTP serving recipe verification. Wires `OperationalBudgets.get_status()` in Python to `mlrescurix-harness resource-status` for verified authoritative counts. All workspace test suites pass cleanly with exit code 0 (`cargo test --locked --workspace --no-fail-fast`: 91 unit tests + 44 integration test binaries pass, 0 fail; `pytest`: 511 passed, 1 skipped, 0 fail). Documented in `docs/refactor_sessions/S5_S6_REVIEW.md`.
 
