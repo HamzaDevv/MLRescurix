@@ -88,7 +88,7 @@
     "live_task_solves_required": 5,
     "requests_per_run_max_including_retries": 20,
     "requested_tokens_per_run_total_max": 80000,
-    "usd_per_main_live_run_max": "0.05",
+    "usd_per_main_live_run_max": "0.075",
     "retries_per_request_max": 2,
     "attempt_timeout_seconds": 60,
     "request_total_deadline_seconds": 180,

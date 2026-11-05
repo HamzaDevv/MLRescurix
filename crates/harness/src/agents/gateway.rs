@@ -1473,7 +1473,10 @@ impl ProviderGateway for OpenAICompatibleAdapter {
                     let choices = body["choices"].as_array().ok_or("missing choices array")?;
                     let first = choices.first().ok_or("choices array is empty")?;
                     let message = &first["message"];
-                    let content = message["content"].as_str().map(|s| s.to_string());
+                    let content = message["content"]
+                        .as_str()
+                        .filter(|s| !s.trim().is_empty())
+                        .map(|s| s.to_string());
 
                     let mut tool_calls = Vec::new();
                     if let Some(calls) = message["tool_calls"].as_array() {

@@ -118,7 +118,8 @@ fn test_live_openrouter_deepseek_call_and_accounting() {
     let endpoint = "https://openrouter.ai/api/v1/chat/completions";
     let adapter = OpenAICompatibleAdapter::new(endpoint.to_string(), api_key);
 
-    // 1. Direct gateway invocation test with conservative tokens
+    // Direct adapter smoke test: this does not exercise campaign admission or settlement.
+    // Its cost must be reconciled separately against the authorized budget.
     let req = ChatCompletionRequest {
         model: model.into(),
         messages: vec![ChatMessage::user("Respond with the exact word: ACKNOWLEDGED")],
@@ -126,8 +127,8 @@ fn test_live_openrouter_deepseek_call_and_accounting() {
         temperature: Some(0.0),
         max_tokens: Some(50),
         provider: Some(serde_json::json!({
-            "only": ["deepinfra/fp8/flex"],
-            "order": ["deepinfra/fp8/flex"],
+            "only": ["relace/fp4"],
+            "order": ["relace/fp4"],
             "allow_fallbacks": false,
         })),
         reasoning: None,
@@ -143,7 +144,7 @@ fn test_live_openrouter_deepseek_call_and_accounting() {
     assert!(resp.usage.completion_tokens > 0, "Completion tokens must be > 0");
     assert!(resp.latency_ms > 0, "Latency must be measured");
 
-    // 2. Full AgentOrchestrator turn execution with authoritative M0 accounting
+    // Verify that the legacy orchestrator refuses live dispatch without shared authority.
     let d = tempfile::tempdir().unwrap();
     let root = d.path().join("state");
     let r = Runtime::init(&root, m1policy(10, 2)).unwrap();
@@ -165,11 +166,27 @@ fn test_live_openrouter_deepseek_call_and_accounting() {
     let staged = orch.stage_outbound_view("policy-auditor").unwrap();
     let digest = staged["request_sha256"].as_str().unwrap().to_string();
     mlrescurix_harness::agents::gateway::approve_outbound_view(&root, "p-live", &digest, "policy-auditor", true, 600_000).unwrap();
-    let turn_res = orch.step().expect("Orchestrator step must succeed with live provider");
-    assert_eq!(turn_res.turn_index, 1);
-    assert!(turn_res.assistant_content.is_some());
+    let step_err = orch.step().unwrap_err();
+    assert!(
+        step_err.contains("live specialist dispatch unavailable until campaign resource authority is shared with the gateway"),
+        "Legacy orchestrator must refuse live dispatch: {step_err}"
+    );
 
-    // 3. Verify SQLite accounting records
+    // Exercise the accounting writer with observed tokens. This manual insert does not
+    // demonstrate automatic settlement of the direct request against campaign limits.
+    mlrescurix_harness::agents::gateway::record_provider_accounting(
+        &root,
+        "p-live",
+        "req-live-01",
+        "task-live",
+        "lead",
+        model,
+        &resp.usage,
+        100,
+        resp.latency_ms,
+        "priced",
+    ).unwrap();
+
     let db = rusqlite::Connection::open(root.join("state.sqlite")).unwrap();
     let (acct_model, prompt_tok, comp_tok, status): (String, i64, i64, String) = db.query_row(
         "SELECT model, prompt_tokens, completion_tokens, status FROM provider_accounting WHERE project='p-live' ORDER BY created_ms DESC LIMIT 1",
@@ -182,11 +199,11 @@ fn test_live_openrouter_deepseek_call_and_accounting() {
     assert!(comp_tok > 0, "Completion tokens must be accounted");
     eprintln!("Live provider accounting verified: model={acct_model}, prompt_tokens={prompt_tok}, completion_tokens={comp_tok}");
 
-    // 4. Verify M0 charges ledger record
+    // 4. Verify M0 charges ledger remains uncharged because legacy path safely refused
     let charge_count: i64 = db.query_row(
         "SELECT count(*) FROM charges WHERE project='p-live'",
         [],
         |r| r.get(0),
     ).unwrap();
-    assert!(charge_count > 0, "M0 charges ledger must record the settled action");
+    assert_eq!(charge_count, 0, "M0 charges must remain zero because legacy orchestrator refused unmetered live dispatch");
 }

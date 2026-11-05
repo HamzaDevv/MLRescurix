@@ -436,7 +436,7 @@ class AutonomousAgentLoop:
     def _reservation(self, messages, max_tokens):
         return self.governance.reservation(self, messages, max_tokens)
 
-    def _call_provider(self, messages, max_tokens=2500):
+    def _call_provider(self, messages, max_tokens=3500):
         return self.governance.dispatch(self, messages, max_tokens)
 
     def _http_provider(self, messages, max_tokens):
@@ -821,7 +821,8 @@ Unsupported modalities/tasks must be handed off explicitly. Do not repeat a refu
             columns = p.get("columns", [])
             pairs = p.get("feature_pairs", [])
             referenced = columns + [c for pair in pairs for c in pair]
-            if not referenced or self.target_column in referenced or any(c not in self.raw_df for c in referenced):
+            allowed_columns = set(self.raw_df.columns) | set(self.state.get("current_active_features", []))
+            if not referenced or self.target_column in referenced or any(c not in allowed_columns for c in referenced):
                 raise ValueError("Transform requires existing non-target feature columns")
             tr = {"action": name, "parameters": p}
             if tr in self.state["active_spec"]["transforms"]: raise ValueError("Duplicate transform")

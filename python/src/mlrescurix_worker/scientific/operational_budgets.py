@@ -161,7 +161,7 @@ class OperationalBudgets:
         harness_bin = self._authority_binary()
         if not harness_bin:
             logger.error(f"Cannot settle search attempt {attempt_id}: Rust harness authority binary missing")
-            return
+            raise RuntimeError(f"Cannot settle search attempt {attempt_id}: Rust harness authority binary missing")
         try:
             cmd = [
                 str(harness_bin),

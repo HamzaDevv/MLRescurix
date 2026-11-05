@@ -668,3 +668,84 @@ def test_negative_results_memory_and_plateau_detection(tmp_path: Path):
     assert len(user_content["task_context"]["refuted_hypotheses"]) == 2
     assert "cand_2" in user_content["task_context"]["refuted_hypotheses"][0]
     assert "cand_3" in user_content["task_context"]["refuted_hypotheses"][1]
+
+
+def test_hypothesis_transform_on_derived_active_features(tmp_path: Path):
+    """Regression test: HYPOTHESIS_TRANSFORM must allow interactions or skew transforms on features created by prior transforms."""
+    df_path = tmp_path / "catalog.csv"
+    import pandas as pd
+    df = pd.DataFrame({
+        "catalog_content": [
+            "blue summer dress cotton light",
+            "red athletic running sneakers sport",
+            "green waterproof camping tent outdoor",
+            "heavy wool winter coat warm",
+        ] * 10,
+        "price": [35.0, 75.0, 150.0, 110.0] * 10,
+    })
+    df.to_csv(df_path, index=False)
+    budget = MockBudgetAuthority()
+
+    turn0_resp = {
+        "content": json.dumps({
+            "thought_rationale": "Extract text TF-IDF SVD features from catalog_content",
+            "action_type": "HYPOTHESIS_TRANSFORM",
+            "parameters": {
+                "action": "TEXT_TFIDF_SVD",
+                "parameters": {"columns": ["catalog_content"]},
+            },
+        }),
+        "cost_usd": 0.0005,
+    }
+
+    turn1_resp = {
+        "content": json.dumps({
+            "thought_rationale": "Add pairwise interaction between derived text embeddings",
+            "action_type": "HYPOTHESIS_TRANSFORM",
+            "parameters": {
+                "action": "ADD_INTERACTION",
+                "parameters": {
+                    "feature_pairs": [["catalog_content__tfidf_svd_0", "catalog_content__tfidf_svd_1"]],
+                    "operations": ["multiply"],
+                },
+            },
+        }),
+        "cost_usd": 0.0005,
+    }
+
+    responses = [turn0_resp, turn1_resp]
+    resp_iter = iter(responses)
+
+    def mock_provider(messages, max_tokens):
+        return next(resp_iter)
+
+    loop = AutonomousAgentLoop(
+        workspace_root=tmp_path / "ws_derived",
+        project_id="test_derived",
+        session_id="run_derived_1",
+        campaign_authority=budget,
+        dataset_path=df_path,
+        target_column="price",
+        task_type="regression",
+        metric_name="smape",
+        metric_direction="minimize",
+        max_turns=2,
+        provider_caller=mock_provider,
+        provider_is_fixture=True,
+    )
+    res = loop.run()
+
+    assert res["turns_completed"] == 2
+    turn0 = res["turns"][0]
+    turn1 = res["turns"][1]
+
+    # Turn 0 applied TEXT_TFIDF_SVD
+    assert turn0["proposed_action"]["action_type"] == "HYPOTHESIS_TRANSFORM"
+    assert turn0["disposition"] == "applied"
+    assert "catalog_content__tfidf_svd_0" in loop.state["current_active_features"]
+
+    # Turn 1 applied ADD_INTERACTION on the derived SVD features - must NOT be rejected with 'Transform requires existing non-target feature columns'
+    assert turn1["proposed_action"]["action_type"] == "HYPOTHESIS_TRANSFORM"
+    assert turn1["disposition"] == "applied"
+    assert turn1["error_msg"] is None
+    assert "action_status" in turn1["measurements"]

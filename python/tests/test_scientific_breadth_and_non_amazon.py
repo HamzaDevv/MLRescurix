@@ -6,8 +6,9 @@ Demonstrates:
 3. Genuine ablation / negative result recording in loop state without deletion.
 4. Model Creation Journey / Apex tracking and plateau detection.
 5. Reloading recorded history and exporting a handoff.
+6. Packaging accepted candidate, verifying bundle integrity, and replaying inference in a clean subprocess.
 
-This fixture scripts actions and does not establish autonomous exploration or selected-model delivery.
+This fixture scripts the sequence of actions on non-Amazon data to verify the generalized multi-model pipeline through candidate packaging, bundle integrity verification, and replay.
 """
 
 from __future__ import annotations
@@ -217,3 +218,54 @@ def test_scientific_breadth_multimodel_non_amazon(tmp_path: Path):
     assert handoff["best_cv_score"] is not None
     assert (ws_dir / "handoff.json").exists()
     assert (ws_dir / "HANDOFF.md").exists()
+
+    # 8. Genuine Candidate Packaging & Bundle Integrity Verification
+    import subprocess
+    from mlrescurix_worker.scientific.benchmark_contracts import package_accepted_candidate
+
+    bundle_dir = ws_dir / "bundle"
+    candidate_dir = ws_dir / "candidate"
+    ok, verified, reason = package_accepted_candidate(
+        loop,
+        loop.state,
+        loop.raw_df,
+        candidate_dir=candidate_dir,
+        bundle_dir=bundle_dir,
+        dataset_path=data_csv,
+        test_access_id=f"delivery_{loop.session_id}",
+        project_id=loop.project_id,
+        task_type=loop.task_type,
+        target_column=loop.target_column,
+        primary_metric=loop.metric_name,
+    )
+    assert ok is True, f"Packaging failed: {reason}"
+    assert verified is True, f"Verification failed: {reason}"
+    assert (bundle_dir / "manifest.json").exists()
+    assert (bundle_dir / "inference.py").exists()
+
+    # 9. Clean Subprocess Inference Replay
+    input_file = bundle_dir / "examples_input.json"
+    assert input_file.exists(), "examples_input.json must exist in bundle"
+    out_file = tmp_path / "replay_predictions.json"
+
+    replay_proc = subprocess.run(
+        ["python3", "-B", "inference.py", "--input", str(input_file), "--output", str(out_file)],
+        cwd=str(bundle_dir),
+        capture_output=True,
+        text=True,
+    )
+    assert replay_proc.returncode == 0, f"Inference replay failed: {replay_proc.stderr}"
+    assert out_file.exists()
+    predictions_data = json.loads(out_file.read_text(encoding="utf-8"))
+    assert "prediction" in predictions_data or "predictions" in predictions_data
+    preds = predictions_data.get("prediction", predictions_data.get("predictions", []))
+    assert len(preds) > 0
+    expected_file = bundle_dir / "examples_expected.json"
+    assert expected_file.exists(), "examples_expected.json must exist in bundle"
+    expected_data = json.loads(expected_file.read_text(encoding="utf-8"))
+    expected_preds = expected_data.get("prediction", expected_data.get("predictions", []))
+    assert len(preds) == len(expected_preds)
+    import numpy as np
+    assert preds == expected_preds or np.allclose(preds, expected_preds, atol=1e-5), (
+        "Subprocess replay predictions must match examples_expected.json"
+    )

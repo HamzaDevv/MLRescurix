@@ -6,8 +6,8 @@ WORKSPACE="${WORKSPACE:-.mlrescurix-state/amazon-2025/live-$(date +%Y%m%d-%H%M%S
 PROJECT="${PROJECT:-amazon-live-$(date +%Y%m%d)}"
 SESSION="${SESSION:-amazon-live-session-$(date +%Y%m%d-%H%M%S)}"
 POLICY="${POLICY:-docs/v2/POLICY_AMAZON_LIVE_20261102.json}"
-DEV_CSV="${DEV_CSV:-.mlrescurix-state/amazon-2025/staged/development.csv}"
-FOLDS="${FOLDS:-.mlrescurix-state/amazon-2025/development_folds.json}"
+DEV_CSV="${DEV_CSV:-.mlrescurix-state/amazon-2025/staged/dev_60k.csv}"
+FOLDS="${FOLDS:-.mlrescurix-state/amazon-2025/dev_60k_folds.json}"
 MODEL="${MODEL:-deepseek/deepseek-v4.1-flash-1017}"
 ROUTE="${ROUTE:-relace/fp4}"
 MAX_TURNS="${MAX_TURNS:-}"
@@ -48,7 +48,7 @@ python3 -c "import json; json.load(open('$POLICY')); json.load(open('config/oper
   exit 1
 }
 
-PROBLEM="Autonomous ML engineering for Amazon catalog pricing: progressively hypothesize, extract text and tabular features, evaluate diverse model families (hist_gbdt, penalized_linear, lgbm, xgboost, catboost, neural_tabular) with log1p target transform, explore hyperparameters, and form an ensemble blend (BLEND_AND_AUDIT) to beat the prior apex CV scores before finalizing."
+PROBLEM="Autonomous ML engineering for Amazon catalog pricing: examine catalog content, formulate hypotheses, extract text and tabular features, evaluate suitable model families across linear models, trees, neural nets, or ensembles with appropriate target transforms, adapt to metric feedback and critic audits, and finalize an audited release candidate."
 
 mkdir -p "$WORKSPACE"
 
