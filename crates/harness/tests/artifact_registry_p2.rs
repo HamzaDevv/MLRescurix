@@ -712,6 +712,12 @@ fn p2_test_partial_cas_and_db_commit_reconciliation() {
         let receipt3 = cas.store_blob(payload, "application/octet-stream", Some("p-cas-rec")).unwrap();
         assert_eq!(receipt3.sha256, sha);
         assert_eq!(cas.read_blob(&sha).unwrap(), payload);
+
+        // A same-length corruption must not be accepted as a deduplicated blob.
+        fs::set_permissions(&blob_file, fs::Permissions::from_mode(0o644)).unwrap();
+        fs::write(&blob_file, vec![b'x'; payload.len()]).unwrap();
+        fs::set_permissions(&blob_file, fs::Permissions::from_mode(0o444)).unwrap();
+        assert!(cas.store_blob(payload, "application/octet-stream", Some("p-cas-rec")).unwrap_err().contains("CAS blob corruption"));
     }
 
     // 4. Test collect_artifacts sweeps orphaned staging files from cas/.staging/

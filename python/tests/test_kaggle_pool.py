@@ -153,3 +153,102 @@ def test_push_private_kernel_isolated_env(mock_run, tmp_path: Path):
     env = call_kwargs["env"]
     assert env["KAGGLE_USERNAME"] == "worker_alice"
     assert env["KAGGLE_KEY"] == "key_alice_secret"
+
+
+def test_kaggle_pool_with_operational_budgets_lifecycle(monkeypatch, tmp_path: Path):
+    from mlrescurix_worker.scientific.operational_budgets import OperationalBudgets
+
+    real_run = subprocess.run
+
+    def selective_run(*args, **kwargs):
+        cmd = args[0] if args else kwargs.get("args", [])
+        if cmd and len(cmd) > 0 and cmd[0] == "kaggle":
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout="Kernel pushed successfully",
+                stderr="",
+            )
+        return real_run(*args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", selective_run)
+
+    authority_bin = Path("target/debug/mlrescurix-harness").resolve()
+    if not authority_bin.exists():
+        pytest.skip("mlrescurix-harness binary not built")
+
+    policy_path = tmp_path / "policy.json"
+    policy_path.write_text(json.dumps({
+        "budget": {"tokens": 10_000_000, "storage": 100_000_000},
+        "capacity": {"threads": 4},
+        "max_tasks": 10,
+    }))
+    harness_state_dir = tmp_path / "rust_harness_state"
+    subprocess.run([
+        str(authority_bin), "init",
+        "--state", str(harness_state_dir),
+        "--policy", str(policy_path),
+    ], check=True)
+    gateway_db = harness_state_dir / "state.sqlite"
+
+    budgets = OperationalBudgets(
+        db_path=gateway_db,
+        project_id="kaggle_test_proj",
+        authority_binary=authority_bin,
+        kaggle_hours_limit=20.0,
+    )
+
+    pool = KaggleAccountPool(
+        storage_dir=tmp_path / "pool",
+        operational_budgets=budgets,
+    )
+    worker = pool.register_account(username="worker_bob", api_key="bob_secret", is_anchor=False)
+
+    # 1. Push kernel successfully -> admitted and reserved
+    job = pool.push_private_kernel(
+        account=worker,
+        script_code="print('running job 1')",
+        job_id="job-1",
+        add_jitter=False,
+    )
+    assert job.status == "queued"
+
+    with sqlite3.connect(gateway_db) as conn:
+        row = conn.execute(
+            "SELECT status, requested_hours, actual_hours FROM operational_kaggle_jobs WHERE job_id = 'job-1'"
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "reserved"
+        assert row[1] == 12.0
+
+    # 2. Complete job -> settled as success
+    pool.record_job_completion("job-1", actual_hours=1.5)
+    with sqlite3.connect(gateway_db) as conn:
+        row = conn.execute(
+            "SELECT status, actual_hours FROM operational_kaggle_jobs WHERE job_id = 'job-1'"
+        ).fetchone()
+        assert row[0] == "success"
+        assert row[1] == 1.5
+
+    # Cancellation revokes the local lease but cannot stop the remote kernel.
+    pool.push_private_kernel(
+        account=worker,
+        script_code="print('running job 2')",
+        job_id="job-2",
+        add_jitter=False,
+    )
+    pool.cancel_kernel("job-2")
+    with sqlite3.connect(gateway_db) as conn:
+        row = conn.execute(
+            "SELECT status FROM operational_kaggle_jobs WHERE job_id = 'job-2'"
+        ).fetchone()
+        assert row[0] == "outcome_unknown"
+
+    # The uncertain 12h reservation remains, so another 12h job is denied.
+    with pytest.raises(QuotaExhaustedError, match="denied by operational resource authority"):
+        pool.push_private_kernel(
+            account=worker,
+            script_code="print('running job 3')",
+            job_id="job-3",
+            add_jitter=False,
+        )

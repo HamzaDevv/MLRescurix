@@ -497,13 +497,16 @@ fn collect_candidate_source_files(dir: &Path, rel_prefix: &str, out: &mut Vec<St
     }
     let mut entries: Vec<_> = fs::read_dir(dir)
         .map_err(|e| e.to_string())?
-        .filter_map(std::result::Result::ok)
-        .collect();
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
     entries.sort_by_key(|e| e.file_name());
 
     for entry in entries {
         let p = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
+        if entry.file_type().map_err(|e| e.to_string())?.is_symlink() {
+            return Err("candidate source contains a symlink".into());
+        }
         if p.is_dir() {
             if !name.starts_with('.') && name != "__pycache__" && name != "venv" && name != ".venv" {
                 let sub_prefix = if rel_prefix.is_empty() {
@@ -551,13 +554,16 @@ fn copy_tree_filtered(src: &Path, dst: &Path) -> Result<()> {
         let p = entry.path();
         let fname = entry.file_name();
         let fname_str = fname.to_string_lossy().to_string();
+        if entry.file_type().map_err(|e| e.to_string())?.is_symlink() {
+            return Err("candidate workspace contains a symlink".into());
+        }
         if p.is_dir() {
             if !fname_str.starts_with('.') && fname_str != "__pycache__" && fname_str != "venv" && fname_str != ".venv" {
                 copy_tree_filtered(&p, &dst.join(&fname))?;
             }
         } else if p.is_file() {
             if !fname_str.starts_with('.') && fname_str != "val_predictions.json" && fname_str != "weights.json" && fname_str != "train_data.csv" {
-                let _ = fs::copy(&p, dst.join(&fname));
+                fs::copy(&p, dst.join(&fname)).map_err(|e| e.to_string())?;
             }
         }
     }
@@ -1969,11 +1975,10 @@ fn run_campaign_inner(
 
     let worker_solution_py = worker_workspace.join("solution.py");
     fs::write(&worker_solution_py, &solution_code).map_err(|e| e.to_string())?;
-    fs::write(
-        worker_workspace.join("program.json"),
-        serde_json::to_string_pretty(&program_manifest).map_err(|e| e.to_string())?,
-    ).map_err(|e| e.to_string())?;
     let mut source_sha256 = compute_workspace_source_sha256(&branch_dir)?;
+    if compute_workspace_source_sha256(&worker_workspace)? != source_sha256 {
+        return Err("worker source does not match candidate branch".into());
+    }
 
     // 9. Trusted offline fixture subprocess: not an isolation boundary.
     let weights_file = worker_workspace.join("weights.json");
@@ -1988,6 +1993,7 @@ fn run_campaign_inner(
         let mut fit_output = run_cmd_with_heartbeats(&mut fit_cmd, &db_path, &spec.project_id, &lease_id, epoch)?;
 
         let mut repair_attempt = 0;
+        let mut repair_parent_dir = branch_dir.clone();
         while !fit_output.status.success() && repair_attempt < 2 {
             if let Some(ref gw) = gateway {
                 repair_attempt += 1;
@@ -2018,8 +2024,14 @@ fn run_campaign_inner(
                 BranchWorkspaceManager::init_branch(&controller_root, &spec.project_id, &repair_branch_id, &branch_id)
                     .map_err(|e| format!("cannot init repair branch workspace: {e}"))?;
                 let repair_branch_dir = BranchWorkspaceManager::get_branch_dir(&controller_root, &spec.project_id, &repair_branch_id);
-                let repair_base_hash = format!("base-{}-epoch-{}", spec.project_id, epoch);
-                let repair_code_hash = source_sha256.clone();
+                // init_branch creates an empty workspace; seed it with the exact
+                // failed program so the specialist can inspect and repair it.
+                copy_tree_filtered(&repair_parent_dir, &repair_branch_dir)?;
+                let repair_base_hash = compute_workspace_source_sha256(&repair_branch_dir)?;
+                if repair_base_hash != source_sha256 {
+                    return Err("repair workspace does not match failed candidate source".into());
+                }
+                let repair_code_hash = repair_base_hash.clone();
 
                 let branch_receipt = runtime.command(Request {
                     command_id: format!("create_branch_{}", repair_branch_id),
@@ -2073,11 +2085,12 @@ fn run_campaign_inner(
                     model: spec.model_name.clone(),
                     max_turns: 3,
                 };
-                if let Ok(mut repair_orch) = crate::agents::orchestrator::AgentOrchestrator::new(
+                {
+                    let mut repair_orch = crate::agents::orchestrator::AgentOrchestrator::new(
                     &controller_root,
                     orch_config,
                     gw.clone(),
-                ) {
+                    ).map_err(|e| format!("cannot initialize repair specialist: {e}"))?;
                     repair_orch.context.add_message(crate::agents::gateway::ChatMessage::user(format!(
                         "The previous training fit subprocess FAILED with exit code {}.\n\
                          Diagnostic traceback / stderr:\n{}\n\
@@ -2086,11 +2099,8 @@ fn run_campaign_inner(
                         err_code, stderr_str, stdout_str
                     )));
                     for _ in 0..3 {
-                        if let Ok(turn_res) = repair_orch.step() {
-                            if turn_res.stopped || turn_res.assistant_content.as_deref().map_or(false, |c| c.contains("[FINAL]")) {
-                                break;
-                            }
-                        } else {
+                        let turn_res = repair_orch.step().map_err(|e| format!("repair specialist failed: {e}"))?;
+                        if turn_res.stopped || turn_res.assistant_content.as_deref().map_or(false, |c| c.contains("[FINAL]")) {
                             break;
                         }
                     }
@@ -2107,12 +2117,15 @@ fn run_campaign_inner(
                             .map_err(|e| format!("cannot read repaired program.json: {e}"))?;
                         fs::write(worker_workspace.join("program.json"), &repaired_manifest)
                             .map_err(|e| format!("cannot write repaired program.json: {e}"))?;
-                        if let Ok(manifest_val) = serde_json::from_str::<Value>(&repaired_manifest) {
-                            program_manifest = manifest_val;
-                        }
+                        program_manifest = serde_json::from_str::<Value>(&repaired_manifest)
+                            .map_err(|e| format!("invalid repaired program.json: {e}"))?;
                     }
                     copy_tree_filtered(&repair_branch_dir, &worker_workspace)?;
                     source_sha256 = compute_workspace_source_sha256(&repair_branch_dir)?;
+                    if compute_workspace_source_sha256(&worker_workspace)? != source_sha256 {
+                        return Err("worker source does not match repaired candidate branch".into());
+                    }
+                    repair_parent_dir = repair_branch_dir.clone();
 
                     let (new_fit_bin, new_fit_args) = resolve_fit_args(
                         program_manifest.get("operations").and_then(|op| op.get("fit")).and_then(|f| f.get("argv")).and_then(|a| a.as_array()),
@@ -2122,8 +2135,6 @@ fn run_campaign_inner(
                     let mut retry_cmd = Command::new(&new_fit_bin);
                     retry_cmd.current_dir(&worker_workspace).args(&new_fit_args);
                     fit_output = run_cmd_with_heartbeats(&mut retry_cmd, &db_path, &spec.project_id, &lease_id, epoch)?;
-                } else {
-                    break;
                 }
             } else {
                 break;

@@ -173,6 +173,10 @@ enum Command {
         #[arg(long)] state: PathBuf,
         #[arg(long)] project: String,
     },
+    ImportOperationalLedger {
+        #[arg(long)] state: PathBuf,
+        #[arg(long)] legacy: PathBuf,
+    },
     KaggleRegisterAccount {
         #[arg(long)] state: PathBuf,
         #[arg(long)] username: String,
@@ -734,6 +738,11 @@ async fn run()->Result<(),String>{
         Command::ResourceStatus { state, project } => {
             let status = mlrescurix_harness::resource_authority::get_unified_resource_status(&state, &project)?;
             print(status)
+        },
+        Command::ImportOperationalLedger { state, legacy } => {
+            let target = if state.is_dir() { state.join("state.sqlite") } else { state };
+            let imported = mlrescurix_harness::resource_authority::import_legacy_operational_ledger(&target, &legacy)?;
+            print(serde_json::json!({"imported_rows": imported}))
         },
         Command::KaggleRegisterAccount { state, username, credential_ref, is_anchor } => {
             let pool = mlrescurix_harness::kaggle::KagglePoolManager::new(&state, true)?;

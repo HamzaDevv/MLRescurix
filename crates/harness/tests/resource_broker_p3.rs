@@ -1306,7 +1306,16 @@ fn p3_test_multi_project_stress_and_resilience_10x5() {
 
     // Verify all 50 jobs succeeded
     let succeeded_count: i64 = conn.query_row("SELECT count(*) FROM jobs WHERE status='succeeded'", [], |r| r.get(0)).unwrap();
-    assert_eq!(succeeded_count, 50, "All 50 jobs across 10 projects must succeed");
+    let mut status_stmt = conn.prepare("SELECT status, COALESCE(reason, ''), count(*) FROM jobs GROUP BY status, reason").unwrap();
+    let statuses: Vec<_> = status_stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?))).unwrap().map(|r| r.unwrap()).collect();
+    assert_eq!(succeeded_count, 50, "All 50 jobs across 10 projects must succeed; statuses: {statuses:?}");
+
+    // Each write job's published output must also be present and intact in CAS.
+    let mut artifacts = conn.prepare("SELECT sha256 FROM managed_artifacts").unwrap();
+    let hashes: Vec<String> = artifacts.query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
+    assert_eq!(hashes.len(), 20);
+    let cas = mlrescurix_harness::cas::ContentAddressableStorage::new(&root);
+    for hash in hashes { assert!(!cas.read_blob(&hash).unwrap().is_empty()); }
 
     // Verify snapshots stay within declared worker capacity
     assert!(!snapshots.is_empty());

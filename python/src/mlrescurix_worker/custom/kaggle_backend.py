@@ -67,11 +67,15 @@ class KaggleExecutionBackend(ExecutionBackendContract):
         pool: Optional[KaggleAccountPool] = None,
         storage_dir: Union[str, Path] = ".kaggle_pool",
         enable_secondary_accounts: bool = False,
+        operational_budgets: Optional[Any] = None,
     ):
         self.pool = pool or KaggleAccountPool(
             storage_dir=storage_dir,
             enable_secondary_accounts=enable_secondary_accounts,
+            operational_budgets=operational_budgets,
         )
+        if operational_budgets is not None and getattr(self.pool, "operational_budgets", None) is None:
+            self.pool.operational_budgets = operational_budgets
         self.enable_secondary_accounts = enable_secondary_accounts
 
     def preflight(
@@ -314,6 +318,15 @@ class KaggleExecutionBackend(ExecutionBackendContract):
             if updated.rowcount != 1:
                 raise StaleLeaseError(f"Collection lease expired or was superseded for job '{job_id}'")
             conn.commit()
+
+        if self.pool.operational_budgets is not None:
+            job_rec = self.pool.get_job(job_id)
+            duration_hours = max(0.0, round((now - job_rec.pushed_at) / 3600.0, 4)) if job_rec else 0.0
+            self.pool.operational_budgets.settle_kaggle_job(
+                job_id=job_id,
+                status="success",
+                actual_hours=duration_hours,
+            )
 
         return {
             "job_id": job_id,

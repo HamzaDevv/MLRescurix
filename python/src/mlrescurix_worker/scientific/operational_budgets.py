@@ -17,7 +17,6 @@ import re
 import shutil
 import subprocess
 import tempfile
-import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -71,6 +70,7 @@ class OperationalBudgets:
     config_source: Optional[str] = None
     ledger_path: Optional[str] = None
     db_path: Optional[str] = None
+    authority_binary: Optional[str] = None
     project_id: str = field(default_factory=lambda: f"campaign_{uuid.uuid4().hex[:8]}")
 
     def __post_init__(self):
@@ -85,10 +85,16 @@ class OperationalBudgets:
                 self.db_path = str(Path(tempfile.gettempdir()) / f"mlrescurix_search_{clean_proj}.sqlite")
         self.web_search_used = max(self.web_search_used, self._query_durable_search_count())
 
+    def _authority_binary(self) -> Optional[Path]:
+        if self.authority_binary:
+            path = Path(self.authority_binary)
+            return path if path.is_file() and os.access(path, os.X_OK) else None
+        return _find_harness_binary()
+
     def _query_durable_search_count(self) -> int:
         if not self.db_path or not Path(self.db_path).is_file():
             return 0
-        harness_bin = _find_harness_binary()
+        harness_bin = self._authority_binary()
         if not harness_bin:
             return 0
         try:
@@ -111,12 +117,10 @@ class OperationalBudgets:
         Delegates strictly to mlrescurix-harness authority. Fails closed if the Rust authority is unavailable.
         """
         if not self.db_path:
-            if not self.has_search_available(count=1):
-                return False, None
-            self.web_search_used += 1
-            return True, f"inmem_search_attempt_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+            logger.error("Durable state database missing; search admission failed closed")
+            return False, None
 
-        harness_bin = _find_harness_binary()
+        harness_bin = self._authority_binary()
         if not harness_bin:
             logger.error("Single Rust resource authority binary not found; search admission failed closed")
             return False, None
@@ -154,7 +158,7 @@ class OperationalBudgets:
         """Idempotently settle an admitted search attempt via the single Rust resource authority."""
         if not self.db_path:
             return
-        harness_bin = _find_harness_binary()
+        harness_bin = self._authority_binary()
         if not harness_bin:
             logger.error(f"Cannot settle search attempt {attempt_id}: Rust harness authority binary missing")
             return
@@ -188,7 +192,7 @@ class OperationalBudgets:
         """Atomically admit a Kaggle compute job via Rust resource authority."""
         if not self.db_path:
             return False, None
-        harness_bin = _find_harness_binary()
+        harness_bin = self._authority_binary()
         if not harness_bin:
             logger.error("Single Rust resource authority binary not found; kaggle admission failed closed")
             return False, None
@@ -223,7 +227,7 @@ class OperationalBudgets:
         """Idempotently settle a Kaggle job via Rust resource authority."""
         if not self.db_path:
             return
-        harness_bin = _find_harness_binary()
+        harness_bin = self._authority_binary()
         if not harness_bin:
             logger.error(f"Cannot settle kaggle job {job_id}: Rust harness authority binary missing")
             return
@@ -246,40 +250,46 @@ class OperationalBudgets:
 
     def admit_token_reservation(
         self,
-        reservation_id: str,
-        model: str,
-        prompt_tokens: int,
-        completion_tokens: int,
+        reservation_id: Optional[str] = None,
+        model: Optional[str] = None,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
         cost_millicents: int = 0,
         role_id: str = "worker",
         spend_limit_millicents: int = 10_000_000,
+        model_id: Optional[str] = None,
+        token_limit: Optional[int] = None,
+        **kwargs: Any,
     ) -> tuple[bool, Optional[str]]:
         """Atomically admit a model token reservation via Rust resource authority."""
         if not self.db_path:
             return False, None
-        harness_bin = _find_harness_binary()
+        harness_bin = self._authority_binary()
         if not harness_bin:
             logger.error("Single Rust resource authority binary not found; token reservation failed closed")
             return False, None
+        actual_model = model or model_id or "unknown"
+        actual_res_id = reservation_id or f"res_{uuid.uuid4().hex[:12]}"
+        actual_token_limit = token_limit if token_limit is not None else self.model_tokens_limit
         try:
             cmd = [
                 str(harness_bin),
                 "token-admit",
                 "--state", str(self.db_path),
                 "--project", str(self.project_id),
-                "--reservation-id", str(reservation_id),
+                "--reservation-id", str(actual_res_id),
                 "--role-id", str(role_id),
-                "--model", str(model),
+                "--model", str(actual_model),
                 "--estimated-prompt-tokens", str(prompt_tokens),
                 "--estimated-completion-tokens", str(completion_tokens),
                 "--cost-millicents", str(cost_millicents),
-                "--token-limit", str(self.model_tokens_limit),
+                "--token-limit", str(actual_token_limit),
                 "--spend-limit-millicents", str(spend_limit_millicents),
             ]
             proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
             res = json.loads(proc.stdout)
             admitted = bool(res.get("admitted", False))
-            return admitted, reservation_id if admitted else None
+            return admitted, actual_res_id if admitted else None
         except Exception as exc:
             logger.error(f"Rust harness token-admit failed closed: {exc}")
             return False, None
@@ -296,7 +306,7 @@ class OperationalBudgets:
         """Idempotently settle a model token reservation via Rust resource authority."""
         if not self.db_path:
             return
-        harness_bin = _find_harness_binary()
+        harness_bin = self._authority_binary()
         if not harness_bin:
             logger.error(f"Cannot settle token reservation {reservation_id}: Rust harness authority binary missing")
             return
@@ -323,7 +333,7 @@ class OperationalBudgets:
         """Query single authoritative resource status from Rust harness."""
         if not self.db_path:
             return None
-        harness_bin = _find_harness_binary()
+        harness_bin = self._authority_binary()
         if not harness_bin:
             return None
         try:
@@ -344,28 +354,32 @@ class OperationalBudgets:
         status = self.query_authoritative_resource_status()
         if not status:
             return None
-        if status.get("accounting_verified"):
-            if status.get("prompt_tokens") is not None:
-                self.prompt_tokens_used = max(self.prompt_tokens_used, int(status["prompt_tokens"]))
-            if status.get("completion_tokens") is not None:
-                self.completion_tokens_used = max(self.completion_tokens_used, int(status["completion_tokens"]))
-            if status.get("total_tokens") is not None:
-                self.model_tokens_used = max(self.model_tokens_used, int(status["total_tokens"]))
-            if status.get("search_attempts") is not None:
-                self.web_search_used = max(self.web_search_used, int(status["search_attempts"]))
+        # Locally recorded usage remains a useful lower bound even when provider
+        # accounting is incomplete. The verification flag is reported separately.
+        if status.get("prompt_tokens") is not None:
+            self.prompt_tokens_used = max(self.prompt_tokens_used, int(status["prompt_tokens"]))
+        if status.get("completion_tokens") is not None:
+            self.completion_tokens_used = max(self.completion_tokens_used, int(status["completion_tokens"]))
+        if status.get("total_tokens") is not None:
+            self.model_tokens_used = max(self.model_tokens_used, int(status["total_tokens"]))
+        if status.get("search_attempts") is not None:
+            self.web_search_used = max(self.web_search_used, int(status["search_attempts"]))
         if status.get("kaggle_hours_used") is not None:
             self.kaggle_hours_used = max(self.kaggle_hours_used, float(status["kaggle_hours_used"]))
         return status
 
     @classmethod
     def load(cls, config_path: Optional[Union[str, Path]] = None, workspace_root: Optional[Union[str, Path]] = None,
-             *, project_id: Optional[str] = None, db_path: Optional[Union[str, Path]] = None) -> "OperationalBudgets":
+             *, project_id: Optional[str] = None, db_path: Optional[Union[str, Path]] = None,
+             authority_binary: Optional[Union[str, Path]] = None) -> "OperationalBudgets":
         """Load budgets from config file or return generous defaults."""
         binding = {}
         if project_id is not None:
             binding["project_id"] = project_id
         if db_path is not None:
             binding["db_path"] = str(db_path)
+        if authority_binary is not None:
+            binding["authority_binary"] = str(authority_binary)
         candidates = []
         if config_path:
             candidates.append(Path(config_path))

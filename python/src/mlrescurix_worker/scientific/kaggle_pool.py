@@ -202,6 +202,7 @@ class KaggleAccountPool:
         self,
         storage_dir: Union[str, Path] = ".kaggle_pool",
         enable_secondary_accounts: bool = True,
+        operational_budgets: Optional[Any] = None,
     ):
         self.storage_dir = Path(storage_dir).resolve()
         self.storage_dir.mkdir(parents=True, exist_ok=True)
@@ -214,6 +215,7 @@ class KaggleAccountPool:
             os.chmod(directory, 0o700)
         self.db_path = self.storage_dir / "pool_state.sqlite"
         self.enable_secondary_accounts = enable_secondary_accounts
+        self.operational_budgets = operational_budgets
         self._init_db()
 
     def _init_db(self) -> None:
@@ -608,6 +610,19 @@ class KaggleAccountPool:
         slug = f"opt-job-{uuid.uuid4().hex[:10]}"
         title = f"Optimization Job {slug}"
 
+        if self.operational_budgets is not None:
+            admitted, _ = self.operational_budgets.admit_kaggle_job(
+                job_id=actual_job_id,
+                account_username=account.username,
+                notebook_title=slug,
+                gpu_type=accelerator,
+                requested_hours=12.0,
+            )
+            if not admitted:
+                raise QuotaExhaustedError(
+                    f"Kaggle job '{actual_job_id}' denied by operational resource authority"
+                )
+
         # 3. Setup isolated staging directory
         account_dir = self.staging_dir / account.username
         account_dir.mkdir(mode=0o700, exist_ok=True)
@@ -687,6 +702,13 @@ class KaggleAccountPool:
                     (final_status, failure_msg, "TIMEOUT_UNKNOWN_OUTCOME", actual_job_id),
                 )
                 conn.commit()
+            if self.operational_budgets is not None:
+                self.operational_budgets.settle_kaggle_job(
+                    job_id=actual_job_id,
+                    status="timeout",
+                    actual_hours=0.0,
+                    error=failure_msg,
+                )
             raise UnknownRemoteOutcomeError(f"Push timed out for {actual_job_id}; reconciliation required") from exc
 
         with sqlite3.connect(self.db_path) as conn:
@@ -697,6 +719,13 @@ class KaggleAccountPool:
             conn.commit()
 
         if final_status == JobLifecycleState.RETRY_WAIT:
+            if self.operational_budgets is not None:
+                self.operational_budgets.settle_kaggle_job(
+                    job_id=actual_job_id,
+                    status="outcome_unknown",
+                    actual_hours=0.0,
+                    error=failure_msg,
+                )
             raise UnknownRemoteOutcomeError(f"Push failed for {actual_job_id}; remote outcome unknown; reconciliation required")
 
         return self.get_job(actual_job_id)  # type: ignore
@@ -885,12 +914,55 @@ class KaggleAccountPool:
             )
             conn.commit()
 
+        if self.operational_budgets is not None:
+            elapsed = max(0.0, round((time.time() - job.pushed_at) / 3600.0, 4)) if job.pushed_at else 0.0
+            billed = max(job.gpu_hours_billed, elapsed)
+            self.operational_budgets.settle_kaggle_job(
+                job_id=job_id,
+                status="outcome_unknown",
+                actual_hours=billed,
+                error="Cancellation requested; remote kernel may still be running",
+            )
+
         return {
             "status": JobLifecycleState.CANCEL_REQUESTED,
             "job_id": job_id,
             "lease_revoked": True,
             "limitation": "Kaggle public API does not support remote kernel force-kill. Lease revoked to fence remote artifacts.",
         }
+
+    def record_job_completion(self, job_id: str, actual_hours: float = 0.0) -> None:
+        """Record job completion and settle against operational authority if present."""
+        now = time.time()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE kaggle_jobs SET status = ?, completed_at = ?, gpu_hours_billed = ? WHERE job_id = ?",
+                (JobLifecycleState.VERIFIED, now, actual_hours, job_id),
+            )
+            conn.commit()
+        if self.operational_budgets is not None:
+            self.operational_budgets.settle_kaggle_job(
+                job_id=job_id,
+                status="success",
+                actual_hours=actual_hours,
+            )
+
+    def mark_job_failed(self, job_id: str, error: str = "", actual_hours: float = 0.0) -> None:
+        """Record job failure and settle against operational authority if present."""
+        now = time.time()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE kaggle_jobs SET status = ?, completed_at = ?, failure_reason = ?, gpu_hours_billed = ? WHERE job_id = ?",
+                (JobLifecycleState.FAILED, now, error, actual_hours, job_id),
+            )
+            conn.commit()
+        if self.operational_budgets is not None:
+            self.operational_budgets.settle_kaggle_job(
+                job_id=job_id,
+                status="failed",
+                actual_hours=actual_hours,
+                error=error or None,
+            )
 
     def submit_competition_prediction(
         self,

@@ -105,28 +105,31 @@ impl ContentAddressableStorage {
     }
 
     pub fn store_blob(&self, bytes: &[u8], media_type: &str, project_id: Option<&str>) -> Result<BlobReceipt> {
+        self.store_blob_with_connection(bytes, media_type, project_id, None)
+    }
+
+    pub(crate) fn store_blob_with_connection(&self, bytes: &[u8], media_type: &str, project_id: Option<&str>, connection: Option<&rusqlite::Connection>) -> Result<BlobReceipt> {
         let sha256 = format!("{:x}", Sha256::digest(bytes));
         let path = self.blob_path(&sha256)?;
 
         // Deduplication check: if blob already exists and is uncorrupted, reuse without re-allocating
         if self.has_blob(&sha256) {
-            if let Ok(meta) = fs::metadata(&path) {
-                if meta.len() == bytes.len() as u64 {
-                    return Ok(BlobReceipt {
-                        sha256,
-                        bytes: bytes.len() as u64,
-                        media_type: media_type.to_string(),
-                        path,
-                        created_ms: now_ms(),
-                    });
-                }
+            if fs::metadata(&path).map_err(|e| e.to_string())?.len() == bytes.len() as u64 {
+                self.read_blob(&sha256)?;
+                return Ok(BlobReceipt {
+                    sha256,
+                    bytes: bytes.len() as u64,
+                    media_type: media_type.to_string(),
+                    path,
+                    created_ms: now_ms(),
+                });
             }
         }
 
         // Pre-admission reservation accounting against the configured policy ceiling
         crate::execution::enforce_state_write_admission(
             &self.root,
-            None,
+            connection,
             bytes.len() as u64,
             crate::execution::StorageWriteKind::ManagedBlob,
             project_id,
@@ -179,12 +182,16 @@ impl ContentAddressableStorage {
     }
 
     pub fn store_file(&self, file_path: &Path, media_type: &str, project_id: Option<&str>) -> Result<BlobReceipt> {
+        self.store_file_with_connection(file_path, media_type, project_id, None)
+    }
+
+    pub(crate) fn store_file_with_connection(&self, file_path: &Path, media_type: &str, project_id: Option<&str>, connection: Option<&rusqlite::Connection>) -> Result<BlobReceipt> {
         let meta = fs::symlink_metadata(file_path).map_err(|e| e.to_string())?;
         if meta.file_type().is_symlink() || !meta.is_file() {
             return Err("cannot store symlink or non-file into CAS".into());
         }
         let bytes = fs::read(file_path).map_err(|e| e.to_string())?;
-        self.store_blob(&bytes, media_type, project_id)
+        self.store_blob_with_connection(&bytes, media_type, project_id, connection)
     }
 
     pub fn create_directory_manifest(&self, dir: &Path, max_bytes: u64, project_id: Option<&str>) -> Result<(BlobReceipt, DirectoryManifest)> {

@@ -1,4 +1,19 @@
 use mlrescurix_harness::campaign::compute_workspace_source_sha256;
+
+#[cfg(unix)]
+#[test]
+fn candidate_source_hash_rejects_symlinked_files_and_directories() {
+    use std::os::unix::fs::symlink;
+    let dir = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("solution.py"), "print(1)").unwrap();
+    std::fs::write(outside.path().join("secret.py"), "outside").unwrap();
+    symlink(outside.path().join("secret.py"), dir.path().join("extra.py")).unwrap();
+    assert!(compute_workspace_source_sha256(dir.path()).is_err());
+    std::fs::remove_file(dir.path().join("extra.py")).unwrap();
+    symlink(outside.path(), dir.path().join("external")).unwrap();
+    assert!(compute_workspace_source_sha256(dir.path()).is_err());
+}
 use std::fs;
 
 #[test]

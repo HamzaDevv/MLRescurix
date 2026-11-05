@@ -331,7 +331,8 @@ class GovernedResearchClient:
             }
 
         # 3. Budget enforcement & Durable Pre-Dispatch Admission
-        if budgets is None:
+        if (budgets is None or not callable(getattr(budgets, "admit_search", None))
+                or not callable(getattr(budgets, "settle_search", None))):
             return {
                 "status": "refused_without_admission_authority",
                 "query": sanitized_query,
@@ -341,28 +342,16 @@ class GovernedResearchClient:
                 "rationale": rationale,
             }
 
-        attempt_id = None
-        if hasattr(budgets, "admit_search"):
-            provider_name = getattr(self.provider, "name", "unknown") if self.provider else "unknown"
-            admitted, attempt_id = budgets.admit_search(query=query, sanitized_query=sanitized_query, provider=provider_name)
-            if not admitted:
-                return {
-                    "status": "budget_exhausted",
-                    "query": sanitized_query,
-                    "error": "Configured operational budget for web search queries has been reached.",
-                    "sources": [],
-                    "summary": "Web search query limit exhausted; research query refused.",
-                }
-        elif hasattr(budgets, "record_search_query"):
-            if not budgets.has_search_available(count=1):
-                return {
-                    "status": "budget_exhausted",
-                    "query": sanitized_query,
-                    "error": "Configured operational budget for web search queries has been reached.",
-                    "sources": [],
-                    "summary": "Web search query limit exhausted; research query refused.",
-                }
-            budgets.record_search_query(1)
+        provider_name = getattr(self.provider, "name", "unknown") if self.provider else "unknown"
+        admitted, attempt_id = budgets.admit_search(query=query, sanitized_query=sanitized_query, provider=provider_name)
+        if not admitted or not attempt_id:
+            return {
+                "status": "budget_exhausted",
+                "query": sanitized_query,
+                "error": "Durable search admission was not granted.",
+                "sources": [],
+                "summary": "Web search admission failed; research query refused.",
+            }
 
 
         # 4. Execute search
@@ -370,6 +359,22 @@ class GovernedResearchClient:
         is_timeout = False
         try:
             sources = self.provider.search(sanitized_query, max_results=max_results)
+            # Provider adapters and fixtures are equally untrusted. Bound and
+            # sanitize every field before persisting or returning evidence.
+            from urllib.parse import urlsplit
+            safe_sources = []
+            for source in sources[:max(0, min(int(max_results), 20))]:
+                url = str(source.url)[:2048]
+                parsed = urlsplit(url)
+                if parsed.scheme not in ("http", "https") or not parsed.netloc or parsed.username or parsed.password:
+                    continue
+                safe_sources.append(SearchSource(
+                    title=sanitize_external_content(str(source.title)[:512]),
+                    url=url,
+                    snippet=sanitize_external_content(str(source.snippet)[:4096]),
+                    rerank_score=source.rerank_score,
+                ))
+            sources = safe_sources
         except Exception as exc:
             dispatch_error = exc
             err_lower = str(exc).lower()

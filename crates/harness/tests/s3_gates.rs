@@ -916,6 +916,7 @@ fn test_gate_d_concurrent_resource_admission_and_conflicting_settlement() {
     ).unwrap();
 
     let tokens = TokenUsage { prompt_tokens: 400, completion_tokens: 200, total_tokens: 600 };
+    assert!(reserve_role_spend(&controller_root, project_id, &first_admitted_id, "task_resource", "specialist", "deepseek/deepseek-chat", &tokens, 1, Some(100_000)).is_err(), "an in-flight reservation cannot be reduced");
     record_provider_accounting(
         &controller_root,
         project_id,
@@ -928,6 +929,8 @@ fn test_gate_d_concurrent_resource_admission_and_conflicting_settlement() {
         50,
         "ok",
     ).unwrap();
+    record_provider_accounting(&controller_root, project_id, &first_admitted_id, "task_resource", "specialist", "deepseek/deepseek-chat", &tokens, 20_000, 50, "ok").unwrap();
+    assert!(record_provider_accounting(&controller_root, project_id, &first_admitted_id, "task_resource", "specialist", "deepseek/deepseek-chat", &tokens, 1, 50, "ok").is_err());
 
     // Re-attempting reservation on the settled request must fail closed (duplicate reservation rejected)
     let dup_res = reserve_role_spend(

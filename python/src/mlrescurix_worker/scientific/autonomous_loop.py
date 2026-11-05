@@ -13,6 +13,7 @@ from functools import wraps
 from itertools import count
 import json
 import os
+import logging
 import resource
 import signal
 import subprocess
@@ -21,6 +22,8 @@ import time
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
+
+logger = logging.getLogger("mlrescurix.autonomous_loop")
 
 import numpy as np
 import pandas as pd
@@ -113,7 +116,8 @@ class AutonomousAgentLoop:
         max_turns=None, per_run_budget_usd=0.05, provider_caller=None, *, require_locked_folds=False,
         topology=None, problem_statement="", sandbox_image=None, evaluation_timeout_seconds=180,
         evaluator=None, pricing=None, outbound_script_output_approved=False,
-        provider_is_fixture=False, allow_development_provider=False, worker_memory_bytes=2 * 1024**3):
+        provider_is_fixture=False, allow_development_provider=False, worker_memory_bytes=2 * 1024**3,
+        gateway_db_path: Optional[Union[str, Path]] = None):
         from .execution_service import ExecutionService
         from .governance import GovernanceService, BudgetExhaustionError
         from .task_adapters import task_adapter
@@ -141,12 +145,53 @@ class AutonomousAgentLoop:
             provider_caller.bind_campaign(campaign_authority.ledger_path, session_id)
         self.provider_is_fixture = provider_is_fixture
         self.allow_development_provider = allow_development_provider
-        # Explicit stable binding for this temporary Python bridge. A fresh UUID
-        # on reconstruction loses pre-turn search attempts. Rust authority
-        # migration must replace this local store, not infer a campaign from /tmp.
+
+        # Resolve gateway/controller authority database
+        resolved_gateway_db = None
+        if gateway_db_path:
+            resolved_gateway_db = Path(gateway_db_path).resolve()
+        elif hasattr(self.provider_caller, "state_dir"):
+            resolved_gateway_db = (Path(self.provider_caller.state_dir).resolve() / "state.sqlite")
+        elif (self.workspace_root / "rust_harness_state" / "state.sqlite").is_file() or (self.workspace_root / "rust_harness_state").is_dir():
+            resolved_gateway_db = (self.workspace_root / "rust_harness_state" / "state.sqlite").resolve()
+        elif (self.workspace_root / "state.sqlite").is_file():
+            resolved_gateway_db = (self.workspace_root / "state.sqlite").resolve()
+
+        legacy_operational_db = (self.workspace_root / "operational_search.sqlite").resolve()
+        authority_bin = None
+        if hasattr(self.provider_caller, "binary") and Path(self.provider_caller.binary).is_file():
+            authority_bin = Path(self.provider_caller.binary)
+        else:
+            from .operational_budgets import _find_harness_binary
+            authority_bin = _find_harness_binary()
+
+        # If a gateway database is identified and a legacy operational ledger exists,
+        # migrate and fence the legacy store into the controller authority.
+        # Must fail closed: conflicting migrations or missing authority must reject
+        # rather than proceeding with unmigrated or dropped historical liabilities.
+        if (resolved_gateway_db and
+                (resolved_gateway_db.is_file() or resolved_gateway_db.parent.is_dir()) and
+                legacy_operational_db.is_file() and legacy_operational_db != resolved_gateway_db):
+            if not authority_bin or not authority_bin.is_file():
+                raise RuntimeError(
+                    "Rust harness authority binary missing; cannot safely migrate legacy operational ledger to controller authority"
+                )
+            cmd = [
+                str(authority_bin),
+                "import-operational-ledger",
+                "--state", str(resolved_gateway_db),
+                "--legacy", str(legacy_operational_db),
+            ]
+            proc = subprocess.run(cmd, capture_output=True, text=True)
+            if proc.returncode != 0:
+                err_msg = proc.stderr.strip() or proc.stdout.strip() or f"exit code {proc.returncode}"
+                raise RuntimeError(f"Legacy operational ledger migration failed; execution rejected: {err_msg}")
+            logger.info(f"Migrated legacy operational ledger to {resolved_gateway_db}: {proc.stdout}")
+
+        active_db = resolved_gateway_db if (resolved_gateway_db and resolved_gateway_db.is_file()) else legacy_operational_db
         self.operational_budgets = OperationalBudgets.load(
             workspace_root=self.workspace_root, project_id=self.project_id,
-            db_path=self.workspace_root / "operational_search.sqlite")
+            db_path=active_db, authority_binary=authority_bin)
         self.max_run_tokens = self.operational_budgets.model_tokens_limit
         self.evaluated_specs: Dict[str, Tuple[int, float]] = {}
         self.worker_memory_bytes = int(worker_memory_bytes)
@@ -232,7 +277,7 @@ class AutonomousAgentLoop:
         self.operational_budgets.search_connected = self.research_client.is_provider_available()
         try:
             from .kaggle_pool import KaggleAccountPool
-            pool = KaggleAccountPool()
+            pool = KaggleAccountPool(operational_budgets=self.operational_budgets)
             self.operational_budgets.kaggle_connected = len(pool.list_accounts()) > 0 and pool.get_anchor_account() is not None
         except Exception:
             self.operational_budgets.kaggle_connected = False

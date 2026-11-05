@@ -5,6 +5,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use crate::Result;
 
 fn now_ms() -> i64 {
@@ -79,6 +80,91 @@ pub fn ensure_resource_authority_schema(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Fence a legacy operational ledger, then import its liabilities into the
+/// controller database. Fencing commits first: a crash can leave the old ledger
+/// read-only, but cannot make its remaining obligations disappear. Repeating
+/// the import is safe only for the same frozen logical contents.
+pub fn import_legacy_operational_ledger(target: &Path, legacy: &Path) -> Result<usize> {
+    let meta = std::fs::symlink_metadata(legacy).map_err(|e| e.to_string())?;
+    if meta.file_type().is_symlink() || !meta.is_file() { return Err("legacy operational ledger must be a regular file".into()); }
+    let legacy = std::fs::canonicalize(legacy).map_err(|e| e.to_string())?;
+    let target = if target.exists() {
+        let meta = std::fs::symlink_metadata(target).map_err(|e| e.to_string())?;
+        if meta.file_type().is_symlink() || !meta.is_file() {
+            return Err("target operational ledger must be a regular file".into());
+        }
+        std::fs::canonicalize(target).map_err(|e| e.to_string())?
+    } else {
+        let parent = target.parent().ok_or("target operational ledger has no parent directory")?;
+        let parent = std::fs::canonicalize(parent).map_err(|e| e.to_string())?;
+        let name = target.file_name().ok_or("target operational ledger has no filename")?;
+        parent.join(name)
+    };
+    if legacy == target { return Err("legacy and target operational ledgers are identical".into()); }
+    let mut old = Connection::open(&legacy).map_err(|e| e.to_string())?;
+    old.busy_timeout(std::time::Duration::from_secs(10)).map_err(|e| e.to_string())?;
+    ensure_resource_authority_schema(&old)?;
+    let fence = old.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e| e.to_string())?;
+    let provider_table: bool = fence.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='provider_accounting')", [], |r| r.get(0)).map_err(|e| e.to_string())?;
+    if provider_table {
+        let count: i64 = fence.query_row("SELECT COUNT(*) FROM provider_accounting", [], |r| r.get(0)).map_err(|e| e.to_string())?;
+        if count != 0 { return Err("legacy ledger contains provider accounting requiring separate reconciliation".into()); }
+    }
+    for table in ["operational_search_attempts", "operational_kaggle_jobs", "operational_token_reservations"] {
+        for operation in ["INSERT", "UPDATE", "DELETE"] {
+            let name = format!("migration_fence_{table}_{}", operation.to_ascii_lowercase());
+            let sql = format!("CREATE TRIGGER IF NOT EXISTS {name} BEFORE {operation} ON {table} BEGIN SELECT RAISE(ABORT, 'operational ledger migrated; use controller authority'); END");
+            fence.execute_batch(&sql).map_err(|e| e.to_string())?;
+        }
+    }
+    fence.commit().map_err(|e| e.to_string())?;
+    drop(old);
+
+    let mut dest = Connection::open(&target).map_err(|e| e.to_string())?;
+    dest.busy_timeout(std::time::Duration::from_secs(10)).map_err(|e| e.to_string())?;
+    ensure_resource_authority_schema(&dest)?;
+    dest.execute_batch("CREATE TABLE IF NOT EXISTS operational_ledger_imports (source_path TEXT PRIMARY KEY, source_sha256 TEXT NOT NULL, row_count INTEGER NOT NULL, imported_ms INTEGER NOT NULL)").map_err(|e| e.to_string())?;
+    dest.execute("ATTACH DATABASE ?1 AS legacy_operational", [legacy.to_string_lossy().as_ref()]).map_err(|e| e.to_string())?;
+    let tx = dest.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e| e.to_string())?;
+    let tables = [
+        ("operational_search_attempts", "project,attempt_id,query_text,sanitized_query,provider,status,cost_millicents,created_ms,settled_ms,error_message,response_evidence", "project,attempt_id"),
+        ("operational_kaggle_jobs", "project,job_id,account_username,slug,accelerator,requested_hours,actual_hours,status,created_ms,settled_ms,error_message", "project,job_id"),
+        ("operational_token_reservations", "project,reservation_id,role_id,model_id,prompt_tokens,completion_tokens,cost_millicents,status,created_ms,settled_ms,error_message", "project,reservation_id"),
+    ];
+    let mut hasher = Sha256::new();
+    let mut count = 0usize;
+    for (table, columns, order) in tables {
+        let query = format!("SELECT COALESCE(json_group_array(json_array({columns})), '[]') FROM (SELECT {columns} FROM legacy_operational.{table} ORDER BY {order})");
+        let data: String = tx.query_row(&query, [], |r| r.get(0)).map_err(|e| e.to_string())?;
+        hasher.update(table.as_bytes()); hasher.update((data.len() as u64).to_be_bytes()); hasher.update(data.as_bytes());
+        let n: i64 = tx.query_row(&format!("SELECT COUNT(*) FROM legacy_operational.{table}"), [], |r| r.get(0)).map_err(|e| e.to_string())?;
+        count = count.checked_add(usize::try_from(n).map_err(|_| "invalid legacy row count")?).ok_or("legacy row count overflow")?;
+    }
+    let digest = format!("{:x}", hasher.finalize());
+    let source = legacy.to_string_lossy();
+    let previous: Option<(String, i64)> = tx.query_row("SELECT source_sha256,row_count FROM operational_ledger_imports WHERE source_path=?1", [source.as_ref()], |r| Ok((r.get(0)?, r.get(1)?))).optional().map_err(|e| e.to_string())?;
+    if let Some((old_digest, old_count)) = previous {
+        if old_digest != digest || old_count != count as i64 { return Err("fenced legacy ledger changed after import; reconciliation required".into()); }
+        tx.commit().map_err(|e| e.to_string())?;
+        return Ok(count);
+    }
+    let previous_by_digest: Option<(String, i64)> = tx.query_row("SELECT source_path, row_count FROM operational_ledger_imports WHERE source_sha256=?1", [&digest], |r| Ok((r.get(0)?, r.get(1)?))).optional().map_err(|e| e.to_string())?;
+    if let Some((_, old_count)) = previous_by_digest {
+        if old_count == count as i64 {
+            tx.execute("INSERT OR REPLACE INTO operational_ledger_imports(source_path,source_sha256,row_count,imported_ms) VALUES(?1,?2,?3,?4)", params![source.as_ref(), digest, count as i64, now_ms()]).map_err(|e| e.to_string())?;
+            tx.commit().map_err(|e| e.to_string())?;
+            return Ok(count);
+        }
+    }
+    for (table, columns, _) in tables {
+        let sql = format!("INSERT INTO main.{table} ({columns}) SELECT {columns} FROM legacy_operational.{table}");
+        tx.execute(&sql, []).map_err(|e| format!("legacy {table} import failed; existing liabilities retained: {e}"))?;
+    }
+    tx.execute("INSERT INTO operational_ledger_imports(source_path,source_sha256,row_count,imported_ms) VALUES(?1,?2,?3,?4)", params![source.as_ref(), digest, count as i64, now_ms()]).map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(count)
+}
+
 /// Sanitize an outbound research query, blocking private tokens, file extensions, and data rows.
 pub fn sanitize_research_query(query: &str) -> Result<String> {
     let clean = query.trim();
@@ -110,9 +196,11 @@ pub fn sanitize_research_content(text: &str) -> String {
         "<|im_start|>",
         "<|im_end|>",
     ];
-    let mut result = text.to_string();
+    let mut result: String = text.chars().take(16_384).collect();
+    if text.chars().count() > 16_384 { result.push_str(" [TRUNCATED]"); }
     for pat in patterns {
-        while let Some(pos) = result.to_lowercase().find(pat) {
+        // ASCII lowercasing preserves byte offsets even when preceding text is Unicode.
+        while let Some(pos) = result.to_ascii_lowercase().find(pat) {
             result.replace_range(pos..pos + pat.len(), "[BLOCKED_INJECTION_PHRASE]");
         }
     }
@@ -265,8 +353,8 @@ pub fn admit_kaggle_job(
         .map_err(|e| e.to_string())?;
 
     let (reserved_hours, actual_hours): (f64, f64) = tx.query_row(
-        "SELECT COALESCE(SUM(CASE WHEN status IN ('reserved', 'dispatched', 'outcome_unknown') THEN requested_hours ELSE 0.0 END), 0.0),
-                COALESCE(SUM(CASE WHEN status NOT IN ('reserved', 'dispatched', 'outcome_unknown') THEN actual_hours ELSE 0.0 END), 0.0)
+        "SELECT COALESCE(SUM(CASE WHEN status IN ('reserved', 'dispatched', 'timeout', 'outcome_unknown') THEN MAX(requested_hours, actual_hours) ELSE 0.0 END), 0.0),
+                COALESCE(SUM(CASE WHEN status NOT IN ('reserved', 'dispatched', 'timeout', 'outcome_unknown') THEN actual_hours ELSE 0.0 END), 0.0)
          FROM operational_kaggle_jobs WHERE project = ?1",
         params![project],
         |r| Ok((r.get(0)?, r.get(1)?)),
@@ -374,10 +462,17 @@ pub fn admit_token_reservation(
     ).map(|c| c > 0).map_err(|e| e.to_string())?;
 
     let (pa_tokens, pa_spend): (i64, i64) = if has_pa {
+        let unpriced: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM provider_accounting WHERE project=?1 AND status='success_cost_unpriced'",
+            params![project], |r| r.get(0),
+        ).map_err(|e| e.to_string())?;
+        if unpriced > 0 {
+            return Err("unpriced provider usage requires reconciliation before admission".into());
+        }
         tx.query_row(
             "SELECT COALESCE(SUM(prompt_tokens + completion_tokens), 0),
                     COALESCE(SUM(cost_millicents), 0)
-             FROM provider_accounting WHERE project = ?1 AND status IN ('reserved', 'ok', 'outcome_unknown')",
+             FROM provider_accounting WHERE project = ?1 AND status IN ('reserved', 'ok', 'outcome_unknown', 'priced', 'outcome_unknown_ceiling_estimate')",
             params![project],
             |r| Ok((r.get(0)?, r.get(1)?)),
         ).map_err(|e| e.to_string())?
@@ -385,10 +480,14 @@ pub fn admit_token_reservation(
         (0, 0)
     };
 
-    let total_tokens = (curr_tokens + pa_tokens).max(0) as u64;
-    let total_spend = (curr_spend + pa_spend).max(0);
+    if curr_tokens < 0 || pa_tokens < 0 || curr_spend < 0 || pa_spend < 0 {
+        return Err("negative recorded resource liability".into());
+    }
+    let total_tokens = curr_tokens.checked_add(pa_tokens).ok_or("token liability overflow")? as u64;
+    let total_spend = curr_spend.checked_add(pa_spend).ok_or("spend liability overflow")?;
 
-    if (total_tokens + requested_tokens) > token_limit || (total_spend + cost_millicents) > spend_limit {
+    if total_tokens.checked_add(requested_tokens).ok_or("token admission overflow")? > token_limit
+        || total_spend.checked_add(cost_millicents).ok_or("spend admission overflow")? > spend_limit {
         tx.rollback().map_err(|e| e.to_string())?;
         return Ok(None);
     }
@@ -486,10 +585,15 @@ pub fn get_unified_resource_status(state_dir: &Path, project: &str) -> Result<Va
                     [],
                     |r| r.get(0),
                 ).map_err(|e| e.to_string())?;
+                let mut unpriced_provider_usage = false;
                 if pa_exists > 0 {
+                        unpriced_provider_usage = conn.query_row::<i64, _, _>(
+                            "SELECT COUNT(*) FROM provider_accounting WHERE project=?1 AND status='success_cost_unpriced'",
+                            params![project], |r| r.get(0),
+                        ).map_err(|e| e.to_string())? > 0;
                         let (pa_spend, pa_prompt, pa_comp) = conn.query_row::<(i64, i64, i64), _, _>(
                             "SELECT COALESCE(SUM(cost_millicents), 0), COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0)
-                             FROM provider_accounting WHERE project=?1 AND status IN ('ok', 'reserved', 'outcome_unknown')",
+                             FROM provider_accounting WHERE project=?1 AND status IN ('ok', 'reserved', 'outcome_unknown', 'priced', 'outcome_unknown_ceiling_estimate', 'success_cost_unpriced')",
                             params![project],
                             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
                         ).map_err(|e| e.to_string())?;
@@ -520,26 +624,26 @@ pub fn get_unified_resource_status(state_dir: &Path, project: &str) -> Result<Va
                     "SELECT COUNT(*) FROM operational_kaggle_jobs WHERE project = ?1",
                     params![project],
                     |r| r.get(0),
-                ).unwrap_or(0);
+                ).map_err(|e| format!("cannot query Kaggle job count: {e}"))?;
                 kag_hours_spent = if kag_job_count > 0 {
                     conn.query_row(
-                        "SELECT COALESCE(SUM(actual_hours), 0.0) FROM operational_kaggle_jobs WHERE project = ?1 AND status NOT IN ('reserved', 'dispatched')",
+                        "SELECT CASE WHEN SUM(CASE WHEN status IN ('reserved', 'dispatched', 'timeout', 'outcome_unknown') THEN 1 ELSE 0 END) > 0 THEN NULL ELSE SUM(actual_hours) END FROM operational_kaggle_jobs WHERE project = ?1",
                         params![project],
                         |r| r.get(0),
-                    ).ok()
+                    ).map_err(|e| format!("cannot query Kaggle usage: {e}"))?
                 } else {
                     None
                 };
 
                 match search_res {
                     Ok(search_attempts) => (
-                        serde_json::json!(total_spend),
+                        if unpriced_provider_usage { Value::Null } else { serde_json::json!(total_spend) },
                         serde_json::json!(prompt_tokens),
                         serde_json::json!(completion_tokens),
                         serde_json::json!(prompt_tokens + completion_tokens),
                         serde_json::json!(search_attempts),
-                        if pa_exists > 0 { "local_accounting_queried" } else { "provider_accounting_unavailable" },
-                        pa_exists > 0,
+                        if unpriced_provider_usage { "unpriced_provider_usage" } else if pa_exists > 0 { "local_accounting_queried" } else { "provider_accounting_unavailable" },
+                        pa_exists > 0 && !unpriced_provider_usage,
                     ),
                     Err(_) => (
                         Value::Null,

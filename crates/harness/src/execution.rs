@@ -1704,7 +1704,7 @@ impl Supervisor {
                 let expected=self.root.join("datasets").join(&p).join(format!("{dataset_id}.csv"));
                 if Path::new(&data_path)!=expected||hash(&fs::read(&expected).map_err(|e|e.to_string())?)!=sha{return Err("registered dataset snapshot failed integrity check".into());}
                 let workflow=self.root.join("workflows").join(&p);ensure_dir(&self.root,&workflow)?;
-                let pythonpath=crate::assets::ensure_python_src(&self.root)?;
+                let pythonpath=crate::assets::ensure_python_src_in_transaction(&self.root, &tx)?;
                 let runtime_source=if container.is_some() {
                     let source_hash=crate::assets::embedded_python_src_hash();
                     let base=self.root.join("scientific-sources");ensure_dir(&self.root,&base)?;
@@ -1771,9 +1771,10 @@ impl Supervisor {
         }Ok(())
     }
     fn reap(&mut self)->Result<()> {
-        let mut index=0;
+        let mut index=self.children.len();
         let c = connect(&self.root)?;
-        while index<self.children.len(){
+        while index>0{
+            index-=1;
             let (mut view,mut child,control,started,mut last_sample)=self.children.swap_remove(index);let elapsed=started.elapsed();
             let _ = crate::broker::heartbeat_lease(&c, &format!("lease-{}-{}", view.spec.project_id, view.spec.job_id));
             if last_sample.elapsed()>=Duration::from_secs(1){if let Some(sample)=sample_process(&self.root,&view.spec.project_id,&view.spec.job_id,child.id())?{view.telemetry=Some(sample);}last_sample=Instant::now();}
@@ -1787,7 +1788,7 @@ impl Supervisor {
                 let (artifacts,final_reason)=if reason.is_none(){match self.publish(&view){Ok(a)=>(a,None),Err(e)=>{let stage=self.root.join("artifacts").join(&view.spec.project_id).join(format!(".{}.staging",view.spec.job_id));if stage.exists(){let _=safe_remove(&self.root,&stage);} (vec![],Some(format!("artifact validation: {e}")))}}}else{(vec![],reason)};
                 let ok=final_reason.is_none();if !ok{let stage=self.root.join("artifacts").join(&view.spec.project_id).join(format!(".{}.staging",view.spec.job_id));if stage.exists(){safe_remove(&self.root,&stage)?;}}
                 self.finish(&view,if ok{"succeeded"}else if cancel{"cancelled"}else if timed_out||status.code()==Some(124){"timed_out"}else{"failed"},final_reason,artifacts,elapsed.as_millis().max(1) as u64)?;
-            }else{self.children.push((view,child,control,started,last_sample));index+=1;}
+            }else{self.children.push((view,child,control,started,last_sample));}
         }Ok(())
     }
     pub fn publish(&self,v:&JobView)->Result<Vec<Value>>{
@@ -1856,9 +1857,9 @@ impl Supervisor {
                 if bundle_manifest_path.is_file() {
                     let bm_bytes=fs::read(&bundle_manifest_path).map_err(|e|e.to_string())?;
                     let bm_hash = hash(&bm_bytes);
-                    sql(tx.execute("INSERT OR REPLACE INTO managed_artifacts(project,job,name,bytes,sha256,pinned) VALUES(?1,?2,'bundle/manifest.json',?3,?4,1)",params![v.spec.project_id,v.spec.job_id,bm_bytes.len() as u64,&bm_hash]))?;
                     let cas = crate::cas::ContentAddressableStorage::new(&self.root);
-                    let _ = cas.store_blob(&bm_bytes, "application/json", Some(&v.spec.project_id));
+                    cas.store_blob_with_connection(&bm_bytes, "application/json", Some(&v.spec.project_id), Some(&tx))?;
+                    sql(tx.execute("INSERT OR REPLACE INTO managed_artifacts(project,job,name,bytes,sha256,pinned) VALUES(?1,?2,'bundle/manifest.json',?3,?4,1)",params![v.spec.project_id,v.spec.job_id,bm_bytes.len() as u64,&bm_hash]))?;
                     if bm_hash.len() == 64 {
                         let now = now_ms();
                         let _ = tx.execute(
@@ -2270,12 +2271,10 @@ impl Supervisor {
             let name = a["name"].as_str().unwrap_or("");
             let bytes = a["bytes"].as_u64().unwrap_or(0);
             let sha = a["sha256"].as_str().unwrap_or("");
-            sql(tx.execute("INSERT INTO managed_artifacts(project,job,name,bytes,sha256) VALUES(?1,?2,?3,?4,?5)",params![v.spec.project_id,v.spec.job_id,name,bytes,sha]))?;
-
             let file_path = self.root.join("artifacts").join(&v.spec.project_id).join(&v.spec.job_id).join(name);
-            if file_path.is_file() {
-                let _ = cas.store_file(&file_path, "application/octet-stream", Some(&v.spec.project_id));
-            }
+            let receipt = cas.store_file_with_connection(&file_path, "application/octet-stream", Some(&v.spec.project_id), Some(&tx))?;
+            if receipt.sha256 != sha || receipt.bytes != bytes { return Err("published artifact changed before CAS storage".into()); }
+            sql(tx.execute("INSERT INTO managed_artifacts(project,job,name,bytes,sha256) VALUES(?1,?2,?3,?4,?5)",params![v.spec.project_id,v.spec.job_id,name,bytes,sha]))?;
 
             if sha.len() == 64 {
                 let now = now_ms();

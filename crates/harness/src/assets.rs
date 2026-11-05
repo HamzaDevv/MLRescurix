@@ -136,11 +136,15 @@ fn asset_directory(root:&Path,directory:&Path)->Result<()> {
 
 /// Materializes and verifies the embedded `python/` tree inside `<state_root>/runtime-assets/<source_hash>/python`.
 pub fn ensure_python_root(state_root: &Path) -> Result<PathBuf> {
+    ensure_python_root_with_connection(state_root, None)
+}
+
+fn ensure_python_root_with_connection(state_root: &Path, conn: Option<&rusqlite::Connection>) -> Result<PathBuf> {
     let src_hash = embedded_python_src_hash();
     let target_root = state_root.join("runtime-assets").join(&src_hash).join("python");
     let approx_bytes: u64 = EMBEDDED_PYTHON_FILES.iter().map(|(_, content)| content.len() as u64).sum();
     if !target_root.exists() {
-        crate::execution::enforce_state_write_admission(state_root, None, approx_bytes, crate::execution::StorageWriteKind::RuntimeAsset, None)?;
+        crate::execution::enforce_state_write_admission(state_root, conn, approx_bytes, crate::execution::StorageWriteKind::RuntimeAsset, None)?;
     }
     asset_directory(state_root,&target_root)?;
     for (rel, content) in EMBEDDED_PYTHON_FILES {
@@ -155,7 +159,7 @@ pub fn ensure_python_root(state_root: &Path) -> Result<PathBuf> {
             Err(_) => true,
         };
         if needs_write {
-            crate::execution::enforce_state_write_admission(state_root,None,expected_bytes.len() as u64,crate::execution::StorageWriteKind::RuntimeAsset,None)?;
+            crate::execution::enforce_state_write_admission(state_root,conn,expected_bytes.len() as u64,crate::execution::StorageWriteKind::RuntimeAsset,None)?;
             use std::io::Write;
             static NEXT_STAGE:std::sync::atomic::AtomicU64=std::sync::atomic::AtomicU64::new(0);
             let sequence=NEXT_STAGE.fetch_add(1,std::sync::atomic::Ordering::Relaxed);
@@ -186,6 +190,10 @@ pub fn ensure_python_root(state_root: &Path) -> Result<PathBuf> {
 /// Materializes and returns the verified `<state_root>/runtime-assets/<source_hash>/python/src` directory.
 pub fn ensure_python_src(state_root: &Path) -> Result<PathBuf> {
     Ok(ensure_python_root(state_root)?.join("src"))
+}
+
+pub(crate) fn ensure_python_src_in_transaction(state_root: &Path, conn: &rusqlite::Connection) -> Result<PathBuf> {
+    Ok(ensure_python_root_with_connection(state_root, Some(conn))?.join("src"))
 }
 
 #[cfg(test)]

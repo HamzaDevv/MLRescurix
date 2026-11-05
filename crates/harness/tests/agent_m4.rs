@@ -919,6 +919,27 @@ fn m4_exhausted_budget_blocks_provider_before_dispatch() {
 }
 
 #[test]
+fn legacy_specialist_path_refuses_live_transport_without_shared_authority() {
+    struct LiveEndpoint;
+    impl mlrescurix_harness::agents::ProviderGateway for LiveEndpoint {
+        fn endpoint_url(&self) -> &str { "https://provider.example/v1/chat/completions" }
+        fn chat_completion(&self, _: &ChatCompletionRequest) -> mlrescurix_harness::Result<ChatCompletionResponse> {
+            panic!("legacy path must not dispatch live transport");
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("state");
+    let runtime = Runtime::init(&root, m1policy(100, 2)).unwrap();
+    create_m1(&runtime, "p-live", 100);
+    branch_task(&runtime, "p-live", "branch", "task");
+    let mut orch = AgentOrchestrator::new(&root, OrchestratorConfig {
+        project_id: "p-live".into(), task_id: "task".into(), role_id: "lead".into(),
+        branch_id: "branch".into(), model: "fixture".into(), max_turns: 1,
+    }, Arc::new(LiveEndpoint)).unwrap();
+    assert!(orch.step().unwrap_err().contains("campaign resource authority"));
+}
+
+#[test]
 #[cfg(unix)]
 fn m4_workspace_symlink_cannot_read_or_overwrite_host_file() {
     let dir = tempfile::tempdir().unwrap();
@@ -2861,12 +2882,17 @@ fn test_dispatch_gateway_outbound_policy_approval_and_accounting() {
     ).unwrap();
     assert_eq!(recorded_tokens, 150);
 
+    // Simulate a crash after the response receipt but before accounting settled.
+    db.execute("UPDATE provider_accounting SET status='reserved', prompt_tokens=1000, completion_tokens=1000, cost_millicents=100 WHERE project='p-gw'", []).unwrap();
+
     let replay = mlrescurix_harness::agents::dispatch_gateway_with_id(
         &root, "p-gw", "t-gw", "scientific-agent", "campaign-1:turn:1", &req,
         &ScriptedProviderFixture::new(vec![]), true
     ).unwrap();
     assert_eq!(replay["replayed"], true);
     assert_eq!(replay["id"], "resp-gw-1");
+    let settled: (String, u32, i64) = db.query_row("SELECT status, prompt_tokens, cost_millicents FROM provider_accounting WHERE project='p-gw'", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap();
+    assert_eq!(settled, ("ok".into(), 150, 4));
     let accounting_rows: i64 = db.query_row(
         "SELECT count(*) FROM provider_accounting WHERE project='p-gw'", [], |row| row.get(0)
     ).unwrap();

@@ -1952,11 +1952,34 @@ pub fn record_provider_accounting(
     latency_ms: u64,
     status: &str,
 ) -> Result<()> {
+    if cost_millicents < 0 {
+        return Err("negative provider accounting amount".into());
+    }
+    let latency_ms = i64::try_from(latency_ms).map_err(|_| "provider latency out of range")?;
     crate::execution::migrate(root)?;
     let mut connection=rusqlite::Connection::open(root.join("state.sqlite")).map_err(|e|e.to_string())?;
     connection.busy_timeout(Duration::from_secs(10)).map_err(|e|e.to_string())?;
     let db=connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e|e.to_string())?;
     ensure_project_record(&db, project_id)?;
+    use rusqlite::OptionalExtension;
+    let previous: Option<(String, String, String, String, u32, u32, i64, i64)> = db.query_row(
+        "SELECT task_id, role_id, model, status, prompt_tokens, completion_tokens, cost_millicents, latency_ms FROM provider_accounting WHERE project=?1 AND request_id=?2",
+        rusqlite::params![project_id, request_id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?)),
+    ).optional().map_err(|e| e.to_string())?;
+    if let Some((old_task, old_role, old_model, old_status, old_prompt, old_completion, old_cost, old_latency)) = previous {
+        if old_status != "reserved" {
+            if old_task == task_id && old_role == role_id && old_model == model && old_status == status
+                && old_prompt == usage.prompt_tokens && old_completion == usage.completion_tokens
+                && old_cost == cost_millicents && old_latency == latency_ms {
+                return Ok(());
+            }
+            return Err(format!("conflicting provider accounting receipt for request '{request_id}'"));
+        }
+        if old_task != task_id || old_role != role_id {
+            return Err("provider reservation identity mismatch".into());
+        }
+    }
     crate::execution::enforce_state_write_admission(root, Some(&db), (model.len()+status.len()+request_id.len()+task_id.len()+role_id.len()) as u64*4+16*1024, crate::execution::StorageWriteKind::ProviderReceipt, Some(project_id))?;
     db.execute(
         "INSERT INTO provider_accounting(project, request_id, task_id, role_id, model, prompt_tokens, completion_tokens, cost_millicents, latency_ms, status, created_ms)
@@ -1976,7 +1999,7 @@ pub fn record_provider_accounting(
             usage.prompt_tokens,
             usage.completion_tokens,
             cost_millicents,
-            latency_ms as i64,
+            latency_ms,
             status,
             now_ms(),
         ],
@@ -2193,20 +2216,21 @@ fn dispatch_gateway_with_id_inner(
     let cost_millicents = cost_from_pricing(&resp.usage, rates)?;
     let cost_usd = cost_millicents as f64 / 100_000.0;
 
-    if !replayed {
-        record_provider_accounting(
-            root,
-            project_id,
-            &request_key,
-            task_id,
-            role_id,
-            &resp.model,
-            &resp.usage,
-            cost_millicents,
-            resp.latency_ms,
-            "ok",
-        )?;
-    }
+    // The response can survive a crash between its durable write and accounting.
+    // Replaying the receipt must finish that settlement; identical repeats are
+    // idempotent and conflicting receipts are rejected.
+    record_provider_accounting(
+        root,
+        project_id,
+        &request_key,
+        task_id,
+        role_id,
+        &resp.model,
+        &resp.usage,
+        cost_millicents,
+        resp.latency_ms,
+        "ok",
+    )?;
 
     Ok(serde_json::json!({
         "status": "completed",
@@ -2258,8 +2282,13 @@ pub fn dispatch_gateway_with_id(
 pub fn query_role_spend(root: &Path, project_id: &str, role_id: &str) -> Result<u64> {
     crate::execution::migrate(root)?;
     let db = rusqlite::Connection::open(root.join("state.sqlite")).map_err(|e| e.to_string())?;
+    let unpriced: i64 = db.query_row(
+        "SELECT COUNT(*) FROM provider_accounting WHERE project=?1 AND role_id=?2 AND status='success_cost_unpriced'",
+        rusqlite::params![project_id, role_id], |r| r.get(0),
+    ).map_err(|e| e.to_string())?;
+    if unpriced > 0 { return Err("role spend contains unpriced provider usage".into()); }
     let spend: i64 = db.query_row(
-        "SELECT COALESCE(SUM(cost_millicents), 0) FROM provider_accounting WHERE project=?1 AND role_id=?2 AND status IN ('ok', 'reserved', 'outcome_unknown')",
+        "SELECT COALESCE(SUM(cost_millicents), 0) FROM provider_accounting WHERE project=?1 AND role_id=?2 AND status IN ('ok', 'reserved', 'outcome_unknown', 'priced', 'outcome_unknown_ceiling_estimate')",
         rusqlite::params![project_id, role_id],
         |r| r.get(0),
     ).map_err(|e| format!("cannot query role spend: {e}"))?;
@@ -2277,6 +2306,9 @@ pub fn reserve_role_spend(
     estimated_cost: i64,
     max_spend_millicents: Option<i64>,
 ) -> Result<()> {
+    if estimated_cost < 0 || max_spend_millicents.is_some_and(|limit| limit < 0) {
+        return Err("negative provider reservation or spend limit".into());
+    }
     crate::execution::migrate(root)?;
     let mut connection = rusqlite::Connection::open(root.join("state.sqlite")).map_err(|e| e.to_string())?;
     connection.busy_timeout(Duration::from_secs(10)).map_err(|e| e.to_string())?;
@@ -2284,22 +2316,33 @@ pub fn reserve_role_spend(
     ensure_project_record(&tx, project_id)?;
 
     use rusqlite::OptionalExtension;
-    let existing_status: Option<String> = tx.query_row(
-        "SELECT status FROM provider_accounting WHERE project=?1 AND request_id=?2",
+    let existing: Option<(String, String, String, String, u32, u32, i64)> = tx.query_row(
+        "SELECT status, task_id, role_id, model, prompt_tokens, completion_tokens, cost_millicents FROM provider_accounting WHERE project=?1 AND request_id=?2",
         rusqlite::params![project_id, request_id],
-        |r| r.get(0),
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)),
     ).optional().map_err(|e| e.to_string())?;
 
-    if let Some(ref st) = existing_status {
-        if st == "ok" || st == "outcome_unknown" {
+    if let Some((st, old_task, old_role, old_model, old_prompt, old_completion, old_cost)) = existing {
+        if st == "reserved" && old_task == task_id && old_role == role_id && old_model == model
+            && old_prompt == estimated_tokens.prompt_tokens && old_completion == estimated_tokens.completion_tokens
+            && old_cost == estimated_cost {
+            return Ok(());
+        }
+        if st != "reserved" {
             return Err(format!("request '{request_id}' has already been dispatched with status '{st}'; duplicate reservation rejected"));
         }
+        return Err(format!("request '{request_id}' has a conflicting reservation"));
     }
 
     if let Some(max_spend) = max_spend_millicents {
+        let unpriced: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM provider_accounting WHERE project=?1 AND role_id=?2 AND status='success_cost_unpriced'",
+            rusqlite::params![project_id, role_id], |r| r.get(0),
+        ).map_err(|e| e.to_string())?;
+        if unpriced > 0 { return Err("unpriced provider usage requires reconciliation before role admission".into()); }
         let max_spend_u64 = max_spend.max(0) as u64;
         let current_reserved_and_spent: i64 = tx.query_row(
-            "SELECT COALESCE(SUM(cost_millicents), 0) FROM provider_accounting WHERE project=?1 AND role_id=?2 AND status IN ('ok', 'reserved', 'outcome_unknown') AND request_id != ?3",
+            "SELECT COALESCE(SUM(cost_millicents), 0) FROM provider_accounting WHERE project=?1 AND role_id=?2 AND status IN ('ok', 'reserved', 'outcome_unknown', 'priced', 'outcome_unknown_ceiling_estimate') AND request_id != ?3",
             rusqlite::params![project_id, role_id, request_id],
             |r| r.get(0),
         ).map_err(|e| format!("cannot query role spend: {e}"))?;

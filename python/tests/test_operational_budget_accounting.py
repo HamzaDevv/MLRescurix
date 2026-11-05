@@ -281,3 +281,246 @@ def test_outcome_unknown_conflicting_settlement_rejected(tmp_path):
     proc = subprocess.run(cmd, capture_output=True, text=True)
     assert proc.returncode != 0
     assert "rejected conflicting settlement" in proc.stderr
+
+
+def test_autonomous_loop_migrates_legacy_operational_ledger_and_fences_old_writers(tmp_path):
+    import sqlite3
+    import subprocess
+    from mlrescurix_worker.scientific.operational_budgets import _find_harness_binary
+    from mlrescurix_worker.scientific.autonomous_loop import AutonomousAgentLoop
+    from test_autonomy_regressions import Budget
+
+    harness_bin = _find_harness_binary()
+    assert harness_bin is not None
+
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    legacy_file = ws / "operational_search.sqlite"
+    harness_state_dir = ws / "rust_harness_state"
+    target_state = harness_state_dir / "state.sqlite"
+
+    policy_file = ws / "policy.json"
+    policy_file.write_text(json.dumps({
+        "budget": {"tokens": 10_000_000, "storage": 100_000_000},
+        "capacity": {"threads": 4},
+        "max_tasks": 10,
+    }))
+
+    # 1. Initialize Rust harness state in target_state
+    init_cmd = [
+        str(harness_bin),
+        "init",
+        "--state", str(harness_state_dir),
+        "--policy", str(policy_file),
+    ]
+    subprocess.run(init_cmd, check=True)
+
+    # 2. Populate legacy operational ledger
+    with sqlite3.connect(legacy_file) as conn:
+        conn.execute("""
+            CREATE TABLE operational_search_attempts (
+                project TEXT, attempt_id TEXT PRIMARY KEY, query_text TEXT, sanitized_query TEXT,
+                provider TEXT, status TEXT, cost_millicents INTEGER, created_ms INTEGER,
+                settled_ms INTEGER, error_message TEXT, response_evidence TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE operational_token_reservations (
+                project TEXT, reservation_id TEXT PRIMARY KEY, role_id TEXT, model_id TEXT,
+                prompt_tokens INTEGER, completion_tokens INTEGER, cost_millicents INTEGER,
+                status TEXT, created_ms INTEGER, settled_ms INTEGER, error_message TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE operational_kaggle_jobs (
+                project TEXT, job_id TEXT PRIMARY KEY, account_username TEXT, slug TEXT,
+                accelerator TEXT, requested_hours REAL, actual_hours REAL, status TEXT,
+                created_ms INTEGER, settled_ms INTEGER, error_message TEXT
+            )
+        """)
+        conn.execute(
+            "INSERT INTO operational_search_attempts VALUES ('proj_m', 'att_1', 'ols', 'ols', 'ddg', 'success', 0, 100, 150, NULL, 'ev')"
+        )
+        conn.execute(
+            "INSERT INTO operational_token_reservations VALUES ('proj_m', 'tok_1', 'worker', 'model', 100, 50, 1, 'ok', 200, 250, NULL)"
+        )
+        conn.commit()
+
+    dev_csv = ws / "dev.csv"
+    dev_csv.write_text("x,target\n1,0\n2,1\n3,0\n4,1\n5,0\n6,1\n7,0\n8,1\n9,0\n10,1\n")
+
+    # 3. Instantiate AutonomousAgentLoop - should trigger automatic migration of legacy_file into target_state
+    loop = AutonomousAgentLoop(
+        ws, "proj_m", "sess_m", Budget(), dev_csv, "target",
+        provider_is_fixture=True, max_turns=1
+    )
+
+    # 4. Verify operational budgets now uses the target state
+    assert loop.operational_budgets.db_path == str(target_state)
+
+    # 5. Verify target state has the migrated records
+    with sqlite3.connect(target_state) as conn:
+        count_s = conn.execute("SELECT COUNT(*) FROM operational_search_attempts WHERE project='proj_m'").fetchone()[0]
+        count_t = conn.execute("SELECT COUNT(*) FROM operational_token_reservations WHERE project='proj_m'").fetchone()[0]
+        assert count_s == 1
+        assert count_t == 1
+
+    # 6. Verify legacy database has migration triggers that abort old writers
+    with sqlite3.connect(legacy_file) as conn:
+        with pytest.raises((sqlite3.OperationalError, sqlite3.IntegrityError), match="operational ledger migrated; use controller authority"):
+            conn.execute(
+                "INSERT INTO operational_search_attempts VALUES ('proj_m', 'att_new', 'q', 'q', 'p', 'admitted', 0, 300, NULL, NULL, NULL)"
+            )
+
+
+def test_autonomous_loop_migration_fails_closed_on_tampered_legacy_ledger(tmp_path):
+    import sqlite3
+    import subprocess
+    from mlrescurix_worker.scientific.operational_budgets import _find_harness_binary
+    from mlrescurix_worker.scientific.autonomous_loop import AutonomousAgentLoop
+    from test_autonomy_regressions import Budget
+
+    harness_bin = _find_harness_binary()
+    assert harness_bin is not None
+
+    ws = tmp_path / "ws_tampered"
+    ws.mkdir()
+    legacy_file = ws / "operational_search.sqlite"
+    harness_state_dir = ws / "rust_harness_state"
+    target_state = harness_state_dir / "state.sqlite"
+
+    policy_file = ws / "policy.json"
+    policy_file.write_text(json.dumps({
+        "budget": {"tokens": 10_000_000, "storage": 100_000_000},
+        "capacity": {"threads": 4},
+        "max_tasks": 10,
+    }))
+
+    subprocess.run([
+        str(harness_bin), "init",
+        "--state", str(harness_state_dir),
+        "--policy", str(policy_file),
+    ], check=True)
+
+    # Corrupt/uncoordinated table in legacy ledger
+    with sqlite3.connect(legacy_file) as conn:
+        conn.executescript("CREATE TABLE provider_accounting (id INT); INSERT INTO provider_accounting VALUES (1);")
+
+    dev_csv = ws / "dev.csv"
+    dev_csv.write_text("x,target\n1,0\n2,1\n")
+
+    # AutonomousAgentLoop must fail closed with RuntimeError rather than swallowing
+    with pytest.raises(RuntimeError, match="Legacy operational ledger migration failed"):
+        AutonomousAgentLoop(
+            ws, "proj_fail", "sess_fail", Budget(), dev_csv, "target",
+            provider_is_fixture=True, max_turns=1
+        )
+
+
+def test_governance_live_provider_dispatch_admits_and_settles_tokens(tmp_path):
+    from decimal import Decimal
+    from mlrescurix_worker.scientific.operational_budgets import OperationalBudgets, _find_harness_binary
+    from mlrescurix_worker.scientific.governance import GovernanceService
+    from mlrescurix_worker.scientific.rust_gateway import RustGatewayAdapter
+    import subprocess
+
+    harness_bin = _find_harness_binary()
+    assert harness_bin is not None
+
+    state_dir = tmp_path / "gov_state"
+    policy_file = tmp_path / "policy.json"
+    policy_file.write_text(json.dumps({
+        "budget": {"tokens": 10_000_000, "storage": 100_000_000},
+        "capacity": {"threads": 4},
+        "max_tasks": 10,
+    }))
+    subprocess.run([
+        str(harness_bin), "init",
+        "--state", str(state_dir),
+        "--policy", str(policy_file),
+    ], check=True)
+    db_file = state_dir / "state.sqlite"
+
+    budgets = OperationalBudgets(
+        db_path=db_file,
+        project_id="gov_test_proj",
+        authority_binary=harness_bin,
+        model_tokens_limit=100_000,
+    )
+
+    class MockRustGateway(RustGatewayAdapter):
+        def __init__(self):
+            self.state_dir = state_dir
+            self.binary = harness_bin
+            self.project_id = "gov_test_proj"
+            self.pricing = {"verified": True, "input_per_million": 140, "output_per_million": 280}
+        def reservation(self, messages, max_tokens):
+            return Decimal("0.0005")
+        def call_with_request_id(self, messages, max_tokens, request_id):
+            import sqlite3
+            with sqlite3.connect(db_file) as conn:
+                reserved = conn.execute(
+                    "SELECT prompt_tokens, completion_tokens FROM operational_token_reservations WHERE project=? AND reservation_id=?",
+                    (self.project_id, request_id),
+                ).fetchone()
+            assert reserved == (len(json.dumps(messages).encode()) + 4096, max_tokens)
+            return {
+                "content": "hello from model",
+                "cost_usd": "0.0002",
+                "cost_is_estimate": False,
+                "usage": {"prompt_tokens": 120, "completion_tokens": 40},
+            }
+
+    class DummyCampaignAuthority:
+        def __init__(self):
+            self.reserved = []
+            self.settled = []
+        def get_status(self):
+            return {"campaign_ceiling_usd": "1.00"}
+        def reserve(self, session_id, req_id, amt):
+            self.reserved.append((session_id, req_id, amt))
+        def settle(self, session_id, req_id, amt, cost_kind=None):
+            self.settled.append((session_id, req_id, amt, cost_kind))
+
+    class DummySession:
+        def __init__(self):
+            self.session_id = "sess_gov_1"
+            self.model_name = "deepseek/deepseek-chat"
+            self.campaign_authority = DummyCampaignAuthority()
+            self.operational_budgets = budgets
+            self.provider_is_fixture = False
+            self.provider_caller = MockRustGateway()
+            self.per_run_budget_usd = Decimal("0.05")
+            self.pricing = {"verified": True, "input_per_million": 140, "output_per_million": 280}
+            self.state = {"turns": [], "pending_turn": {"request_id": "req_gov_1"}}
+            self.events = []
+        def _reservation(self, messages, max_tokens):
+            return Decimal("0.0005")
+        def _event(self, name, **kwargs):
+            self.events.append((name, kwargs))
+        def _save_state(self, state):
+            self.state = state
+
+    session = DummySession()
+    service = GovernanceService()
+
+    res = service.dispatch(
+        session,
+        messages=[{"role": "user", "content": "hi"}],
+        max_tokens=100,
+    )
+
+    assert res["content"] == "hello from model"
+
+    # Verify token reservation was recorded and settled in the authoritative SQLite database
+    import sqlite3
+    with sqlite3.connect(db_file) as conn:
+        row = conn.execute(
+            "SELECT role_id, model_id, prompt_tokens, completion_tokens, status FROM operational_token_reservations WHERE project='gov_test_proj'"
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "governance_dispatch"
+        assert row[1] == "deepseek/deepseek-chat"
+        assert row[2] == 120
+        assert row[3] == 40
+        assert row[4] == "ok"

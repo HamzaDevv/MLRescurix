@@ -175,12 +175,26 @@ pub struct WarmWorkerPool {
 impl WarmWorkerPool {
     /// Detect if the Docker daemon is available and supports container operations.
     pub fn is_docker_available() -> bool {
-        Command::new("docker")
+        let Ok(mut child) = Command::new("docker")
             .args(["info", "--format", "{{json .}}"])
             .stdin(Stdio::null())
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn() else { return false };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => return status.success(),
+                Ok(None) if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+                _ => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return false;
+                }
+            }
+        }
     }
 
     /// Create and initialize a new `WarmWorkerPool`.

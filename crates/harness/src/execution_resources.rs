@@ -71,16 +71,76 @@ trait DockerApi {
 struct Docker;
 impl DockerApi for Docker {
     fn call(&self, args: &[String]) -> Result<String> {
-        let out = Command::new("docker").args(args).stdin(Stdio::null()).output().map_err(|e|e.to_string())?;
-        if !out.status.success() { return Err(format!("Docker command failed: {}", String::from_utf8_lossy(&out.stderr))); }
-        if out.stdout.len() > 1024 * 1024 { return Err("Docker response exceeds bound".into()); }
-        String::from_utf8(out.stdout).map_err(|e|e.to_string())
+        use std::io::Read;
+        let mut child = Command::new("docker").args(args).stdin(Stdio::null())
+            .stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e|e.to_string())?;
+        let read_bounded = |mut pipe: Box<dyn Read + Send>| std::thread::spawn(move || {
+            let mut data = Vec::new();
+            let mut chunk = [0u8; 8192];
+            loop {
+                let n = pipe.read(&mut chunk)?;
+                if n == 0 { break; }
+                if data.len() <= 1024 * 1024 {
+                    let keep = n.min(1024 * 1024 + 1 - data.len());
+                    data.extend_from_slice(&chunk[..keep]);
+                }
+            }
+            Ok::<_, std::io::Error>(data)
+        });
+        let stdout = read_bounded(Box::new(child.stdout.take().ok_or("Docker stdout unavailable")?));
+        let stderr = read_bounded(Box::new(child.stderr.take().ok_or("Docker stderr unavailable")?));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break Ok(status),
+                Ok(None) if std::time::Instant::now() < deadline => std::thread::sleep(std::time::Duration::from_millis(50)),
+                Ok(None) => break Err("Docker command timed out; outcome requires reconciliation".to_string()),
+                Err(e) => break Err(e.to_string()),
+            }
+        };
+        if status.is_err() { let _ = child.kill(); let _ = child.wait(); }
+        let out = stdout.join().map_err(|_| "Docker stdout reader failed")?.map_err(|e|e.to_string())?;
+        let err = stderr.join().map_err(|_| "Docker stderr reader failed")?.map_err(|e|e.to_string())?;
+        if !status?.success() { return Err(format!("Docker command failed: {}", String::from_utf8_lossy(&err))); }
+        if out.len() > 1024 * 1024 { return Err("Docker response exceeds bound".into()); }
+        String::from_utf8(out).map_err(|e|e.to_string())
     }
 }
 fn call(api: &impl DockerApi, args: &[&str]) -> Result<String> { api.call(&args.iter().map(|s|s.to_string()).collect::<Vec<_>>()) }
 pub fn docker_info() -> Result<Value> {
-    call(&Docker, &["info", "--format", "{{json .}}"])
-        .and_then(|s|serde_json::from_str::<Value>(&s).map_err(|e|e.to_string()))
+    use std::io::Read;
+    let mut child = Command::new("docker").args(["info", "--format", "{{json .}}"])
+        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null())
+        .spawn().map_err(|e| e.to_string())?;
+    let mut stdout = child.stdout.take().ok_or("Docker stdout unavailable")?;
+    let reader = std::thread::spawn(move || {
+        let mut data = Vec::new();
+        // Continue draining after the bound so a verbose child cannot block.
+        let mut chunk = [0u8; 8192];
+        loop {
+            let n = stdout.read(&mut chunk)?;
+            if n == 0 { break; }
+            if data.len() <= 1024 * 1024 {
+                let keep = n.min(1024 * 1024 + 1 - data.len());
+                data.extend_from_slice(&chunk[..keep]);
+            }
+        }
+        Ok::<_, std::io::Error>(data)
+    });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Ok(status),
+            Ok(None) if std::time::Instant::now() < deadline => std::thread::sleep(std::time::Duration::from_millis(50)),
+            Ok(None) => break Err("Docker info timed out".to_string()),
+            Err(e) => break Err(e.to_string()),
+        }
+    };
+    if status.is_err() { let _ = child.kill(); let _ = child.wait(); }
+    let bytes = reader.join().map_err(|_| "Docker info reader failed")?.map_err(|e| e.to_string())?;
+    if !status?.success() { return Err("Docker info failed".into()); }
+    if bytes.len() > 1024 * 1024 { return Err("Docker response exceeds bound".into()); }
+    serde_json::from_slice(&bytes).map_err(|e| e.to_string())
 }
 pub fn detect() -> ResourceFeatures {
     match docker_info() {

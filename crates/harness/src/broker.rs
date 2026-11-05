@@ -600,7 +600,15 @@ pub fn check_request_feasibility_with_probe(
         matches!(spec.probe, Probe::Scientific { .. })
     };
     let host = probe.probe_host(root)?;
-    let container_vm = probe.probe_container_vm()?;
+    // Host control jobs do not depend on Docker; a slow probe must not stall them.
+    let container_vm = if is_container_job { probe.probe_container_vm()? } else {
+        ContainerVmCapabilities {
+            docker_available: false, vm_cpus: None, vm_memory_bytes: None, cgroup_version: None,
+            features: ResourceFeatures { available: false, cgroup_v2: false, memory_limit: false,
+                swap_limit: false, cpu_quota: false, pids_limit: false, reason: None },
+            accelerators: Vec::new(),
+        }
+    };
 
     if is_container_job && !container_vm.docker_available {
         return Err("infeasible request: scientific container job requested but Docker environment is unavailable".into());

@@ -574,6 +574,12 @@ impl AgentOrchestrator {
 
     /// Execute a single turn boundary iteration.
     pub fn step(&mut self) -> Result<TurnExecutionResult> {
+        // This legacy turn path reserves through M0 but does not yet share the
+        // campaign dollar and operational admission used by the gateway. Do not
+        // permit a real endpoint to bypass those liabilities during migration.
+        if !self.gateway.is_offline_fixture() && !self.gateway.endpoint_url().is_empty() {
+            return Err("live specialist dispatch unavailable until campaign resource authority is shared with the gateway".into());
+        }
         let recovery_db=rusqlite::Connection::open(self.root.join("state.sqlite")).map_err(|e|e.to_string())?;
         let unresolved:i64=recovery_db.query_row("SELECT count(*) FROM provider_turn_receipts WHERE project=?1 AND task=?2 AND status!='completed'",rusqlite::params![self.config.project_id,self.config.task_id],|r|r.get(0)).map_err(|e|e.to_string())?;
         if unresolved>0{return Err("durable provider/tool outcome requires reconciliation; refusing blind replay".into());}

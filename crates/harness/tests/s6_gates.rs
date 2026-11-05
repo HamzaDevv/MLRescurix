@@ -444,6 +444,16 @@ if __name__ == "__main__":
         |r| r.get(0),
     ).unwrap();
     assert!(failure_json.contains("ZeroDivisionError"), "diagnostic record must contain real traceback: {failure_json}");
+    let failed_source: String = conn.query_row(
+        "SELECT source_hash FROM task_completions WHERE project='proj_s6_react_repair' AND verdict='failed' LIMIT 1",
+        [], |r| r.get(0),
+    ).unwrap();
+    let (base, code): (String, String) = conn.query_row(
+        "SELECT base_hash, code_hash FROM branches WHERE project='proj_s6_react_repair' AND id LIKE '%_repair_1_branch'",
+        [], |r| Ok((r.get(0)?, r.get(1)?)),
+    ).unwrap();
+    assert_eq!(base, failed_source);
+    assert_eq!(code, failed_source);
 }
 
 // ============================================================================

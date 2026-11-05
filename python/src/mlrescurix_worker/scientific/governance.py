@@ -226,6 +226,23 @@ class GovernanceService:
         if Decimal(str(status.get("campaign_ceiling_usd", campaign_ceiling))) > campaign_ceiling:
             raise ValueError(f"Campaign authority exceeds authorized ${campaign_ceiling} ceiling")
         session.campaign_authority.reserve(session.session_id, request_id, amount)
+        token_res_id = None
+        if (hasattr(session, "operational_budgets") and session.operational_budgets.db_path
+                and not getattr(session, "provider_is_fixture", False)):
+            cost_mc = int((amount * 100_000).to_integral_value())
+            admitted, t_id = session.operational_budgets.admit_token_reservation(
+                reservation_id=request_id,
+                model=getattr(session, "model_name", "unknown"),
+                prompt_tokens=requested_bound - max_tokens,
+                completion_tokens=max_tokens,
+                cost_millicents=cost_mc,
+                role_id="governance_dispatch",
+                spend_limit_millicents=int((campaign_ceiling * 100_000).to_integral_value()),
+                token_limit=int(token_ceiling),
+            )
+            if not admitted or not t_id:
+                raise ValueError(f"Rust resource authority token admission rejected for limit {token_ceiling}")
+            token_res_id = t_id
         session._event("provider_reserved", request_id=request_id, reserved_usd=str(amount), fixture=session.provider_is_fixture)
         pending.update(phase="provider_dispatching", reserved_usd=str(amount)); session._save_state(session.state)
         try:
@@ -240,11 +257,32 @@ class GovernanceService:
             pending.update(phase="provider_received", provider_receipt=res); session._save_state(session.state)
             session.campaign_authority.settle(session.session_id, request_id, cost) if session.provider_is_fixture else session.campaign_authority.settle(
                 session.session_id, request_id, cost, cost_kind="calculated_estimate" if res.get("cost_is_estimate", True) else "unverified")
+            if token_res_id and hasattr(session, "operational_budgets") and session.operational_budgets.db_path:
+                usage = res.get("usage", {})
+                p_tok = int(usage.get("prompt_tokens", requested_bound - max_tokens))
+                c_tok = int(usage.get("completion_tokens", 0))
+                c_mc = int((cost * 100_000).to_integral_value())
+                session.operational_budgets.settle_token_reservation(
+                    token_res_id,
+                    status="ok",
+                    prompt_tokens=p_tok,
+                    completion_tokens=c_tok,
+                    cost_millicents=c_mc,
+                )
             pending["phase"] = "provider_settled"; session._save_state(session.state)
             if cost > amount: raise RecoveryRequired("Provider charge exceeded verified reservation; reconcile pricing before continuation")
             session._event("provider_settled", request_id=request_id, cost_usd=str(cost), estimated=res.get("cost_is_estimate", False))
             return res
-        except BaseException:
+        except BaseException as exc:
             if pending["phase"] == "provider_dispatching":
                 session.campaign_authority.mark_uncertain(session.session_id, request_id, amount)
+                if token_res_id and hasattr(session, "operational_budgets") and session.operational_budgets.db_path:
+                    session.operational_budgets.settle_token_reservation(
+                        token_res_id,
+                        status="outcome_unknown",
+                        prompt_tokens=requested_bound - max_tokens,
+                        completion_tokens=max_tokens,
+                        cost_millicents=int((amount * 100_000).to_integral_value()),
+                        error=str(exc),
+                    )
             raise
